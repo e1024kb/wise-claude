@@ -101,14 +101,15 @@ plugins/wise/
 ├── workflows/                      # bundled workflow definitions (shipped defaults)
 │   └── <name>/                     # folder form: workflow.yaml + sibling artifacts
 │       ├── workflow.yaml           # the definition
-│       ├── templates/              # optional — e.g. pr-template.md; addressable as {{workflow.dir}}/templates/…
-│       └── prompts/                # optional — e.g. ensure-pr.md; addressable as {{workflow.dir}}/prompts/…
+│       ├── templates/              # optional — workflow-shipped templates; addressable as {{workflow.dir}}/templates/…
+│       └── prompts/                # optional — e.g. watch-pipelines-auto.md; addressable as {{workflow.dir}}/prompts/…
 ├── references/                     # cross-skill shared prose (addressed as ${CLAUDE_PLUGIN_ROOT}/references/<file>.md)
 │   ├── subject-drafting.md         # Conventional-Commits scope / type / subject rules
 │   ├── branch-naming.md            # the ticket = branch-name rule
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
-│   └── code-review-pass.md         # canonical medium-depth branch review (reviewer-subagent panel)
+│   ├── code-review-pass.md         # canonical medium-depth branch review (reviewer-subagent panel)
+│   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
 └── skills/
     ├── wise/SKILL.md               # natural-language helper (bare catalog + intent classifier)
     ├── wise-init/SKILL.md          # dep-install wizard
@@ -234,11 +235,16 @@ one-liners below are the rule, not the argument for it.
   `wise-workflow-run` / `-resume` / `-list` / `-status`), and the two
   quality passes `simplify-pass.md` (read by the commit routine, the
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
-  (read by `review-branch-auto.md` and `wise-code-review-auto`) — has a
-  single home there, addressed as `${CLAUDE_PLUGIN_ROOT}/references/<file>.md`
-  and read at run time. Skill-*local* `references/` (the architects' own
-  templates) stay inside the skill dir. Change a shared rule in the
-  reference, never in a copy.
+  (read by `review-branch-auto.md` and `wise-code-review-auto`), and the
+  `references/pr/` PR/commit fragments (`draft-body.md`, `ensure-pr.md`,
+  `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
+  the `handle-*.md` queue handlers, `paged-bulk-mode.md`,
+  `commit-from-fix.md`, read by the `wise-pr-*` skills and the
+  `ticket-auto` workflow) — has a single home there, addressed as
+  `${CLAUDE_PLUGIN_ROOT}/references/<file>.md` and read at run time.
+  Skill-*local* `references/` (the architects' own templates) stay
+  inside the skill dir. Change a shared rule in the reference, never in
+  a copy.
 - **Action skill directory name IS the slash command.** A skill at
   `skills/wise-workflow-run/SKILL.md` with frontmatter `name:
   wise-workflow-run` is invocable as `/wise-workflow-run` (bare

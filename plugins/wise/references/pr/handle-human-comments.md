@@ -11,7 +11,10 @@ autofixing everything else).
 - `pr_number`
 - `pr_url`
 - `project.path`
-- `workflow.dir`
+
+Sibling fragments this handler reads (`commit-from-fix.md`,
+`paged-bulk-mode.md`) live alongside it in
+`${CLAUDE_PLUGIN_ROOT}/references/pr/`.
 
 ## Procedure
 
@@ -106,7 +109,7 @@ decision entry); the actual `gh api` POST is deferred to §6
 just like Fix / Dismiss.
 
 ```text
-Read: {{workflow.dir}}/prompts/paged-bulk-mode.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/paged-bulk-mode.md
 ```
 
 Pass the queue-specific inputs:

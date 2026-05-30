@@ -34,7 +34,7 @@ branch is exactly `PROJ-777`.
 ## The one exception — the conductor's per-run worktree branch
 
 `wise-workflow-run`'s worktree option creates a branch named
-`wise/<workflow-name>-<run-ulid>` (e.g. `wise/pr-interactive-01HF…`). That branch
+`wise/<workflow-name>-<run-ulid>` (e.g. `wise/ticket-plan-01HF…`). That branch
 is **run-scoped, not ticket-scoped** — it's keyed on the run ULID and exists to
 isolate a workflow run's edits, not to track a ticket. It is intentionally
 exempt from this rule and keeps its `wise/` prefix.

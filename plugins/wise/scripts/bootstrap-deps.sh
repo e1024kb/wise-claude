@@ -12,8 +12,8 @@
 #      importable (needed by scripts/engine.py and scripts/workflows.py).
 #   2. node >= 22 on PATH (needed by any npx-driven MCP server wise
 #      may use).
-#   3. gh CLI on PATH and authenticated (needed by the pr-interactive
-#      workflow and the wise-pr-* family of skills for PR creation,
+#   3. gh CLI on PATH and authenticated (needed by the wise-pr-*
+#      family of skills and the ticket-auto workflow for PR creation,
 #      reviewer requests, and CI check watching).
 #
 # Each check fail-fasts with a distinct BOOTSTRAP:need-<dep> tag on
@@ -240,8 +240,8 @@ OPTION:brew:Install GitHub CLI (recommended) — https://cli.github.com
 OPTION:mise:Install via mise
   mise use -g gh@latest
   gh auth login
-NOTE:gh is required by the pr-interactive workflow and the wise-pr-*
-NOTE:skills for PR creation, reviewer requests, and CI check watching.
+NOTE:gh is required by the wise-pr-* family of skills and the ticket-auto
+NOTE:workflow for PR creation, reviewer requests, and CI check watching.
 NOTE:After installing, run `gh auth login` once to grant repo access,
 NOTE:then re-run your wise command.
 EOF
@@ -258,10 +258,10 @@ if [[ "$MODE" != "probe" ]]; then
 BOOTSTRAP:need-gh-auth
 OPTION:login:Authenticate the gh CLI
   $GH auth login
-NOTE:gh was detected at $GH but is not authenticated. pr-interactive
-NOTE:and the wise-pr-* skills need repo read+write scopes to create PRs,
-NOTE:add reviewers, and read check runs. Run the login command above
-NOTE:and re-run your wise command.
+NOTE:gh was detected at $GH but is not authenticated. The wise-pr-*
+NOTE:skills and the ticket-auto workflow need repo read+write scopes
+NOTE:to create PRs, add reviewers, and read check runs. Run the login
+NOTE:command above and re-run your wise command.
 EOF
     exit 2
   fi

@@ -1,6 +1,6 @@
 # watch-pipelines-auto — autonomous CI watch + fix loop
 
-Autonomous analogue of `pr-interactive/prompts/watch-pipelines.md`.
+Autonomous analogue of `references/pr/watch-pipelines.md`.
 Polls the PR's CI, auto-fixes failing checks, waits for CodeRabbit /
 Copilot to finish reviewing, classifies every bot review comment by
 severity, fixes or dismisses each one, commits + pushes, and loops
@@ -70,7 +70,7 @@ name. For each failure:
   `accepted`, continue (do not abort the whole run for one check).
 - **other** — attempt one fix from the log; if it does not pass
   locally, mark the check `accepted` and continue.
-- Commit each fix via `${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/commit-from-fix.md`
+- Commit each fix via `${CLAUDE_PLUGIN_ROOT}/references/pr/commit-from-fix.md`
   with the matching `fix_kind` and `push=yes`.
 - After a committed fix, re-enter §1 (re-poll).
 
@@ -119,7 +119,7 @@ For `bot_filter` in `copilot`, then `coderabbit` (only bots found
 present in §4): read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/handle-bot-reviews-auto.md`
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
-`project.path`, `workflow.dir`, `bot_filter`, `bot_display_name`
+`project.path`, `bot_filter`, `bot_display_name`
 (`Copilot` / `CodeRabbit`), `head_sha=$HEAD_SHA`, and `ticket_ref` /
 `plan_path` when supplied.
 

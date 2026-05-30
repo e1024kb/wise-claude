@@ -40,7 +40,7 @@ branch before pushing, autonomous chaining.
   workflow (it plans autonomously, then you review / comment), then
   implement and PR yourself.
 - You want a human in the loop for CI fixes or review comments — use
-  `pr-interactive`.
+  the standalone `/wise-pr-watch` on your own PR.
 
 ## Prerequisites
 
@@ -162,7 +162,10 @@ on the PR before the merge gate is checked.
 - [`ticket-plan`](../ticket-plan/README.md) — the interactive
   plan-only workflow (it plans autonomously and you review / comment;
   you implement).
-- [`pr-interactive`](../pr-interactive/README.md) — interactive
-  create-PR + watch + review-queue workflow.
+- The standalone PR skills —
+  [`/wise-pr-create`](../../skills/wise-pr-create/SKILL.md),
+  [`/wise-pr-add-reviewers`](../../skills/wise-pr-add-reviewers/SKILL.md),
+  [`/wise-pr-watch`](../../skills/wise-pr-watch/SKILL.md) — the
+  interactive create-PR + watch + review-queue surface.
 - [`wise-estimation`](../../skills/wise-estimation/SKILL.md) — SP
   estimation reference consulted by the plan phase.

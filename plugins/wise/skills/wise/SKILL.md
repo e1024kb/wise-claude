@@ -175,10 +175,10 @@ one command. Propose it via `AskUserQuestion`:
   - `Cancel` — description: `Do nothing.`
 
 If the user's prose contains a positional that the command takes
-(e.g. "`/wise run the pr-interactive workflow`" → `workflow-name =
-pr-interactive`), extract it and include it in the option
+(e.g. "`/wise run the ticket-plan workflow`" → `workflow-name =
+ticket-plan`), extract it and include it in the option
 description so the user sees what will actually run: `Run
-/wise-workflow-run pr-interactive now (Recommended)`.
+/wise-workflow-run ticket-plan now (Recommended)`.
 
 On "Run now", invoke:
 
@@ -191,7 +191,7 @@ Skill({
 
 `<plugin>` comes from the catalog entry's `plugin:` field.
 Example: invoking `wise-workflow-run` is
-`Skill({ skill: "wise:wise-workflow-run", args: "pr-interactive" })`.
+`Skill({ skill: "wise:wise-workflow-run", args: "ticket-plan" })`.
 Relay the child skill's output verbatim.
 
 On "Show help instead", jump to [§3](#3-print-the-catalog).

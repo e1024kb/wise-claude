@@ -6,9 +6,10 @@ extras beyond the default; if so, the follow-up step
 (`propose-reviewers.md`) handles the actual picker.
 
 Used by:
-- `pr-interactive` workflow's `ensure-reviewers` step.
 - `/wise-pr-add-reviewers` standalone skill (which also orchestrates
   `propose-reviewers.md` when the user picks `yes`).
+- the `ticket-auto` workflow's autonomous analogue,
+  `request-review-auto.md`.
 
 ## Context the caller supplies
 

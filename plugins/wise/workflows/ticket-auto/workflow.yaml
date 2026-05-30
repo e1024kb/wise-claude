@@ -13,7 +13,7 @@ project-selection: current
 
 # ticket-auto is fully autonomous: it never asks the user for consent,
 # permission, or a decision. Every choice the interactive ticket-plan
-# / pr-interactive flows delegate to the user is made here by the Lead
+# flow delegates to the user is made here by the Lead
 # Architect agent instead.
 #   control-mode: synchronous — no approval gates, no ask steps.
 #   worktree: current — NOT `new`. Pre-flight `new` would give ONE
@@ -50,7 +50,7 @@ steps:
 
         • Lead Architect — 20+ years, the team leader and sole
           decision-maker. Owns every decision the interactive
-          ticket-plan / pr-interactive flows would ask a human for:
+          ticket-plan flow would ask a human for:
           how to resolve ticket ambiguity, the technical approach, the
           plan's scope and task breakdown, how to fix a failing check,
           whether a bot review comment should be applied. Pragmatic,

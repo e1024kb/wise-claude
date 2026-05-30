@@ -3,13 +3,13 @@ name: wise-pr-create
 description: >-
   Detect the PR state for the current branch and either create a
   new GitHub PR or refresh an existing one — body drafted from the
-  project's `.github/pull_request_template.md` (or a workflow-shipped
+  project's `.github/pull_request_template.md` (or a bundled
   fallback) filled from the branch's diff + commits, Jira key
   auto-detected from branch/diff/log/session, base branch picked
   interactively from `main` + recent `release*` branches when
-  creating. This skill wraps the `draft-body` + `ensure-pr` stages
-  of the `pr-interactive` workflow so you can run just the PR
-  create/refresh piece without the reviewer + watch loop. Does NOT
+  creating. This skill runs just the PR create/refresh piece — the
+  `draft-body` + `ensure-pr` steps — without the reviewer + watch
+  loop. Does NOT
   attach reviewers — use `/wise-pr-add-reviewers` for that — and does
   NOT watch CI — use `/wise-pr-watch`. Invoked as `/wise-pr-create`
   (bare alias) or `/wise:wise-pr-create` (canonical). Use when the user
@@ -24,19 +24,18 @@ allowed-tools: Read, Write, Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(head:*), 
 ## Why this skill exists
 
 Opening a PR is mostly mechanical: pick a base, draft a
-body, run `gh pr create`. The `pr-interactive` workflow automates
-the full flow (create → reviewers → watch), but much of the time a
-user just wants "open the PR, I'll handle the rest." This skill is
-the narrowed surface: it runs exactly the **draft-body** and
-**ensure-pr** stages of that workflow, sharing the same prompt
-fragments so the behaviour stays in sync by construction.
+body, run `gh pr create`. This skill is the narrowed surface for
+exactly that: it runs the **draft-body** and **ensure-pr** steps
+and stops, leaving reviewers (`/wise-pr-add-reviewers`) and the
+CI/review watch loop (`/wise-pr-watch`) to their own commands.
 
 Single source of truth for the drafting + creation logic:
-`plugins/wise/workflows/pr-interactive/prompts/draft-body.md` and
-`plugins/wise/workflows/pr-interactive/prompts/ensure-pr.md`. This
-skill reads both at run time via the `Read` tool and follows them.
-If that prose ever changes, this skill's behaviour changes too —
-no duplication.
+`plugins/wise/references/pr/draft-body.md` and
+`plugins/wise/references/pr/ensure-pr.md`. This skill reads both at
+run time via the `Read` tool and follows them — and so do the `-auto`
+PR skills and the `ticket-auto` workflow, so behaviour stays in sync
+by construction. If that prose ever changes, this skill's behaviour
+changes too — no duplication.
 
 ## Invocation
 
@@ -95,9 +94,9 @@ new-PR creation path continues unchanged.
 
 ### 1.5. Protected-branch guard
 
-This skill is NOT the workflow — it does not run the workflow's
-`guard` step. But the same reasoning applies: creating a PR *from*
-`main` / `master` / a release branch is almost always a mistake.
+This skill does not run a dedicated `guard` step, but the same
+reasoning applies: creating a PR *from* `main` / `master` / a
+release branch is almost always a mistake.
 
 - If `current_branch` matches any of `^main$`, `^master$`,
   `^release$`, or `^release[/-]`, AND `pr_exists == no`, STOP.
@@ -126,7 +125,7 @@ If that fails (we're not in a git repo), stop with a clear message.
 Read the fragment:
 
 ```
-Read: ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/draft-body.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/draft-body.md
 ```
 
 Follow its procedure with the context you collected:
@@ -135,7 +134,6 @@ Follow its procedure with the context you collected:
 - `pr_exists = yes | no`
 - `pr_base = <base or NONE>`
 - `project.path = <PROJECT_PATH>`
-- `workflow.dir = ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive`
 
 At the end of the draft-body procedure you'll have a path to a
 temp file holding the drafted PR body. Remember it as `BODY_PATH`.
@@ -148,7 +146,7 @@ Print a visible note in chat stating which template resolved (the
 Read the fragment:
 
 ```
-Read: ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/ensure-pr.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/ensure-pr.md
 ```
 
 Follow its procedure with the context you now have:
@@ -160,7 +158,6 @@ Follow its procedure with the context you now have:
 - `pr_base = <base or NONE>`
 - `pr_body_path = <BODY_PATH>`
 - `project.path = <PROJECT_PATH>`
-- `workflow.dir = ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive`
 
 On the no-PR path the fragment uses `AskUserQuestion` to pick the
 base and `gh pr create`; on the existing-PR path it uses `gh pr
@@ -195,8 +192,8 @@ Watch pipelines + comments with:
 
 - This is a **standalone slash-command skill** — independent of the
   `/wise` natural-language helper. It reads shared prompt fragments
-  from the `pr-interactive` workflow but does NOT invoke workflow
-  steps or other wise action skills (that's reserved for
+  from `${CLAUDE_PLUGIN_ROOT}/references/pr/` but does NOT invoke
+  workflow steps or other wise action skills (that's reserved for
   `workflow-run` / `workflow-resume`).
 - Never attach reviewers here — `/wise-pr-add-reviewers` owns that.
 - Never start a watch loop here — `/wise-pr-watch` owns that.

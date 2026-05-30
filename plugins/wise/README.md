@@ -145,7 +145,6 @@ related skills.
 | [`example-workflow`](./workflows/example-workflow/README.md) | `/wise-workflow-run example-workflow` | Reference workflow exercising every step type + parallel-wave dispatch. Safe to run. |
 | [`ticket-plan`](./workflows/ticket-plan/README.md) | `/wise-workflow-run ticket-plan` | Tracker ticket → detect tracker + probe access → type-routed parallel research (design spec + related items + codebase audit) → guided decisions → SP-estimated implementation plan → approval. |
 | [`ticket-auto`](./workflows/ticket-auto/README.md) | `/wise-workflow-run ticket-auto` | Autonomous ticket → PR pipeline — a Lead Architect + 3 Senior Engineers take each ticket through plan → implement (in a worktree) → commit → push → PR → request review → watch + fix CI to green → merge, end to end, no user prompts. One PR per ticket; a PR is merged when its checks pass, else left open for a human. |
-| [`pr-interactive`](./workflows/pr-interactive/README.md) | `/wise-workflow-run pr-interactive` | Feature branch → PR body drafted from project template → mandatory watch loop (lint / tests / SonarCloud issues / Copilot + CodeRabbit comments) until green. Reviewer attach lives in `/wise-pr-add-reviewers` standalone. |
 
 ## Skills
 
@@ -225,7 +224,7 @@ of the following mechanisms, and update the table below.
 |---|---|---|---|
 | Python 3 + PyYAML + python-ulid + typing_extensions | CLI / runtime — workflow engine's YAML + state store | `plugins/wise/scripts/init.sh` + `plugins/wise/scripts/bootstrap-deps.sh` (probes); registry cached by `/wise-init` at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` | every workflow engine skill (`wise-workflow-run`, `wise-workflow-list`, …) |
 | Node ≥22 | CLI / runtime — npx-driven MCP servers | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | MCP servers launched via npx |
-| [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `pr-interactive` workflow and the `wise-pr-*` family of skills |
+| [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 
 `wise` declares no plugin `dependencies`. The `ticket-plan` /
 `ticket-auto` workflows work with any task tracker, so instead of

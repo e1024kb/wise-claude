@@ -1,15 +1,14 @@
 # watch-pipelines — strategy-driven CI watch loop
 
-Source of truth for the `watch-pipelines` step of the
-`pr-interactive` workflow AND the standalone `/wise-pr-watch` skill.
+Source of truth for the CI watch loop of the standalone
+`/wise-pr-watch` skill (the `ticket-auto` workflow runs an autonomous
+analogue, `watch-pipelines-auto.md`).
 
 **Must run in the main conversation, not in a Task subagent.**
 The per-item wizards in §3b (sonar) and §3e (bot reviews) use
-`AskUserQuestion`, which only works main-thread. When embedded
-in a workflow, this requires `type: interactive` on the step
-(pre-0.49 `type: prompt` will silently degrade). The standalone
-`/wise-pr-watch` skill is main-thread by construction — no
-special step type needed.
+`AskUserQuestion`, which only works main-thread. The standalone
+`/wise-pr-watch` skill is main-thread by construction, so this
+holds automatically.
 
 You (Claude) drive this as a long-running conversational step: poll
 GitHub for the PR's check runs + new comments, react per check
@@ -25,8 +24,12 @@ from the user.
 - `current_branch` — the PR's head branch (so you know what to
   push to after a fix).
 - `project.path` — absolute path to the repo working tree.
-- `workflow.dir` — absolute path to the workflow folder (used to
-  read `commit-from-fix.md`).
+
+All sibling fragments this procedure delegates to —
+`commit-from-fix.md`, `handle-human-comments.md`,
+`handle-bot-reviews.md`, `handle-sonar-issues.md` — live alongside
+this file in `${CLAUDE_PLUGIN_ROOT}/references/pr/`; read them from
+there.
 
 ## Procedure
 
@@ -42,13 +45,13 @@ and avoids burning the prompt cache.
 When it returns:
 
 ```bash
-gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completedAt' > /tmp/pr-interactive-checks-$<pr_number>.json
+gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completedAt' > /tmp/wise-pr-checks-$<pr_number>.json
 ```
 
 Checks are one source of unfinished business; **PR comments are
 the other**. GitHub splits them across three API surfaces — the
 watch loop reads all three (see
-`prompts/handle-bot-reviews.md` §1 for the exact queries):
+`handle-bot-reviews.md` §1 for the exact queries):
 
 1. `gh pr view --json comments` — top-level issue comments (bot
    summaries live here).
@@ -64,11 +67,11 @@ the last iteration — and surface them immediately; actionable bot
 items are handled in §3e after the per-check dispatches:
 
 ```bash
-LAST_SEEN="$(cat /tmp/pr-interactive-lastcomment-$<pr_number> 2>/dev/null || echo 1970-01-01T00:00:00Z)"
+LAST_SEEN="$(cat /tmp/wise-pr-lastcomment-$<pr_number> 2>/dev/null || echo 1970-01-01T00:00:00Z)"
 gh pr view <pr_number> --json comments --jq \
   '.comments | map(select(.createdAt > "'"$LAST_SEEN"'")) | .[] | "[\(.createdAt)] @\(.author.login): \(.body)"'
 # Then update LAST_SEEN:
-date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/pr-interactive-lastcomment-$<pr_number>
+date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/wise-pr-lastcomment-$<pr_number>
 ```
 
 If a **human** left a new comment, surface it to the user in-chat
@@ -129,7 +132,9 @@ failures the fix exposed.
   without `:fix` (or the check's actual command if you can extract
   it).
 - Commit using the `commit-from-fix.md` fragment with
-  `fix_kind=lint`. Read the fragment via the Read tool.
+  `fix_kind=lint`. Read the fragment
+  (`${CLAUDE_PLUGIN_ROOT}/references/pr/commit-from-fix.md`) via the
+  Read tool.
 - If the fragment returns `COMMIT: skip`, announce "lint fixer
   ran but produced no changes — the failure may be outside the
   autofixer's scope" and escalate to `other` treatment.
@@ -315,10 +320,10 @@ For each queue, delegate to its fragment:
 #### 4a. Human comments
 
 ```
-Read: {{workflow.dir}}/prompts/handle-human-comments.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-human-comments.md
 ```
 
-Context: `pr_number`, `pr_url`, `project.path`, `workflow.dir`.
+Context: `pr_number`, `pr_url`, `project.path`.
 Emits `HUMANS: <all-clear | handled committed=N resolved=M | partial pending=… | aborted reason=…>`.
 The `resolved=M` key on the `handled` line counts line-level
 threads auto-resolved after a Fix landed; see
@@ -330,7 +335,7 @@ move to §4b.
 #### 4b. Copilot queue
 
 ```
-Read: {{workflow.dir}}/prompts/handle-bot-reviews.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-bot-reviews.md
 ```
 
 Context: the usual + `bot_filter=copilot` + `bot_display_name=Copilot`.
@@ -342,7 +347,7 @@ all auto-resolve the thread on GitHub in Phase C; see
 #### 4c. CodeRabbit queue
 
 ```
-Read: {{workflow.dir}}/prompts/handle-bot-reviews.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-bot-reviews.md
 ```
 
 Context: the usual + `bot_filter=coderabbit` +
@@ -351,11 +356,11 @@ Context: the usual + `bot_filter=coderabbit` +
 #### 4d. SonarCloud issues
 
 ```
-Read: {{workflow.dir}}/prompts/handle-sonar-issues.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-sonar-issues.md
 ```
 
-Context: `pr_number`, `pr_url`, `current_branch`, `project.path`,
-`workflow.dir`. Emits `SONAR: <all-clear | handled committed=N |
+Context: `pr_number`, `pr_url`, `current_branch`, `project.path`.
+Emits `SONAR: <all-clear | handled committed=N |
 partial pending=N | unchecked reason=… | aborted reason=…>`.
 
 #### 4e. Re-poll after any committed batch

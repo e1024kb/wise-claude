@@ -29,7 +29,10 @@ watch verdict surfaces the gap instead of hiding it.
 - `pr_url`
 - `current_branch`
 - `project.path`
-- `workflow.dir`
+
+Sibling fragments this handler reads (`commit-from-fix.md`,
+`paged-bulk-mode.md`) live alongside it in
+`${CLAUDE_PLUGIN_ROOT}/references/pr/`.
 
 ## Procedure
 
@@ -216,7 +219,7 @@ When the user picks `Paged-bulk`, delegate **collection** to
 `paged-bulk-mode.md`:
 
 ```text
-Read: {{workflow.dir}}/prompts/paged-bulk-mode.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/paged-bulk-mode.md
 ```
 
 Pass the queue-specific inputs:

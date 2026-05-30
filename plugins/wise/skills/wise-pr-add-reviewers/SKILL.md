@@ -5,9 +5,8 @@ description: >-
   prompt the user for individual reviewers (free-text comma-separated
   logins, with CODEOWNERS-derived candidates and org members shown
   inline for reference). Idempotent — already-requested reviewers are
-  detected and not re-requested. This skill wraps the
-  `ensure-reviewers` stage of the `pr-interactive` workflow so you can
-  run just the reviewer attach step on an existing PR. Fails with a
+  detected and not re-requested. This skill runs just the reviewer
+  attach step on an existing PR. Fails with a
   clear message if the current branch has no open PR — run
   `/wise-pr-create` first. Invoked as `/wise-pr-add-reviewers` (bare
   alias) or `/wise:wise-pr-add-reviewers` (canonical). Use when the
@@ -22,14 +21,13 @@ allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*), AskUserQ
 ## Why this skill exists
 
 Most PRs end up requesting Copilot code review plus 0–N individuals
-picked from CODEOWNERS or the org. The `pr-interactive` workflow does
-this alongside creating the PR and watching CI; this skill is the
-narrowed surface — just the reviewer attach step, on a PR that
-already exists.
+picked from CODEOWNERS or the org. This skill is the narrowed
+surface — just the reviewer attach step, on a PR that already exists
+(`/wise-pr-create` makes the PR; `/wise-pr-watch` drives CI).
 
 Single source of truth for the reviewer logic:
-`plugins/wise/workflows/pr-interactive/prompts/ensure-reviewers.md`.
-This skill reads it at run time and follows it.
+`plugins/wise/references/pr/ensure-reviewers.md`. This skill reads it
+at run time and follows it.
 
 ## Invocation
 
@@ -85,7 +83,7 @@ PROJECT_PATH="$(git rev-parse --show-toplevel)"
 Read the fragment:
 
 ```
-Read: ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/ensure-reviewers.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/ensure-reviewers.md
 ```
 
 Follow its procedure with the context:
@@ -93,7 +91,6 @@ Follow its procedure with the context:
 - `pr_number = <number>`
 - `pr_url = <url>`
 - `project.path = <PROJECT_PATH>`
-- `workflow.dir = ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive`
 
 The fragment attaches Copilot (idempotent), asks via `AskUserQuestion`
 whether to add extra reviewers, and reverts its own defaults if the
@@ -109,7 +106,7 @@ REVIEWERS: attached=<slugs-or-NONE> extras=<no|yes|skip>
 Conditional on `EXTRAS_CHOICE == 'yes'`. Read:
 
 ```
-Read: ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/propose-reviewers.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/propose-reviewers.md
 ```
 
 Follow its procedure with the context:
@@ -118,7 +115,6 @@ Follow its procedure with the context:
 - `pr_url = <url>`
 - `pr_base = <gh pr view --json baseRefName --jq .baseRefName>`
 - `project.path = <PROJECT_PATH>`
-- `workflow.dir = ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive`
 - `defaults_attached = <DEFAULTS_ATTACHED>`
 
 The fragment ranks reviewer candidates (changed files, CODEOWNERS,

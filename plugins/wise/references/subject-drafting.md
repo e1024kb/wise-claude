@@ -4,9 +4,9 @@ Single source of truth for how the plugin drafts a one-line
 Conventional-Commits subject. Read by:
 
 - `wise-commit/commit-routine.md` §5–§7 (`/wise-commit`,
-  `/wise-commit-push`, and `pr-interactive`'s `commit-from-fix.md`).
+  `/wise-commit-push`, and `commit-from-fix.md`).
 - `wise-commit-message/SKILL.md` (the read-only drafter).
-- `workflows/pr-interactive/prompts/draft-body.md` §3 (PR-body scope).
+- `references/pr/draft-body.md` §3 (PR-body scope).
 
 **The caller has already collected the diff** it wants described —
 staged (`git diff --cached`), pending (`git diff HEAD`), or a PR range
@@ -19,7 +19,7 @@ not collect a diff itself, stage anything, or commit. Wherever it says
 Always walk this chain before drafting. The four sources are
 best-effort each, but running the step is **not** optional — skipping
 it costs Jira automation (the ticket misses commit linkage; PR
-templates, release notes, and the `pr-interactive` workflow all key
+templates, release notes, and the `wise-pr-*` skills all key
 off the scope). Key shape: `[A-Z][A-Z0-9]+-\d+` (e.g. `PROJ-77777`,
 `INGEST-42`). Search in order, stop at the first match:
 

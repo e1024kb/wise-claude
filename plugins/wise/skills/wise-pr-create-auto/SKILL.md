@@ -47,7 +47,7 @@ Use the toplevel as `project.path` and the branch as
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/ensure-pr-auto.md`
 and follow it end to end with `current_branch` and `project.path`.
 The fragment detects PR state, drafts the body (via
-`pr-interactive/prompts/draft-body.md`), and creates or refreshes the
+`references/pr/draft-body.md`), and creates or refreshes the
 PR with the repo default branch as base.
 
 ### 3. Relay the result
