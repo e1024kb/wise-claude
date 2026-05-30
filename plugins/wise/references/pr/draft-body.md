@@ -1,9 +1,9 @@
 # draft-body — gather changes, resolve template, draft PR body
 
-This prompt fragment is the source of truth for the `draft-body`
-step of the `pr-interactive` workflow AND for the standalone
-`/wise-pr-create` skill. Both read this file at run time and follow
-the procedure below.
+This prompt fragment is the source of truth for PR-body drafting. The
+standalone `/wise-pr-create` skill and the `ticket-auto` workflow (via
+`ensure-pr-auto.md`) both read this file at run time and follow the
+procedure below.
 
 ## Context the caller supplies
 
@@ -16,9 +16,6 @@ workflow state or derived on the fly by the standalone skill):
 - `pr_base` — the existing PR's base branch (only when `pr_exists=yes`;
   otherwise `NONE`).
 - `project.path` — absolute path to the repo working tree.
-- `workflow.dir` — absolute path to the workflow folder (empty when
-  invoked as a standalone skill; the skill substitutes its own
-  `${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive`).
 
 ## Procedure
 
@@ -80,8 +77,8 @@ if [ -d "$DIR" ]; then
   [ -n "$FIRST" ] && echo "$FIRST" && exit 0
 fi
 
-# Final fallback: workflow-shipped template.
-echo "<workflow.dir>/templates/pr-template.md"
+# Final fallback: the bundled template shipped with the plugin.
+echo "${CLAUDE_PLUGIN_ROOT}/references/pr/templates/pr-template.md"
 ```
 
 Record which template won — include its path in a visible note at
@@ -126,7 +123,7 @@ Pick a deterministic-per-run path under `/tmp` so `ensure-pr` can
 pipe the file into `gh`:
 
 ```bash
-BODY_PATH="/tmp/pr-interactive-body-$(date +%s)-$$.md"
+BODY_PATH="/tmp/wise-pr-body-$(date +%s)-$$.md"
 cat > "$BODY_PATH" <<'PR_BODY_EOF'
 <the filled template, verbatim>
 PR_BODY_EOF
@@ -147,7 +144,7 @@ DRAFT: body_path=<BODY_PATH>
 Example:
 
 ```
-DRAFT: body_path=/tmp/pr-interactive-body-1714123456-78910.md
+DRAFT: body_path=/tmp/wise-pr-body-1714123456-78910.md
 ```
 
 The engine captures the path via the until regex and records it
@@ -160,7 +157,7 @@ as the `pr_body_path` output. `ensure-pr` reads it.
   strictly read-only against the working tree.
 - Never write anywhere outside `/tmp`. The body file is transient
   and may be cleaned up between runs.
-- When the template is the workflow-shipped fallback
-  (`<workflow.dir>/templates/pr-template.md`), say so explicitly
-  in your prose output so the user can drop a project-level
-  template and supersede the fallback next time.
+- When the template is the bundled fallback
+  (`${CLAUDE_PLUGIN_ROOT}/references/pr/templates/pr-template.md`),
+  say so explicitly in your prose output so the user can drop a
+  project-level template and supersede the fallback next time.

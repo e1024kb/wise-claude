@@ -10,8 +10,8 @@ description: >-
   collect → commit → remote-side-effects → push apply. Surfaces new PR
   comments each iteration (a reviewer saying "stop autofixing"
   short-circuits the loop) and exits on all-green, push failure, user
-  abort, or a no-progress safety catch. Wraps the `watch-pipelines`
-  stage of the `pr-interactive` workflow. Requires an open PR on the
+  abort, or a no-progress safety catch. Runs the shared
+  `watch-pipelines` procedure. Requires an open PR on the
   current branch. Invoked as `/wise-pr-watch` (bare alias) or
   `/wise:wise-pr-watch` (canonical). Use when the user says "watch the
   PR", "drive the pipelines", "fix the failing checks", "babysit CI", or
@@ -25,17 +25,17 @@ allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(mak
 ## Why this skill exists
 
 After a PR lands, the ritual is: watch checks, fix the failures,
-push, repeat until green. `pr-interactive` automates this as its
-final stage; this skill is the same loop, detached from the PR
-creation / reviewer attach flow so you can run it on any PR
-whenever you want to hand off CI babysitting.
+push, repeat until green. This skill is that loop, detached from PR
+creation / reviewer attach so you can run it on any PR whenever you
+want to hand off CI babysitting. (The `ticket-auto` workflow runs an
+autonomous analogue of the same procedure.)
 
 Single source of truth for the watch logic:
-`plugins/wise/workflows/pr-interactive/prompts/watch-pipelines.md`.
-The drafting routine the fix path commits with lives at
-`plugins/wise/workflows/pr-interactive/prompts/commit-from-fix.md`
-(distilled from `wise-commit-message` §3–§6). This skill reads
-`watch-pipelines.md` at run time and follows it.
+`plugins/wise/references/pr/watch-pipelines.md`. The drafting routine
+the fix path commits with lives at
+`plugins/wise/references/pr/commit-from-fix.md` (distilled from
+`wise-commit-message` §3–§6). This skill reads `watch-pipelines.md`
+at run time and follows it.
 
 ## Invocation
 
@@ -86,7 +86,7 @@ PROJECT_PATH="$(git rev-parse --show-toplevel)"
 Read the fragment:
 
 ```
-Read: ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/watch-pipelines.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/watch-pipelines.md
 ```
 
 Follow its procedure with the context:
@@ -95,7 +95,6 @@ Follow its procedure with the context:
 - `pr_url = <url>`
 - `current_branch = <BRANCH>`
 - `project.path = <PROJECT_PATH>`
-- `workflow.dir = ${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive`
 
 The fragment owns the whole loop — the `gh pr checks --watch` block,
 failure classification, per-class fix dispatch (committing autofixes

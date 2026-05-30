@@ -7,8 +7,6 @@ step records `extras_choice=yes`). Its job is to turn the raw
 of specific people the user can click to add.
 
 Used by:
-- `pr-interactive` workflow's `propose-reviewers` step (conditional
-  via `when: extras_choice == 'yes'`).
 - `/wise-pr-add-reviewers` standalone skill, after it runs
   `ensure-reviewers.md` and the user picked `yes`.
 

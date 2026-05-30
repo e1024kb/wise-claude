@@ -1,8 +1,8 @@
 # ensure-pr — create or refresh the PR
 
-This prompt fragment is the source of truth for the `ensure-pr`
-step of the `pr-interactive` workflow AND for the standalone
-`/wise-pr-create` skill's create-or-update logic.
+This prompt fragment is the source of truth for the create-or-update
+logic of the standalone `/wise-pr-create` skill (the `ticket-auto`
+workflow uses an autonomous analogue, `ensure-pr-auto.md`).
 
 ## Context the caller supplies
 
@@ -14,8 +14,6 @@ step of the `pr-interactive` workflow AND for the standalone
 - `pr_body_path` — absolute path to the drafted PR body written by
   the preceding `draft-body` step.
 - `project.path` — absolute path to the repo working tree.
-- `workflow.dir` — absolute path to the workflow folder (or the
-  standalone skill's equivalent).
 
 ## Procedure
 

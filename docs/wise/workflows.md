@@ -392,8 +392,8 @@ logged.
 
 Pre-flight prompts are asked unconditionally by default — that's
 safest but noisy for workflows where one of the three questions has
-a wrong-answer option. Example: `pr-interactive` has `ask` steps
-and AskUserQuestion-driven prompt steps, so offering Synchronous
+a wrong-answer option. Example: `ticket-plan` has
+AskUserQuestion-driven prompt steps, so offering Synchronous
 at pre-flight is a footgun — picking it breaks the workflow before
 it starts. Pinning `control-mode: wave-sync` in the definition
 removes the question entirely. When every key is `prompt` (the

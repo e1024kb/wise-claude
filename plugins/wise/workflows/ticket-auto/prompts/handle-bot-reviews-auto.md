@@ -1,6 +1,6 @@
 # handle-bot-reviews-auto — autonomous severity-aware bot-review handler
 
-Autonomous analogue of `pr-interactive/prompts/handle-bot-reviews.md`,
+Autonomous analogue of `references/pr/handle-bot-reviews.md`,
 the way `watch-pipelines-auto.md` is the analogue of
 `watch-pipelines.md`. Walks the actionable review comments from a
 **single** review bot — Copilot or CodeRabbit (whichever the caller
@@ -20,8 +20,7 @@ delegate, and the `resolveReviewThread` mutation from
 
 `watch-pipelines-auto.md` §5 calls this fragment once per bot, so
 each queue is its own mini-pipeline. The interactive
-`handle-bot-reviews.md` is untouched and still drives the interactive
-`wise-pr-watch` / `pr-interactive` flow.
+`handle-bot-reviews.md` still drives the `wise-pr-watch` flow.
 
 ## Context the caller supplies
 
@@ -29,7 +28,6 @@ each queue is its own mini-pipeline. The interactive
 - `pr_url` — PR url (for the verdict line).
 - `current_branch` — PR's head branch (for the push after fixes).
 - `project.path` — absolute path to the repo working tree.
-- `workflow.dir` — absolute path to the workflow folder.
 - `bot_filter` — **required**. One of `copilot` or `coderabbit`.
   Anything else → emit `BOT-REVIEWS-AUTO: error bot=<bot_filter> reason=unknown-bot-filter`
   and return.
@@ -193,7 +191,7 @@ Then form an **independent** judgement and land exactly one outcome:
 ### 6. Phase B — commit local edits (no push)
 
 If §4 / §5 staged at least one change, drive
-`${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/commit-from-fix.md`
+`${CLAUDE_PLUGIN_ROOT}/references/pr/commit-from-fix.md`
 with `push=no`, `fix_kind=review-comments`, and
 `fix_summary="applied <K> <bot_display_name> review comment(s)"`.
 Parse its `COMMIT:` line:

@@ -1,6 +1,6 @@
 # request-review-auto — attach Copilot review, autonomously
 
-Autonomous analogue of `pr-interactive/prompts/ensure-reviewers.md`
+Autonomous analogue of `references/pr/ensure-reviewers.md`
 (its defaults half only). Attaches Copilot code review to a PR with
 **no prompts** — it NEVER calls `AskUserQuestion` and never enumerates
 human reviewers. CodeRabbit needs no attach: it is a GitHub App that

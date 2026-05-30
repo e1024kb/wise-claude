@@ -53,8 +53,9 @@ full command catalog.
   watch CI → resolve review bots → merge, with no prompts.
 - **`ticket-plan`** — autonomous planning you review and adjust before you
   implement.
-- **`pr-interactive`** — create a PR, watch CI, and walk the review queues
-  (CodeRabbit / Copilot / SonarCloud / humans) to green, with you in the loop.
+
+To drive a single PR's CI + review queues to green interactively, use the
+standalone `/wise-pr-watch` command.
 
 See the [`wise` plugin README](plugins/wise/README.md) for the full command
 reference, and [`docs/wise/`](docs/wise/) for the workflow engine, the `/wise`

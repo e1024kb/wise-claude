@@ -8,7 +8,7 @@ description: >-
   state under a ULID run directory. Invoked as `/wise-workflow-run`
   (bare alias) or `/wise:wise-workflow-run` (canonical). Use when the
   user says "run the workflow", "start a workflow", "kick off
-  <workflow-name>", "run the pr-interactive workflow", or types
+  <workflow-name>", "run the ticket-plan workflow", or types
   `/wise-workflow-run`.
 argument-hint: "[<workflow-name>]"
 allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)

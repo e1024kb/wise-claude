@@ -117,8 +117,8 @@ then branches on `$ARGUMENTS`:
   - **One confident match** — propose the single command via
     `AskUserQuestion`. On approval, invoke via the `Skill` tool,
     forwarding any positional extracted from the user's prose (e.g.
-    `/wise run the pr-interactive workflow` → the positional
-    `pr-interactive` is forwarded to `/wise-workflow-run`).
+    `/wise run the ticket-plan workflow` → the positional
+    `ticket-plan` is forwarded to `/wise-workflow-run`).
   - **2–3 plausible candidates** — present a shortlist via
     `AskUserQuestion`. On a pick, invoke that one. Cap at 3 — more
     than that means the classification is weak; fall through to the

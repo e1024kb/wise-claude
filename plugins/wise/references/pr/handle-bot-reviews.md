@@ -36,8 +36,6 @@ three and processes only items matching `bot_filter`.
 - `pr_url` — PR url (for links in the user messages).
 - `current_branch` — PR's head branch (for push after fixes).
 - `project.path` — absolute path to the repo working tree.
-- `workflow.dir` — absolute path to the workflow folder (used to
-  read `commit-from-fix.md`).
 - `bot_filter` — **required**. One of `copilot` or `coderabbit`.
   Matches the GitHub login patterns (`copilot-pull-request-reviewer`,
   `Copilot`, or `coderabbitai`). Anything else → fragment errors
@@ -195,7 +193,7 @@ When the user picks `Paged-bulk`, delegate **collection** to
 runs apply routines:
 
 ```text
-Read: {{workflow.dir}}/prompts/paged-bulk-mode.md
+Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/paged-bulk-mode.md
 ```
 
 Pass the queue-specific inputs:

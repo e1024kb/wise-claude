@@ -1,6 +1,6 @@
 # ensure-pr-auto — create or refresh a PR, autonomously
 
-Autonomous analogue of `pr-interactive/prompts/ensure-pr.md`. Same
+Autonomous analogue of `references/pr/ensure-pr.md`. Same
 create-or-refresh logic, but the base branch is **chosen
 autonomously** (the repo's default branch) instead of asked — this
 fragment NEVER calls `AskUserQuestion`.
@@ -29,7 +29,7 @@ Empty array → no open PR (`pr_exists=no`). Otherwise read `number`,
 
 ### 2. Draft the PR body
 
-Read `${CLAUDE_PLUGIN_ROOT}/workflows/pr-interactive/prompts/draft-body.md`
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/draft-body.md`
 and follow it with: `current_branch`, `pr_exists`, `pr_base` (the
 detected base or `NONE`), `project.path`. It writes the drafted body
 to a temp file and returns its path — capture it as `pr_body_path`.

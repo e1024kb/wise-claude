@@ -36,7 +36,7 @@ handler's remote phase; only the wording is locked in here.
 
 ## Context the caller supplies
 
-- `pr_number`, `pr_url`, `project.path`, `workflow.dir` —
+- `pr_number`, `pr_url`, `project.path` —
   passed through to the per-item apply routines.
 - `items` — the classified list the handler already built, in
   the same shape its Walk mode would consume and in the order

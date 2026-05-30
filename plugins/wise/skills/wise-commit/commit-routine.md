@@ -5,10 +5,9 @@ Read by:
 
 - `/wise-commit` (sets `PUSH=no`).
 - `/wise-commit-push` (sets `PUSH=yes`).
-- `workflows/pr-interactive/prompts/commit-from-fix.md` — the
-  workflow's autofix commit fragment, which adds a `fix_kind`
-  classification bias and a `fix_summary` drafting hint on top
-  before delegating here.
+- `references/pr/commit-from-fix.md` — the autofix commit fragment,
+  which adds a `fix_kind` classification bias and a `fix_summary`
+  drafting hint on top before delegating here.
 
 The three queue handlers (`handle-bot-reviews.md`,
 `handle-human-comments.md`, `handle-sonar-issues.md`) each call
@@ -286,7 +285,7 @@ remote. The shape stays `COMMIT: ok subject="<subject>"`, no
 extra fields, so the watch-loop parser doesn't need to change.
 
 This shape matches `commit-from-fix.md`'s contract so the
-`pr-interactive` watch loop's parser keeps working through every
+`wise-pr-watch` watch loop's parser keeps working through every
 path.
 
 Examples:
