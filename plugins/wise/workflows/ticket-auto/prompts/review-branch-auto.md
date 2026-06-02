@@ -1,9 +1,9 @@
-# review-branch-auto — autonomous medium-depth code-review branch gate
+# review-branch-auto — autonomous high-depth code-review branch gate
 
 The branch-review gate of `ticket-auto`'s per-ticket pipeline. Once a
 ticket's branch is fully implemented and every task is committed — but
 **before the branch is pushed / a PR is opened** — this reviews the
-whole branch diff at **medium** effort, applies the concrete findings,
+whole branch diff at **high** effort, applies the concrete findings,
 and commits them. It is the heavyweight tier of the plugin's two-tier
 quality model; the lightweight simplify tier already ran on each
 individual commit.
@@ -22,6 +22,10 @@ calls `AskUserQuestion`.
 - `ticket_ref`, `plan_path` — **optional** context; when supplied, weigh
   findings against the ticket's intent and the plan's `## Decisions Made`
   rather than second-guessing deliberate choices.
+- `config_prompt` — **optional** operator standing guidance (may be
+  empty). When supplied, weigh findings against its guardrails too:
+  flag anything that violates a stated guardrail, and do not "fix"
+  something the guidance deliberately chose.
 
 ## Procedure
 
@@ -40,18 +44,22 @@ The change set under review is `RANGE` — exactly the commits about to be
 pushed. If `git rev-list --count "$RANGE"` is `0` there is nothing to
 review: emit `REVIEW-AUTO: applied=0 skipped=0 committed=no` and stop.
 
-### 2. Review + apply (medium-effort panel)
+### 2. Review + apply (high-effort panel)
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` end to end
-at **medium** effort over `RANGE`: dispatch the parallel reviewer panel
-(read-only `Task` subagents, one per lens), curate the high-confidence
+at **high** effort over `RANGE`: dispatch the parallel reviewer panel
+(read-only `Task` subagents — five lenses + the confidence-scoring
+pass), curate the high-confidence
 findings, and apply the **bounded** set via `Edit` / `Write` (concrete
 correctness / security / clear-quality; skip judgement-call refactors,
 behaviour changes, broad renames, new deps). One round — never re-run
 the panel.
 
 If `ticket_ref` / `plan_path` were supplied, do not "fix" something the
-plan deliberately decided; note it as skipped with that rationale.
+plan deliberately decided; note it as skipped with that rationale. If
+`config_prompt` was supplied, the same applies to its guidance — respect
+its guardrails and deliberate choices, and surface any finding that
+contradicts a stated guardrail.
 
 On a hard failure (the panel errors, or the fixes break the tree),
 follow that reference's failure policy and emit

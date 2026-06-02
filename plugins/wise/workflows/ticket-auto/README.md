@@ -8,7 +8,7 @@
 
 Autonomous ticket → PR pipeline. Give it one or more tickets; for each
 one a Lead Architect plus three Senior Engineers plan it, implement it
-in an isolated git worktree, code-review the branch at medium effort,
+in an isolated git worktree, code-review the branch at high effort,
 commit, push, open a PR, request review, watch + fix CI, then wait for
 CodeRabbit / Copilot to finish reviewing
 and resolve every review comment — end to end, with **no user
@@ -22,7 +22,7 @@ open for a human.
 It follows a spec-driven, phase-gated model:
 fresh-context executor agents working the plan's task waves in
 parallel, one atomic commit per task (each simplified before
-commit), a medium-depth multi-agent code-review gate over the whole
+commit), a high-depth multi-agent code-review gate over the whole
 branch before pushing, autonomous chaining.
 
 ## When to use
@@ -67,7 +67,7 @@ flowchart TD
 runs an isolated sub-pipeline:
 
 ```
-worktree → plan → implement → review (code-review medium) → commit+push
+worktree → plan → implement → review (code-review high) → commit+push
         → create PR → request review → watch + fix CI loop → record
 ```
 
@@ -78,8 +78,12 @@ access). Every heavy sub-task is delegated to a `Task` subagent to
 keep the step's context bounded.
 
 `control-mode` is pinned `synchronous`, `worktree` `current`,
-`rename_session` `skip` — the run takes no pre-flight input beyond the
-tickets. There are no `ask` / `approval` steps.
+`rename_session` `skip` — the only pre-flight input is the ticket list
+(required) and an optional free-form `config_prompt`. There are no
+`ask` / `approval` steps, and no tuning questions: every quality /
+depth dial takes its maximum-value default (e.g. the code-review gate
+runs at **high** effort — five reviewer lenses + a confidence pass),
+and the CI-fix cap defaults to 10 (overridable from `config_prompt`).
 
 ## Steps
 
@@ -99,7 +103,7 @@ Driven by `prompts/process-tickets.md`, which follows these fragments:
 |---|---|---|
 | Plan | `prompts/plan-ticket.md` | the interactive `ticket-plan` workflow |
 | Implement | `prompts/implement-plan.md` | (new — phase-gated executor; code-simplifier per task commit) |
-| Review | `prompts/review-branch-auto.md` | (new — medium-depth multi-agent code-review gate, before push) |
+| Review | `prompts/review-branch-auto.md` | (new — high-depth multi-agent code-review gate, before push) |
 | Push | `wise-commit/commit-routine.md` | `/wise-commit-push` |
 | Create PR | `prompts/ensure-pr-auto.md` | `/wise-pr-create` |
 | Request review | `prompts/request-review-auto.md` | `/wise-pr-add-reviewers` |
@@ -122,8 +126,8 @@ on the PR before the merge gate is checked.
 
 | Name | Required | Description |
 |---|---|---|
-| `ticket_ids` | yes | Comma-separated list of ticket URLs or ids. Each gets its own worktree + branch + PR. |
-| `max_fix_attempts` | no | Cap on autonomous CI-fix rounds per ticket before the watch loop stops. Blank → 6. |
+| `ticket_ids` | yes | Comma-separated list of ticket URLs or ids. Each gets its own worktree + branch + PR. First positional arg; when passed positionally use **no spaces** between items (`PROJ-1,PROJ-2`). |
+| `config_prompt` | no | Free-form guidance to tune the run — skills / libraries to prefer, guidelines, guardrails, files to avoid, knob overrides (e.g. "cap CI fixes at 4"). The Lead Architect applies it to every decision and **predicts** any answer it implies rather than prompting. As the last input it absorbs the remainder of the command line. Blank → none (max-value defaults; CI-fix cap 10). |
 
 ## Outputs
 
@@ -136,7 +140,14 @@ on the PR before the merge gate is checked.
 
 ```
 /wise-workflow-run ticket-auto
-# Prompts for the ticket list + max-fix-attempts at pre-flight.
+# Bare: prompts only for the ticket list (config_prompt is optional and skipped).
+
+/wise-workflow-run ticket-auto PROJ-1,PROJ-2
+# Two tickets, no prompts. Comma-separated, NO spaces. Max-value defaults.
+
+/wise-workflow-run ticket-auto ENG-42 prefer the design-system lib; never touch infra/*; cap CI fixes at 4
+# One ticket + free-form config_prompt (everything after the first token).
+# Steers the Lead Architect's decisions; still no questions asked.
 ```
 
 ## Notes

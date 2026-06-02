@@ -10,7 +10,7 @@ description: >-
   user says "run the workflow", "start a workflow", "kick off
   <workflow-name>", "run the ticket-plan workflow", or types
   `/wise-workflow-run`.
-argument-hint: "[<workflow-name>]"
+argument-hint: "[<workflow-name> [<input1> <free-form remainder…>]]"
 allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
 ---
 
@@ -29,12 +29,28 @@ documented in `CLAUDE.md`.
 ## Arguments
 
 Read `$ARGUMENTS`. The first whitespace-separated token is the
-`workflow-name`. When `$ARGUMENTS` is empty, the skill prompts
-interactively in [§2](#2-resolve-the-workflow-name).
+`workflow-name`; everything after it is **positional input values**
+for the workflow's declared `inputs:` (see [§2](#2-resolve-the-workflow-name)
+and [§6c](#6c-collect-workflow-inputs)). When `$ARGUMENTS` is empty,
+the skill prompts interactively in [§2](#2-resolve-the-workflow-name).
 
 - `workflow-name` — matches the filename without `.yaml`. Resolution
   order: user dir first, bundled second. When absent, [§2](#2-resolve-the-workflow-name)
   prompts the user to pick from the available definitions.
+- positional inputs — optional. Tokens after the workflow name are
+  assigned to the declared inputs **in order**, and the **last
+  declared input absorbs the entire remainder of the line** (verbatim,
+  spaces preserved) so a trailing free-form prompt works. An input
+  satisfied positionally is **not** prompted for in §6c. Example:
+  `/wise-workflow-run ticket-auto PROJ-1 prefer the wise-estimation
+  skill; never touch infra/*` → `workflow-name=ticket-auto`, first
+  input `ticket_ids=PROJ-1`, last input `config_prompt=prefer the
+  wise-estimation skill; never touch infra/*`, no questions asked.
+  Only the **last** input may contain spaces; every earlier positional
+  is a single whitespace-delimited token, so a value that would
+  otherwise contain spaces (e.g. a multi-ticket list) must avoid them
+  when passed positionally — use `PROJ-1,PROJ-2`, or supply it via the
+  interactive prompt, which still accepts spaces.
 
 ## Procedure
 
@@ -53,7 +69,12 @@ proceeds to §2 only once Python is `READY`.
 If `$ARGUMENTS` is non-empty, use its first whitespace-separated token
 as the workflow-name and skip the rest of this step (the `list-defs`
 output from §1 is unused in this case — a cheap fork, not worth
-re-ordering for).
+re-ordering for). **Keep the text after that first token** — it is the
+positional-input remainder consumed in [§6c](#6c-collect-workflow-inputs).
+Call it `ARG_REST` (everything in `$ARGUMENTS` after the first token,
+with the single separating run of whitespace stripped; preserve all
+inner spacing). When the user typed a bare workflow name, `ARG_REST`
+is empty.
 
 Otherwise (user typed bare `/wise-workflow-run`), use the `list-defs`
 JSON already captured in §1. If the array is empty, stop with:
@@ -355,23 +376,42 @@ Enumerate the workflow's declared inputs:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" list-inputs "$DEF"
 ```
 
-stdout is a JSON array of `{name, prompt, validate?, extract?}`. If
-the array is empty, skip this section entirely and continue to
-[§7](#7-resolve-the-project).
+stdout is a JSON array of `{name, prompt, validate?, extract?,
+optional?}`. If the array is empty, skip this section entirely and
+continue to [§7](#7-resolve-the-project).
 
-Otherwise, for each input in order:
+**First, split the positional remainder.** Map `ARG_REST` (from §2)
+onto the declared inputs in order: each input consumes one
+whitespace-separated token, EXCEPT the **last declared input, which
+absorbs the entire remaining substring verbatim** (inner spaces
+preserved) — that is what lets a trailing free-form prompt arrive
+intact. Build a `positional[<name>]` map of the values you extracted; an
+input with no token (including every input when `ARG_REST` is empty)
+stays absent from it.
 
-1. `AskUserQuestion`:
-   - Question: the input's `prompt` text.
-   - Header: the input's `name` (truncated to 12 chars).
-   - Options: `Other` only — the user types the value via free text.
-     (Declaring only `Other` satisfies AskUserQuestion's minimum of
-     two options by including the implicit "Other" affordance; if
-     the harness rejects single-option calls, add a trailing
-     `Cancel run` option and abort cleanly when picked.)
+Then, for each input in order:
+
+1. **Resolve the value.** Three cases:
+   - **Supplied positionally** (`<name>` is in `positional`) → take
+     that as the raw answer and **do not** `AskUserQuestion`; go
+     straight to validation in step 2.
+   - **Absent and `optional: true`** → default to the empty string,
+     store it as `inputs["<name>"]`, and skip both the prompt and
+     validation (an optional input the operator didn't supply is just
+     blank — its step templates resolve `{{<name>}}` to empty).
+   - **Absent and required** → `AskUserQuestion`:
+     - Question: the input's `prompt` text.
+     - Header: the input's `name` (truncated to 12 chars).
+     - Options: `Other` only — the user types the value via free text.
+       (Declaring only `Other` satisfies AskUserQuestion's minimum of
+       two options by including the implicit "Other" affordance; if
+       the harness rejects single-option calls, add a trailing
+       `Cancel run` option and abort cleanly when picked.)
 
 2. Validate + extract via the engine — empty strings for regexes
-   the input didn't declare:
+   the input didn't declare (run this for positionally-supplied and
+   prompted values alike; skip it only for the optional-default-empty
+   case above):
 
    ```bash
    CLEAN=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
@@ -381,8 +421,10 @@ Otherwise, for each input in order:
    Exit 0 → `CLEAN` holds the cleaned value; store it as
    `inputs["<name>"]`.
 
-   Exit 2 → stderr carries `INVALID:<reason>`. Re-ask the same
-   question with the reason inlined into the prompt. Cap at 3
+   Exit 2 → stderr carries `INVALID:<reason>`. Re-ask the input with
+   the reason inlined into the prompt — via `AskUserQuestion` even if
+   the rejected value came in positionally (a bad CLI value falls back
+   to an interactive fix rather than aborting outright). Cap at 3
    attempts total; after the third, abort the run:
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" update-run \

@@ -30,7 +30,7 @@
 #   runs-root                                           → abs path of the per-workspace runs root (single shell-side seam — callers never hard-code the path)
 #   get-preflight      <def-yaml>                       → CONTROL_MODE=, WORKTREE=, RENAME= (KEY=VALUE lines)
 #   write-log          <run-dir> <step-id> <step-run-id>  → read stdin, write to <run-dir>/logs/<step-id>.<step-run-id>.log (bypasses the Write-tool permission prompt by going through bash + workflows.py, which already has an allowed-tools grant in every conductor skill)
-#   list-inputs        <def-yaml>                       → JSON [{name, prompt, validate?, extract?}] of declared inputs
+#   list-inputs        <def-yaml>                       → JSON [{name, prompt, validate?, extract?, optional?}] of declared inputs
 #   validate-input     <raw> <extract> <validate>       → cleaned value on stdout; exit 2 on INVALID
 #   next-wave          <def-yaml> <state-yaml>          → JSON of runnable
 #   update-step        <state> <step-id> key=val...     → mutate one step
@@ -462,9 +462,11 @@ def cmd_get_preflight(def_path: str) -> int:
 def cmd_list_inputs(def_path: str) -> int:
     """Emit the workflow's declared `inputs:` as JSON.
 
-    Each item is `{name, prompt, validate?, extract?}`. Empty list
-    if the workflow declares none. Used by workflow-run's pre-flight
-    to know which questions to ask before the DAG launches.
+    Each item is `{name, prompt, validate?, extract?, optional?}`.
+    Empty list if the workflow declares none. Used by workflow-run's
+    pre-flight to know which questions to ask before the DAG launches.
+    `optional: true` lets the conductor skip the prompt when no value
+    was supplied positionally (the input defaults to empty).
     """
     data = load_yaml(Path(def_path))
     inputs = data.get("inputs") or []
@@ -489,6 +491,8 @@ def cmd_list_inputs(def_path: str) -> int:
             item["validate"] = entry["validate"]
         if entry.get("extract"):
             item["extract"] = entry["extract"]
+        if entry.get("optional"):
+            item["optional"] = True
         normalised.append(item)
     print(json.dumps(normalised))
     return 0

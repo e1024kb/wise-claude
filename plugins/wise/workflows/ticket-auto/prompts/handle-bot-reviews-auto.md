@@ -38,6 +38,11 @@ each queue is its own mini-pipeline. The interactive
 - `ticket_ref`, `plan_path` — **optional** ticket context. The
   major/critical path (§5) uses them to weigh a bot concern against
   what the ticket actually asked for.
+- `config_prompt` — **optional** operator standing guidance (may be
+  empty). The major/critical path weighs it alongside the ticket: a
+  bot comment that pushes against a stated guardrail or deliberate
+  choice is dismissed (with a reasoned reply) or blocked, never blindly
+  applied.
 
 ## Procedure
 
@@ -165,7 +170,9 @@ surfaces:
    concern, not just the single anchored line.
 4. Ticket context — `ticket_ref` and `plan_path` when supplied; read
    the plan to test whether the concern is in scope and whether the
-   bot misread the ticket's intent.
+   bot misread the ticket's intent. Also weigh `config_prompt` when
+   supplied: a comment that contradicts a stated guardrail or
+   deliberate choice is a `Dismissed` / `Blocked`, not a `Fixed`.
 
 Then form an **independent** judgement and land exactly one outcome:
 

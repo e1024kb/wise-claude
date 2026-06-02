@@ -57,7 +57,7 @@ Current actions (all standalone):
   variants of the PR / implement / quality steps, each a thin reader
   of a shared fragment or reference. `/wise-simplify-auto` (the
   lightweight per-commit tier — the `code-simplifier` agent) and
-  `/wise-code-review-auto` (the heavyweight branch gate — a medium-depth
+  `/wise-code-review-auto` (the heavyweight branch gate — a high-depth
   panel of reviewer subagents) are the two quality passes; the
   `ticket-auto` workflow follows the same fragments / references.
 - `/wise` — the natural-language helper (bare = catalog; with free-form
@@ -108,7 +108,7 @@ plugins/wise/
 │   ├── branch-naming.md            # the ticket = branch-name rule
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
-│   ├── code-review-pass.md         # canonical medium-depth branch review (reviewer-subagent panel)
+│   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
 │   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
 └── skills/
     ├── wise/SKILL.md               # natural-language helper (bare catalog + intent classifier)
@@ -139,7 +139,7 @@ plugins/wise/
     ├── wise-implement-plan-auto/          # autonomously implement a PLAN-*.md
     │   ├── SKILL.md
     │   └── agents/executor.md            # fresh-context per-task executor persona
-    ├── wise-code-review-auto/SKILL.md     # autonomous medium-depth branch code-review (no prompts)
+    ├── wise-code-review-auto/SKILL.md     # autonomous high-depth branch code-review (no prompts)
     └── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
 ```
 
