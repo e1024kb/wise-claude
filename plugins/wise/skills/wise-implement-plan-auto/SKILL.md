@@ -69,7 +69,7 @@ and remind them nothing was pushed (commit/push is a separate step).
 - One atomic commit per task; never bundle tasks.
 - Executors edit files; only this skill simplifies (per-task, scoped)
   and commits, serially — never let parallel subagents race the git
-  index. The heavier medium-depth code-review branch gate is a separate,
+  index. The heavier high-depth code-review branch gate is a separate,
   later pipeline step, not this skill's job.
 - Never `git push` — that is the caller's step.
 - A failed task does not abort the run.

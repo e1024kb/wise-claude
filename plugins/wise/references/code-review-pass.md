@@ -36,10 +36,13 @@ the diff), but stays fully autonomous and self-contained.
 | effort | reviewer subagents (lenses) |
 |---|---|
 | `low` | 1 — correctness/bugs only |
-| **`medium`** (default) | **3 — (a) correctness & logic bugs, (b) security & input handling, (c) conventions, dead code, and `CLAUDE.md` adherence** |
-| `high` | 5 — the medium three plus (d) git-history/context regressions and (e) test-coverage gaps, with a confidence-scoring pass |
+| `medium` | 3 — (a) correctness & logic bugs, (b) security & input handling, (c) conventions, dead code, and `CLAUDE.md` adherence |
+| **`high`** (default) | **5 — the medium three plus (d) git-history/context regressions and (e) test-coverage gaps, with a confidence-scoring pass** |
 
-The plugin standardises on **`medium`** for this gate.
+The plugin standardises on **`high`** for this gate — the autonomous
+quality tier always takes the maximum depth. A caller may pass a lower
+effort explicitly, but the default everywhere is `high` (5 reviewer
+subagents + the confidence-scoring pass).
 
 ## The pass (review → curate → apply → commit)
 

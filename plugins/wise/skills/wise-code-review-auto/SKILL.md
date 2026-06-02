@@ -1,7 +1,7 @@
 ---
 name: wise-code-review-auto
 description: >-
-  Autonomously code-review the current branch at MEDIUM depth and apply
+  Autonomously code-review the current branch at HIGH depth and apply
   the fixes — dispatches a panel of parallel reviewer subagents over
   `origin/<base>..HEAD`, applies the concrete correctness / security /
   clear-quality findings (skipping judgement-call refactors), and commits
@@ -15,12 +15,12 @@ argument-hint: "[<base-branch>]"
 allowed-tools: Task, Read, Edit, Write, Bash(git:*), Bash(gh:*)
 ---
 
-# /wise-code-review-auto — review a branch at medium effort, autonomously
+# /wise-code-review-auto — review a branch at high effort, autonomously
 
 ## Why this skill exists
 
 The simplify pass is the lightweight tier — it runs before every commit.
-This is the **heavyweight tier**: one **medium-depth multi-agent review**
+This is the **heavyweight tier**: one **high-depth multi-agent review**
 over the whole branch (a panel of parallel reviewer subagents), applied
 and committed, meant to run **once before the branch reaches GitHub**. It
 is the decision-free building block the `ticket-auto` workflow's review
@@ -53,7 +53,7 @@ the fragment detect the default branch).
 
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree` and `base`. The fragment
-reviews `origin/<base>..HEAD` at medium effort per
+reviews `origin/<base>..HEAD` at high effort per
 `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`, applies the
 bounded findings, and commits them with `SIMPLIFY=no PUSH=no`.
 

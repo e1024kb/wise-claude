@@ -19,10 +19,14 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 - `current_branch` — the PR's head branch.
 - `project.path` — absolute path to the repo working tree (a ticket
   worktree, when called from `ticket-auto`).
-- `max_fix_attempts` — cap on commit-producing fix rounds (default 6).
+- `max_fix_attempts` — cap on commit-producing fix rounds (default 10).
 - `ticket_ref`, `plan_path` — **optional** ticket context. Passed
   straight through to `handle-bot-reviews-auto.md` so the
   major/critical path can weigh a bot concern against the ticket.
+- `config_prompt` — **optional** operator standing guidance (may be
+  empty). Honor its guardrails when deciding what to auto-fix (e.g.
+  files to stay out of), and pass it through to
+  `handle-bot-reviews-auto.md` so the bot-comment path weighs it too.
 
 ## Procedure
 
@@ -59,7 +63,11 @@ For each check with `conclusion` `FAILURE` / `CANCELLED`, classify by
 Handle failures one at a time. After each fix that produces a commit,
 increment `ATTEMPTS`; if `ATTEMPTS >= max_fix_attempts`, stop and emit
 `WATCH-AUTO: exhausted url=<pr_url>` with the last failing check's
-name. For each failure:
+name. Honor `config_prompt` guardrails throughout: a fix must not edit
+a file the operator told the run to avoid (or otherwise cross a stated
+guardrail) — if the only available fix would, leave the check
+`accepted` and record it rather than crossing the guardrail. For each
+failure:
 
 - Pull the failing log: `gh run view --log-failed <run-id> 2>&1 | head -200`.
 - **lint** — run the project's lint-fix (`npm run lint:fix`, or infer
@@ -121,7 +129,7 @@ present in §4): read
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `bot_filter`, `bot_display_name`
 (`Copilot` / `CodeRabbit`), `head_sha=$HEAD_SHA`, and `ticket_ref` /
-`plan_path` when supplied.
+`plan_path` / `config_prompt` when supplied.
 
 That fragment classifies every comment by severity, fixes minors
 quickly, applies a considered "consolidated decision" to

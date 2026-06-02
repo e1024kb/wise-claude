@@ -38,7 +38,7 @@ building block the `ticket-auto` workflow's watch step follows.
 
 Read `$ARGUMENTS`. The first whitespace-separated token, if present,
 is `max_fix_attempts` — the cap on commit-producing fix rounds before
-the loop stops. Default 6 when absent. Ignore anything else.
+the loop stops. Default 10 when absent. Ignore anything else.
 
 ## Procedure
 

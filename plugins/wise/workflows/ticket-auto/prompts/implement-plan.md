@@ -14,6 +14,11 @@ Source of truth for the `/wise-implement-plan-auto` skill and the
 - `plan_path` — absolute path to the `PLAN-*.md` to implement.
 - `worktree` — absolute path to the git worktree to implement in.
 - `project.kind` — `frontend | backend | fullstack | other`, if known.
+- `config_prompt` — **optional** operator standing guidance (may be
+  empty): skills / libraries to prefer, conventions, guardrails, files
+  to avoid. Passed into each executor's shared spec so the hands-on
+  work honors it. The plan already baked most of it into its
+  `## Decisions Made`; this carries it through to the edits.
 
 ## Procedure
 
@@ -40,8 +45,10 @@ concurrently. Each subagent gets the `executor.md` persona prompt
 (read it from this skill's `agents/executor.md`, or from
 `${CLAUDE_PLUGIN_ROOT}/skills/wise-implement-plan-auto/agents/executor.md`)
 parameterised with: the task description, the plan's Decisions +
-codebase-context excerpt, `worktree`, and `project.kind`. Each
-executor has **fresh context** — it sees only its task plus the
+codebase-context excerpt, `worktree`, `project.kind`, and — when
+non-empty — the `config_prompt` guidance (preferred skills / libraries,
+conventions, guardrails, files to avoid) appended to the shared spec.
+Each executor has **fresh context** — it sees only its task plus the
 shared spec, never the other tasks' transcripts.
 
 **Executors edit files but do NOT run git.** Parallel `git`
@@ -66,7 +73,7 @@ subagents all return, the orchestrator processes each `done` task
    atomic commit per task.
 
 The per-task simplify is the lightweight per-commit tier; the heavier
-medium-depth code-review branch gate runs once over the whole branch
+high-depth code-review branch gate runs once over the whole branch
 after the implement phase (the caller's review step), before the push.
 
 **2c. Verify each task.** After a task's commit, run the plan's

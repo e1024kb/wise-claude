@@ -17,6 +17,10 @@ orchestrator runs this against each ticket's worktree.
   points this at the **run directory** (off the project tree), so the
   plan persists with the run state and never lands in the branch.
 - `project.kind` — `frontend | backend | fullstack | other`, if known.
+- `config_prompt` — the operator's free-form standing guidance (may be
+  empty): skills / libraries to prefer, guidelines, guardrails, files
+  to stay out of. The Lead Architect treats it as binding configuration
+  for every decision below and folds it into `## Assumptions`.
 
 ## Procedure
 
@@ -84,8 +88,14 @@ context / reusable assets.
 
 The Lead Architect makes — autonomously, with rationale — every
 scope / technical-approach / component / design / testing decision
-the interactive wizard would ask a human for. Output a `## Decisions`
-section: each decision + a one-line rationale.
+the interactive wizard would ask a human for. Apply `config_prompt`
+as binding guidance here: prefer the skills / libraries it names,
+respect its guidelines, guardrails, and "stay out of" constraints, and
+honor any explicit knob override; where it implies an answer the wizard
+would have asked for, predict that answer rather than prompting. For
+anything it leaves open, take the maximum-quality / most-thorough
+option. Output a `## Decisions` section: each decision + a one-line
+rationale (note which were steered by `config_prompt`).
 
 ### 7. Build the plan
 

@@ -4,16 +4,25 @@ The per-ticket pipeline driver for the `ticket-auto` workflow. Run by
 the workflow's `process-tickets` step (`type: interactive`, so this
 runs inline in the conductor with full `Bash` / `Task` / `Read`
 access). It loops over the ticket list and, for each ticket, drives
-plan → implement → push → PR → review → watch in an isolated
+plan → implement → review → push → PR → watch in an isolated
 worktree — fully autonomously, no prompts.
 
 ## Context the caller supplies
 
 - `ticket_list` — the tickets to process (semicolon-joined).
 - `ticket_count` — how many.
-- `max_fix_attempts` — CI-fix cap per ticket (default 6 when empty).
+- `config_prompt` — the operator's free-form standing guidance for the
+  run (may be empty): preferred skills / libraries, guidelines,
+  guardrails, files to avoid, knob overrides. Pass it verbatim to every
+  per-ticket phase below so the guidance reaches the actual work; never
+  prompt the user about anything it implies — predict the answer and
+  proceed, taking the max-value option for anything it leaves open.
 - `project.path` — absolute path to the base repo.
 - `project.name`, `project.kind`, `workflow.dir` — run context.
+
+Resolve the CI-fix cap once, up front: `MAX_FIX_ATTEMPTS` = the value
+`config_prompt` names if it specifies one (e.g. "cap CI fixes at 4"),
+else the default **10**. Pass it to the watch phase (§8).
 
 ## Context-budget rule (read first)
 
@@ -67,7 +76,8 @@ mkdir -p "{{run.dir}}/plans"
 
 Dispatch a `Task` subagent: "Read `{{workflow.dir}}/prompts/plan-ticket.md`
 and follow it." with context `ticket=<ticket>`, `worktree=$WT`,
-`plan_path=$PLAN_PATH`, `project.kind={{project.kind}}`. It writes the
+`plan_path=$PLAN_PATH`, `project.kind={{project.kind}}`, and
+`config_prompt={{config_prompt}}`. It writes the
 plan to `plan_path` and returns `PLAN: written=<path> type=<ticket_type>`.
 On failure → `verdict=failed reason=plan`, continue.
 
@@ -75,20 +85,23 @@ On failure → `verdict=failed reason=plan`, continue.
 
 Dispatch a `Task` subagent: "Read `{{workflow.dir}}/prompts/implement-plan.md`
 and follow it." with `plan_path=$PLAN_PATH`,
-`worktree=$WT`, `project.kind=<ticket_type>`. It returns
+`worktree=$WT`, `project.kind=<ticket_type>`, and
+`config_prompt={{config_prompt}}`. It returns
 `IMPLEMENT: waves=… tasks=… done=… failed=…`. If `done=0` →
 `verdict=failed reason=implement`, continue. If some tasks failed,
 note it but proceed (the branch still gets reviewed in the next step).
 
-### 4. Review the branch (medium-depth code-review)
+### 4. Review the branch (high-depth code-review)
 
 The implement phase already ran the simplify pass on each task commit. Now —
 before anything is pushed — run the heavyweight gate once over the whole
 branch. Dispatch a `Task` subagent: "Read
 `{{workflow.dir}}/prompts/review-branch-auto.md` and follow it." with
-`worktree=$WT`, `ticket_ref=<ticket_ref>` (from §1), and
-`plan_path=$PLAN_PATH` (from §1). It reviews `origin/<base>..HEAD` at
-medium effort, applies the bounded findings, commits them, and returns
+`worktree=$WT`, `ticket_ref=<ticket_ref>` (from §1),
+`plan_path=$PLAN_PATH` (from §1), and `config_prompt={{config_prompt}}`.
+It reviews `origin/<base>..HEAD` at
+high effort (five reviewer lenses + a confidence-scoring pass), applies
+the bounded findings, commits them, and returns
 `REVIEW-AUTO: applied=<n> skipped=<m> committed=<yes|no>`.
 
 On `REVIEW-AUTO: aborted …` (the review errored) → record
@@ -128,9 +141,10 @@ to attach.
 
 Read `{{workflow.dir}}/prompts/watch-pipelines-auto.md` and follow it
 with `pr_number=<n>`, `pr_url=<url>`, `current_branch=<branch>`,
-`project.path=$WT`, `max_fix_attempts={{max_fix_attempts}}` (default 6
-if empty), `ticket_ref=<ticket_ref>` (from §1), and
-`plan_path=$PLAN_PATH` (from §1). It watches CI,
+`project.path=$WT`, `max_fix_attempts=$MAX_FIX_ATTEMPTS` (resolved up
+front), `ticket_ref=<ticket_ref>` (from §1),
+`plan_path=$PLAN_PATH` (from §1), and `config_prompt={{config_prompt}}`.
+It watches CI,
 auto-fixes failures, waits for CodeRabbit / Copilot to finish
 reviewing, fixes or dismisses every bot comment, and — when the PR is
 fully resolved — merges it. Capture the `WATCH-AUTO:` verdict and
