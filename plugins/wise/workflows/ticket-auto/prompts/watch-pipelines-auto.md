@@ -63,7 +63,11 @@ For each check with `conclusion` `FAILURE` / `CANCELLED`, classify by
 Handle failures one at a time. After each fix that produces a commit,
 increment `ATTEMPTS`; if `ATTEMPTS >= max_fix_attempts`, stop and emit
 `WATCH-AUTO: exhausted url=<pr_url>` with the last failing check's
-name. For each failure:
+name. Honor `config_prompt` guardrails throughout: a fix must not edit
+a file the operator told the run to avoid (or otherwise cross a stated
+guardrail) — if the only available fix would, leave the check
+`accepted` and record it rather than crossing the guardrail. For each
+failure:
 
 - Pull the failing log: `gh run view --log-failed <run-id> 2>&1 | head -200`.
 - **lint** — run the project's lint-fix (`npm run lint:fix`, or infer

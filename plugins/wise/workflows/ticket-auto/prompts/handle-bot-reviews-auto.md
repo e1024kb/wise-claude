@@ -146,7 +146,13 @@ ai_prompt? }`.
 
 ### 4. Minor path — quick focused fix
 
-For each `minor` item, pick the instruction in this order:
+For each `minor` item, first run the **`config_prompt` guardrail
+gate**: if `config_prompt` is supplied and applying this comment would
+touch a file the operator told the run to avoid — or otherwise violate
+a stated guardrail or deliberate choice — do NOT apply it on the minor
+path. Route it to §5's `Dismissed` (with a reasoned reply) or `Blocked`
+outcome instead. The guardrails are binding on BOTH paths, not just the
+major one. Otherwise pick the instruction in this order:
 
 1. A well-formed ```suggestion``` block → apply it verbatim to the
    exact `line` (or `start_line..line`) range with the `Edit` tool.

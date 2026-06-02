@@ -4,7 +4,7 @@ The per-ticket pipeline driver for the `ticket-auto` workflow. Run by
 the workflow's `process-tickets` step (`type: interactive`, so this
 runs inline in the conductor with full `Bash` / `Task` / `Read`
 access). It loops over the ticket list and, for each ticket, drives
-plan → implement → push → PR → review → watch in an isolated
+plan → implement → review → push → PR → watch in an isolated
 worktree — fully autonomously, no prompts.
 
 ## Context the caller supplies

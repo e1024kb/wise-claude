@@ -491,7 +491,7 @@ def cmd_list_inputs(def_path: str) -> int:
             item["validate"] = entry["validate"]
         if entry.get("extract"):
             item["extract"] = entry["extract"]
-        if entry.get("optional"):
+        if entry.get("optional") is True:
             item["optional"] = True
         normalised.append(item)
     print(json.dumps(normalised))
