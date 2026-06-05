@@ -82,6 +82,25 @@ below.
 | `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); no prompts. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. |
 | `/wise-feedback [<feedback-text>]` | File a feedback / bug / suggestion issue against `e1024kb/wise-claude` via `gh` — drafts Problem / Summary / Proposal from your prompt + current Claude Code session context, auto-attaches OS / Claude Code version / current git project, previews before submit. Tags `feedback`, assigns to `@e1024kb`. |
+| `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>]` | The self-improvement loop. Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
+
+### Self-improvement loop
+
+`wise` learns from how you actually use Claude Code. A single SessionEnd
+hook (`hooks/session-end-ingest.sh` — local, no LLM, no network, never
+blocks exit) quietly records each finished session into a local ledger
+under `~/.local/share/wise/insights/`, keeping only **redacted** prompt
+text and tool **names** (never tool inputs).
+
+Run `/wise-insights-mine` whenever you like. It clusters those sessions
+by a deterministic recurring-vocabulary fingerprint, counts how many
+distinct sessions each pattern appears in, hides machine-generated /
+headless prompts, and surfaces the strongest recurring patterns over a
+frequency threshold (default 3 sessions). For each candidate you choose
+**Draft** (writes a starter skill to `~/.claude/skills/<name>/`),
+**Dismiss** (suppressed forever), or **Skip**. Promoted and dismissed
+patterns never resurface. Wipe all of it with
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" purge --yes`.
 
 ### The `/wise` natural-language helper
 

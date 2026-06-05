@@ -44,6 +44,10 @@ Current actions (all standalone):
 - `/wise-workflow-status` — inspect runs in the current workspace.
 - `/wise-workflow-remove` — delete a user workflow definition.
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
+- `/wise-insights-mine` — the self-improvement loop. Mines the local
+  insights ledger (fed by the SessionEnd hook) for recurring task
+  patterns, frequency-gates them, and drafts the strongest ones into
+  user-global `~/.claude/skills/` after per-candidate approval.
 - `/wise-commit-message`, `/wise-commit`, `/wise-commit-push`,
   `/wise-pr-create`, `/wise-pr-add-reviewers`, `/wise-pr-watch` —
   standalone PR / git helpers. The three commit skills are a graded
@@ -86,6 +90,9 @@ the reference templates) — not to be confused with a plugin-level
 plugins/wise/
 ├── .claude-plugin/plugin.json      # manifest (declares plugin-level `dependencies:`)
 ├── .mcp.json                       # bundled MCP servers (currently empty; see README § Bundled tooling)
+├── hooks/                          # the ONE sanctioned hook (see CONTRIBUTING §2.4)
+│   ├── hooks.json                  # auto-discovered; registers the SessionEnd hook
+│   └── session-end-ingest.sh       # SessionEnd → insights.py ingest (stdlib-only, exit 0, no LLM)
 ├── CLAUDE.md                       # this file (invariants)
 ├── README.md                       # slim overview + links into /docs/wise/*
 ├── LICENSE
@@ -97,7 +104,8 @@ plugins/wise/
 │   ├── bootstrap-deps.sh           # full dep probe (python3 + pyyaml/ulid/typing_extensions, node ≥22, gh + auth); cold-start fallback
 │   ├── init.sh                     # bash-only per-dep probes used by `/wise-init` (works before Python is installed)
 │   ├── init-registry.py            # YAML I/O for .wise-init-registry.yaml + fast-path `check` for workflow engine
-│   └── workflows.py                # workflow subsystem: YAML + state + ULID + dep-probe
+│   ├── workflows.py                # workflow subsystem: YAML + state + ULID + dep-probe
+│   └── insights.py                 # self-improvement engine: ingest/mine/gate sessions → skill candidates (STDLIB ONLY)
 ├── workflows/                      # bundled workflow definitions (shipped defaults)
 │   └── <name>/                     # folder form: workflow.yaml + sibling artifacts
 │       ├── workflow.yaml           # the definition
@@ -124,6 +132,7 @@ plugins/wise/
     ├── wise-prd-architect/           # model-invoked PRD authoring (SKILL.md + agents/ + references/)
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
     ├── wise-feedback/SKILL.md       # file a feedback issue
+    ├── wise-insights-mine/SKILL.md  # self-improvement loop: mine sessions → draft skills
     ├── wise-commit-message/SKILL.md # Conventional-Commits drafter (read-only)
     ├── wise-commit/                  # draft + commit (no push)
     │   ├── SKILL.md
@@ -143,11 +152,18 @@ plugins/wise/
     └── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
 ```
 
-No `commands/`, `agents/`, or `hooks/` directories are present, and
-they must not be added without the discussion called for in
-`CONTRIBUTING.md` [§2](../../CONTRIBUTING.md#2-conventions-that-apply-to-every-plugin). `.mcp.json` IS present — it bundles the MCP
-servers wise skills depend on (currently empty; see the bundled-tooling
-convention in `CONTRIBUTING.md` [§2.2](../../CONTRIBUTING.md#22-bundled-tooling-convention)).
+No `commands/` or `agents/` directories are present, and they must not
+be added without the discussion called for in `CONTRIBUTING.md`
+[§2](../../CONTRIBUTING.md#2-conventions-that-apply-to-every-plugin). A
+`hooks/` directory IS present, holding **exactly one** sanctioned hook —
+the SessionEnd insights-ingest hook (`hooks/session-end-ingest.sh` +
+`hooks/hooks.json`). It is the single documented exception to the
+no-hooks default; its rationale and hard constraints live in
+`CONTRIBUTING.md` [§2.4](../../CONTRIBUTING.md#24-hooks). No other hook
+(and no `SessionStart` hook) may be added without that same discussion.
+`.mcp.json` IS present — it bundles the MCP servers wise skills depend
+on (currently empty; see the bundled-tooling convention in
+`CONTRIBUTING.md` [§2.2](../../CONTRIBUTING.md#22-bundled-tooling-convention)).
 
 ---
 
@@ -198,10 +214,16 @@ one-liners below are the rule, not the argument for it.
   (a) the init registry, see below;
   (b) workflow run state, which is per-workspace by design and lives
   under `~/.local/share/wise/runs/<cwd-slug>/` (off-tree, off
-  `.claude/**`, never auto-cleaned). New per-user persistent state
+  `.claude/**`, never auto-cleaned); and
+  (c) the **insights store** under `~/.local/share/wise/insights/`
+  (`ledger.jsonl` + `candidates.json` + `decisions.json`), the
+  self-improvement loop's per-user state. New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `scripts/workflows.py` — never
   hard-code paths so future relocations are one-function changes.
+  (`insights.py` mirrors that helper with a stdlib-only fallback,
+  because the SessionEnd hook may run before pyyaml is installed; the
+  canonical helper is still used whenever importable.)
 - **Init registry — the one file we write inside `${CLAUDE_PLUGIN_ROOT}`.**
   `/wise-init` caches probe results at
   `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`. It lives in the
