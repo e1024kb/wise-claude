@@ -462,6 +462,16 @@ CLUSTER_KEY_TOP_K = 5       # cap a cluster key to its top-K shared tokens
 AUTOMATION_MIN_SESSIONS = 4  # byte-identical recurrence over >=N sessions ⇒ machine
 
 
+def _corpus_df(token_sets) -> dict[str, int]:
+    """Document frequency: how many of the given token sets each token appears in.
+    Shared by the mine pass (over prompts) and the refine pass (over skills)."""
+    df: dict[str, int] = {}
+    for s in token_sets:
+        for t in s:
+            df[t] = df.get(t, 0) + 1
+    return df
+
+
 def _cluster_key(tokens: frozenset[str], df: dict[str, int],
                  top_k: int = CLUSTER_KEY_TOP_K) -> tuple[str, ...]:
     """Stable canonical key for a prompt's token set: keep only tokens that
@@ -484,7 +494,6 @@ def cluster_records(records: list[dict]) -> list[dict]:
     per cluster with distinct-session counts and evidence, sorted by
     session_count desc then cluster_id."""
     # Pass 1 — corpus document frequency of tokens (one count per prompt).
-    df: dict[str, int] = {}
     items: list[tuple[str, str, frozenset[str]]] = []  # (session_id, prompt, tokens)
     for rec in records:
         sid = rec.get("session_id", "")
@@ -492,10 +501,8 @@ def cluster_records(records: list[dict]) -> list[dict]:
             toks = normalize_tokens(prompt)
             if not toks:
                 continue
-            fz = frozenset(toks)
-            items.append((sid, prompt, fz))
-            for t in fz:
-                df[t] = df.get(t, 0) + 1
+            items.append((sid, prompt, frozenset(toks)))
+    df = _corpus_df(fz for _, _, fz in items)
 
     # Pass 2 — bucket by stable cluster key.
     sig_by_session = {rec.get("session_id", ""): rec.get("tool_sig", []) for rec in records}
@@ -773,6 +780,7 @@ _SKILL_BOILERPLATE = (
 )
 
 OVERLAP_MIN_JACCARD = 0.6   # document-sized token sets; below this over-merges
+OVERLAP_SHARED_TOKENS = 12  # cap shared-token evidence carried on each edge
 
 
 def skills_dir(override: str | None = None) -> Path:
@@ -835,8 +843,11 @@ def _skill_tokens(body: str) -> set:
     return normalize_tokens(low)
 
 
-def read_skill(skill_dir: Path) -> dict | None:
-    """Read one skill dir into a record, or None if it has no SKILL.md."""
+def read_skill(skill_dir: Path, with_tokens: bool = False) -> dict | None:
+    """Read one skill dir into a record, or None if it has no SKILL.md. The
+    `tokens` set is computed only when requested — only `overlap` needs it, so
+    `list-skills` / reconcile don't pay for tokenization (and never carry
+    internal state into their JSON output)."""
     sk = skill_dir / "SKILL.md"
     if not sk.is_file():
         return None
@@ -845,7 +856,7 @@ def read_skill(skill_dir: Path) -> dict | None:
     except OSError:
         return None
     marker = parse_marker(body)
-    return {
+    rec = {
         "name": skill_dir.name,  # dir == name convention
         "path": str(sk),
         "dir": str(skill_dir),
@@ -853,23 +864,21 @@ def read_skill(skill_dir: Path) -> dict | None:
         "marker_malformed": marker is not None and "source" not in marker,
         "marker": marker or {},
         "description": _extract_description(body),
-        "_tokens": _skill_tokens(body),
     }
+    if with_tokens:
+        rec["tokens"] = _skill_tokens(body)
+    return rec
 
 
-def _enumerate_skills(sdir: Path) -> list[dict]:
+def _enumerate_skills(sdir: Path, with_tokens: bool = False) -> list[dict]:
     skills = []
     if sdir.is_dir():
         for d in sorted(sdir.iterdir()):
             if d.is_dir():
-                s = read_skill(d)
+                s = read_skill(d, with_tokens=with_tokens)
                 if s is not None:
                     skills.append(s)
     return skills
-
-
-def _public_skill(s: dict) -> dict:
-    return {k: v for k, v in s.items() if not k.startswith("_")}
 
 
 def cmd_list_skills(args) -> int:
@@ -887,9 +896,7 @@ def cmd_list_skills(args) -> int:
         elif d == "retired" and dec.get("superseded_by") and dec["superseded_by"] not in names:
             stale.append({"cluster_id": cid, "decision": d,
                           "superseded_by": dec["superseded_by"], "remineable": True})
-    out = {"skills_dir": str(sdir),
-           "skills": [_public_skill(s) for s in skills],
-           "stale_decisions": stale}
+    out = {"skills_dir": str(sdir), "skills": skills, "stale_decisions": stale}
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
@@ -919,16 +926,13 @@ def _former_sibling(a: dict, b: dict) -> bool:
 
 def cmd_overlap(args) -> int:
     sdir = skills_dir(args.skills_dir)
-    skills = _enumerate_skills(sdir)
+    skills = _enumerate_skills(sdir, with_tokens=True)
     n = len(skills)
     # Corpus-DF filter: drop tokens present in EVERY skill (non-discriminating).
-    df: dict[str, int] = {}
-    for s in skills:
-        for t in s["_tokens"]:
-            df[t] = df.get(t, 0) + 1
-    for s in skills:
-        s["_ftokens"] = ({t for t in s["_tokens"] if df.get(t, 0) < n}
-                         if n > 1 else set(s["_tokens"]))
+    # `ftokens` is index-aligned with `skills` — kept out of the skill records.
+    df = _corpus_df(s["tokens"] for s in skills)
+    ftokens = [({t for t in s["tokens"] if df.get(t, 0) < n} if n > 1 else set(s["tokens"]))
+               for s in skills]
 
     edges = []
     for i in range(n):
@@ -940,7 +944,7 @@ def cmd_overlap(args) -> int:
                 continue
             if _former_sibling(a, b) or _former_sibling(b, a):
                 continue
-            jac = _jaccard(a["_ftokens"], b["_ftokens"])
+            jac = _jaccard(ftokens[i], ftokens[j])
             if jac < args.min_jaccard:
                 continue
             edges.append({
@@ -949,7 +953,7 @@ def cmd_overlap(args) -> int:
                 "jaccard": round(jac, 3),
                 "retire_eligible": a["managed"] and b["managed"],
                 "suggestion_only": both_external or mixed,
-                "shared_tokens": sorted(a["_ftokens"] & b["_ftokens"])[:12],
+                "shared_tokens": sorted(ftokens[i] & ftokens[j])[:OVERLAP_SHARED_TOKENS],
             })
     edges.sort(key=lambda e: (-e["jaccard"], e["a"], e["b"]))
     out = {"skills_dir": str(sdir), "skills": n,
@@ -1023,17 +1027,26 @@ def cmd_retire(args) -> int:
     return 0
 
 
+def _skill_dir_names(sdir: Path) -> set[str]:
+    """Names of subdirectories of `sdir` that contain a SKILL.md."""
+    if not sdir.is_dir():
+        return set()
+    return {d.name for d in sdir.iterdir()
+            if d.is_dir() and (d / "SKILL.md").is_file()}
+
+
 def _reconcile_retired(sdir: Path) -> int:
     """Clear `retired` decisions whose superseding skill no longer exists, so the
     now-uncovered pattern can resurface in `mine`. Returns count cleared."""
-    existing = {d.name for d in sdir.iterdir()
-                if d.is_dir() and (d / "SKILL.md").is_file()} if sdir.is_dir() else set()
     data = read_decisions()
     decisions = data["decisions"]
+    retired = [cid for cid, dec in decisions.items() if dec.get("decision") == "retired"]
+    if not retired:
+        return 0  # common case — skip the skills-dir walk entirely
+    existing = _skill_dir_names(sdir)
     cleared = 0
-    for cid in list(decisions):
-        dec = decisions[cid]
-        if dec.get("decision") == "retired" and dec.get("superseded_by") not in existing:
+    for cid in retired:
+        if decisions[cid].get("superseded_by") not in existing:
             del decisions[cid]
             cleared += 1
     if cleared:
