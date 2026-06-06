@@ -36,9 +36,24 @@
 #   purge [--yes]       → delete all insights state (privacy escape hatch)
 #   data-root           → print wise_data_root()/insights (shell-side seam)
 #
-# DETERMINISM CONTRACT: same ledger + same flags ⇒ byte-identical `mine`
-# output. Sorted iteration everywhere, sha1 cluster ids, no randomness, no
-# network. NOTE: cluster_id is derived from a pattern's recurring-vocabulary
+# The refine pass (the `/wise-insights-refine` "garden" command):
+#   list-skills [--json] [--skills-dir <p>]
+#                       → enumerate ~/.claude/skills/, classify managed (carry
+#                         the wise-insights marker) vs external, reconcile vs
+#                         decisions.json. Read-only.
+#   overlap [--json] [--min-jaccard <f>] [--include-external] [--skills-dir <p>]
+#                       → deterministic pairwise Jaccard edges between skills
+#                         (frontmatter/boilerplate stripped, corpus-DF filtered)
+#                         for the skill to confirm + merge. Read-only.
+#   retire <skill_path> [--superseded-by <name>] [--json]
+#                       → THE destructive op: refuse unless the skill carries the
+#                         marker, back up (verified) then remove the dir, and flag
+#                         its source cluster `retired`. Non-deterministic exception.
+#
+# DETERMINISM CONTRACT: same ledger + same flags ⇒ byte-identical `mine` /
+# `overlap` output. Sorted iteration everywhere, sha1 cluster ids, no randomness,
+# no network. `ingest` / `retire` / `purge` are the documented non-deterministic
+# (filesystem/timestamp) exceptions. NOTE: cluster_id is derived from a pattern's recurring-vocabulary
 # fingerprint (see `_cluster_key`). Changing the normalizer / fingerprint
 # logic changes ids and therefore invalidates existing decisions.json
 # suppression — treat normalization changes as breaking.
@@ -615,6 +630,9 @@ def _is_automated(c: dict) -> bool:
 
 def cmd_mine(args) -> int:
     ledger, ingested = _self_heal(args.here, args.since)
+    # Resurrect patterns whose merged (superseding) skill was deleted — keeps
+    # "retired" reversible at the pattern level, not just the file level.
+    _reconcile_retired(skills_dir())
     records = filter_records(list(ledger.values()), args.here, args.since)
     decisions = read_decisions()["decisions"]
     clusters = cluster_records(records)
@@ -731,6 +749,298 @@ def cmd_data_root(args) -> int:
     return 0
 
 
+# ---- skill library: enumerate / overlap / retire (the refine pass) ---------
+#
+# `list-skills` + `overlap` are read-only and deterministic; `retire` is the one
+# destructive op (backup-verify-then-delete, marker-gated). All reuse the same
+# stdlib helpers as the mine pass — no yaml: skill name comes from the directory
+# (the dir==name convention), the marker is parsed by regex, and overlap is keyed
+# on body tokens via `normalize_tokens`.
+
+_RE_MARKER = re.compile(r"<!--\s*wise-insights:\s*(.*?)\s*-->")
+_RE_FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+_RE_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_RE_HEADING = re.compile(r"^#{1,6}\s.*$", re.MULTILINE)
+
+# Template scaffolding shared by generated skills — excluded from overlap tokens
+# so two unrelated learned skills don't match on boilerplate alone.
+_SKILL_BOILERPLATE = (
+    "when to use", "procedure", "guardrails", "notes",
+    "this was learned from", "past sessions", "starting point", "edit freely",
+    "review and refine", "session history", "redacted local transcripts",
+    "nothing left your machine", "wise-managed", "wise-insights-refine",
+    "wise-insights-mine", "use when the user says",
+)
+
+OVERLAP_MIN_JACCARD = 0.6   # document-sized token sets; below this over-merges
+
+
+def skills_dir(override: str | None = None) -> Path:
+    """User-global skills dir. `--skills-dir` / env WISE_SKILLS_DIR override it
+    (the testability seam, mirroring how XDG_DATA_HOME redirects the data root)."""
+    if override:
+        return Path(override).expanduser()
+    env = os.environ.get("WISE_SKILLS_DIR")
+    return Path(env).expanduser() if env else HOME / ".claude" / "skills"
+
+
+def parse_marker(body: str) -> dict | None:
+    """Parse the `<!-- wise-insights: k=v … -->` marker into a dict, or None if
+    absent. A dict without `source` means the marker is present but malformed."""
+    m = _RE_MARKER.search(body)
+    if not m:
+        return None
+    fields: dict[str, str] = {}
+    for tok in m.group(1).split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            fields[k] = v
+    return fields
+
+
+def _extract_description(body: str) -> str:
+    """Best-effort `description:` for DISPLAY ONLY — tolerates `>-`/`|` block
+    scalars and never raises (a parse miss just yields "")."""
+    fm = _RE_FRONTMATTER.search(body)
+    if not fm:
+        return ""
+    inner = fm.group(0).splitlines()[1:-1]
+    out: list[str] = []
+    capturing = False
+    for ln in inner:
+        if not capturing:
+            mm = re.match(r"description:\s*(.*)$", ln)
+            if mm:
+                first = mm.group(1).strip()
+                if first and first not in (">-", ">", "|", "|-"):
+                    out.append(first)
+                capturing = True
+            continue
+        if re.match(r"^[A-Za-z][\w-]*:\s", ln) or ln.strip() == "---":
+            break
+        out.append(ln.strip())
+    return " ".join(out).strip()
+
+
+def _skill_tokens(body: str) -> set:
+    """Discriminating token set for a skill: drop frontmatter, HTML comments
+    (incl. the marker), markdown headings, and shared template boilerplate, then
+    reuse `normalize_tokens`."""
+    text = _RE_FRONTMATTER.sub(" ", body)
+    text = _RE_HTML_COMMENT.sub(" ", text)
+    text = _RE_HEADING.sub(" ", text)
+    low = text.lower()
+    for phrase in _SKILL_BOILERPLATE:
+        low = low.replace(phrase, " ")
+    return normalize_tokens(low)
+
+
+def read_skill(skill_dir: Path) -> dict | None:
+    """Read one skill dir into a record, or None if it has no SKILL.md."""
+    sk = skill_dir / "SKILL.md"
+    if not sk.is_file():
+        return None
+    try:
+        body = sk.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    marker = parse_marker(body)
+    return {
+        "name": skill_dir.name,  # dir == name convention
+        "path": str(sk),
+        "dir": str(skill_dir),
+        "managed": marker is not None and "source" in marker,
+        "marker_malformed": marker is not None and "source" not in marker,
+        "marker": marker or {},
+        "description": _extract_description(body),
+        "_tokens": _skill_tokens(body),
+    }
+
+
+def _enumerate_skills(sdir: Path) -> list[dict]:
+    skills = []
+    if sdir.is_dir():
+        for d in sorted(sdir.iterdir()):
+            if d.is_dir():
+                s = read_skill(d)
+                if s is not None:
+                    skills.append(s)
+    return skills
+
+
+def _public_skill(s: dict) -> dict:
+    return {k: v for k, v in s.items() if not k.startswith("_")}
+
+
+def cmd_list_skills(args) -> int:
+    sdir = skills_dir(args.skills_dir)
+    skills = _enumerate_skills(sdir)
+    names = {s["name"] for s in skills}
+    paths = {s["path"] for s in skills}
+    decisions = read_decisions()["decisions"]
+    stale = []
+    for cid, dec in sorted(decisions.items()):
+        d = dec.get("decision")
+        if d == "promoted" and dec.get("skill_path") and dec["skill_path"] not in paths:
+            stale.append({"cluster_id": cid, "decision": d,
+                          "skill_path": dec["skill_path"], "remineable": True})
+        elif d == "retired" and dec.get("superseded_by") and dec["superseded_by"] not in names:
+            stale.append({"cluster_id": cid, "decision": d,
+                          "superseded_by": dec["superseded_by"], "remineable": True})
+    out = {"skills_dir": str(sdir),
+           "skills": [_public_skill(s) for s in skills],
+           "stale_decisions": stale}
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    managed = [s for s in skills if s["managed"]]
+    print(f"{len(skills)} skill(s) under {sdir} ({len(managed)} wise-managed):\n")
+    for s in skills:
+        tag = "managed" if s["managed"] else ("malformed-marker" if s["marker_malformed"] else "external")
+        print(f"  [{tag}] {s['name']}")
+    if stale:
+        print(f"\n{len(stale)} stale decision(s) — superseding skill gone, "
+              f"pattern can resurface on next mine.")
+    return 0
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    union = len(a | b)
+    return len(a & b) / union if union else 0.0
+
+
+def _former_sibling(a: dict, b: dict) -> bool:
+    """True if a was merged FROM b (so they must not be re-offered for merge)."""
+    mf = a["marker"].get("merged_from", "")
+    return b["name"] in mf.split(",") if mf else False
+
+
+def cmd_overlap(args) -> int:
+    sdir = skills_dir(args.skills_dir)
+    skills = _enumerate_skills(sdir)
+    n = len(skills)
+    # Corpus-DF filter: drop tokens present in EVERY skill (non-discriminating).
+    df: dict[str, int] = {}
+    for s in skills:
+        for t in s["_tokens"]:
+            df[t] = df.get(t, 0) + 1
+    for s in skills:
+        s["_ftokens"] = ({t for t in s["_tokens"] if df.get(t, 0) < n}
+                         if n > 1 else set(s["_tokens"]))
+
+    edges = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = skills[i], skills[j]
+            both_external = not a["managed"] and not b["managed"]
+            mixed = a["managed"] != b["managed"]
+            if (both_external or mixed) and not args.include_external:
+                continue
+            if _former_sibling(a, b) or _former_sibling(b, a):
+                continue
+            jac = _jaccard(a["_ftokens"], b["_ftokens"])
+            if jac < args.min_jaccard:
+                continue
+            edges.append({
+                "a": a["name"], "b": b["name"],
+                "a_path": a["path"], "b_path": b["path"],
+                "jaccard": round(jac, 3),
+                "retire_eligible": a["managed"] and b["managed"],
+                "suggestion_only": both_external or mixed,
+                "shared_tokens": sorted(a["_ftokens"] & b["_ftokens"])[:12],
+            })
+    edges.sort(key=lambda e: (-e["jaccard"], e["a"], e["b"]))
+    out = {"skills_dir": str(sdir), "skills": n,
+           "min_jaccard": args.min_jaccard, "edges": edges}
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    if not edges:
+        print(f"No overlapping skills (>= {args.min_jaccard} Jaccard) among "
+              f"{n} skill(s) in {sdir}.")
+        return 0
+    print(f"{len(edges)} overlapping pair(s) (>= {args.min_jaccard}):\n")
+    for e in edges:
+        kind = "" if e["retire_eligible"] else "  (suggestion only)"
+        print(f"  {e['a']} ~ {e['b']}  jaccard={e['jaccard']}{kind}")
+        print(f"      shared: {', '.join(e['shared_tokens'][:8])}")
+    return 0
+
+
+def _now_micro() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+
+
+def cmd_retire(args) -> int:
+    import shutil
+    p = Path(args.skill_path).expanduser()
+    # Accept either the skill dir or its SKILL.md; resolve by name so an
+    # already-deleted dir still resolves correctly (is_dir() would mislead).
+    skill_dir = p.parent if p.name == "SKILL.md" else p
+    sk = skill_dir / "SKILL.md"
+    if not sk.is_file():
+        print(f"already retired (no SKILL.md at {skill_dir})")
+        return 0
+    body = sk.read_text(encoding="utf-8", errors="replace")
+    marker = parse_marker(body)
+    if not marker or "source" not in marker:
+        print(f"refusing to retire {skill_dir.name}: no wise-insights marker — "
+              f"hand-written skills are never auto-deleted.", file=sys.stderr)
+        return 2
+    # Backup (verified) BEFORE removing anything.
+    backup = insights_root() / "skill-backups" / _now_micro() / skill_dir.name
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copytree(skill_dir, backup)
+    except OSError as exc:
+        print(f"backup failed for {skill_dir.name} ({exc}); aborting retire.",
+              file=sys.stderr)
+        return 2
+    bsk = backup / "SKILL.md"
+    if not bsk.is_file() or bsk.stat().st_size == 0:
+        print(f"backup verification failed for {skill_dir.name}; aborting retire.",
+              file=sys.stderr)
+        return 2
+    shutil.rmtree(skill_dir)
+    # Bookkeeping: a source with a cluster id becomes `retired` (covered), NOT
+    # `dismissed` (rejected). Refine-merged sources (merged_from, no cluster)
+    # touch no decision.
+    cluster = marker.get("cluster")
+    if cluster:
+        data = read_decisions()
+        entry = {"decision": "retired", "at": _now_iso()}
+        if args.superseded_by:
+            entry["superseded_by"] = args.superseded_by
+        data["decisions"][cluster] = entry
+        write_decisions(data)
+    result = {"retired": skill_dir.name, "backup": str(backup), "cluster": cluster}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"Retired {skill_dir.name} → backup {backup}")
+    return 0
+
+
+def _reconcile_retired(sdir: Path) -> int:
+    """Clear `retired` decisions whose superseding skill no longer exists, so the
+    now-uncovered pattern can resurface in `mine`. Returns count cleared."""
+    existing = {d.name for d in sdir.iterdir()
+                if d.is_dir() and (d / "SKILL.md").is_file()} if sdir.is_dir() else set()
+    data = read_decisions()
+    decisions = data["decisions"]
+    cleared = 0
+    for cid in list(decisions):
+        dec = decisions[cid]
+        if dec.get("decision") == "retired" and dec.get("superseded_by") not in existing:
+            del decisions[cid]
+            cleared += 1
+    if cleared:
+        write_decisions(data)
+    return cleared
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="insights.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -770,6 +1080,25 @@ def main(argv: list[str]) -> int:
 
     p = sub.add_parser("data-root")
     p.set_defaults(func=cmd_data_root)
+
+    p = sub.add_parser("list-skills")
+    p.add_argument("--skills-dir", dest="skills_dir", default=None)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_list_skills)
+
+    p = sub.add_parser("overlap")
+    p.add_argument("--skills-dir", dest="skills_dir", default=None)
+    p.add_argument("--min-jaccard", dest="min_jaccard", type=float,
+                   default=OVERLAP_MIN_JACCARD)
+    p.add_argument("--include-external", dest="include_external", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_overlap)
+
+    p = sub.add_parser("retire")
+    p.add_argument("skill_path")
+    p.add_argument("--superseded-by", dest="superseded_by", default=None)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_retire)
 
     args = ap.parse_args(argv)
     return args.func(args)

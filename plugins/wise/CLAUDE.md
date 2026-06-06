@@ -44,10 +44,16 @@ Current actions (all standalone):
 - `/wise-workflow-status` — inspect runs in the current workspace.
 - `/wise-workflow-remove` — delete a user workflow definition.
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
-- `/wise-insights-mine` — the self-improvement loop. Mines the local
-  insights ledger (fed by the SessionEnd hook) for recurring task
-  patterns, frequency-gates them, and drafts the strongest ones into
-  user-global `~/.claude/skills/` after per-candidate approval.
+- `/wise-insights-mine` — the self-improvement loop (the "harvest"
+  pass). Mines the local insights ledger (fed by the SessionEnd hook)
+  for recurring task patterns, frequency-gates them, and drafts the
+  strongest ones into user-global `~/.claude/skills/` after
+  per-candidate approval.
+- `/wise-insights-refine` — the "garden" pass. Enumerates the learned
+  skills, finds overlapping ones, and (with approval) merges them into
+  one aggregated skill and retires the originals — reversibly (backed
+  up first). Acts only on wise-managed skills (marker-tagged); never
+  deletes hand-written ones.
 - `/wise-commit-message`, `/wise-commit`, `/wise-commit-push`,
   `/wise-pr-create`, `/wise-pr-add-reviewers`, `/wise-pr-watch` —
   standalone PR / git helpers. The three commit skills are a graded
@@ -133,6 +139,7 @@ plugins/wise/
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
     ├── wise-feedback/SKILL.md       # file a feedback issue
     ├── wise-insights-mine/SKILL.md  # self-improvement loop: mine sessions → draft skills
+    ├── wise-insights-refine/SKILL.md # consolidate learned skills: merge overlaps → retire originals
     ├── wise-commit-message/SKILL.md # Conventional-Commits drafter (read-only)
     ├── wise-commit/                  # draft + commit (no push)
     │   ├── SKILL.md
@@ -216,8 +223,12 @@ one-liners below are the rule, not the argument for it.
   under `~/.local/share/wise/runs/<cwd-slug>/` (off-tree, off
   `.claude/**`, never auto-cleaned); and
   (c) the **insights store** under `~/.local/share/wise/insights/`
-  (`ledger.jsonl` + `candidates.json` + `decisions.json`), the
-  self-improvement loop's per-user state. New per-user persistent state
+  (`ledger.jsonl` + `candidates.json` + `decisions.json` +
+  `skill-backups/<ts>/<name>/`), the self-improvement loop's per-user
+  state. `decisions.json` records `promoted` / `dismissed` / `retired`
+  (the last set by `/wise-insights-refine` when it merges a skill away;
+  `mine` resurrects it if the merged skill is later deleted). New
+  per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `scripts/workflows.py` — never
   hard-code paths so future relocations are one-function changes.

@@ -493,9 +493,11 @@ tree:
 - **Insights store** — `~/.local/share/wise/insights/` (honours
   `XDG_DATA_HOME`; via `wise_data_root()`). Holds the self-improvement loop's
   `ledger.jsonl` (one redacted record per ingested session), `candidates.json`
-  (the derived, frequency-ranked patterns), and `decisions.json` (the
-  promote/dismiss suppression list). Written by the SessionEnd hook
-  ([§2.4](#24-hooks)) and `/wise-insights-mine`; wipe with
+  (the derived, frequency-ranked patterns), `decisions.json` (the
+  promote/dismiss/retire suppression list), and `skill-backups/<ts>/<name>/`
+  (copies of skills retired by `/wise-insights-refine`, so a merge is always
+  reversible). Written by the SessionEnd hook ([§2.4](#24-hooks)),
+  `/wise-insights-mine`, and `/wise-insights-refine`; wipe with
   `scripts/insights.py purge --yes`.
 
 There is **no persisted project registry**. A workflow run resolves

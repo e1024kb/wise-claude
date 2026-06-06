@@ -82,7 +82,8 @@ below.
 | `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); no prompts. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. |
 | `/wise-feedback [<feedback-text>]` | File a feedback / bug / suggestion issue against `e1024kb/wise-claude` via `gh` — drafts Problem / Summary / Proposal from your prompt + current Claude Code session context, auto-attaches OS / Claude Code version / current git project, previews before submit. Tags `feedback`, assigns to `@e1024kb`. |
-| `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>]` | The self-improvement loop. Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
+| `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>]` | The self-improvement loop (harvest). Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
+| `/wise-insights-refine [--dry-run] [--min-jaccard <X>] [--include-external]` | The self-improvement loop (garden). Finds overlapping learned skills and, with your approval, merges them into one and retires the originals (reversibly). Acts only on wise-managed skills; never deletes hand-written ones. |
 
 ### Self-improvement loop
 
@@ -105,7 +106,17 @@ Drafted skills are written with `user-invocable: false`, so they stay **out
 of your `/` slash-command menu** — Claude auto-invokes them in the background
 when their `description` matches, but they never clutter your command list.
 (Delete a skill's directory to remove it, or flip that frontmatter field if
-you ever want to type it directly.) Wipe the insights state with
+you ever want to type it directly.)
+
+Once you've accumulated learned skills, **`/wise-insights-refine`** is the
+*garden* pass to mine's *harvest*: it enumerates your skills, finds overlapping
+ones (deterministic token overlap, with the merge confirmed by you), and —
+per-group — **merges** redundant skills into one aggregated skill and
+**retires** the originals. Retirement is reversible: each retired skill is
+copied to `~/.local/share/wise/insights/skill-backups/` first, and only
+wise-managed skills (those carrying the provenance marker) are ever retired —
+hand-written skills are suggestion-only. `--dry-run` shows the plan without
+touching anything. Wipe the insights state with
 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" purge --yes`.
 
 ### The `/wise` natural-language helper
