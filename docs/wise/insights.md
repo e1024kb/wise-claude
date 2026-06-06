@@ -231,8 +231,8 @@ refine/reset tell **managed** skills (safe to merge/retire/reset) from
 <!-- wise-insights: source=wise-insights-refine v=1 merged-from=<names> retired-clusters=<cids> created=<YYYY-MM-DD> -->
 ```
 
-`v=1` versions the marker schema. The registry (`decisions.json`) and the in-file
-marker are belt-and-suspenders: either can reconstruct which skills wise made.
+`v=1` versions the marker schema. The marker and the registry (`decisions.json`)
+each independently identify a wise-made skill, so either alone is enough.
 
 ## Privacy model
 
@@ -309,4 +309,7 @@ finds, before installing the plugin and running the commands for real.
 
 - [`skills-authoring.md`](./skills-authoring.md) — how wise skills are shaped
   (the learned skills follow the same conventions, with `user-invocable: false`).
+- [`dispatcher.md`](./dispatcher.md) — how the `/wise` helper discovers and
+  catalogs skills (it auto-consults drafted/refined skills when their
+  `description` matches).
 - `CONTRIBUTING.md` §2.4 (the SessionEnd hook exception) and §5 (plugin state).
