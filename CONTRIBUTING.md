@@ -83,9 +83,11 @@ These are marketplace-wide. They apply before any per-plugin rule.
   absent, do not fall through to a prompt to recover. Only a legitimately
   absent argument may fall through to a prompt or default. See [§4.1](#41-action-skill--the-common-case) for
   the shape each skill's validation step should take.
-- **No `SessionStart` hooks** without discussion. They tax every session,
-  make permission prompts noisy, and are almost never the right tool for a
-  plugin that's already behind explicit slash commands.
+- **Hooks are opt-in and exceptional.** A plugin that's already behind
+  explicit slash commands almost never needs a hook — hooks tax every
+  session and make behaviour implicit. No new hook (of any event) ships
+  without the discussion and constraints in [§2.4](#24-hooks). `wise`
+  currently ships exactly one: the SessionEnd insights-ingest hook.
 - **No lifecycle assumptions.** Claude Code has no `PostInstall`,
   `PostUpdate`, or `PreUninstall` hook. Anything that needs to run on
   first-use-after-install must be idempotent and lazy.
@@ -270,6 +272,43 @@ If a future skill needs a plugin from yet another marketplace, add
 that marketplace to the `allowCrossMarketplaceDependenciesOn` array in
 the same PR that adds the dependency.
 
+### 2.4 Hooks
+
+The default remains **no hooks** — a plugin behind explicit slash commands
+should not also run implicit per-session code. Adding a hook is a deliberate
+decision that must be argued in the PR, not slipped in. This section IS the
+"discussion" the §2 bullet requires; it records the one sanctioned hook and
+the bar any future one must clear.
+
+`wise` ships exactly one hook:
+
+- **SessionEnd → `hooks/session-end-ingest.sh`.** On session end it reads the
+  `transcript_path` from the hook's stdin payload and hands that single file to
+  `scripts/insights.py ingest`, which appends a compact, redacted record to the
+  insights ledger (see [§5](#5-plugin-state)). This is what makes the
+  `/wise-insights-mine` self-improvement loop work without the user having to
+  remember to capture anything.
+
+Hard constraints on this hook — and the bar for any hook that is ever proposed:
+
+- **No LLM, no network.** Pure local parsing.
+- **No dependency bootstrap.** `bootstrap-deps.sh` can prompt/install and must
+  never run from a hook. The ingest engine is therefore **Python-stdlib-only**,
+  so the hook works even before `/wise-init`.
+- **Bounded work.** It touches exactly the one transcript that just ended —
+  never a full scan. The expensive clustering/drafting stays in the
+  `/wise-insights-mine` skill, behind an explicit invocation.
+- **Never blocks or fails the session.** The script is `set +e`, swallows all
+  errors, and always exits 0. A SessionEnd hook cannot block teardown and must
+  not try to.
+- **Idempotent.** Re-firing on the same session is a no-op (keyed on
+  `session_id` + transcript mtime).
+- **Bash 3.2 compatible** (macOS default) and `hooks/hooks.json` is
+  auto-discovered — no `plugin.json` `hooks` field, no matcher.
+
+`SessionStart` hooks remain disallowed outright: they tax startup and there is
+no ingest-style justification for them here.
+
 ---
 
 ## 3. Adding a new plugin to the marketplace
@@ -451,6 +490,18 @@ tree:
 - **Workflow run state** — `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/`
   (honours `XDG_DATA_HOME`). Per-workspace by design; see
   [§9](#9-workflow-subsystem).
+- **Insights store** — `~/.local/share/wise/insights/` (honours
+  `XDG_DATA_HOME`; via `wise_data_root()`). Holds the self-improvement loop's
+  `ledger.jsonl` (one redacted record per ingested session), `candidates.json`
+  (the derived, frequency-ranked patterns), `decisions.json` (the
+  promote/dismiss/retire suppression list), `skill-backups/<ts>/<name>/`
+  (copies of skills retired by `/wise-insights-refine`, so a merge is always
+  reversible), and `snapshots/<ts>/{index,skills}/` (restore points written by
+  `/wise-insights-reset`). Written by the SessionEnd hook ([§2.4](#24-hooks)),
+  `/wise-insights-mine`, `/wise-insights-refine`, and `/wise-insights-reset`.
+  `/wise-insights-reset` is the **reversible** cleanup (snapshot-then-clear,
+  rollback via `restore`); `scripts/insights.py purge --yes` is the separate
+  **irreversible** wipe of the whole store (snapshots included).
 
 There is **no persisted project registry**. A workflow run resolves
 the project it operates on from the current context — see

@@ -82,6 +82,55 @@ below.
 | `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); no prompts. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. |
 | `/wise-feedback [<feedback-text>]` | File a feedback / bug / suggestion issue against `e1024kb/wise-claude` via `gh` — drafts Problem / Summary / Proposal from your prompt + current Claude Code session context, auto-attaches OS / Claude Code version / current git project, previews before submit. Tags `feedback`, assigns to `@e1024kb`. |
+| `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>]` | The self-improvement loop (harvest). Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
+| `/wise-insights-refine [--dry-run] [--min-jaccard <X>] [--include-external]` | The self-improvement loop (garden). Finds overlapping learned skills and, with your approval, merges them into one and retires the originals (reversibly). Acts only on wise-managed skills; never deletes hand-written ones. |
+| `/wise-insights-reset [--skills] [--index] [--dry-run] [--restore <ts>]` | Reversible cleanup + rollback. Snapshots then removes the auto-created skills and/or the insights index, and restores any snapshot. Only wise-managed skills; never hard-deletes. |
+
+### Self-improvement loop
+
+> Both `/wise-insights-mine` and `/wise-insights-refine` require setup: run
+> **`/wise-init`** once first. Until then they refuse to run. (The SessionEnd
+> capture hook keeps recording in the background regardless, so the ledger is
+> ready the moment you finish setup.)
+
+`wise` learns from how you actually use Claude Code. A single SessionEnd
+hook (`hooks/session-end-ingest.sh` — local, no LLM, no network, never
+blocks exit) quietly records each finished session into a local ledger
+under `~/.local/share/wise/insights/`, keeping only **redacted** prompt
+text and tool **names** (never tool inputs).
+
+Run `/wise-insights-mine` whenever you like. It clusters those sessions
+by a deterministic recurring-vocabulary fingerprint, counts how many
+distinct sessions each pattern appears in, hides machine-generated /
+headless prompts, and surfaces the strongest recurring patterns over a
+frequency threshold (default 3 sessions). For each candidate you choose
+**Draft** (writes a starter skill to `~/.claude/skills/<name>/`),
+**Dismiss** (suppressed forever), or **Skip**. Promoted and dismissed
+patterns never resurface.
+
+Drafted skills are written with `user-invocable: false`, so they stay **out
+of your `/` slash-command menu** — Claude auto-invokes them in the background
+when their `description` matches, but they never clutter your command list.
+(Delete a skill's directory to remove it, or flip that frontmatter field if
+you ever want to type it directly.)
+
+Once you've accumulated learned skills, **`/wise-insights-refine`** is the
+*garden* pass to mine's *harvest*: it enumerates your skills, finds overlapping
+ones (deterministic token overlap, with the merge confirmed by you), and —
+per-group — **merges** redundant skills into one aggregated skill and
+**retires** the originals. Retirement is reversible: each retired skill is
+copied to `~/.local/share/wise/insights/skill-backups/` first, and only
+wise-managed skills (those carrying the provenance marker) are ever retired —
+hand-written skills are suggestion-only. `--dry-run` shows the plan without
+touching anything.
+
+To clean up — or undo — the whole loop, **`/wise-insights-reset`** snapshots the
+auto-created skills and/or the index (ledger, candidates, decisions) into a
+timestamped restore point and then clears them. It's reversible: roll any reset
+back with `/wise-insights-reset --restore <ts>` (existing skills are never
+clobbered). Use `--skills` or `--index` to scope it. For an *irreversible* wipe
+of the entire store (restore points included), the separate escape hatch is
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" purge --yes`.
 
 ### The `/wise` natural-language helper
 
