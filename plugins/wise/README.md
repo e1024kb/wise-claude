@@ -87,6 +87,11 @@ below.
 
 ### Self-improvement loop
 
+> Both `/wise-insights-mine` and `/wise-insights-refine` require setup: run
+> **`/wise-init`** once first. Until then they refuse to run. (The SessionEnd
+> capture hook keeps recording in the background regardless, so the ledger is
+> ready the moment you finish setup.)
+
 `wise` learns from how you actually use Claude Code. A single SessionEnd
 hook (`hooks/session-end-ingest.sh` — local, no LLM, no network, never
 blocks exit) quietly records each finished session into a local ledger

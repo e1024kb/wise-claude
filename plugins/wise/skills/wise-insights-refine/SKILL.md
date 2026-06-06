@@ -14,7 +14,7 @@ description: >-
   `/wise-insights-refine`.
 argument-hint: "[--dry-run] [--min-jaccard <X>] [--include-external]"
 model: opus
-allowed-tools: Read, Write, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
+allowed-tools: Read, Write, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-insights-refine — consolidate learned skills
@@ -52,18 +52,22 @@ stop — do not guess.
 
 ## Procedure
 
-### 1. Enumerate + find overlaps
+### 1. Guard on `/wise-init`, then enumerate + find overlaps
 
-In one message, run both (stdlib-only — no bootstrap needed):
+**First**, enforce the setup gate per
+`${CLAUDE_PLUGIN_ROOT}/references/insights-init-guard.md`: run the
+`init-registry.py check` and, unless it prints `INIT:ok`, tell the user to run
+`/wise-init` and **STOP** — do not enumerate, do not bootstrap anything yourself.
+
+Only on `INIT:ok`, in one message run both:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" list-skills --json
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" overlap --json [parsed flags]
 ```
 
-If `python3` is missing, tell the user to install Python 3 or run `/wise-init`,
-then stop. If `overlap` returns no edges, report how many skills were scanned
-and stop — the library is already tidy.
+If `overlap` returns no edges, report how many skills were scanned and stop —
+the library is already tidy.
 
 ### 2. Form candidate groups from the pairwise edges
 

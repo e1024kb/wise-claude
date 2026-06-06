@@ -13,7 +13,7 @@ description: >-
   I turn into a skill", "self-improve", or types `/wise-insights-mine`.
 argument-hint: "[--here] [--since <N>d] [--min-count <N>] [--include-automated]"
 model: opus
-allowed-tools: Read, Write, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
+allowed-tools: Read, Write, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-insights-mine — turn recurring sessions into skills
@@ -54,18 +54,18 @@ stop — do not guess.
 
 ## Procedure
 
-### 1. Run the miner
+### 1. Guard on `/wise-init`, then run the miner
 
-Forward the parsed flags straight to the engine and ask for JSON:
+**First**, enforce the setup gate per
+`${CLAUDE_PLUGIN_ROOT}/references/insights-init-guard.md`: run the
+`init-registry.py check` and, unless it prints `INIT:ok`, tell the user to run
+`/wise-init` and **STOP** — do not mine, do not bootstrap anything yourself.
+
+Only on `INIT:ok`, forward the parsed flags to the engine and ask for JSON:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" mine --json [parsed flags]
 ```
-
-`insights.py` needs only Python 3 (standard library — no pyyaml/ulid, so the
-workflow init-check does **not** apply here). If the call fails because
-`python3` is missing, tell the user to install Python 3 or run `/wise-init`, then
-stop.
 
 ### 2. Read the result
 
