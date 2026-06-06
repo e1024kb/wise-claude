@@ -25,22 +25,18 @@ ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # No Python → nothing we can do; no-op cleanly.
 command -v python3 >/dev/null 2>&1 || exit 0
 
-PAYLOAD="$(cat)"
-
-# Extract fields with Python (do NOT assume jq is installed). Null-safe.
-TRANSCRIPT="$(printf '%s' "$PAYLOAD" | python3 -c 'import sys, json
+# Extract both fields in ONE Python pass (do NOT assume jq is installed).
+# Null-safe; transcript_path on line 1, session_id on line 2.
+FIELDS="$(python3 -c 'import sys, json
 try:
     d = json.load(sys.stdin)
 except Exception:
     d = {}
-print(d.get("transcript_path") or "")' 2>/dev/null)"
-
-SID="$(printf '%s' "$PAYLOAD" | python3 -c 'import sys, json
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    d = {}
+print(d.get("transcript_path") or "")
 print(d.get("session_id") or "")' 2>/dev/null)"
+
+TRANSCRIPT="$(printf '%s\n' "$FIELDS" | sed -n '1p')"
+SID="$(printf '%s\n' "$FIELDS" | sed -n '2p')"
 
 # No transcript path → nothing to ingest.
 [ -n "$TRANSCRIPT" ] || exit 0

@@ -99,7 +99,13 @@ headless prompts, and surfaces the strongest recurring patterns over a
 frequency threshold (default 3 sessions). For each candidate you choose
 **Draft** (writes a starter skill to `~/.claude/skills/<name>/`),
 **Dismiss** (suppressed forever), or **Skip**. Promoted and dismissed
-patterns never resurface. Wipe all of it with
+patterns never resurface.
+
+Drafted skills are written with `user-invocable: false`, so they stay **out
+of your `/` slash-command menu** — Claude auto-invokes them in the background
+when their `description` matches, but they never clutter your command list.
+(Delete a skill's directory to remove it, or flip that frontmatter field if
+you ever want to type it directly.) Wipe the insights state with
 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" purge --yes`.
 
 ### The `/wise` natural-language helper

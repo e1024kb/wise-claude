@@ -250,13 +250,22 @@ _RE_PATH = re.compile(r"(?:/Users/|/home/|/var/|/etc/|/opt/|/private/)[\w./@+-]+
 _RE_SECRET = re.compile(r"\b(?:sk-|ghp_|gho_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]+")
 _RE_LONGTOK = re.compile(r"\b[A-Za-z0-9_-]{28,}\b")  # jwt/ulid/sha/api-key shaped
 
+# Applied in order — broad/specific secret shapes before the catch-all long-token
+# rule. Add new patterns here; `redact()` needs no change.
+_REDACTIONS = [
+    (_RE_URL, "<url>"),
+    (_RE_SECRET, "<secret>"),
+    (_RE_EMAIL, "<email>"),
+    (_RE_PATH, "<path>"),
+    (_RE_LONGTOK, "<token>"),
+]
 
-def redact(text: str, limit: int = 240) -> str:
-    text = _RE_URL.sub("<url>", text)
-    text = _RE_SECRET.sub("<secret>", text)
-    text = _RE_EMAIL.sub("<email>", text)
-    text = _RE_PATH.sub("<path>", text)
-    text = _RE_LONGTOK.sub("<token>", text)
+REDACT_LIMIT = 240  # max stored chars per prompt (truncated with an ellipsis)
+
+
+def redact(text: str, limit: int = REDACT_LIMIT) -> str:
+    for pattern, repl in _REDACTIONS:
+        text = pattern.sub(repl, text)
     text = " ".join(text.split())
     if len(text) > limit:
         text = text[:limit].rstrip() + "…"
@@ -431,12 +440,20 @@ def normalize_tokens(prompt: str) -> set[str]:
     return toks
 
 
-def _cluster_key(tokens: frozenset[str], df: dict[str, int], top_k: int = 5) -> tuple[str, ...]:
+# ---- clustering / heuristic thresholds -------------------------------------
+MIN_TOKEN_DF = 2            # a token must recur across >=2 prompts to be "shared"
+MIN_TOKEN_SET_SIZE = 2      # prompts with fewer content tokens are one-word chatter
+CLUSTER_KEY_TOP_K = 5       # cap a cluster key to its top-K shared tokens
+AUTOMATION_MIN_SESSIONS = 4  # byte-identical recurrence over >=N sessions ⇒ machine
+
+
+def _cluster_key(tokens: frozenset[str], df: dict[str, int],
+                 top_k: int = CLUSTER_KEY_TOP_K) -> tuple[str, ...]:
     """Stable canonical key for a prompt's token set: keep only tokens that
-    recur across the corpus (df >= 2 — drops one-off noise), rank by df desc
-    then alphabetically, cap to top_k. Two phrasings of the same intent
+    recur across the corpus (df >= MIN_TOKEN_DF — drops one-off noise), rank by
+    df desc then alphabetically, cap to top_k. Two phrasings of the same intent
     collapse to the same key; the key is what cluster_id hashes."""
-    shared = [t for t in tokens if df.get(t, 0) >= 2]
+    shared = [t for t in tokens if df.get(t, 0) >= MIN_TOKEN_DF]
     if not shared:
         shared = sorted(tokens)  # all-hapax prompt: fall back to its own tokens
     shared.sort(key=lambda t: (-df.get(t, 0), t))
@@ -469,7 +486,7 @@ def cluster_records(records: list[dict]) -> list[dict]:
     sig_by_session = {rec.get("session_id", ""): rec.get("tool_sig", []) for rec in records}
     buckets: dict[str, dict] = {}
     for sid, prompt, fz in items:
-        if len(fz) < 2:
+        if len(fz) < MIN_TOKEN_SET_SIZE:
             continue  # one-word chatter ("done", "ok", "going") — low skill value
         key = _cluster_key(fz, df)
         if not key:
@@ -592,7 +609,8 @@ def _is_automated(c: dict) -> bool:
     """A pattern that recurs byte-identically (no phrasing variation) across
     many sessions is almost always machine-generated (headless/automation),
     not a typed human request. General signal — no hardcoded phrases."""
-    return c.get("distinct_phrasings", 1) == 1 and c["session_count"] >= 4
+    return (c.get("distinct_phrasings", 1) == 1
+            and c["session_count"] >= AUTOMATION_MIN_SESSIONS)
 
 
 def cmd_mine(args) -> int:
@@ -601,12 +619,18 @@ def cmd_mine(args) -> int:
     decisions = read_decisions()["decisions"]
     clusters = cluster_records(records)
 
+    # Enrich each cluster once with its decision status + automation flag, then
+    # derive both the persisted candidate store and the gated set the skill acts
+    # on from that single pass — no recomputation.
     gated = []
+    candidates = []
     suppressed_auto = 0
     for c in clusters:
         decision = decisions.get(c["cluster_id"])
         status = decision["decision"] if decision else "pending"
         c = {**c, "status": status, "likely_automated": _is_automated(c)}
+        if status != "pending" or c["session_count"] >= args.min_count:
+            candidates.append({k: v for k, v in c.items() if k != "key"})
         if status != "pending" or c["session_count"] < args.min_count:
             continue
         if c["likely_automated"] and not args.include_automated:
@@ -622,13 +646,7 @@ def cmd_mine(args) -> int:
         "sessions_in_scope": len(records),
         "newly_ingested": ingested,
         "suppressed_automated": suppressed_auto,
-        "candidates": [
-            {**{k: v for k, v in c.items() if k != "key"},
-             "status": (decisions.get(c["cluster_id"], {}).get("decision", "pending")),
-             "likely_automated": _is_automated(c)}
-            for c in clusters
-            if c["session_count"] >= args.min_count or decisions.get(c["cluster_id"])
-        ],
+        "candidates": candidates,
     }
     write_candidates(payload)
 
