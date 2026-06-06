@@ -8,8 +8,11 @@ natural-language classifier, not a dispatcher.
 
 `wise` ships a workflow engine, shared scripts, and every action skill
 (`/wise-init`, `/wise-workflow-*`, `/wise-skills-*`, `/wise-pr-*`,
-`/wise-commit-*`, `/wise-feedback`) plus the `wise-estimation`
-reference skill and the `/wise` natural-language helper. Turning a
+`/wise-commit-*`, `/wise-insights-*`, `/wise-feedback`) plus the
+`wise-estimation` reference skill and the `/wise` natural-language
+helper. The `/wise-insights-*` trio is a local self-improvement loop
+that learns reusable skills from your own session history — see
+[`docs/wise/insights.md`](../../docs/wise/insights.md). Turning a
 tracker ticket into a plan — or autonomously all the way into a PR —
 is handled by the `ticket-plan` / `ticket-auto` bundled workflows
 (see Workflows below).
@@ -82,7 +85,7 @@ below.
 | `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); no prompts. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. |
 | `/wise-feedback [<feedback-text>]` | File a feedback / bug / suggestion issue against `e1024kb/wise-claude` via `gh` — drafts Problem / Summary / Proposal from your prompt + current Claude Code session context, auto-attaches OS / Claude Code version / current git project, previews before submit. Tags `feedback`, assigns to `@e1024kb`. |
-| `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>]` | The self-improvement loop (harvest). Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
+| `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>] [--include-automated]` | The self-improvement loop (harvest). Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
 | `/wise-insights-refine [--dry-run] [--min-jaccard <X>] [--include-external]` | The self-improvement loop (garden). Finds overlapping learned skills and, with your approval, merges them into one and retires the originals (reversibly). Acts only on wise-managed skills; never deletes hand-written ones. |
 | `/wise-insights-reset [--skills] [--index] [--dry-run] [--restore <ts>]` | Reversible cleanup + rollback. Snapshots then removes the auto-created skills and/or the insights index, and restores any snapshot. Only wise-managed skills; never hard-deletes. |
 
@@ -255,6 +258,10 @@ documented under [`../../docs/wise/`](../../docs/wise/):
 - [`workflows.md`](../../docs/wise/workflows.md) — the workflow
   subsystem: definitions, step types, run state, resume, worktrees,
   dependency handling.
+- [`insights.md`](../../docs/wise/insights.md) — the self-improvement
+  loop: `/wise-insights-mine` / `-refine` / `-reset`, the SessionEnd
+  capture hook, the ledger / candidates / decisions data model, the
+  provenance marker, the privacy/redaction model, and the engine CLI.
 
 ## Bundled tooling
 
