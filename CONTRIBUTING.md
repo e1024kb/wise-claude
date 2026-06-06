@@ -494,11 +494,14 @@ tree:
   `XDG_DATA_HOME`; via `wise_data_root()`). Holds the self-improvement loop's
   `ledger.jsonl` (one redacted record per ingested session), `candidates.json`
   (the derived, frequency-ranked patterns), `decisions.json` (the
-  promote/dismiss/retire suppression list), and `skill-backups/<ts>/<name>/`
+  promote/dismiss/retire suppression list), `skill-backups/<ts>/<name>/`
   (copies of skills retired by `/wise-insights-refine`, so a merge is always
-  reversible). Written by the SessionEnd hook ([§2.4](#24-hooks)),
-  `/wise-insights-mine`, and `/wise-insights-refine`; wipe with
-  `scripts/insights.py purge --yes`.
+  reversible), and `snapshots/<ts>/{index,skills}/` (restore points written by
+  `/wise-insights-reset`). Written by the SessionEnd hook ([§2.4](#24-hooks)),
+  `/wise-insights-mine`, `/wise-insights-refine`, and `/wise-insights-reset`.
+  `/wise-insights-reset` is the **reversible** cleanup (snapshot-then-clear,
+  rollback via `restore`); `scripts/insights.py purge --yes` is the separate
+  **irreversible** wipe of the whole store (snapshots included).
 
 There is **no persisted project registry**. A workflow run resolves
 the project it operates on from the current context — see

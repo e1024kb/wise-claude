@@ -84,6 +84,7 @@ below.
 | `/wise-feedback [<feedback-text>]` | File a feedback / bug / suggestion issue against `e1024kb/wise-claude` via `gh` — drafts Problem / Summary / Proposal from your prompt + current Claude Code session context, auto-attaches OS / Claude Code version / current git project, previews before submit. Tags `feedback`, assigns to `@e1024kb`. |
 | `/wise-insights-mine [--here] [--since <N>d] [--min-count <N>]` | The self-improvement loop (harvest). Mines your local Claude Code session history for recurring task patterns and, once one recurs across enough distinct sessions, drafts it into a reusable skill under `~/.claude/skills/` — after you approve each candidate. Fully local; nothing leaves your machine. See [§ Self-improvement loop](#self-improvement-loop). |
 | `/wise-insights-refine [--dry-run] [--min-jaccard <X>] [--include-external]` | The self-improvement loop (garden). Finds overlapping learned skills and, with your approval, merges them into one and retires the originals (reversibly). Acts only on wise-managed skills; never deletes hand-written ones. |
+| `/wise-insights-reset [--skills] [--index] [--dry-run] [--restore <ts>]` | Reversible cleanup + rollback. Snapshots then removes the auto-created skills and/or the insights index, and restores any snapshot. Only wise-managed skills; never hard-deletes. |
 
 ### Self-improvement loop
 
@@ -121,7 +122,14 @@ per-group — **merges** redundant skills into one aggregated skill and
 copied to `~/.local/share/wise/insights/skill-backups/` first, and only
 wise-managed skills (those carrying the provenance marker) are ever retired —
 hand-written skills are suggestion-only. `--dry-run` shows the plan without
-touching anything. Wipe the insights state with
+touching anything.
+
+To clean up — or undo — the whole loop, **`/wise-insights-reset`** snapshots the
+auto-created skills and/or the index (ledger, candidates, decisions) into a
+timestamped restore point and then clears them. It's reversible: roll any reset
+back with `/wise-insights-reset --restore <ts>` (existing skills are never
+clobbered). Use `--skills` or `--index` to scope it. For an *irreversible* wipe
+of the entire store (restore points included), the separate escape hatch is
 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/insights.py" purge --yes`.
 
 ### The `/wise` natural-language helper

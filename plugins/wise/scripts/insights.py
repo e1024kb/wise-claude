@@ -50,10 +50,20 @@
 #                         marker, back up (verified) then remove the dir, and flag
 #                         its source cluster `retired`. Non-deterministic exception.
 #
+# The reset pass (the `/wise-insights-reset` reversible cleanup):
+#   reset [--skills] [--index] [--dry-run] [--json]
+#                       → snapshot the managed skills and/or the index into
+#                         snapshots/<ts>/ then clear them. REVERSIBLE — moves to a
+#                         restore point, never hard-deletes. (`purge` is the
+#                         irreversible escape hatch.)
+#   list-snapshots [--json]              → restore points, newest first.
+#   restore <ts> [--json]                → roll a restore point back (skips skills
+#                                          that already exist; overwrites index).
+#
 # DETERMINISM CONTRACT: same ledger + same flags ⇒ byte-identical `mine` /
 # `overlap` output. Sorted iteration everywhere, sha1 cluster ids, no randomness,
-# no network. `ingest` / `retire` / `purge` are the documented non-deterministic
-# (filesystem/timestamp) exceptions. NOTE: cluster_id is derived from a pattern's recurring-vocabulary
+# no network. `ingest` / `retire` / `reset` / `restore` / `purge` are the
+# documented non-deterministic (filesystem/timestamp) exceptions. NOTE: cluster_id is derived from a pattern's recurring-vocabulary
 # fingerprint (see `_cluster_key`). Changing the normalizer / fingerprint
 # logic changes ids and therefore invalidates existing decisions.json
 # suppression — treat normalization changes as breaking.
@@ -1054,6 +1064,146 @@ def _reconcile_retired(sdir: Path) -> int:
     return cleared
 
 
+# ---- reset / restore: reversible cleanup of the insights loop ---------------
+#
+# `reset` snapshots whatever it removes into snapshots/<ts>/ FIRST (verifying the
+# copy before deleting anything live), so it is always reversible via `restore`.
+# It never hard-deletes — `purge` is the separate, irreversible escape hatch.
+
+_INDEX_FILES = ("ledger.jsonl", "candidates.json", "decisions.json")
+
+
+def _snapshots_root() -> Path:
+    return insights_root() / "snapshots"
+
+
+def cmd_reset(args) -> int:
+    import shutil
+    do_skills = args.skills or not args.index    # neither flag ⇒ both
+    do_index = args.index or not args.skills
+    sdir = skills_dir(args.skills_dir)
+
+    managed = [s for s in _enumerate_skills(sdir) if s["managed"]] if do_skills else []
+    index_present = [f for f in _INDEX_FILES
+                     if (insights_root() / f).is_file()] if do_index else []
+
+    if not managed and not index_present:
+        print("Nothing to reset (no managed skills and no index files in scope).")
+        if args.json:
+            print(json.dumps({"dry_run": args.dry_run, "snapshot": None,
+                              "removed_skills": [], "archived_index": []}))
+        return 0
+
+    ts = _now_micro()
+    snap = _snapshots_root() / ts
+    plan = {"dry_run": args.dry_run, "snapshot": str(snap), "ts": ts,
+            "removed_skills": [s["name"] for s in managed],
+            "archived_index": index_present}
+
+    if args.dry_run:
+        if args.json:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+        else:
+            print(f"DRY RUN — would snapshot to {snap}")
+            if index_present:
+                print(f"  archive index: {', '.join(index_present)}")
+            if managed:
+                print(f"  remove {len(managed)} managed skill(s): "
+                      f"{', '.join(plan['removed_skills'])}")
+        return 0
+
+    # Phase 1 — snapshot everything first; no live deletion until verified.
+    if index_present:
+        (snap / "index").mkdir(parents=True, exist_ok=True)
+        for f in index_present:
+            shutil.copy2(insights_root() / f, snap / "index" / f)
+    for s in managed:
+        dest = snap / "skills" / s["name"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(s["dir"], dest)
+        if not (dest / "SKILL.md").is_file():
+            print(f"snapshot verification failed for {s['name']}; aborting "
+                  f"(nothing removed).", file=sys.stderr)
+            return 2
+    # Phase 2 — remove the live originals (snapshot verified).
+    for f in index_present:
+        (insights_root() / f).unlink()
+    for s in managed:
+        shutil.rmtree(s["dir"])
+
+    if args.json:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+    else:
+        print(f"Reset → restore point {snap}")
+        if index_present:
+            print(f"  archived index: {', '.join(index_present)}")
+        if managed:
+            print(f"  removed {len(managed)} skill(s)")
+        print(f"  roll back with:  /wise-insights-reset --restore {ts}")
+    return 0
+
+
+def cmd_list_snapshots(args) -> int:
+    root = _snapshots_root()
+    snaps = []
+    if root.is_dir():
+        for d in sorted(root.iterdir(), reverse=True):  # newest first
+            if not d.is_dir():
+                continue
+            skills = sorted(p.name for p in (d / "skills").iterdir()
+                            if p.is_dir()) if (d / "skills").is_dir() else []
+            idx = sorted(p.name for p in (d / "index").iterdir()
+                         if p.is_file()) if (d / "index").is_dir() else []
+            snaps.append({"ts": d.name, "skills": skills, "index": idx})
+    if args.json:
+        print(json.dumps({"snapshots": snaps}, ensure_ascii=False, indent=2))
+        return 0
+    if not snaps:
+        print("No restore points.")
+        return 0
+    for s in snaps:
+        print(f"  {s['ts']}  — {len(s['skills'])} skill(s), "
+              f"index: {'yes' if s['index'] else 'no'}")
+    return 0
+
+
+def cmd_restore(args) -> int:
+    import shutil
+    snap = _snapshots_root() / args.ts
+    if not snap.is_dir():
+        print(f"no restore point {args.ts}", file=sys.stderr)
+        return 2
+    restored_index = []
+    if (snap / "index").is_dir():
+        insights_root().mkdir(parents=True, exist_ok=True)
+        for f in sorted((snap / "index").iterdir()):
+            if f.is_file():
+                shutil.copy2(f, insights_root() / f.name)
+                restored_index.append(f.name)
+    restored_skills, skipped = [], []
+    sdir = skills_dir(args.skills_dir)
+    if (snap / "skills").is_dir():
+        sdir.mkdir(parents=True, exist_ok=True)
+        for d in sorted((snap / "skills").iterdir()):
+            if not d.is_dir():
+                continue
+            target = sdir / d.name
+            if target.exists():
+                skipped.append(d.name)  # never clobber a live skill
+                continue
+            shutil.copytree(d, target)
+            restored_skills.append(d.name)
+    result = {"ts": args.ts, "restored_index": restored_index,
+              "restored_skills": restored_skills, "skipped": skipped}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"Restored from {args.ts}: index [{', '.join(restored_index) or 'none'}], "
+              f"{len(restored_skills)} skill(s) restored"
+              + (f"; skipped existing: {', '.join(skipped)}" if skipped else ""))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="insights.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1112,6 +1262,24 @@ def main(argv: list[str]) -> int:
     p.add_argument("--superseded-by", dest="superseded_by", default=None)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_retire)
+
+    p = sub.add_parser("reset")
+    p.add_argument("--skills", action="store_true")
+    p.add_argument("--index", action="store_true")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p.add_argument("--skills-dir", dest="skills_dir", default=None)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_reset)
+
+    p = sub.add_parser("list-snapshots")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_list_snapshots)
+
+    p = sub.add_parser("restore")
+    p.add_argument("ts")
+    p.add_argument("--skills-dir", dest="skills_dir", default=None)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_restore)
 
     args = ap.parse_args(argv)
     return args.func(args)

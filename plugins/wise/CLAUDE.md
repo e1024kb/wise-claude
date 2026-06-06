@@ -54,6 +54,10 @@ Current actions (all standalone):
   one aggregated skill and retires the originals — reversibly (backed
   up first). Acts only on wise-managed skills (marker-tagged); never
   deletes hand-written ones.
+- `/wise-insights-reset` — reversible cleanup + rollback. Snapshots
+  then removes the auto-created skills and/or the insights index into
+  `snapshots/<ts>/`, and restores any snapshot. Only managed skills;
+  never hard-deletes (that's `insights.py purge`).
 - `/wise-commit-message`, `/wise-commit`, `/wise-commit-push`,
   `/wise-pr-create`, `/wise-pr-add-reviewers`, `/wise-pr-watch` —
   standalone PR / git helpers. The three commit skills are a graded
@@ -141,6 +145,7 @@ plugins/wise/
     ├── wise-feedback/SKILL.md       # file a feedback issue
     ├── wise-insights-mine/SKILL.md  # self-improvement loop: mine sessions → draft skills
     ├── wise-insights-refine/SKILL.md # consolidate learned skills: merge overlaps → retire originals
+    ├── wise-insights-reset/SKILL.md  # reversible cleanup + rollback (snapshot → clear → restore)
     ├── wise-commit-message/SKILL.md # Conventional-Commits drafter (read-only)
     ├── wise-commit/                  # draft + commit (no push)
     │   ├── SKILL.md
@@ -225,11 +230,13 @@ one-liners below are the rule, not the argument for it.
   `.claude/**`, never auto-cleaned); and
   (c) the **insights store** under `~/.local/share/wise/insights/`
   (`ledger.jsonl` + `candidates.json` + `decisions.json` +
-  `skill-backups/<ts>/<name>/`), the self-improvement loop's per-user
-  state. `decisions.json` records `promoted` / `dismissed` / `retired`
-  (the last set by `/wise-insights-refine` when it merges a skill away;
-  `mine` resurrects it if the merged skill is later deleted). New
-  per-user persistent state
+  `skill-backups/<ts>/<name>/` + `snapshots/<ts>/{index,skills}/`), the
+  self-improvement loop's per-user state. `decisions.json` records
+  `promoted` / `dismissed` / `retired` (the last set by
+  `/wise-insights-refine` when it merges a skill away; `mine` resurrects
+  it if the merged skill is later deleted). `snapshots/` holds
+  `/wise-insights-reset` restore points (reversible cleanup); `purge
+  --yes` is the only irreversible wipe. New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `scripts/workflows.py` — never
   hard-code paths so future relocations are one-function changes.
