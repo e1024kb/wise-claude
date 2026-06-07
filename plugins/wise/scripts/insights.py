@@ -929,8 +929,11 @@ def _jaccard(a: set, b: set) -> float:
 
 
 def _former_sibling(a: dict, b: dict) -> bool:
-    """True if a was merged FROM b (so they must not be re-offered for merge)."""
-    mf = a["marker"].get("merged_from", "")
+    """True if a was merged FROM b (so they must not be re-offered for merge).
+
+    The marker key is `merged-from` (hyphen) — `parse_marker` preserves the
+    literal comment keys, so this must match the hyphenated form exactly."""
+    mf = a["marker"].get("merged-from", "")
     return b["name"] in mf.split(",") if mf else False
 
 
@@ -1019,7 +1022,7 @@ def cmd_retire(args) -> int:
         return 2
     shutil.rmtree(skill_dir)
     # Bookkeeping: a source with a cluster id becomes `retired` (covered), NOT
-    # `dismissed` (rejected). Refine-merged sources (merged_from, no cluster)
+    # `dismissed` (rejected). Refine-merged sources (merged-from, no cluster)
     # touch no decision.
     cluster = marker.get("cluster")
     if cluster:
