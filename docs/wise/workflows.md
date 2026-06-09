@@ -99,7 +99,7 @@ requires:                        # optional per-workflow deps; probed at run sta
 project-selection: current       # current (default) | prompt | any (see below)
 
 preflight:                       # optional — pin pre-flight answers (see below)
-  control-mode:   wave-sync      # prompt (default) | wave-sync | synchronous
+  control-mode:   wave-sync      # prompt (default) | wave-sync | synchronous | auto-advance
   worktree:       prompt         # prompt (default) | current | new
   rename_session: prompt         # prompt (default) | skip
 
@@ -155,8 +155,8 @@ steps:
 | `skill` | The `Skill` tool call returns without raising. | `Skill` errors or the invoked skill emits a fatal line. | Last message of the skill's reply. |
 | `prompt` | Subagent's final message matches `until:` regex (or, when `until:` is absent, single-shot success on return). | `max_iterations` hit without a match; subagent errors; timeout. | Named `outputs:` captured from the matching line's regex groups. |
 | `bash` | `success.exit_code` matches the actual exit code AND all `success.stdout_matches` / `success.stderr_matches` regexes pass. | Any condition fails; timeout. | stdout+stderr to the step's log file; last ~1KB in state. |
-| `approval` | User picks Approve (wave-sync), OR the run is in synchronous mode (auto-approved). | User picks Reject or cancels (wave-sync only — never auto-rejects). | The selection label, or `auto-approved (sync mode)`. |
-| `ask` | User picks the skip or confirm option (wave-sync), OR sync mode (skipped). | — (ask steps don't fail — they always record *some* value, possibly empty). | The chosen value; see "`ask` rendering shapes" below. |
+| `approval` | User picks Approve (wave-sync / auto-advance), OR the run is in synchronous mode (auto-approved). | User picks Reject or cancels (wave-sync / auto-advance only — never auto-rejects). | The selection label, or `auto-approved (sync mode)`. |
+| `ask` | User picks the skip or confirm option (wave-sync / auto-advance), OR sync mode (skipped). | — (ask steps don't fail — they always record *some* value, possibly empty). | The chosen value; see "`ask` rendering shapes" below. |
 | `interactive` | Conductor's main-thread execution of the step body emits a final line matching `until:`. | `max_iterations` doesn't apply — the conductor retries by re-reading the body. Failure surfaces when the conductor explicitly fails the step. | Named `outputs:` captured from the final line's regex groups, identical to `prompt`. |
 
 ### `prompt` vs `interactive`
@@ -368,13 +368,27 @@ logged.
      gates are auto-approved** — picking synchronous is itself the
      blanket approval. Each auto-approved gate writes a
      `[sync auto-approved]` line to its step log, so the decision
-     is auditable after the run.
+     is auditable after the run. In-step prompts are all suppressed:
+     `ask` steps record empty, `interactive` steps don't call
+     `AskUserQuestion`. Fully unattended.
+   - **Auto-advance** — run waves back-to-back with **no between-wave
+     menu** (like synchronous), but **still honor every in-step
+     prompt** (like wave-sync): `ask` steps render, approval gates use
+     `AskUserQuestion`, and `interactive` steps may prompt. The run
+     flows wave-to-wave on its own and stops only where a step
+     genuinely needs the user's input. Per-step chat output (9d/9e) is
+     shown, so it is not silent the way synchronous is — it just never
+     asks "continue to the next wave?".
 
    Pin `wave-sync` on workflows with `ask` steps, AskUserQuestion
-   inside prompt steps, or interactive approval gates — synchronous
-   mode would break them by auto-approving and skipping asks. Pin
-   `synchronous` on end-to-end automated workflows with no human
-   decision points.
+   inside prompt steps, or interactive approval gates when the runner
+   should also review progress between waves — synchronous mode would
+   break those steps by auto-approving and skipping asks. Pin
+   `auto-advance` on the same kind of workflow when its in-step
+   questions should fire but the runner should NOT be asked to start
+   each wave (e.g. `ticket-plan`, whose DAG is mostly one step per
+   wave). Pin `synchronous` on end-to-end automated workflows with no
+   human decision points.
 
 3. **Worktree (`preflight.worktree`):**
    - **Current tree** — run against the project path as-is.
@@ -395,8 +409,9 @@ safest but noisy for workflows where one of the three questions has
 a wrong-answer option. Example: `ticket-plan` has
 AskUserQuestion-driven prompt steps, so offering Synchronous
 at pre-flight is a footgun — picking it breaks the workflow before
-it starts. Pinning `control-mode: wave-sync` in the definition
-removes the question entirely. When every key is `prompt` (the
+it starts. Pinning `control-mode: auto-advance` in the definition
+removes the question entirely (and skips the between-wave menu its
+mostly-one-step-per-wave DAG would otherwise trigger). When every key is `prompt` (the
 default), omit the block — pre-0.42 workflow files didn't have it
 and they still behave the same.
 
@@ -525,11 +540,11 @@ Skipping:
   - ⊘ approve-merge (approval) — all-success not met: dep run-tests is failed
 ```
 
-Both modes produce this output — wave-sync adds the
-continue/pause/abort/modify menu after each wave; sync mode chains
-straight to the next wave. The one-line per step is a summary; the
-full output still lives in `logs/<step-id>.<step-run-ulid>.log`
-under the run directory.
+All modes produce this output — wave-sync adds the
+continue/pause/abort/modify menu after each wave; synchronous and
+auto-advance chain straight to the next wave. The one-line per step
+is a summary; the full output still lives in
+`logs/<step-id>.<step-run-ulid>.log` under the run directory.
 
 ## The user-control caveat
 
@@ -539,7 +554,11 @@ therefore occupies the conversation while it executes. **Wave-sync**
 is the closest practical approximation to "work alongside a running
 workflow": between waves you have the full session and can chat,
 steer, or abort. Synchronous mode trades that interactivity for
-less ceremony.
+less ceremony. **Auto-advance** sits between the two — it drops the
+between-wave menu like synchronous, but still stops at the
+workflow's own in-step prompts (asks, approvals, interactive
+questions), so the run pauses for real decisions without asking you
+to start each wave.
 
 **Synchronous mode is silent by design.** Between the "Run <id>
 started" line and the final summary, the only user-visible output

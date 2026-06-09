@@ -12,9 +12,13 @@ project-selection: current
 # question wizard), writes a PLAN-<ref>.md into the run directory, and
 # presents it for the user to review and comment. ONLY AFTER the plan is
 # settled does it ask the git / session SETUP questions — as one composite
-# questionnaire. Pinned to wave-sync because the review `ask`, the optional
-# refine, and the composite `setup` questionnaire all need AskUserQuestion
-# (synchronous mode would auto-skip them).
+# questionnaire. Pinned to auto-advance: the review `ask`, the optional
+# refine, `ensure-access`, the composite `setup` questionnaire, and the
+# closing `ask-implement` all need AskUserQuestion (synchronous mode would
+# auto-skip them), but the runner should NOT be asked to start each wave —
+# this DAG is mostly one step per wave, so wave-sync's between-wave menu
+# would interrupt after nearly every step. auto-advance keeps the in-step
+# prompts and drops the between-wave menu.
 #
 # rename_session: skip — the pre-flight rename prompt is wasted here: at
 # that point only the run ULID is known, not the <ticket-ref>_ticket-plan
@@ -24,7 +28,7 @@ project-selection: current
 # tracker MCP / CLI at run time and proposes install options when none is
 # found, rather than declaring a fixed tracker plugin up front.
 preflight:
-  control-mode:   wave-sync
+  control-mode:   auto-advance
   rename_session: skip
 
 inputs:

@@ -224,8 +224,11 @@ Run the same algorithm against the existing `state.yaml`:
 - Collect, score, log, update state (9e).
 - In wave-sync mode (state.control_mode), yield between waves with
   the 9g menu.
-- In synchronous mode, bundle the next `next-wave` call into the
-  same message as 9e's results.
+- In synchronous or auto-advance mode, skip 9g and bundle the next
+  `next-wave` call into the same message as 9e's results.
+  (auto-advance still honors in-step prompts — asks, approvals, and
+  AskUserQuestion inside interactive steps; only synchronous
+  suppresses them.)
 - On terminal state, write the final `update-run` and print the
   summary.
 

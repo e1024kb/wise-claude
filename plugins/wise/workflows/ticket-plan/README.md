@@ -86,6 +86,15 @@ bypassed and the plan is left for later. `finalize` depends on both
 `ask-implement` and `implement` with `trigger-rule: all-done`, so it
 closes the run either way, branching its message on the choice.
 
+The pre-flight `control-mode` is pinned to `auto-advance`: the
+workflow runs wave-to-wave on its own, with **no between-wave
+"continue?" menu**, and stops only for its own in-step questions
+(`ensure-access`, `review-comments`, `setup`, `ask-implement`). This
+DAG is mostly one step per wave, so wave-sync's between-wave menu
+would interrupt after nearly every step; auto-advance keeps the
+in-step prompts while dropping that menu. (synchronous mode is the
+wrong choice — it would auto-skip those prompts.)
+
 The pre-flight `rename_session` prompt is pinned to `skip` — at
 pre-flight all we have is the run ULID; the rename is folded into the
 `setup` questionnaire once the ticket ref is known.
