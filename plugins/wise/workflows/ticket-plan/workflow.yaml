@@ -12,9 +12,13 @@ project-selection: current
 # question wizard), writes a PLAN-<ref>.md into the run directory, and
 # presents it for the user to review and comment. ONLY AFTER the plan is
 # settled does it ask the git / session SETUP questions — as one composite
-# questionnaire. Pinned to wave-sync because the review `ask`, the optional
-# refine, and the composite `setup` questionnaire all need AskUserQuestion
-# (synchronous mode would auto-skip them).
+# questionnaire. Pinned to auto-advance: the review `ask`, the optional
+# refine, `ensure-access`, the composite `setup` questionnaire, and the
+# closing `ask-implement` all need AskUserQuestion (synchronous mode would
+# auto-skip them), but the runner should NOT be asked to start each wave —
+# this DAG is mostly one step per wave, so wave-sync's between-wave menu
+# would interrupt after nearly every step. auto-advance keeps the in-step
+# prompts and drops the between-wave menu.
 #
 # rename_session: skip — the pre-flight rename prompt is wasted here: at
 # that point only the run ULID is known, not the <ticket-ref>_ticket-plan
@@ -24,7 +28,7 @@ project-selection: current
 # tracker MCP / CLI at run time and proposes install options when none is
 # found, rather than declaring a fixed tracker plugin up front.
 preflight:
-  control-mode:   wave-sync
+  control-mode:   auto-advance
   rename_session: skip
 
 inputs:
@@ -338,6 +342,43 @@ steps:
     depends_on: [review-comments, refine-plan]
     trigger-rule: all-done
 
+  - id: ask-implement
+    type: ask
+    question: |
+      The plan at {{plan_path}} is ready and you're on branch
+      {{work_branch}}. Start implementing it now? Each task wave runs
+      its tasks in parallel, with one atomic commit per task (no push).
+      Skip to keep the plan and implement later.
+    header: "Implement"
+    output: implement_choice
+    skip_label: "Not now — save the plan for later"
+    confirm_label: "Yes — implement now"
+    confirm_value: "yes"
+    depends_on: [setup]
+
+  - id: implement
+    type: interactive
+    when: "implement_choice == 'yes'"
+    prompt: |
+      The user chose to implement the plan now. Read
+      ${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md
+      and follow it end to end on the current branch {{work_branch}},
+      with:
+        plan_path:    {{plan_path}}
+        worktree:     {{project.path}}
+        project.kind: {{project.kind}}
+      The plan's task waves are phase gates: dispatch each wave's tasks
+      to parallel fresh-context executor `Task` subagents, then simplify
+      + commit each task serially (one atomic commit per task). Never
+      push — the user opens the PR separately.
+
+      FINAL line MUST be exactly, on its own line:
+
+        IMPLEMENT: waves=<w> tasks=<t> done=<d> failed=<f>
+    until: 'IMPLEMENT: waves=(\d+) tasks=(\d+) done=(\d+) failed=(\d+)'
+    outputs: [impl_waves, impl_tasks, impl_done, impl_failed]
+    depends_on: [ask-implement]
+
   - id: finalize
     type: prompt
     prompt: |
@@ -347,11 +388,23 @@ steps:
         Branch:  {{work_branch}}
         Plan:    {{plan_path}}
 
-      Then tell the user their options:
-        — Implement now:  /wise-implement-plan-auto {{plan_path}}
-        — Save for later: the plan file persists in the run directory;
-          resume this session from /resume's picker.
+      Then branch on the user's implement choice (`{{implement_choice}}`):
 
-      For 3+ parallel tasks in a single wave, mention that
-      `/wise-implement-plan-auto` runs each wave's tasks in parallel.
-    depends_on: [setup]
+        • If it is `yes` — implementation already ran in the previous
+          step; its `IMPLEMENT: …` verdict (waves / tasks / done /
+          failed) is in the chat just above. Confirm the work landed as
+          per-task commits on `{{work_branch}}` (nothing pushed), then
+          point at the natural next steps:
+            — Review the branch:  /wise-code-review-auto
+            — Open a PR:          /wise-pr-create
+          If any task came back `failed`, tell the user to inspect those
+          commits before reviewing.
+
+        • Otherwise (the user skipped) — tell the user their options:
+            — Implement now:  /wise-implement-plan-auto {{plan_path}}
+            — Save for later: the plan file persists in the run
+              directory; resume this session from /resume's picker.
+          For 3+ parallel tasks in a single wave, mention that
+          `/wise-implement-plan-auto` runs each wave's tasks in parallel.
+    depends_on: [ask-implement, implement]
+    trigger-rule: all-done

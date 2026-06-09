@@ -171,30 +171,32 @@ workflow = {
 ### 3.3. Pre-flight pins (optional)
 
 Every workflow goes through three pre-flight questions at run
-start: control-mode (wave-sync vs synchronous), worktree (current
-tree vs new worktree), rename_session (rename the Claude Code
-session for /resume). A workflow author can **pin** any or all of those
-answers when one of them doesn't make sense for the workflow —
-e.g. a workflow with `ask` steps and interactive prompts needs
-wave-sync unconditionally, because synchronous mode would
-auto-approve gates and skip the asks. Pinned answers skip the
-corresponding AskUserQuestion at run start and are logged for the
-user.
+start: control-mode (wave-sync / synchronous / auto-advance),
+worktree (current tree vs new worktree), rename_session (rename the
+Claude Code session for /resume). A workflow author can **pin** any or
+all of those answers when one of them doesn't make sense for the
+workflow — e.g. a workflow with `ask` steps and interactive prompts
+needs wave-sync or auto-advance, because synchronous mode would
+auto-approve gates and skip the asks; pin `auto-advance` instead of
+`wave-sync` when those prompts should fire but the runner should NOT
+be asked to start each wave. Pinned answers skip the corresponding
+AskUserQuestion at run start and are logged for the user.
 
 For each of the three keys below, default to `Leave it to the
 runner (prompt)` — that's the current behaviour and the right
 answer when the workflow works fine in either mode.
 
 **3.3a. Control mode.** `AskUserQuestion`:
-- Question: `Should the runner be asked to pick wave-sync vs synchronous control mode, or pin one of them for this workflow?`
+- Question: `Should the runner pick the control mode at pre-flight, or pin one for this workflow?`
 - Header: `Control mode`
 - Options:
   - `Leave it to the runner (prompt)` — `Ask the runner at pre-flight (default).`
-  - `Pin wave-sync` — `Force wave-sync for this workflow. Pick this when the workflow has ask steps, AskUserQuestion inside prompt steps, or approval gates that need human input — sync mode would auto-approve and break them.`
-  - `Pin synchronous` — `Force synchronous for this workflow. Pick this when the workflow is end-to-end automated and has no steps that need human input.`
+  - `Pin wave-sync` — `Force wave-sync. Pick this when the workflow needs human input (ask steps, AskUserQuestion inside prompt/interactive steps, approval gates) AND the runner should review progress between waves.`
+  - `Pin auto-advance` — `Force auto-advance. Like wave-sync (in-step asks/approvals/interactive prompts still fire) but with no between-wave menu — the run flows wave-to-wave and stops only where a step needs input. Pick this when the workflow has its own questions but the runner should NOT be asked to start each wave.`
+  - `Pin synchronous` — `Force synchronous. Pick this when the workflow is end-to-end automated and has no steps that need human input.`
 
-If the user picks pin wave-sync or pin synchronous, save to
-`workflow["preflight"]["control-mode"]`.
+If the user picks pin wave-sync, pin auto-advance, or pin
+synchronous, save to `workflow["preflight"]["control-mode"]`.
 
 **3.3b. Worktree.** `AskUserQuestion`:
 - Question: `Should the runner be asked to pick a worktree, or pin one choice for this workflow?`

@@ -63,7 +63,10 @@ flowchart TD
     RC -->|comments| RF[refine-plan<br/>prompt — fold comments, rewrite plan]
     RC -->|accept| S
     RF --> S[setup<br/>interactive — composite questionnaire: ticket / branch / base / session, then act]
-    S --> FN[finalize<br/>prompt — branch + plan path + next-step]
+    S --> AI[ask-implement<br/>ask → implement_choice]
+    AI -->|yes| IM[implement<br/>interactive — run implement-plan.md: parallel executors, one commit/task]
+    AI -->|skip| FN
+    IM --> FN[finalize<br/>prompt — summary + next-step, branched on implement_choice]
 ```
 
 No setup questions fire before the plan: decisions are made
@@ -73,6 +76,24 @@ single `setup` questionnaire collect ticket / branch / base / session
 choices. `setup` depends on both `review-comments` and `refine-plan`
 with `trigger-rule: all-done`, so it runs whether or not `refine-plan`
 fired.
+
+After setup, `ask-implement` offers a yes/no opt-in to implement the
+plan right now. On **yes**, the conditional `implement` step runs the
+shared `implement-plan.md` procedure in-session — dispatching each task
+wave's tasks to parallel executor subagents and landing one atomic
+commit per task (nothing is pushed). On **skip**, `implement` is
+bypassed and the plan is left for later. `finalize` depends on both
+`ask-implement` and `implement` with `trigger-rule: all-done`, so it
+closes the run either way, branching its message on the choice.
+
+The pre-flight `control-mode` is pinned to `auto-advance`: the
+workflow runs wave-to-wave on its own, with **no between-wave
+"continue?" menu**, and stops only for its own in-step questions
+(`ensure-access`, `review-comments`, `setup`, `ask-implement`). This
+DAG is mostly one step per wave, so wave-sync's between-wave menu
+would interrupt after nearly every step; auto-advance keeps the
+in-step prompts while dropping that menu. (synchronous mode is the
+wrong choice — it would auto-skip those prompts.)
 
 The pre-flight `rename_session` prompt is pinned to `skip` — at
 pre-flight all we have is the run ULID; the rename is folded into the
@@ -98,7 +119,9 @@ until `setup`).
 | `review-comments` | `ask` | Free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. |
 | `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. |
 | `setup` | `interactive` | One composite questionnaire — ticket-ref confirm + branch (omitted when current branch already equals the target) + base + session rename — then acts (create/switch the branch, named exactly the ticket ref per `branch-naming.md`; print the `/rename` command). |
-| `finalize` | `prompt` | Closing summary: branch, plan path, and the `/wise-implement-plan-auto <plan_path>` next-step pointer. |
+| `ask-implement` | `ask` | Binary opt-in: start implementing the plan now, or skip to save it for later. Records `implement_choice`. |
+| `implement` | `interactive` | `when: implement_choice == 'yes'` — runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. |
+| `finalize` | `prompt` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-code-review-auto` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
 
 ## Inputs
 
@@ -116,6 +139,8 @@ until `setup`).
 | `plan_path` | `build-plan` | Absolute path to `PLAN-<ref>.md` in the run directory; surfaced in `present-plan` / `finalize` and consumable by `/wise-implement-plan-auto`. |
 | `user_comments` | `review-comments` | Drives `refine-plan` when non-empty. |
 | `work_branch` / `session_renamed` | `setup` | The branch the run ended on, and whether the session was renamed. |
+| `implement_choice` | `ask-implement` | `yes` when the user opted to implement now; gates the `implement` step and branches `finalize`. |
+| `impl_waves` / `impl_tasks` / `impl_done` / `impl_failed` | `implement` | Implementation tallies (set only when `implement` ran). |
 
 The plan file lives at `<run-dir>/plans/PLAN-<ref>.md` (beside
 `state.yaml`, off the project tree), so it persists with the run and

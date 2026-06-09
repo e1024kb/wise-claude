@@ -271,7 +271,7 @@ eval "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
 
 This sets three shell variables:
 
-- `CONTROL_MODE`   — `prompt` (default; ask §6a) | `wave-sync` | `synchronous`
+- `CONTROL_MODE`   — `prompt` (default; ask §6a) | `wave-sync` | `synchronous` | `auto-advance`
 - `WORKTREE`       — `prompt` (default; ask §6b) | `current` | `new`
 - `RENAME_SESSION` — `prompt` (default; ask §5h) | `skip`
 
@@ -331,6 +331,7 @@ appear.
 - **`CONTROL_MODE=prompt`** → run the prompt below.
 - **`CONTROL_MODE=wave-sync`** → skip; set the answer to `wave-sync`.
 - **`CONTROL_MODE=synchronous`** → skip; set the answer to `synchronous`.
+- **`CONTROL_MODE=auto-advance`** → skip; set the answer to `auto-advance`.
 
 Prompt:
 
@@ -338,6 +339,7 @@ Prompt:
 - Options:
   - `Wave-sync (recommended)` — `Run one wave of steps, pause for me between waves. I can ask questions, steer, or abort mid-flight. Approval gates use AskUserQuestion.`
   - `Synchronous` — `Run end-to-end without stopping. Approval gates are auto-approved (picking this IS the approval). Step output goes to per-step log files under the run dir, not the chat — tail state.yaml if you want to watch progress.`
+  - `Auto-advance` — `Run waves back-to-back without a between-wave menu, but still prompt at steps that need input (asks, approvals, AskUserQuestion inside interactive steps). Best when the workflow's only stops should be its own questions.`
 
 **6b. Worktree (skip if pinned):**
 
@@ -693,6 +695,10 @@ Code's tool-use docs). Per step type:
     that genuinely need user interaction; stay on `prompt` for
     anything that can complete unattended.
 
+  **In `wave-sync` or `auto-advance` mode** an interactive step may
+  call `AskUserQuestion` freely — that's the point of `interactive`
+  (e.g. `ticket-plan`'s `setup` questionnaire).
+
   **In synchronous mode** an interactive step still runs inline and
   captures its `until:` / `outputs:` exactly as above — `interactive`
   is chosen for main-thread tool access, not for prompting. It just
@@ -717,7 +723,7 @@ Code's tool-use docs). Per step type:
 
 - `type: approval`:
 
-  **In wave-sync mode** — use `AskUserQuestion`:
+  **In wave-sync or auto-advance mode** — use `AskUserQuestion`:
   ```
   AskUserQuestion({
     question: "<def.message>",
@@ -737,8 +743,9 @@ Code's tool-use docs). Per step type:
   NOT emit `AskUserQuestion` in sync mode — it would stall the run
   and defeat the point of picking synchronous. If the workflow
   genuinely needs a human gate, the user should have picked
-  wave-sync (or the gate should be upgraded to a `type: prompt`
-  step that encodes the check as a programmable condition).
+  wave-sync or auto-advance (or the gate should be upgraded to a
+  `type: prompt` step that encodes the check as a programmable
+  condition).
 
 - `type: ask`:
 
@@ -812,11 +819,14 @@ Code's tool-use docs). Per step type:
     "$STATE" "<step.id>" status=completed completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   ```
 
+  **In `wave-sync` or `auto-advance` mode** — render the prompt
+  normally (both shapes), exactly as above.
+
   **In synchronous mode** — no prompt. The step records an empty
   string for `<def.output>` (both shapes) and transitions straight
   to `completed`, with a one-line `[sync skipped ask]` note in its
   log. If the workflow genuinely needs a user answer, the user
-  should pick wave-sync at pre-flight.
+  should pick wave-sync or auto-advance at pre-flight.
 
 **9e. Collect and score.**
 
@@ -926,6 +936,10 @@ call — you don't need a separate write.
 
 **9g. Yield (wave-sync only).**
 
+The between-wave user-control menu fires in **`wave-sync` only**.
+`synchronous` and `auto-advance` both skip 9g and chain straight to
+the next wave (see the skip branch below).
+
 If `state.control_mode == "wave-sync"`:
 
 9e already printed each step's outcome in-chat, so don't re-summarise
@@ -950,18 +964,26 @@ the next `next-wave` call will surface — cheap to predict from
   you cannot interpret the instruction safely, surface what you'd
   do and ask again.
 
-If `state.control_mode == "synchronous"`, skip 9g entirely. Don't
+If `state.control_mode == "synchronous"` **or
+`state.control_mode == "auto-advance"`**, skip 9g entirely. Don't
 emit a "proceeding" line or duplicate of 9e's results — but DO
 bundle your next `next-wave` Bash call into the **same message** as
 9e's results and bookkeeping. That single message is the heartbeat
-of sync mode: it reports what the wave did AND kicks off the next
+of these modes: it reports what the wave did AND kicks off the next
 wave's probe, all while keeping the turn open.
 
-In other words, sync mode's chat has the same per-step reporting as
+In other words, both these modes have the same per-step reporting as
 wave-sync (thanks to 9d's announcements and 9e's outcome lines);
-what it skips is only the between-waves user-control menu (9g's
-`AskUserQuestion`). Sync mode never has a moment where prose is the
+what they skip is only the between-waves user-control menu (9g's
+`AskUserQuestion`). They never have a moment where prose is the
 last thing in the message — the next tool call is always there.
+
+The difference between the two: `synchronous` also suppresses every
+in-step prompt (approvals auto-approve, asks record empty,
+interactive steps don't call `AskUserQuestion`), so it runs fully
+unattended. `auto-advance` keeps all those in-step prompts — it only
+drops the between-wave menu, so the run still stops wherever a step
+genuinely needs the user's input.
 
 ### 11. Finalise
 
@@ -1001,7 +1023,8 @@ Logs:   <path to logs dir>.
   name it when the summary can't fit.
 - Every message in the main loop **must end with a tool call** — the
   full turn-continuity rule is §10. A trailing text-only message stalls
-  the run, especially in synchronous mode where there is no
+  the run, especially across a between-wave transition in synchronous
+  or auto-advance mode, where 9g is skipped so there is no
   `AskUserQuestion` to prompt the user back in.
 - On `Modify`, changes are ephemeral: apply them in state.yaml if
   persistent, but never rewrite the definition YAML (the user's

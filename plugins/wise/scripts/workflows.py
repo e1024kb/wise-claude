@@ -337,7 +337,7 @@ def cmd_start_run(state_path: str, ctx_json: str) -> int:
 
     `ctx_json` carries the nested pre-flight fields:
 
-        {"control_mode": "wave-sync" | "synchronous",
+        {"control_mode": "wave-sync" | "synchronous" | "auto-advance",
          "worktree":     null | {"path": "...", "branch": "...", "created_by_ws": true},
          "project":      null | {"path": "...", "name": "...", "kind": "..."},
          "inputs":       {"<name>": "<value>", ...}}
@@ -409,7 +409,7 @@ def cmd_runs_root() -> int:
 # conductor asks the user via AskUserQuestion. Any other listed value
 # pins the answer and skips the prompt entirely.
 PREFLIGHT_KEYS = {
-    "control-mode":   {"prompt", "wave-sync", "synchronous"},
+    "control-mode":   {"prompt", "wave-sync", "synchronous", "auto-advance"},
     "worktree":       {"prompt", "current", "new"},
     "rename_session": {"prompt", "skip"},
 }
@@ -421,7 +421,7 @@ def cmd_get_preflight(def_path: str) -> int:
     Always emits all three keys so the conductor can `source` the
     output without branching on presence:
 
-        CONTROL_MODE=<prompt|wave-sync|synchronous>
+        CONTROL_MODE=<prompt|wave-sync|synchronous|auto-advance>
         WORKTREE=<prompt|current|new>
         RENAME_SESSION=<prompt|skip>
 
