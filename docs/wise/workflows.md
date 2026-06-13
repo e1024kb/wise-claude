@@ -98,6 +98,9 @@ requires:                        # optional per-workflow deps; probed at run sta
 
 project-selection: current       # current (default) | prompt | any (see below)
 
+agents: auto                     # optional — off (default) | auto. Default agent
+                                 # policy for prompt steps (see Agent roster below).
+
 preflight:                       # optional — pin pre-flight answers (see below)
   control-mode:   wave-sync      # prompt (default) | wave-sync | synchronous | auto-advance
   worktree:       prompt         # prompt (default) | current | new
@@ -119,6 +122,10 @@ steps:
     until: "^(patch|minor|major)$"
     max_iterations: 3
     outputs: [release_kind]
+    agent: architect             # optional (prompt only) — force a roster role,
+                                 #   or `auto` / `off`. See Agent roster below.
+    model: opus                  # optional (prompt only) — inherit | opus | sonnet | haiku | fable
+    effort: high                 # optional (prompt only) — low | medium | high | xhigh | max
     depends_on: [list-workflows]
 
   - id: run-tests
@@ -285,6 +292,154 @@ project tree — e.g. `{{run.dir}}/plans/PLAN-<ref>.md`. No expression
 evaluation beyond literal replacement. For conditional execution, use
 the step-level `when:` field with a trivial comparison:
 `when: "release_kind == 'patch'"`.
+
+## Agents, model and effort
+
+`wise` ships an **SDLC agent roster** — a set of role subagents
+(`wise:architect`, `wise:software-engineer`, `wise:security-engineer`,
+`wise:code-reviewer`, …) under `plugins/wise/agents/`, catalogued in
+[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md). A `prompt`
+step can be dispatched to one of them instead of the generic
+`general-purpose` subagent, and can pin a model and a reasoning effort.
+
+**These fields apply to `prompt` steps only.** An `interactive`
+step runs inline in the conductor (it *is* the conductor, so it can't
+become a subagent or switch model mid-conversation), and a `skill` step
+runs under the invoked skill's own frontmatter. The fields are ignored
+on every other step type. **A step that pins none of them inherits the
+parent session's model + effort** — the harness setup at run time.
+
+### Workflow-level policy: `agents:`
+
+| Value | Effect |
+|---|---|
+| `off` (default) | `prompt` steps run as a plain `general-purpose` subagent unless the step sets its own `agent:`. Matches pre-roster behaviour. |
+| `auto` | every `prompt` step with no explicit `agent:` is routed to the best-fit roster role (the conductor picks). |
+
+### Step-level: `agent:`
+
+Set on a `prompt` step; overrides the workflow policy for that step. It takes
+either a **scalar** (one role or a policy keyword) or a **list** (a team of
+roles dispatched together).
+
+**Scalar:**
+
+| Value | Effect |
+|---|---|
+| `<role>` (e.g. `architect`) | force this role → dispatched as `subagent_type: wise:<role>`. |
+| `auto` | the conductor reads the roster (`workflows.py list-agents`) and routes to the role whose description best matches the step's intent + tool needs; falls back to `general-purpose` when nothing fits. |
+| `off` | force the plain `general-purpose` subagent. (A YAML 1.1 boolean — both `agent: off` and `agent: "off"` work.) |
+| *(omitted)* | inherit the workflow's `agents:` policy. |
+
+**List — a team.** When `agent:` is a list, the step is worked by **several
+roster roles at once** and the conductor **synthesizes** their outputs into the
+step's single result. Each item is a bare role name or an object with
+per-member overrides:
+
+| Member field | Effect |
+|---|---|
+| `role` (required) | the roster role → `wise:<role>`. A bare string item is shorthand for `{role: <string>}`. |
+| `lead` | `true` on **at most one** member → it runs *after* the peers, sees their drafts, and proposes an integrated recommendation before the conductor's final synthesis. Zero leads = equal peers, synthesized directly. |
+| `model` | per-member model override; omitted → inherits the step-level `model:`. |
+| `effort` | per-member effort override; omitted → inherits the step-level `effort:`. |
+
+`auto` / `off` are policy keywords — valid only as a scalar, **not** as team
+members. A team runs **in-conversation** (parallel `Task` subagents under the
+subscription, then a conductor synthesis on the main thread — no extra API
+billing). A member's `until:` is ignored; the contract applies to the
+synthesized result. The step is **atomic** — a resume mid-team re-runs it
+whole (members are idempotent producers), so no extra run state is kept.
+
+### Step-level: `model:`
+
+`inherit` (default) | `opus` | `sonnet` | `haiku` | `fable`. Passed as
+the Task per-call model override — the real, harness-level way to run a
+step's subagent on a specific model. It runs **in-conversation** under the
+active subscription (no extra API billing; there is no subprocess/headless
+backend). Resolution order Claude Code applies: env
+`CLAUDE_CODE_SUBAGENT_MODEL` > this per-call `model:` > the roster agent's
+own `model:` frontmatter > the session model. This is the primary per-step
+knob — see [Model availability and fallback](#model-availability-and-fallback).
+
+### Step-level: `effort:`
+
+`low` | `medium` | `high` | `xhigh` | `max`. Claude Code's in-conversation
+`Task` tool has **no per-call effort parameter**, so `effort:` is conveyed
+as a **prompt directive only** — the conductor appends a one-line nudge
+(*"Reason at high effort — think carefully, weigh alternatives."*), and
+the targeted `wise:<role>` agent's frontmatter `effort:` is the standing
+baseline. It is **best-effort and may be ignored** by the model/harness
+today — the field is forward-looking (Claude-Code-first; a future model
+may act on it at a lower level). When the effort knob must be real, pick a
+roster agent whose default effort already matches. The directive uses the
+**resolved** effort, clamped to what the model supports (`xhigh` on a
+Sonnet step → `high`; Haiku has no effort control so it is dropped) — see
+[Model availability and fallback](#model-availability-and-fallback).
+
+### Model availability and fallback
+
+Before dispatch the conductor resolves the pinned model/effort via
+`workflows.py resolve-model`:
+
+- A **known-retired / deprecated** full id (e.g.
+  `claude-opus-4-1-20250805`) is swapped for its maintained alias
+  (`opus`), and the substitution `reason` is shown in the step's outcome
+  line + log.
+- **Effort is clamped** to the resolved model's ceiling (a model that
+  lacks `xhigh`/`max` steps down; a model with no effort control drops it).
+- On a **live** "model unavailable" failure, the step retries once down a
+  tier chain (`opus → sonnet → haiku`) before failing.
+
+**Prefer aliases** (`opus`/`sonnet`/`haiku`/`fable`) in workflows — they
+auto-resolve to a maintained model and rarely retire, so they sidestep
+the fallback path entirely. The durable availability check is Anthropic's
+`GET /v1/models` (it also reports each model's supported effort levels),
+but it needs an API key the subscription-auth conductor may lack, so the
+shipped path uses a static retired-id table plus the live error-driven
+retry.
+
+```yaml
+agents: auto                 # workflow default
+
+steps:
+  - id: design
+    type: prompt
+    agent: architect         # force the role; uses its effort: high baseline
+    model: opus              # alias — auto-resolves, rarely retires (the real knob)
+    effort: high             # prompt-directive nudge (best-effort)
+    prompt: |
+      Design the …
+  - id: research
+    type: prompt
+    agent: auto              # conductor picks the best-fit role
+    prompt: |                # model+effort inherited from the session
+      Investigate …
+  - id: raw
+    type: prompt
+    agent: off               # plain general-purpose subagent
+    prompt: |
+      …
+  - id: review               # a TEAM — three roles at once, conductor-synthesized
+    type: prompt
+    model: sonnet            # shared default for members that don't override
+    effort: high
+    agent:
+      - role: architect
+        lead: true           # integrates the panel before final synthesis
+        model: opus          # per-member override
+      - role: security-engineer
+        effort: high
+      - qa-engineer          # bare string → inherits step model/effort
+    until: 'VERDICT: (ship|block)'   # governs the synthesized result, not members
+    prompt: |
+      Review the proposed change for …
+```
+
+The roster agents are real Claude Code plugin subagents — after install
+they appear in `/agents` and are directly invocable as
+`subagent_type: wise:<name>`. See
+[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md) for the full
+list, each role's default effort, and how `auto` chooses.
 
 ## Project selection
 

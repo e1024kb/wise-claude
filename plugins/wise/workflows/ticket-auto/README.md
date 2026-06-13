@@ -89,11 +89,19 @@ and the CI-fix cap defaults to 10 (overridable from `config_prompt`).
 
 | Step | Type | Purpose |
 |---|---|---|
-| `assemble-team` | `prompt` | `TeamCreate`: one Lead Architect (decision-maker) + three Senior Engineers (20+ yrs, polyglot). |
+| `assemble-team` | `prompt` | `TeamCreate`: one Lead Architect (decision-maker) + three Senior Engineers (20+ yrs, polyglot). `agent: off` — needs `TeamCreate`, so it stays `general-purpose`. |
 | `split-tickets` | `prompt` | Parse `ticket_ids` into a clean list; emit count + semicolon-joined list. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. |
 | `process-tickets` | `interactive` | The orchestrator — loops the ticket list, running the full plan→implement→PR→watch pipeline per ticket in its own worktree. |
-| `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human; lists worktree-cleanup commands. |
+| `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human; lists worktree-cleanup commands. Dispatched to `wise:technical-writer`. |
+
+The workflow sets `agents: auto`, but most of its work runs inside the
+`process-tickets` fragment, which dispatches its own Lead-Architect /
+Senior-Engineer subagents (conceptually `wise:architect` /
+`wise:software-engineer`). At the step level only `report` forces a role
+(`wise:technical-writer`); `assemble-team` opts out (`agent: off`)
+because it needs `TeamCreate`. See
+[Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Per-ticket pipeline (inside `process-tickets`)
 

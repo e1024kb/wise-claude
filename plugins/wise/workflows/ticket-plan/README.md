@@ -111,17 +111,26 @@ until `setup`).
 | `detect-context` | `prompt` | Identifies the tracker from the input URL/id (host map, WebSearch fallback) and reads the current git branch; emits tracker slug + bare ticket ref + current branch. |
 | `ensure-access` | `interactive` | Probes for a tracker MCP / CLI; when none is found, web-searches for options and proposes installs (or a manual-paste fallback) via AskUserQuestion. |
 | `fetch-ticket` | `prompt` | Fetches the ticket via the established access, normalises it into a tracker-agnostic shape, and classifies it as frontend / backend / fullstack / other. |
-| `analyze-design` | `prompt` | Design-spec summary (layout / states / responsive) from any design links. Emits `NO-DESIGN` for backend tickets or when there are none. |
+| `analyze-design` | `prompt` | Design-spec summary (layout / states / responsive) from any design links. Emits `NO-DESIGN` for backend tickets or when there are none. Dispatched to `wise:ux-designer`. |
 | `analyze-related` | `prompt` | Fetches linked / parent tickets + reference docs. Emits `NO-RELATED` when empty. |
-| `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. |
-| `build-plan` | `prompt` | Lead-Architect step: consolidates the three analyses, makes every decision autonomously (with rationale), and writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. |
+| `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. Dispatched to `wise:software-engineer`. |
+| `build-plan` | `prompt` | Lead-Architect step: consolidates the three analyses, makes every decision autonomously (with rationale), and writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Dispatched to `wise:architect` at `effort: high`. |
 | `present-plan` | `prompt` | Informational — surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
 | `review-comments` | `ask` | Free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. |
-| `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. |
+| `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. Dispatched to `wise:architect`. |
 | `setup` | `interactive` | One composite questionnaire — ticket-ref confirm + branch (omitted when current branch already equals the target) + base + session rename — then acts (create/switch the branch, named exactly the ticket ref per `branch-naming.md`; print the `/rename` command). |
 | `ask-implement` | `ask` | Binary opt-in: start implementing the plan now, or skip to save it for later. Records `implement_choice`. |
 | `implement` | `interactive` | `when: implement_choice == 'yes'` — runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. |
 | `finalize` | `prompt` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-code-review-auto` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
+
+The workflow sets `agents: auto`. The analytical / authoring `prompt`
+steps force a roster role (`analyze-design` → `wise:ux-designer`,
+`codebase-audit` → `wise:software-engineer`, `build-plan` / `refine-plan`
+→ `wise:architect`). The tracker-fetch and git steps (`detect-context`,
+`fetch-ticket`, `analyze-related`) carry no `agent:` and stay on
+`general-purpose` via the conductor's tool-aware auto-selection — they
+need tracker-MCP / git tools no scoped role carries. See
+[Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Inputs
 

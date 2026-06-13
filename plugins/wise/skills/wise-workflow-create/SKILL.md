@@ -146,6 +146,7 @@ workflow = {
   "author": None,
   "requires": [],
   "project-selection": None,
+  "agents": None,                  # set by §3.2 only when policy is `auto`
   "preflight": {},                 # filled by §3.3 if any key is pinned
   "inputs": [],
   "steps": [],
@@ -167,6 +168,25 @@ workflow = {
   - `prompt` — `Auto-detect, then ask the user at run start to confirm or override the project path/name/kind.`
   - `any` — `The workflow does not care about projects; no selection made.`
   Save as `workflow["project-selection"]`.
+
+### 3.2. Agents policy (optional)
+
+`wise` ships an SDLC agent roster (`wise:architect`, `wise:software-engineer`,
+`wise:code-reviewer`, … — see `${CLAUDE_PLUGIN_ROOT}/AGENTS.md`). A
+workflow's `prompt` steps can be dispatched to a roster agent instead of
+the generic `general-purpose` subagent. The workflow-level `agents:`
+policy sets the default for every `prompt` step that doesn't pin its own
+`agent:`. `AskUserQuestion`:
+
+- Question: `Should this workflow's prompt steps default to the wise agent roster?`
+- Header: `Agents`
+- Options:
+  - `Leave off (default)` — `Prompt steps run as a plain general-purpose subagent unless a step sets its own agent:. Matches pre-roster behaviour.`
+  - `Auto-select per step` — `Each prompt step with no explicit agent: is routed to the best-fit roster role (the conductor picks). Individual steps can still override or opt out.`
+
+Save `workflow["agents"] = "auto"` only when the user picks auto;
+otherwise leave it `None` (the §6 render omits it, matching pre-roster
+shape).
 
 ### 3.3. Pre-flight pins (optional)
 
@@ -311,12 +331,62 @@ extend per type:
     and for a `max_iterations` integer (default 3). Store both.
   - Ask whether the step captures named outputs. If yes, ask for a
     comma-separated list of names. Store as `step["outputs"]`.
+  - **Agent (optional).** `AskUserQuestion`: `Which subagent runs this
+    prompt step?` Header `Agent`. Options:
+    - `Inherit workflow policy (default)` — omit `step["agent"]`; the
+      step follows the workflow-level `agents:` policy (§3.2).
+    - `Auto-select a role` — store `step["agent"] = "auto"`.
+    - `Force a specific role` — list the roster (run
+      `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" list-agents`
+      and offer the `name`s) and store the picked role as
+      `step["agent"]`.
+    - `Build a team (multiple roles)` — the step is worked by several
+      roster roles at once and the conductor synthesizes one result. Run
+      the **team builder** below and store the resulting list as
+      `step["agent"]`.
+    - `general-purpose (no persona)` — store `step["agent"] = "off"`.
 
-- **interactive:** same fields as `prompt` (prompt body, optional
-  `until:` + `max_iterations`, optional `outputs:`). The only
-  difference is execution — an interactive step runs inline in the
-  conductor instead of an isolated subagent, so it can call
-  `AskUserQuestion`. Collect the same fields.
+    **Team builder** (only when `Build a team` is picked). Roster from
+    `list-agents`.
+    1. `AskUserQuestion` (multiSelect): `Which roles are on this step's
+       team?` — offer the roster `name`s; require ≥2.
+    2. `AskUserQuestion`: `Which role leads (integrates the others before
+       the conductor's synthesis)?` — the chosen roles **plus** `No lead
+       (equal peers)`.
+    3. `AskUserQuestion`: `Per-member model/effort, or shared step-level?`
+       Options: `Shared (set once for the whole step)` → ask the Model and
+       Effort questions below **once** and store them as the step-level
+       `step["model"]`/`step["effort"]`, and write each team member as a
+       bare role-name string; `Per member` → for each role ask its own
+       Model + Effort and write that member as
+       `{role: <name>, model?: …, effort?: …}` (omit a knob when left at
+       default). Either way, mark the lead with `lead: true` (this forces
+       the object form for the lead).
+    Store the assembled list (bare strings and/or
+    `{role, lead?, model?, effort?}` objects) as `step["agent"]`. When the
+    team uses shared knobs, **skip** the standalone Model/Effort questions
+    below (already collected); otherwise still ask them as the step-level
+    fallback for any bare-string member.
+  - **Model (optional).** `AskUserQuestion`: `Pin a model for this step?`
+    Header `Model`. Options: `Inherit session (default)` (omit
+    `step["model"]`), `opus`, `sonnet`, `haiku` — store the alias as
+    `step["model"]` when not default. (`fable`/`inherit` accepted too
+    via Other.)
+  - **Effort (optional).** `AskUserQuestion`: `Pin reasoning effort for
+    this step?` Header `Effort`. Options: `Inherit (default)` (omit
+    `step["effort"]`), `low`, `high` — and `medium`/`xhigh`/`max` via
+    Other. Store as `step["effort"]` when not default. (Conveyed as a
+    prompt directive only — best-effort, may be ignored by the model
+    today; the real per-step knob is `model:`. See
+    `docs/wise/workflows.md`.)
+
+- **interactive:** same `prompt` body + optional `until:` +
+  `max_iterations` + `outputs:` fields. The difference is execution — an
+  interactive step runs inline in the conductor instead of an isolated
+  subagent, so it can call `AskUserQuestion`. Collect those fields, but
+  **do not** ask the Agent / Model questions: an interactive step is the
+  conductor itself, so it can't become a subagent or switch model
+  mid-conversation. (`agent:` / `model:` are `prompt`-only.)
 
 - **bash:**
   - Ask for the command (free text). Templates allowed. Store as
@@ -398,15 +468,17 @@ workflow["requires"] = [
 Render the YAML in your working memory as a string — make sure:
 
 - Top-level keys appear in the order:
-  `version, name, description, author, requires, project-selection, preflight, inputs, steps`.
+  `version, name, description, author, requires, project-selection, agents, preflight, inputs, steps`.
 - Keys that are `None` / empty are omitted (don't emit
-  `author: null`, `requires: []`, or `preflight: {}` when empty —
-  the `preflight:` block in particular is skipped entirely when no
-  key was pinned in §3.3, so the produced YAML matches pre-0.42
-  shape exactly for the common "leave everything to the runner"
-  case).
+  `author: null`, `requires: []`, `agents: null`, or `preflight: {}`
+  when empty — the `agents:` line is dropped unless §3.2 set `auto`, and
+  the `preflight:` block is skipped entirely when no key was pinned in
+  §3.3, so the produced YAML matches pre-roster / pre-0.42 shape exactly
+  for the common "leave everything to the runner" case).
 - Step keys appear in the order:
-  `id, type, <type-specific>, depends_on, trigger-rule`.
+  `id, type, <type-specific>, agent, model, effort, depends_on, trigger-rule`
+  (`agent` / `model` / `effort` appear only on `prompt` steps that set
+  them).
 
 Show the rendered YAML to the user in a code block and
 `AskUserQuestion`:

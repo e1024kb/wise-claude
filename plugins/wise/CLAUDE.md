@@ -89,8 +89,19 @@ rather than being typed as a flat command:
 
 Each ships its own `agents/` and `references/` files *inside its
 skill directory* (the skill spawns those agents via `Task` and reads
-the reference templates) — not to be confused with a plugin-level
-`agents/` directory, which `wise` does not have.
+the reference templates). These skill-local agents are distinct from the
+**plugin-level agent roster** under `agents/` (see below) — the
+skill-local ones are private to one skill; the roster is shared across
+every workflow.
+
+The plugin also ships a **plugin-level `agents/` roster** — a set of
+SDLC role subagents (`wise:ceo`, `wise:cto`, `wise:architect`,
+`wise:software-engineer`, `wise:qa-engineer`, `wise:security-engineer`,
+`wise:devops-engineer`, `wise:sre`, `wise:code-reviewer`, …), catalogued
+in `AGENTS.md`. They are real Claude Code plugin subagents (invocable as
+`subagent_type: wise:<name>`) that the workflow engine dispatches
+`prompt` steps to via the step-level `agent:` field and the
+workflow-level `agents:` policy.
 
 ---
 
@@ -103,7 +114,13 @@ plugins/wise/
 ├── hooks/                          # the ONE sanctioned hook (see CONTRIBUTING §2.4)
 │   ├── hooks.json                  # auto-discovered; registers the SessionEnd hook
 │   └── session-end-ingest.sh       # SessionEnd → insights.py ingest (stdlib-only, exit 0, no LLM)
+├── agents/                         # plugin-level SDLC agent roster (auto-discovered; wise:<name>)
+│   ├── ceo.md  cto.md  product-manager.md  engineering-manager.md
+│   ├── architect.md  software-engineer.md  qa-engineer.md
+│   ├── security-engineer.md  devops-engineer.md  sre.md
+│   └── ux-designer.md  technical-writer.md  code-reviewer.md
 ├── CLAUDE.md                       # this file (invariants)
+├── AGENTS.md                       # catalog/index of the plugin-level agent roster
 ├── README.md                       # slim overview + links into /docs/wise/*
 ├── LICENSE
 ├── .gitignore                      # keeps .wise-init-registry.yaml out of source control
@@ -165,9 +182,14 @@ plugins/wise/
     └── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
 ```
 
-No `commands/` or `agents/` directories are present, and they must not
-be added without the discussion called for in `CONTRIBUTING.md`
-[§2](../../CONTRIBUTING.md#2-conventions-that-apply-to-every-plugin). A
+No `commands/` directory is present, and one must not be added without
+the discussion called for in `CONTRIBUTING.md`
+[§2](../../CONTRIBUTING.md#2-conventions-that-apply-to-every-plugin). An
+`agents/` directory **IS** present — the plugin-level SDLC role roster
+(`AGENTS.md` + `agents/*.md`), auto-discovered by Claude Code and
+addressable as `subagent_type: wise:<name>`. It is a deliberate part of
+the plugin's design (the workflow engine dispatches `prompt` steps to
+it); adding or editing a role follows the procedure in `AGENTS.md`. A
 `hooks/` directory IS present, holding **exactly one** sanctioned hook —
 the SessionEnd insights-ingest hook (`hooks/session-end-ingest.sh` +
 `hooks/hooks.json`). It is the single documented exception to the
@@ -269,6 +291,39 @@ one-liners below are the rule, not the argument for it.
   conductor / resume, the wizards, the PRD/TRD architects) omit both
   and inherit the session model — `effort: low` would hurt them. Set
   the knobs to match the skill's cognitive load.
+- **The agent roster is plugin-level; workflow agent binding is
+  `prompt`-only.** The `agents/*.md` roster files are real Claude Code
+  plugin subagents — frontmatter is limited to `name` / `description` /
+  `tools` / `model` / `effort` / `color`; plugin subagents **ignore**
+  `hooks` / `mcpServers` / `permissionMode`, so never add those. Roster
+  `model:` is `inherit` (they follow the session or a step override);
+  `effort:` is the role's default reasoning level. In workflows the
+  `agent:` / `model:` / `effort:` step fields and the workflow-level
+  `agents:` policy bind ONLY to `type: prompt` steps — `interactive`
+  steps run inline in the conductor (its own model) and `skill` steps run
+  under the invoked skill's frontmatter. `agent:` is **scalar or a list**:
+  a list is a **team** (items = bare role or `{role, lead?, model?, effort?}`)
+  dispatched as parallel `wise:<role>` subagents, an optional single `lead`
+  integrating peers' drafts, then **conductor-synthesized** into one result.
+  The conductor normalizes `agent:` via `workflows.py resolve-team` (per-member
+  model resolution + role/lead validation); a team step stays **atomic** so a
+  mid-team resume re-runs it whole — no new run state. **All step execution is
+  in-conversation** (`Task` subagents, subscription-covered — there is NO
+  subprocess/headless backend; a headless `claude -p` would bill as
+  separate API usage outside the subscription, so it is off-limits for
+  step execution). `model:` is a native Task per-call override (the real
+  per-step knob); `effort:` is NOT a native per-call knob in-conversation,
+  so it is conveyed as a prompt directive only (best-effort, may be
+  ignored — forward-looking). The conductor resolves the model through
+  `workflows.py resolve-model` first (retired-id substitution + effort
+  clamp + tier fallback + user-facing reason). Keep `AGENTS.md`'s catalog
+  table in sync with `agents/*.md`, the same way workflow READMEs stay in
+  sync with YAML.
+- **The roster is canonical; never hand-maintain a divergent copy.**
+  `agents/*.md` is the single source. The repo-root `AGENTS.md` and
+  `plugins/wise/AGENTS.md` document it as project-*instructions* (not
+  loadable registries); their roster tables mirror `agents/*.md` and are
+  kept in sync the same way workflow READMEs track their YAML.
 - **Cross-skill shared prose lives in `plugins/wise/references/`.** A
   rule or routine read by more than one skill — the Conventional-Commits
   `subject-drafting.md` (read by the commit routine, `wise-commit-message`,

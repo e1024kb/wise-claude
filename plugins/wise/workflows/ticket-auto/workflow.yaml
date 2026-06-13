@@ -11,6 +11,15 @@ author: e1024kb
 
 project-selection: current
 
+# Default prompt steps to the wise SDLC agent roster. Most of this
+# workflow's real work (plan / implement / review / fix) happens inside
+# the `process-tickets` interactive fragment, which dispatches its own
+# Lead-Architect / Senior-Engineer subagents — those map conceptually to
+# wise:architect and wise:software-engineer. At the step level only
+# `report` forces a role (wise:technical-writer); `assemble-team` opts
+# out because it needs `TeamCreate`, a tool no scoped roster role carries.
+agents: auto
+
 # ticket-auto is fully autonomous: it never asks the user for consent,
 # permission, or a decision. Every choice the interactive ticket-plan
 # flow delegates to the user is made here by the Lead
@@ -96,6 +105,7 @@ steps:
 
       Reply with a one-line confirmation naming the team and its four
       members.
+    agent: off                  # needs TeamCreate — keep on general-purpose
     depends_on: []
 
   - id: split-tickets
@@ -190,4 +200,5 @@ steps:
       say why. List the
       `git worktree remove <path>` command for each ticket worktree so
       the operator can clean up when done.
+    agent: technical-writer
     depends_on: [process-tickets]

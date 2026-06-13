@@ -6,6 +6,15 @@ author: e1024kb
 
 project-selection: current
 
+# Dispatch prompt steps to the wise SDLC agent roster by default. The
+# analytical / authoring steps below force a specific role (ux-designer
+# for the design pass, software-engineer for the codebase audit,
+# architect for the plan build / refine). The tracker-fetch and git
+# steps carry no `agent:`; the conductor's tool-aware auto-selection
+# keeps them on general-purpose because they need tracker-MCP / git
+# tools no scoped role carries.
+agents: auto
+
 # ticket-plan investigates a ticket with a parallel research wave, then
 # the conductor CONSOLIDATES the findings and makes the scope / approach /
 # component / design / testing decisions AUTONOMOUSLY (no question-by-
@@ -145,6 +154,7 @@ steps:
 
       If `fetch-ticket` classified the ticket as `backend`, or there
       were no design links, reply with exactly `NO-DESIGN`.
+    agent: ux-designer
     depends_on: [fetch-ticket]
 
   - id: analyze-related
@@ -189,6 +199,7 @@ steps:
         ### Helpers & utilities
         ### Similar implementations
         ### Nothing found for (needs new implementation)
+    agent: software-engineer
     depends_on: [fetch-ticket]
 
   - id: build-plan
@@ -239,6 +250,8 @@ steps:
         PLAN: path={{run.dir}}/plans/PLAN-<ref>.md
     until: 'PLAN: path=(\S+)'
     outputs: [plan_path]
+    agent: architect
+    effort: high
     depends_on:
       - analyze-design
       - analyze-related
@@ -287,6 +300,7 @@ steps:
       `{{plan_path}}` with the revised plan — same section structure,
       same heading. Then give the user a 2-4 line summary of what
       changed. One revision pass only.
+    agent: architect
     depends_on: [review-comments]
 
   - id: setup

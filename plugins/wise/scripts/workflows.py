@@ -71,6 +71,7 @@ HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = SCRIPT_DIR.parent
 BUNDLED_DEFS = PLUGIN_ROOT / "workflows"
+BUNDLED_AGENTS = PLUGIN_ROOT / "agents"
 PLUGIN_DATA = Path(os.environ.get("CLAUDE_PLUGIN_DATA") or HOME / ".claude/plugins/data/wise")
 USER_DEFS = PLUGIN_DATA / "workflows/definitions"
 
@@ -124,6 +125,51 @@ TRIGGER_RULES = {
     "one-success",
     "all-done",
     "none-failed-min-one-success",
+}
+
+# ---- model / effort resolution (per-step model+effort knobs) ---------------
+#
+# wise's per-step `effort:` scale, low→high. Steps run in-conversation
+# (subscription-covered), so this drives the agent-frontmatter baseline + the
+# best-effort prompt directive. See docs/wise/workflows.md.
+EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max"]
+
+# Which effort levels each Claude model family accepts. A model not listed is
+# treated as unrestricted (we don't down-map what we can't reason about — e.g.
+# a future/unrecognised Claude id). An empty set means the family
+# has no effort control at all, so a requested effort is dropped.
+# Sources: Anthropic effort docs + GET /v1/models capabilities.effort.
+MODEL_EFFORT_SUPPORT = {
+    "opus":  {"low", "medium", "high", "xhigh", "max"},
+    "fable": {"low", "medium", "high", "xhigh", "max"},
+    "sonnet": {"low", "medium", "high", "max"},   # no xhigh
+    "haiku": set(),                                 # no effort control
+}
+
+# One-hop fallback per alias family, used when a pinned model is unavailable.
+# Prefer aliases in authored workflows — they auto-resolve and rarely retire.
+MODEL_TIER_NEXT = {
+    "fable": "opus",
+    "opus": "sonnet",
+    "sonnet": "haiku",
+    "haiku": "sonnet",
+}
+
+# Known-retired / soon-retired full ids → the maintained alias that replaces
+# them. Small and shippable; the durable check is GET /v1/models (needs an API
+# key the subscription-auth conductor may lack — see docs). Keep alias-first so
+# substitutions don't themselves go stale. Reasons are surfaced to the user.
+RETIRED_MODELS = {
+    "claude-3-opus-20240229":      ("opus",   "retired"),
+    "claude-3-sonnet-20240229":    ("sonnet", "retired"),
+    "claude-3-5-sonnet-20240620":  ("sonnet", "retired"),
+    "claude-3-5-sonnet-20241022":  ("sonnet", "retired"),
+    "claude-3-7-sonnet-20250219":  ("sonnet", "retired"),
+    "claude-3-haiku-20240307":     ("haiku",  "retired"),
+    "claude-3-5-haiku-20241022":   ("haiku",  "retired"),
+    "claude-opus-4-20250514":      ("opus",   "deprecated"),
+    "claude-sonnet-4-20250514":    ("sonnet", "deprecated"),
+    "claude-opus-4-1-20250805":    ("opus",   "deprecated"),
 }
 
 
@@ -884,6 +930,257 @@ def cmd_list_defs() -> int:
     return 0
 
 
+def _parse_frontmatter(path: Path) -> dict:
+    """Return the YAML frontmatter block of a markdown file as a dict.
+
+    A frontmatter block is the content between the first two `---` fences
+    at the very top of the file. Files without one yield `{}`.
+    """
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}
+    if not text.startswith("---\n"):
+        return {}
+    end = text.find("\n---", 4)            # closing fence (line-anchored)
+    if end == -1:
+        return {}
+    try:
+        data = yaml.safe_load(text[4:end])
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _roster_agents() -> list:
+    """The bundled SDLC roster as `[{name, description, tools, model, effort}]`,
+    sorted by name. Single source for `list-agents` (the conductor's auto-router
+    + the create wizard) and for `resolve-team`'s role validation.
+
+    Roster files are real Claude Code plugin subagents — invoked as
+    `subagent_type: wise:<name>`. `tools` is surfaced so the conductor can pick
+    a tool-aware role (a step that writes files needs a role with Write/Edit;
+    one that runs shell/git needs Bash) and fall back to `general-purpose`
+    when no role covers the step's needs.
+    """
+    items: list[dict] = []
+    if BUNDLED_AGENTS.is_dir():
+        for child in sorted(BUNDLED_AGENTS.glob("*.md")):
+            fm = _parse_frontmatter(child)
+            tools = fm.get("tools")
+            if isinstance(tools, str):
+                tools = [t.strip() for t in tools.split(",") if t.strip()]
+            items.append({
+                "name": fm.get("name") or child.stem,
+                "description": (fm.get("description") or "").strip() or None,
+                "tools": tools or [],
+                "model": fm.get("model") or "inherit",
+                "effort": fm.get("effort"),
+            })
+    return items
+
+
+def cmd_list_agents() -> int:
+    """JSON of the bundled SDLC roster — consumed by the conductor (to resolve a
+    `prompt` step's `agent: auto` to a concrete `wise:<name>` subagent) and the
+    create wizard (the "force a role" picker). See `_roster_agents`."""
+    print(json.dumps(_roster_agents(), indent=2))
+    return 0
+
+
+def _model_family(model: str) -> str:
+    """Normalise a model id/alias to a Claude family key, or '' if unknown.
+
+    `inherit` / empty → `inherit` (no constraints applied downstream).
+    """
+    m = (model or "").strip().lower()
+    if not m or m == "inherit":
+        return "inherit"
+    if m in ("opus", "sonnet", "haiku", "fable"):
+        return m
+    for fam in ("opus", "sonnet", "haiku", "fable"):
+        if f"claude-{fam}" in m or m.startswith(fam):
+            return fam
+    return ""
+
+
+def _downmap_effort(family: str, effort: str):
+    """Clamp `effort` to what `family` supports → (effort_or_None, changed).
+
+    Unknown/`inherit` family → leave the effort untouched (we don't reason
+    about models we don't know). A family with no effort control drops it.
+    """
+    eff = (effort or "").strip().lower()
+    if not eff:
+        return None, False
+    supported = MODEL_EFFORT_SUPPORT.get(family)
+    if supported is None:                 # unknown / inherit → don't touch
+        return eff, False
+    if not supported:                     # e.g. haiku → no effort control
+        return None, True
+    if eff in supported:
+        return eff, False
+    if eff not in EFFORT_ORDER:           # non-standard value → leave as-is
+        return eff, False
+    for j in range(EFFORT_ORDER.index(eff), -1, -1):   # highest supported ≤ req
+        if EFFORT_ORDER[j] in supported:
+            return EFFORT_ORDER[j], True
+    return None, True
+
+
+def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
+    """Resolve a pinned model+effort against availability + capability.
+
+    Returns `{model, effort, fell_back, reason, next_fallback}`: substitutes a
+    known-retired id for its maintained alias, clamps the effort to what the
+    resolved model supports, and hands back `next_fallback` (the alias to retry
+    with if the *live* dispatch still reports the model unavailable). `reason`
+    is the user-facing why, surfaced in chat + the step log.
+    """
+    pinned = (pinned or "").strip()
+    effort = (effort or "").strip()
+    reasons: list[str] = []
+    model = pinned or "inherit"
+    fell_back = False
+
+    if pinned in RETIRED_MODELS:
+        repl, state = RETIRED_MODELS[pinned]
+        reasons.append(f"{pinned} is {state}; using {repl}")
+        model, fell_back = repl, True
+
+    family = _model_family(model)
+    eff_out, changed = _downmap_effort(family, effort)
+    if changed:
+        if eff_out is None:
+            reasons.append(f"{model} has no effort control; effort '{effort}' dropped")
+        else:
+            reasons.append(f"effort {effort}→{eff_out} ({model} ceiling)")
+
+    return {
+        "model": model,
+        "effort": eff_out,
+        "fell_back": fell_back,
+        "reason": "; ".join(reasons) or None,
+        "next_fallback": MODEL_TIER_NEXT.get(family),
+    }
+
+
+def cmd_resolve_model(pinned: str, effort: str = "") -> int:
+    """Resolve a single pinned model+effort; emit the JSON to stdout.
+
+    The conductor calls this before dispatching a single-agent step. For a
+    multi-agent step it calls `resolve-team` instead (which resolves every
+    member's model through this same logic).
+    """
+    print(json.dumps(_resolve_model_dict(pinned, effort), indent=2))
+    return 0
+
+
+def _roster_names() -> set:
+    """Set of roster role names (for `resolve-team` validation)."""
+    return {a["name"] for a in _roster_agents()}
+
+
+def _normalize_member(item) -> dict:
+    """One `agent:` list item → `{role, lead, model, effort}`.
+
+    A bare string is a role name (knobs inherited from the step level); a dict
+    carries optional per-member `lead` / `model` / `effort` overrides.
+    """
+    if isinstance(item, str):
+        return {"role": item.strip(), "lead": False, "model": "", "effort": ""}
+    if isinstance(item, dict):
+        return {
+            "role": str(item.get("role") or "").strip(),
+            "lead": bool(item.get("lead")),
+            "model": str(item.get("model") or "").strip(),
+            "effort": str(item.get("effort") or "").strip(),
+        }
+    return {"role": "", "lead": False, "model": "", "effort": ""}
+
+
+def cmd_resolve_team(def_path: str, step_id: str) -> int:
+    """Resolve a prompt step's `agent:` into a normalized, model-resolved team.
+
+    Reads the step's `agent:` / `model:` / `effort:` from the definition and
+    emits JSON:
+      `{mode, lead, members:[{role,lead,model,effort,reason,fell_back,next_fallback}], errors}`
+
+    `mode` ∈ {`unset`, `off`, `auto`, `single`, `team`}:
+    - `unset`  — no `agent:`; the conductor applies the workflow `agents:` policy.
+    - `off`    — plain `general-purpose` subagent.
+    - `auto`   — returned as-is for the conductor to route (needs prompt-intent
+      matching against the roster).
+    - `single` — one concrete member (scalar role, or a one-item list).
+    - `team`   — two or more members dispatched together, conductor-synthesized.
+
+    Every member's model is run through `resolve-model`; per-member `model` /
+    `effort` override the step-level ones, and a bare-string member inherits
+    them. Validates each role against the roster and that at most one member is
+    the lead. `errors` is non-empty when the conductor should surface a problem.
+    """
+    definition = load_yaml(Path(def_path))
+    step = _step_by_id(definition.get("steps") or [], step_id) or {}
+    raw = step.get("agent")
+    step_model = str(step.get("model") or "").strip()
+    step_effort = str(step.get("effort") or "").strip()
+    errors: list[str] = []
+
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        mode, items = "unset", []
+    elif isinstance(raw, bool):
+        # YAML 1.1 coerces unquoted off/no → False and on/yes → True. Only
+        # `off` is a valid policy keyword, so False means the author wrote
+        # `agent: off` (or `no`); True (`on`/`yes`) is a mistake.
+        if raw is False:
+            mode, items = "off", []
+        else:
+            mode, items = "unset", []
+            errors.append("agent: `on`/`yes`/`true` is not valid (use a role, a list, `auto`, or `off`)")
+    elif isinstance(raw, str):
+        kw = raw.strip().lower()
+        mode, items = (kw, []) if kw in ("auto", "off") else ("single", [raw])
+    elif isinstance(raw, list):
+        mode, items = "team", raw
+    else:
+        mode, items = "unset", []
+        errors.append(f"agent: unexpected type {type(raw).__name__}")
+
+    members = [_normalize_member(it) for it in items]
+    if mode == "team" and len(members) == 1:   # one-item list → simple one-Task path
+        mode = "single"
+
+    roster = _roster_names()
+    lead = None
+    out_members: list[dict] = []
+    for m in members:
+        role = m["role"]
+        if not role:
+            errors.append("agent: list item missing a role")
+            continue
+        if role in ("auto", "off"):
+            errors.append(f"'{role}' is a policy keyword; not valid as a team member")
+        elif roster and role not in roster:
+            errors.append(f"unknown role '{role}' (not in roster)")
+        if m["lead"]:
+            if lead:
+                errors.append(f"multiple leads ({lead}, {role}); only one allowed")
+            else:
+                lead = role
+        rm = _resolve_model_dict(m["model"] or step_model, m["effort"] or step_effort)
+        out_members.append({
+            "role": role, "lead": m["lead"],
+            "model": rm["model"], "effort": rm["effort"],
+            "reason": rm["reason"], "fell_back": rm["fell_back"],
+            "next_fallback": rm["next_fallback"],
+        })
+
+    print(json.dumps(
+        {"mode": mode, "lead": lead, "members": out_members, "errors": errors},
+        indent=2))
+    return 0
+
+
 def cmd_list_resumable_runs() -> int:
     """JSON of non-terminal runs in the current workspace.
 
@@ -1093,6 +1390,15 @@ def main() -> int:
     p.add_argument("run_id"); p.add_argument("workflow_name")
     p = sub.add_parser("find-runs-by-session"); p.add_argument("session_id")
     sub.add_parser("list-defs")
+    sub.add_parser("list-agents")
+
+    p = sub.add_parser("resolve-model")
+    p.add_argument("pinned")
+    p.add_argument("effort", nargs="?", default="")
+
+    p = sub.add_parser("resolve-team")
+    p.add_argument("def_path"); p.add_argument("step_id")
+
     sub.add_parser("list-resumable-runs")
     sub.add_parser("prune-runs")
 
@@ -1122,6 +1428,9 @@ def main() -> int:
         "session-label": lambda: cmd_session_label(args.run_id, args.workflow_name),
         "find-runs-by-session": lambda: cmd_find_runs_by_session(args.session_id),
         "list-defs": lambda: cmd_list_defs(),
+        "list-agents": lambda: cmd_list_agents(),
+        "resolve-model": lambda: cmd_resolve_model(args.pinned, args.effort),
+        "resolve-team": lambda: cmd_resolve_team(args.def_path, args.step_id),
         "list-resumable-runs": lambda: cmd_list_resumable_runs(),
         "prune-runs": lambda: cmd_prune_runs(),
     }
