@@ -1,10 +1,21 @@
-# request-review-auto — attach Copilot review, autonomously
+# request-review-auto — request Copilot + CodeRabbit review, autonomously
 
 Autonomous analogue of `references/pr/ensure-reviewers.md`
-(its defaults half only). Attaches Copilot code review to a PR with
+(its defaults half only). Kicks off the **bot** reviews on a PR with
 **no prompts** — it NEVER calls `AskUserQuestion` and never enumerates
-human reviewers. CodeRabbit needs no attach: it is a GitHub App that
-auto-reviews every push, so for CodeRabbit there is nothing to do.
+human reviewers. It does two things:
+
+- **Copilot** — attaches `copilot-pull-request-reviewer` as a code
+  reviewer (Copilot only reviews when requested).
+- **CodeRabbit** — posts an explicit `@coderabbitai review` trigger
+  (CodeRabbit auto-reviews on push when enabled, but an explicit trigger
+  also covers repos with auto-review off and re-points it at the current
+  head). Harmless no-op on a repo where CodeRabbit is not installed.
+
+Neither is confirmed here — confirming that each bot actually reviewed
+the head (and handling CodeRabbit out-of-credits / rate-limit states) is
+the **watch** step's job (`watch-pipelines-auto.md` §4). This step only
+ensures both reviews are requested.
 
 Source of truth for the `/wise-pr-request-review-auto` skill and the
 `ticket-auto` workflow's request-review step.
@@ -26,7 +37,7 @@ gh pr view <pr_number> --json reviewRequests \
 ```
 
 If `copilot-pull-request-reviewer` is already in that list, skip §2
-and report `copilot=already`.
+and record `copilot=already`.
 
 ### 2. Attach Copilot code review
 
@@ -59,17 +70,46 @@ If neither approach works (Copilot code review not enabled for the
 org, or auth lacks the scope), record `copilot=unavailable` with a
 one-line reason and continue — **never fail the step over it**.
 
-### 3. Emit the final line
+### 3. Trigger CodeRabbit review
+
+CodeRabbit only acts on a PR where its GitHub App is installed. Don't
+try to prove installation here (it answers asynchronously — that's the
+watch step's job). Probe the cheap footprint, then trigger:
+
+```bash
+OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+CR_FOOTPRINT="$(gh pr view <pr_number> --json comments \
+  --jq 'any(.comments[]; .author.login | test("coderabbit";"i"))')"
+```
+
+- If `CR_FOOTPRINT` is `true`, CodeRabbit already started (auto-review
+  on push) — record `coderabbit=present` and do **not** post a
+  redundant trigger.
+- Otherwise post one explicit trigger and record `coderabbit=triggered`:
+
+  ```bash
+  gh pr comment <pr_number> --body "@coderabbitai review"
+  ```
+
+A trigger on a repo without CodeRabbit is a harmless stray comment; the
+watch step detects the absence and skips it. Never fail the step over a
+CodeRabbit trigger error — best-effort, like Copilot.
+
+### 4. Emit the final line
 
 FINAL line — alone, no markdown, no backticks — MUST match:
 
 ```
-REVIEW-REQUEST: copilot=<attached|already|unavailable>
+REVIEW-REQUEST: copilot=<attached|already|unavailable> coderabbit=<present|triggered|error>
 ```
 
 ## Guardrails
 
-- Never block on a Copilot-attach failure — it is best-effort.
+- Never block on a Copilot-attach or CodeRabbit-trigger failure — both
+  are best-effort.
 - Never enumerate or attach human reviewers — an autonomous run does
   not pick people.
-- Nothing to do for CodeRabbit — it auto-runs on PR push.
+- This step only *requests* the reviews; it never waits, never reads a
+  bot's findings, and never merges — `watch-pipelines-auto.md` owns the
+  wait, the credit/rate-limit handling, the comment handling, and the
+  merge.

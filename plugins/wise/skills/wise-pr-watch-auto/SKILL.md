@@ -3,9 +3,11 @@ name: wise-pr-watch-auto
 description: >-
   Autonomous variant of `/wise-pr-watch` — watch the current branch's
   PR pipelines, auto-fix failing checks (lint / tests / other),
-  commit + push, then wait for CodeRabbit / Copilot and handle every
-  bot review comment by severity (minors fixed, majors via a considered
-  decision, false positives dismissed with a reasoned reply). Loops
+  commit + push, then trigger + wait for the bot reviews (Copilot
+  strictly; CodeRabbit best-effort — bypassed when out of credits,
+  retried-then-given-up on a rate limit) and handle every bot review
+  comment by severity (minors fixed, majors via a considered decision,
+  false positives dismissed with a reasoned reply). Loops
   until CI is green and every comment is resolved, or an attempt cap is
   hit; then merges the PR (squash → merge-commit fallback, branch
   protection respected). Leaves the PR open for a human on any non-minor
@@ -16,7 +18,7 @@ description: >-
   the PR and fix it without asking", "auto-drive CI to green", or types
   `/wise-pr-watch-auto`. For the interactive version use `/wise-pr-watch`.
 argument-hint: "[<max-fix-attempts>]"
-allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*)
+allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + fix loop
@@ -68,17 +70,22 @@ merged, what is green, what was accepted or left unfixed, and — for
 `human-intervention` — that the PR needs a human's attention. For a
 `blocked` verdict, say the PR was left open because a non-minor bot
 review comment needs the user's judgement, and list the `items=`
-`file:line` references the fragment reported.
+`file:line` references the fragment reported. If the line carries a
+`coderabbit=<bypassed|gave-up>` annotation, note that CodeRabbit could
+not review (out of credits / rate-limited) so its pass was skipped; a
+`reason=copilot-review-timeout` means a requested Copilot review never
+arrived.
 
 ## Guardrails
 
 - Never call `AskUserQuestion`.
 - Never force-push, never `--no-verify`.
-- Merge only a fully resolved PR — every CI check green, both review
-  bots finished, and every bot comment fixed-or-dismissed; never force
-  a merge or override branch protection; never merge past an
-  unresolved non-minor bot comment (a `blocked` verdict leaves the PR
-  open).
+- Merge only a fully resolved PR — every CI check green, every expected
+  bot terminal (Copilot reviewed, or unavailable; CodeRabbit reviewed /
+  bypassed / gave-up / absent), and every comment from a bot that
+  reviewed fixed-or-dismissed; never force a merge or override branch
+  protection; never merge past an unresolved non-minor bot comment (a
+  `blocked` verdict leaves the PR open).
 - Never suppress a Sonar issue autonomously.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.

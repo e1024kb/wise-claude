@@ -162,9 +162,13 @@ reason=pr-create`, continue.
 ### 7. Request review
 
 Read `{{workflow.dir}}/prompts/request-review-auto.md` and follow it
-with `pr_number=<n>`, `project.path=$WT`. Best-effort — a Copilot
-attach failure never blocks. CodeRabbit auto-runs on the push; nothing
-to attach.
+with `pr_number=<n>`, `project.path=$WT`. It attaches Copilot **and**
+triggers CodeRabbit (`@coderabbitai review`); both best-effort — a
+request failure never blocks. Capture
+`REVIEW-REQUEST: copilot=<…> coderabbit=<…>`. The watch step (§8) does
+the real confirmation: it detects each bot, waits for the head review,
+and handles CodeRabbit's out-of-credits (bypass) / rate-limit
+(retry-then-give-up) states.
 
 ### 8. Watch + fix
 

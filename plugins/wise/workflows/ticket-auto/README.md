@@ -11,10 +11,12 @@ one the wise SDLC roster plans it (`wise:architect`), implements it
 (`wise:software-engineer`) in an isolated git worktree, runs an
 independent **review↔fix loop** (`wise:code-reviewer` judges,
 `wise:software-engineer` fixes) until the branch passes, commits, pushes,
-opens a PR, requests review, watches + fixes CI, then waits for
-CodeRabbit / Copilot to finish reviewing
-and resolves every review comment — end to end, with **no user
-prompts**. One worktree + branch + PR per ticket. When a PR's checks
+opens a PR, requests the bot reviews (attaches Copilot, triggers
+CodeRabbit), watches + fixes CI, then waits for both bots to review the
+head — bypassing CodeRabbit when it is out of credits and
+retrying-then-giving-up on a rate limit, while a requested Copilot
+review is awaited strictly — and resolves every review comment — end to
+end, with **no user prompts**. One worktree + branch + PR per ticket. When a PR's checks
 all pass, both review bots have finished, and every comment is
 fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved — including one
@@ -139,13 +141,22 @@ skill — `wise-implement-plan-auto`, `wise-code-review-auto`,
 default `fixer=self` behaviour for the standalone `/wise-code-review-auto`
 skill; `ticket-auto` passes `fixer=delegate` to drive the loop above.
 
-The `Watch + fix` phase waits for CodeRabbit / Copilot to finish
-reviewing the PR head, then handles every review comment via the
-sub-fragment `prompts/handle-bot-reviews-auto.md` — each comment is
-classified by severity (minors fixed quickly, major/critical ones via
-a considered consolidated decision), genuine false positives are
-dismissed with a reasoned reply, and every handled thread is resolved
-on the PR before the merge gate is checked.
+The `Watch + fix` phase **detects, triggers, and waits for** the review
+bots rather than inferring their absence from an empty footprint (the
+bug that let an early run merge before either bot reviewed). Copilot is
+the strict gate — a requested review must land on the head or the PR is
+left for a human (`copilot-review-timeout`). CodeRabbit is triggered
+hard (`@coderabbitai review`) but never deadlocks the run: if it reports
+being **out of credits** the phase bypasses it, and if it is
+**rate-limited** the phase re-triggers every 30 s up to 10 times before
+giving up — either way recorded as `coderabbit=bypassed|gave-up` on the
+verdict so `report` flags it. Once a bot has reviewed, every review
+comment is handled via the sub-fragment
+`prompts/handle-bot-reviews-auto.md` — each comment classified by
+severity (minors fixed quickly, major/critical ones via a considered
+consolidated decision), genuine false positives dismissed with a
+reasoned reply, and every handled thread resolved on the PR before the
+merge gate is checked.
 
 ## Inputs
 
