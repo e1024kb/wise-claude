@@ -6,6 +6,21 @@ author: e1024kb
 
 project-selection: current
 
+# Dispatch prompt steps to the wise SDLC agent roster by default
+# (agents: auto). The analytical / authoring steps pin specific roles and
+# teams:
+#   - analyze-design  → ux-designer
+#   - codebase-audit  → TEAM: software-engineer (lead) + architect
+#   - build-plan      → TEAM: architect (lead, opus) + product-manager +
+#                       software-engineer + qa-engineer, conductor-synthesized
+#   - refine-plan     → architect
+# Model tiering: opus for the heavy planning brain (build-plan's architect
+# lead + refine-plan), sonnet for every other step. The tracker-fetch /
+# git / presentation steps carry no `agent:`; the conductor's tool-aware
+# auto-selection keeps them on general-purpose because they need
+# tracker-MCP / git tools no scoped role carries.
+agents: auto
+
 # ticket-plan investigates a ticket with a parallel research wave, then
 # the conductor CONSOLIDATES the findings and makes the scope / approach /
 # component / design / testing decisions AUTONOMOUSLY (no question-by-
@@ -73,6 +88,7 @@ steps:
     until: 'DETECT: tracker=(\S+) ref=(\S+) branch=(\S+)'
     max_iterations: 2
     outputs: [tracker_slug, ticket_ref, current_branch]
+    model: sonnet
     depends_on: []
 
   - id: ensure-access
@@ -126,6 +142,7 @@ steps:
 
       If the fetch fails, stop and surface the error — do NOT invent a
       summary.
+    model: sonnet
     depends_on: [ensure-access]
 
   - id: analyze-design
@@ -145,6 +162,9 @@ steps:
 
       If `fetch-ticket` classified the ticket as `backend`, or there
       were no design links, reply with exactly `NO-DESIGN`.
+    agent: ux-designer
+    model: sonnet
+    effort: high
     depends_on: [fetch-ticket]
 
   - id: analyze-related
@@ -162,6 +182,7 @@ steps:
         ### Reference doc — <title>
 
       If nothing could be fetched, reply `NO-RELATED`.
+    model: sonnet
     depends_on: [fetch-ticket]
 
   - id: codebase-audit
@@ -189,21 +210,29 @@ steps:
         ### Helpers & utilities
         ### Similar implementations
         ### Nothing found for (needs new implementation)
+    agent:                       # TEAM — implementation + structural reuse lenses
+      - role: software-engineer
+        lead: true               # integrates both lenses before synthesis
+      - role: architect          # structural / pattern-level reuse
+    model: sonnet
+    effort: high
     depends_on: [fetch-ticket]
 
   - id: build-plan
     type: prompt
     prompt: |
-      You are the Lead Architect. Consolidate the outputs of
-      `analyze-design`, `analyze-related`, and `codebase-audit` into a
-      single investigation, then make — AUTONOMOUSLY, with a one-line
-      rationale each — every decision the work needs: scope &
-      requirement clarifications, technical approach (reuse vs extend vs
-      build-new for each functional piece, grounded in the audit),
+      This is a cross-functional planning team. Consolidate the outputs
+      of `analyze-design`, `analyze-related`, and `codebase-audit` into a
+      single investigation, then decide — AUTONOMOUSLY, with a one-line
+      rationale each — every decision the work needs: scope & requirement
+      clarifications (product lens), technical approach (reuse vs extend
+      vs build-new for each functional piece, grounded in the audit),
       component & file choices, design-spec decisions (frontend /
-      fullstack with designs only), and testing scope. Do NOT ask the
-      user anything here — this is the autonomous consolidated decision
-      the user reviews next.
+      fullstack with designs only), and testing scope (QA lens). Each
+      teammate contributes their lens; the architect lead integrates them
+      and the final plan is written to the file below. Do NOT ask the user
+      anything here — this is the autonomous consolidated decision the
+      user reviews next.
 
       Write the plan to a file. First ensure the directory exists, then
       write with the `Write` tool:
@@ -239,6 +268,15 @@ steps:
         PLAN: path={{run.dir}}/plans/PLAN-<ref>.md
     until: 'PLAN: path=(\S+)'
     outputs: [plan_path]
+    agent:                       # TEAM — cross-functional plan, architect-led
+      - role: architect
+        lead: true               # integrates the panel + writes the PLAN file
+        model: opus              # the heavy planning brain
+      - role: product-manager    # scope / requirement clarifications
+      - role: software-engineer  # reuse vs extend vs build-new, grounded in the audit
+      - role: qa-engineer        # testing scope
+    model: sonnet                # shared default for the non-lead members
+    effort: high
     depends_on:
       - analyze-design
       - analyze-related
@@ -256,6 +294,7 @@ steps:
       Notes** (skip if absent), **## Decisions Made**, **## Testing**,
       and **## Validation** sections. Tell the user they can comment to
       adjust the plan in the next step, or accept it as-is.
+    model: sonnet
     depends_on: [build-plan]
 
   - id: review-comments
@@ -287,6 +326,9 @@ steps:
       `{{plan_path}}` with the revised plan — same section structure,
       same heading. Then give the user a 2-4 line summary of what
       changed. One revision pass only.
+    agent: architect
+    model: opus
+    effort: high
     depends_on: [review-comments]
 
   - id: setup
@@ -406,5 +448,6 @@ steps:
               directory; resume this session from /resume's picker.
           For 3+ parallel tasks in a single wave, mention that
           `/wise-implement-plan-auto` runs each wave's tasks in parallel.
+    model: sonnet
     depends_on: [ask-implement, implement]
     trigger-rule: all-done

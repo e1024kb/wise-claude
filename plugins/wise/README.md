@@ -175,6 +175,18 @@ AskUserQuestion access), `bash` (deterministic shell), `approval`
 (pause for confirmation, auto-approved in synchronous mode), and
 `ask` (capture a free-text or binary user answer).
 
+A `prompt` step can be dispatched to a role from the **SDLC agent
+roster** (`wise:architect`, `wise:software-engineer`,
+`wise:code-reviewer`, … — see [Agent roster](#agent-roster)) instead of
+the generic `general-purpose` subagent, and can pin a `model:` and a
+reasoning `effort:`. Set the workflow-level `agents: auto` policy to
+route every prompt step to a best-fit role, or bind a step explicitly
+with `agent: <role> | auto | off`. Steps run **in-conversation** (Task
+subagents, subscription-covered — no extra API billing): `model:` is the
+real per-step knob (a retired model auto-falls-back to its alias with a
+notice), and `effort:` is a best-effort prompt directive. Full reference:
+[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort).
+
 The project a run operates on is resolved from the current context:
 `project-selection: current` auto-detects it from the current git
 repository, `prompt` asks you to confirm or override, `any` skips
@@ -197,6 +209,33 @@ related skills.
 | [`example-workflow`](./workflows/example-workflow/README.md) | `/wise-workflow-run example-workflow` | Reference workflow exercising every step type + parallel-wave dispatch. Safe to run. |
 | [`ticket-plan`](./workflows/ticket-plan/README.md) | `/wise-workflow-run ticket-plan` | Tracker ticket → detect tracker + probe access → type-routed parallel research (design spec + related items + codebase audit) → guided decisions → SP-estimated implementation plan → approval. |
 | [`ticket-auto`](./workflows/ticket-auto/README.md) | `/wise-workflow-run ticket-auto` | Autonomous ticket → PR pipeline — a Lead Architect + 3 Senior Engineers take each ticket through plan → implement (in a worktree) → commit → push → PR → request review → watch + fix CI to green → merge, end to end, no user prompts. One PR per ticket; a PR is merged when its checks pass, else left open for a human. |
+
+## Agent roster
+
+`wise` ships a plugin-level roster of **SDLC role subagents** under
+[`agents/`](./agents/), catalogued in [`AGENTS.md`](./AGENTS.md). Each is
+a real Claude Code plugin subagent — after install they appear in
+`/agents` and are invocable as `subagent_type: wise:<name>`:
+
+| | | |
+|---|---|---|
+| `wise:ceo` | `wise:cto` | `wise:product-manager` |
+| `wise:engineering-manager` | `wise:architect` | `wise:software-engineer` |
+| `wise:qa-engineer` | `wise:security-engineer` | `wise:devops-engineer` |
+| `wise:sre` | `wise:ux-designer` | `wise:technical-writer` |
+| `wise:code-reviewer` | | |
+
+The workflow engine dispatches `prompt` steps to these roles via the
+`agent:` step field and the `agents:` workflow policy (see
+[Workflows](#workflows) above and
+[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort)).
+`agent:` takes a single role **or a list** — a list is a **team** of roles run
+together (with an optional `lead`) and synthesized into one step result.
+Each role carries scoped `tools`, `model: inherit`, and a default
+`effort` tuned to its cognitive load; add or edit a role per the
+procedure in [`AGENTS.md`](./AGENTS.md). `plugins/wise/agents/*.md` is the
+single canonical source; the repo-root [`AGENTS.md`](../../AGENTS.md)
+documents the roster for any agent reading the repo's project instructions.
 
 ## Skills
 

@@ -27,6 +27,8 @@ wise-claude/
         ├── CLAUDE.md
         ├── README.md
         ├── .mcp.json             # bundled MCP servers (currently empty)
+        ├── AGENTS.md             # catalog/index of the agent roster
+        ├── agents/               # plugin-level SDLC role roster (wise:<name> subagents)
         ├── scripts/              # engine.*, bootstrap-deps.sh, init*, workflows.py
         ├── workflows/            # bundled workflow definitions
         └── skills/
@@ -631,9 +633,12 @@ subsystem.
 
 ```
 plugins/wise/
+├── AGENTS.md                     # catalog of the agent roster
+├── agents/                       # plugin-level SDLC role roster (wise:<name>)
+│   └── <role>.md                 # one subagent per file; consumed by `workflows.py list-agents`
 ├── scripts/
 │   ├── bootstrap-deps.sh       # ensures python3 + pyyaml + python-ulid
-│   └── workflows.py              # all YAML + state + ULID + dep-probe logic
+│   └── workflows.py              # all YAML + state + ULID + dep-probe + roster logic
 ├── workflows/                    # bundled workflow definitions (shipped)
 │   └── <name>/                   # folder form (preferred)
 │       ├── workflow.yaml         # the definition
@@ -719,6 +724,26 @@ user-facing reference. Contributor-side invariants:
   `prompt` with a `WARN:` line from `workflows.py get-preflight`.
   Valid enum values per key are tracked in the `PREFLIGHT_KEYS` map
   in `scripts/workflows.py`.
+- **Agent binding is `prompt`-only and passes through untouched.** The
+  workflow-level `agents: off|auto` policy and the step-level `agent:` /
+  `model:` / `effort:` fields bind only to `type: prompt` steps. The
+  engine does not whitelist step keys — `_render_step` renders the whole
+  step dict, so these fields reach the conductor with no schema change;
+  the dispatch logic lives entirely in the `wise-workflow-run` SKILL body.
+  `agent:` is **scalar OR a list**: a scalar is a single role / `auto` /
+  `off`; a list is a **team** (each item a bare role or
+  `{role, lead?, model?, effort?}`) dispatched together and
+  **conductor-synthesized** into one step result, with an optional single
+  `lead` integrating peers' drafts first. The conductor normalizes `agent:`
+  through `workflows.py resolve-team` (it folds in per-member model
+  resolution and validates roles + the at-most-one-lead rule). A team step is
+  **atomic** — a resume mid-team re-runs it whole, so no new run state is
+  added. All step execution is **in-conversation** (`Task` subagents,
+  subscription-covered — no headless subprocess backend, which would bill as
+  separate API usage). `model:` is a native Task per-call override (the real
+  per-step knob); `effort:` is NOT a native per-call knob, so the conductor
+  conveys it as a prompt directive only (best-effort). See
+  [§9.10](#910-the-agent-roster).
 
 ### 9.4 `workflows.py` subcommand contract
 
@@ -740,6 +765,9 @@ reset-running <state>                    # running → pending (resume preamble)
 list-runs <runs-root>                    # summary table
 dump-state <state>                       # pretty-print YAML
 render <template> <state>                # expand {{…}} literally
+list-agents                              # JSON of the agents/ roster (auto-select + wizard)
+resolve-model <pinned> [effort]          # JSON {model,effort,fell_back,reason,next_fallback}
+resolve-team <def> <step-id>             # JSON {mode,lead,members,errors} — normalize a step's agent: into a model-resolved team
 ```
 
 Breaking any of these is a major-version event (CLI contract change) — see
@@ -854,6 +882,39 @@ Listed so proposals land in the right version:
 - **Worktree cleanup (`/wise-workflow-gc`)** by age or count.
 - **Declarative retry / backoff on step failure.** A failed step is
   currently terminal.
+
+### 9.10 The agent roster
+
+`plugins/wise/agents/*.md` is a plugin-level roster of SDLC role
+subagents (catalogued in `plugins/wise/AGENTS.md`). They are real Claude
+Code plugin subagents — auto-discovered on install, invocable as
+`subagent_type: wise:<name>` — that the workflow engine dispatches
+`prompt` steps to.
+
+**To add or edit a role:**
+
+1. Add/edit `plugins/wise/agents/<role>.md`. Match the shape of the
+   existing files: frontmatter limited to `name` (= filename stem),
+   `description` (concrete enough to drive `agent: auto` routing),
+   `tools` (scoped to the role), `model: inherit`, `effort` (the role's
+   default reasoning level), `color`. Plugin subagents **ignore**
+   `hooks` / `mcpServers` / `permissionMode` — never add them. Then the
+   role's system prompt as the body.
+2. Add/update the role's row in `plugins/wise/AGENTS.md` AND the repo-root
+   `AGENTS.md` table — the "When `auto` picks it" cell is the routing hint
+   the conductor reads.
+3. Verify it parses: `python3 plugins/wise/scripts/workflows.py
+   list-agents` should list it with the right `model` / `effort`.
+4. Minor version bump (new roles are additive).
+
+`plugins/wise/agents/*.md` is the single canonical source; the repo-root
+`AGENTS.md` and `plugins/wise/AGENTS.md` are *project-instructions* docs
+(not loadable registries) whose roster tables mirror it — keep them in
+sync the same way workflow READMEs track their YAML.
+
+The `agent:` / `model:` / `effort:` step fields and the `agents:` workflow
+policy that bind to this roster are documented in
+[§9.3](#93-definition-schema-v1) and `docs/wise/workflows.md`.
 
 ---
 

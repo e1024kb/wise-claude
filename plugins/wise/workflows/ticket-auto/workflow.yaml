@@ -1,15 +1,34 @@
 version: 1
 name: ticket-auto
 description: >-
-  Autonomous ticket → PR pipeline. For each ticket given, a Lead
-  Architect plus three Senior Engineers plan it, implement it in an
-  isolated git worktree, commit, push, open a PR, request review, and
-  watch + fix CI until the PR is green — end to end, with no user
-  prompts. One worktree + branch + PR per ticket; a PR is merged once
-  all its checks pass, otherwise left open for a human.
+  Autonomous ticket → PR pipeline. For each ticket given, the wise SDLC
+  roster plans it (architect), implements it (software-engineer) in an
+  isolated git worktree, converges it through a reviewer↔fixer loop
+  (code-reviewer ⇄ software-engineer), commits, pushes, opens a PR,
+  requests review, and watches + fixes CI until the PR is green — end to
+  end, with no user prompts. One worktree + branch + PR per ticket; a PR
+  is merged once all its checks pass, otherwise left open for a human.
 author: e1024kb
 
 project-selection: current
+
+# Default prompt steps to the wise SDLC agent roster. Most of this
+# workflow's real work (plan / implement / review / fix) happens inside
+# the `process-tickets` interactive fragment, which now dispatches each
+# phase to a concrete roster role brought in FRESH per phase:
+#   - plan      → wise:architect (opus, high)
+#   - implement → wise:software-engineer (sonnet, high)
+#   - review    → wise:code-reviewer (opus, high) — REVIEWS only
+#   - fix       → wise:software-engineer (sonnet, high) — applies the
+#                 reviewer's findings; the two cycle until the reviewer is
+#                 satisfied (cap 10, config_prompt-overridable; on non-
+#                 convergence it pushes anyway and flags the ticket)
+#   - watch+fix → wise:software-engineer (sonnet)
+# At the step level `report` → wise:technical-writer; `assemble-team`
+# stays on general-purpose (a plain run-start declaration of the roster
+# team + config binding). Model tiering: opus for the planning + review
+# brains, sonnet for the hands-on engineering + bookkeeping steps.
+agents: auto
 
 # ticket-auto is fully autonomous: it never asks the user for consent,
 # permission, or a decision. Every choice the interactive ticket-plan
@@ -35,16 +54,16 @@ preflight:
 inputs:
   - name: ticket_ids
     prompt: "Which tickets? Comma-separated list of URLs or ids (e.g. PROJ-1, PROJ-2, https://linear.app/acme/issue/ENG-9). When passing positionally on the command line, use NO spaces between items (PROJ-1,PROJ-2)."
-  # Free-form operator guidance, threaded to the Lead Architect as
-  # standing config for the whole run. As the LAST declared input it
-  # absorbs the remainder of the command line, so it can be a full
-  # sentence:
+  # Free-form operator guidance, threaded to the wise:architect (plan
+  # phase) as standing config for the whole run. As the LAST declared
+  # input it absorbs the remainder of the command line, so it can be a
+  # full sentence:
   #   /wise-workflow-run ticket-auto PROJ-1 prefer the design-system lib; never touch infra/*; cap CI fixes at 4
   # Optional — omit it and the run uses its max-value defaults. The
   # prompt does NOT switch the run to asking the user anything: the
-  # Lead Architect predicts the answers to any question it implies and
+  # architect predicts the answers to any question it implies and
   # keeps the max-value rule. It can also override tuning knobs (e.g.
-  # the CI-fix cap, default 10).
+  # the CI-fix cap and the review-cycle cap, both default 10).
   - name: config_prompt
     prompt: "Optional free-form guidance to tune this run — special skills/libraries to prefer, guidelines, guardrails, files to avoid, knob overrides (e.g. 'cap CI fixes at 4'). Blank = none."
     optional: true
@@ -53,49 +72,47 @@ steps:
   - id: assemble-team
     type: prompt
     prompt: |
-      You are the conductor of an AUTONOMOUS ticket → PR run. Stand up
-      the team that will carry every ticket in it.
+      You are the conductor of an AUTONOMOUS ticket → PR run. Declare the
+      wise SDLC roster team that will carry every ticket, and bind the
+      standing operator guidance.
 
-      Use `TeamCreate` to assemble a team of four:
+      The work is done by the roster — each role brought in **fresh per
+      phase** (the per-ticket orchestrator's context-budget rule keeps no
+      agent resident across tickets):
 
-        • Lead Architect — 20+ years, the team leader and sole
-          decision-maker. Owns every decision the interactive
-          ticket-plan flow would ask a human for:
-          how to resolve ticket ambiguity, the technical approach, the
+        • Plan      → `wise:architect` — the team lead and sole decision-
+          maker. Owns every decision the interactive ticket-plan flow would
+          ask a human for: ticket ambiguity, the technical approach, the
           plan's scope and task breakdown, how to fix a failing check,
           whether a bot review comment should be applied. Pragmatic,
-          decisive, writes the rationale down. When a choice has a
-          performance / depth / thoroughness dial, the Architect takes
-          the MAXIMUM-value option by default — this is an autonomous
-          run; never settle for a middle default a human might have
-          picked.
+          decisive, writes the rationale down. On any performance / depth /
+          thoroughness dial it takes the MAXIMUM-value option — this is an
+          autonomous run; never settle for a middle default a human might
+          have picked.
+        • Implement → `wise:software-engineer` — polyglot senior engineers
+          doing the hands-on work (its per-task executors run in parallel).
+        • Review    → `wise:code-reviewer` — the independent gate that
+          judges the branch; it never fixes its own findings.
+        • Fix       → `wise:software-engineer` — applies the reviewer's
+          findings and the CI / bot-comment fixes.
 
       Standing operator guidance for this run (may be empty):
 
         {{config_prompt}}
 
-      The Lead Architect treats that guidance as binding configuration
-      for EVERY decision below — preferred skills / libraries, coding
-      guidelines, guardrails, files to stay out of, and any explicit
-      knob override (e.g. a CI-fix cap). It never turns the run into a
-      Q&A: where the guidance implies an answer the run would otherwise
-      ask for, the Architect predicts that answer and proceeds (taking
-      the max-value default, per above, for whatever it leaves open).
-      Later steps receive this same `config_prompt` and apply it in
-      their own context.
-        • Three Senior Software Engineers — 20+ years each, polyglot:
-          deeply experienced across every major programming language,
-          framework, frontend, backend, infra, and tooling. They do
-          the hands-on work — research, codebase audit, implementing
-          plan tasks, fixing CI — and report to the Lead Architect.
+      Every phase treats that guidance as binding configuration — preferred
+      skills / libraries, coding guidelines, guardrails, files to stay out
+      of, and any explicit knob override (e.g. the CI-fix cap or the
+      review-cycle cap). It never turns the run into a Q&A: where the
+      guidance implies an answer the run would otherwise ask for, the
+      architect predicts that answer and proceeds (taking the max-value
+      default for whatever it leaves open). Later steps receive this same
+      `config_prompt` and apply it in their own context.
 
-      This team owns the whole run. Later steps dispatch work to its
-      members. If team members cannot be kept resident across steps,
-      treat the role names as personas applied to each step's
-      subagents.
-
-      Reply with a one-line confirmation naming the team and its four
-      members.
+      Reply with a one-line confirmation naming the roster team and noting
+      whether `config_prompt` is set.
+    agent: off                  # plain setup/confirmation step — no persona needed
+    model: sonnet
     depends_on: []
 
   - id: split-tickets
@@ -114,6 +131,7 @@ steps:
     until: 'TICKETS: count=(\d+) list=(\S.*)'
     max_iterations: 2
     outputs: [ticket_count, ticket_list]
+    model: sonnet
     depends_on: [assemble-team]
 
   - id: preflight-checks
@@ -190,4 +208,6 @@ steps:
       say why. List the
       `git worktree remove <path>` command for each ticket worktree so
       the operator can clean up when done.
+    agent: technical-writer
+    model: sonnet
     depends_on: [process-tickets]

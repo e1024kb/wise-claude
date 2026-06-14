@@ -611,7 +611,7 @@ The one-line description is generated from the step definition:
 | Type | Description |
 |---|---|
 | `skill`    | `invoke <def.skill>` + first non-empty payload key if any |
-| `prompt`   | first 60 chars of rendered `def.prompt` (one line, ellipsise) |
+| `prompt`   | first 60 chars of rendered `def.prompt` (one line, ellipsise); append ` [→ wise:<role>]` when an agent resolves |
 | `bash`     | `$ ` + first 60 chars of rendered `def.command` + `(cwd: …)` if `def.cwd` is set |
 | `approval` | `approval: ` + first 60 chars of rendered `def.message` |
 
@@ -629,6 +629,65 @@ And dispatch each step's executor — **all in the same message**
 (multiple tool calls in one message execute concurrently per Claude
 Code's tool-use docs). Per step type:
 
+**Resolving agent / model / effort (prompt steps only).** Before
+dispatching a `type: prompt` step, resolve its roster binding in one call:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" resolve-team "$DEF" "<step.id>"
+```
+→ JSON `{mode, lead, members:[{role, lead, model, effort, reason, fell_back,
+next_fallback}], errors}`. These fields apply to `prompt` steps **only** —
+`interactive` steps run inline in this conductor (your own model) and `skill`
+steps run under the invoked skill's frontmatter; ignore `agent:` / `model:` /
+`effort:` on every other step type. A step pinning none of them inherits the
+parent session's model + effort (the harness setup at run time).
+
+Branch on `mode`:
+
+- **`errors` non-empty** → do NOT dispatch. Fail the step loudly with the
+  error text on its 9e line + log. An unknown role, a policy keyword
+  (`auto`/`off`) used as a team member, or two leads is an authoring bug —
+  silently dispatching the wrong agent is worse than failing.
+- **`mode: unset`** → the step pinned no `agent:`; apply the workflow's
+  top-level `agents:` policy (read once from `$DEF`; default `off`). `off` →
+  one `general-purpose` subagent; `auto` → roster-match (next).
+- **`mode: off`** → one `general-purpose` subagent.
+- **`mode: auto`** → pick the best-fit roster role. Cache the roster **once
+  per run**: on the first `auto`/policy-auto step, shell
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" list-agents` once,
+  hold the JSON (`{name, description, tools, model, effort}`) in working
+  memory, reuse it for every later wave/step — never re-shell per wave.
+  Match the step's rendered prompt intent against the `description`s AND
+  check `tools` cover what the step does: **writes/edits files** needs
+  `Write`/`Edit`; **runs shell or git** needs `Bash`; a step needing a tool
+  **no role has** (e.g. `TeamCreate`, a tracker MCP) fits none. **When no
+  role both matches the intent and covers the required tools, fall back to
+  `general-purpose`.** Resolve its model with `resolve-model
+  "<step.model or 'inherit'>" "<step.effort or ''>"`.
+- **`mode: single`** → dispatch `members[0]` as one `wise:<role>` Task.
+- **`mode: team`** → dispatch every member and synthesize (team flow below).
+
+**Model + availability (per member).** All execution is **in-conversation**
+(`Task` subagents under the active subscription — no extra API billing; no
+subprocess/headless backend). Each member's `model` is already resolved (a
+known-retired id swapped for its maintained alias) — pass it as the Task
+`model` param, **omitting** the param when it is `inherit`. If a member's
+`reason` is non-null, **surface it** (9e line + log: `<role>: <reason>`).
+Prefer aliases (`opus`/`sonnet`/`haiku`/`fable`) — they auto-resolve and
+rarely retire. On a LIVE model-unavailable failure for a member (the subagent
+errors model-not-found), retry that member ONCE with its `next_fallback`; if
+that also fails, fail the step.
+
+**Effort (per member).** `Task` has **no per-call effort param**, so each
+member's resolved `effort` is conveyed as a **prompt directive only** —
+best-effort, may be ignored today (forward-looking, Claude-Code-first). Append
+`\n\nReason at <EFFORT> effort — <gloss>.` Glosses: `low` = "be quick, minimal
+exploration"; `medium` = "balance speed and rigour"; `high` = "think
+carefully, weigh alternatives"; `xhigh`/`max` = "reason exhaustively; weigh
+edge cases and failure modes before answering". The `wise:<role>` agent's
+frontmatter `effort:` is its standing baseline; a member with null/unset
+resolved effort → append nothing.
+
 - `type: skill`:
   ```
   Skill({
@@ -637,23 +696,54 @@ Code's tool-use docs). Per step type:
   })
   ```
 
-- `type: prompt`:
+- `type: prompt` — **single agent** (`mode` off / auto / single → one member):
   ```
   Task({
-    subagent_type: "general-purpose",
+    subagent_type: <"wise:<role>" | "general-purpose">,
     description: "Workflow step <step.id>",
-    prompt: "<def.prompt>" + [if def.until] trailing instruction: "End your last line with a value that matches the regex /<until>/ so the conductor can capture it."
+    model: <member.model — include ONLY if not "inherit">,
+    prompt: "<rendered def.prompt>"
+            + [if member.effort] "\n\nReason at <EFFORT> effort — <gloss>."
+            + [if def.until]  "\n\nEnd your last line with a value that matches the regex /<until>/ so the conductor can capture it."
   })
   ```
   If `def.outputs` is set, remember the list so you can extract on
-  return.
+  return. Remember the resolved `agent` / `model` / `effort` too — 9e
+  reports them.
+
+- `type: prompt` — **team** (`mode: team` → ≥2 members, conductor-synthesized):
+  one logical step worked by several roster roles. Keep it **atomic** — on
+  resume mid-step the step re-runs whole (members are idempotent producers),
+  so no extra run state is needed.
+  1. **Round 1 — parallel drafts.** Dispatch every **non-lead** member as a
+     `Task` **in one message** (they run concurrently). Each: `subagent_type:
+     "wise:<member.role>"`, its `model` (omit if `inherit`), and `prompt` = the
+     rendered `def.prompt` prefixed with one framing line — *"You are the
+     `<role>` on a panel. Give your `<role>` perspective on the task below; do
+     NOT try to produce the team's final answer — a synthesis step does that."*
+     — plus the member's effort directive. Do **not** pass `until:` to members
+     (it governs the synthesis only). Capture each member's returned text as its
+     draft and log it under the step log.
+  2. **Round 2 — lead integration** (only when `lead` is set). Dispatch the
+     lead as one `Task` (`wise:<lead>`, its model/effort) with `prompt` = the
+     rendered `def.prompt` + *"\n\nYour panel produced these inputs:\n`<role>`:
+     `<draft>`\n…\n\nReconcile them into one integrated recommendation; call out
+     where they disagree."* Capture the lead's proposal.
+  3. **Synthesis — you, the conductor** (main thread, **no** subagent). Merge
+     the drafts (and the lead proposal, if any) into the step's single result:
+     dedup overlaps, combine complementary points, surface disagreements. This
+     synthesis IS the step output — if `def.until` is set, end it with the
+     matching final line; if `def.outputs` is set, extract from it. Append the
+     synthesis to the step log beneath the member drafts. Remember every
+     member's `agent`/`model`/`effort` + the `lead` — 9e reports them.
 
   **Important — `prompt` steps run in an isolated Task subagent.**
-  The subagent has its own tool list (Read / Edit / Write / Bash /
-  etc.) but **cannot** call `AskUserQuestion` — that tool only
-  works in the main conversation. If the step needs to walk the
-  user through a per-item wizard, use `type: interactive` below
-  instead. A `prompt` step that tries to AskUserQuestion silently
+  The subagent has its own tool list (for a `general-purpose` dispatch,
+  the full set; for a `wise:<role>` dispatch, the role's scoped `tools`
+  frontmatter — the reason auto-selection above is tool-aware) but
+  **cannot** call `AskUserQuestion` — that tool only works in the main
+  conversation. If the step needs to walk the user through a per-item
+  wizard, use `type: interactive` below instead. A `prompt` step that tries to AskUserQuestion silently
   degrades (the subagent typically falls back to "list the items
   and return a summary"), which is worse than the step failing
   loudly because it looks like the step worked.
@@ -852,6 +942,18 @@ bookkeeping (tool calls). Structure:
    | `prompt`   | `captured <name>=<value>` for each `def.outputs`; else `ok (<duration>s)` | `no match for until:/<regex>/ after <iterations>` or subagent error |
    | `bash`     | `exit 0 in <duration>s` + first matched group of stdout if `stdout_matches` captures | `exit <code>: <first line of stderr, truncated>` |
    | `approval` | `approved` (wave-sync) or `auto-approved` (sync) | `rejected by user` |
+
+   For a `prompt` step dispatched to a roster agent or with a `model:` /
+   `effort:` override, append the resolved knobs to its outcome line —
+   `[agent=wise:<role> model=<m> effort=<e>]`, omitting any that were not
+   set — and write the same to the step log so the routing is auditable.
+   For a **team** step, list each member and mark the lead —
+   `[team=wise:<lead>*, wise:<role2>, wise:<role3> | synthesized]` (the `*`
+   flags the lead; `synthesized` notes the conductor merged them) — and write
+   each member's `model`/`effort` to the step log. When a member's
+   `resolve-team`/`resolve-model` `reason` is non-null (a retired-id swap or an
+   effort clamp), append `; <role>: <reason>` so the substitution is visible in
+   chat, not just the log.
 
    Keep each step's line under ~100 chars — if the "one-line" needs
    more room, point at the log file instead (`see logs/<id>.<run-id>.log`).
