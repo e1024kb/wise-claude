@@ -36,9 +36,11 @@ full command catalog.
   Conventional-Commits aware.
 - **Pull requests** — `/wise-pr-create`, `/wise-pr-add-reviewers`,
   `/wise-pr-watch` (drive CI + review comments to green).
-- **Planning & docs** — interactive ticket planning, the model-invoked
-  `wise-prd-architect` / `wise-trd-architect` document authors, and the
-  `wise-estimation` story-point reference.
+- **Planning & docs** — interactive ticket planning, `/wise-revise`
+  (audit a scope and write executable improvement plans into
+  `docs/plans/`), the model-invoked `wise-prd-architect` /
+  `wise-trd-architect` document authors, and the `wise-estimation`
+  story-point reference.
 - **Authoring** — `/wise-skills-create`, `/wise-skills-edit`, and the
   `/wise-workflow-*` family for building and running your own workflows.
 - **The `/wise` helper** — type `/wise <free-form text>` (e.g. `/wise open a
