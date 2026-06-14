@@ -45,7 +45,7 @@ not this skill's. (`ticket-auto` starts from a ticket and re-plans from it;
 
 ## Invocation
 
-```
+```bash
 /wise-revise <what to improve / which scope>
 /wise:wise-revise <…>                # canonical namespaced form
 ```
@@ -61,7 +61,7 @@ The argument is a single free-form prompt that carries both:
 An optional `quick` or `deep` word anywhere in the prompt nudges depth
 (default: scale depth to the scope). Examples:
 
-```
+```bash
 /wise-revise improve performance of src/api
 /wise-revise pay down tech debt in the auth module
 /wise-revise raise test coverage across the whole project, deep
@@ -114,7 +114,7 @@ Each lens **reports only — it never mutates the working tree** (no
 write/codegen; read-only inspection only). Each returns a list of
 findings, one record each:
 
-```
+```text
 finding   — one-line problem statement
 category  — correctness | security | performance | tests | debt | deps | dx | docs
 impact    — what it costs (severity / blast radius), concrete
@@ -141,7 +141,7 @@ confidence are the architect's calibrated call, scored consistently across
 the set). Print the ranked findings table inline so the user sees the
 reasoning:
 
-```
+```text
 # | leverage | category | finding | effort | confidence | evidence
 ```
 
@@ -153,7 +153,7 @@ leverage/confidence floor; for a very large set, plan the top cluster
 and list the remainder in the index's "noted, not planned" section),
 author one self-contained plan:
 
-```
+```text
 docs/plans/<NNN>-<slug>.md
 ```
 
@@ -202,7 +202,7 @@ the user to run; never invoke another wise skill or workflow yourself.
 After the index, emit — as the FINAL line, alone, no markdown, no
 backticks:
 
-```
+```text
 REVISE: scope=<scope> intent=<intent> findings=<n> planned=<m> dir=docs/plans/
 ```
 
