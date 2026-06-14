@@ -55,7 +55,17 @@ subagents + the confidence-scoring pass).
    (`subagent_type: "Explore"` is a good fit). Give each its lens, the
    diff range, and the worktree. Each returns a list of findings —
    `file:line`, a one-line description, and a severity
-   (critical / warning / info). Reviewers **do not edit**; they report.
+   (critical / warning / info). Reviewers **report only — they never
+   mutate the working tree.** No `Edit` / `Write`, and **no file-mutating
+   Bash command** either: never run a formatter or linter in write mode
+   (`gofumpt -w`, `go fmt`, `prettier --write`, `eslint --fix`,
+   `ruff --fix`, …), and never `git add` / `commit` / `checkout` /
+   `reset` or any codegen. To inspect formatting, use a read-only mode
+   instead (`gofumpt -l` / `-d`, `--check`, `--dry-run`, `git diff`).
+   Applying any fix is the **caller's** job — in `ticket-auto` a separate
+   `wise:software-engineer` fixer, looping with re-review until clean
+   (the review↔fix loop); in `fixer=self` the curate-then-apply step (§4)
+   — never the reviewer.
 
 3. **Curate.** Collect every finding, dedupe by `file:line`, and keep
    only the **high-confidence, concrete** ones: correctness bugs,
