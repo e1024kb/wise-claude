@@ -1,6 +1,6 @@
 {
   "name": "wise",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "wise copilot — flat slash commands, a workflow engine with an SDLC agent roster (CEO/CTO/architect/engineer/QA/security/SRE/…), a session-mining self-improvement loop (mine + refine + reset), and shared scripts for everyday git / PR / ticket-planning / skill-authoring tasks. The `/wise` command is a natural-language helper that classifies requests against the catalog of registered /wise-* commands.",
   "homepage": "https://github.com/e1024kb/wise-claude",
   "author": {
