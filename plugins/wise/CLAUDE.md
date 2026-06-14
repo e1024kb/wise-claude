@@ -74,6 +74,13 @@ Current actions (all standalone):
   `/wise-code-review-auto` (the heavyweight branch gate — a high-depth
   panel of reviewer subagents) are the two quality passes; the
   `ticket-auto` workflow follows the same fragments / references.
+- `/wise-revise` — the proactive planner: investigates a scope (folder /
+  component / whole project) against a free-form improvement intent,
+  read-only, via a panel of roster lenses; ranks findings by leverage and
+  writes self-contained `PLAN-*.md` plans + an index into `docs/plans/`
+  for the user to execute later. Writes only under `docs/plans/`; never
+  edits source and never runs a plan (execution is delegated). Reads its
+  own skill-local `references/audit-lenses.md` + `references/plan-format.md`.
 - `/wise` — the natural-language helper (bare = catalog; with free-form
   text = intent classifier).
 
@@ -179,7 +186,10 @@ plugins/wise/
     │   ├── SKILL.md
     │   └── agents/executor.md            # fresh-context per-task executor persona
     ├── wise-code-review-auto/SKILL.md     # autonomous high-depth branch code-review (no prompts)
-    └── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
+    ├── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
+    └── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
+        ├── SKILL.md
+        └── references/                    # audit-lenses.md (the panel) + plan-format.md (the plan + index schema)
 ```
 
 No `commands/` directory is present, and one must not be added without
