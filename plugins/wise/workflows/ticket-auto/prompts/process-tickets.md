@@ -38,7 +38,8 @@ return. Never inline heavy work directly in this step.
 ## Procedure
 
 Keep a results table — one row per ticket: `ref`, `branch`,
-`worktree`, `pr_url`, `verdict`. Process tickets **sequentially**
+`worktree`, `pr_url`, `verdict`, `cleaned` (whether §9 removed the
+worktree + branch). Process tickets **sequentially**
 (they are independent; sequential keeps the context bounded).
 
 For each `ticket` in `ticket_list`:
@@ -185,12 +186,43 @@ fully resolved — merges it. Capture the `WATCH-AUTO:` verdict and
 record it as the ticket's `verdict` (`merged` / `all-green` /
 `blocked …` / `partial …` / `exhausted …` / `human-intervention`).
 
-### 9. Record and continue
+### 9. Record, clean up merged tickets, and continue
 
 Append the ticket's row to the results table. The watch step already
 merged the PR if it reached fully-green; this step merges nothing
-itself. Move to the next ticket. One stuck ticket never aborts the
-run.
+itself.
+
+**Clean up on merge.** If — and ONLY if — the ticket's `verdict` is
+`merged`, the branch's work is now preserved on the remote, so the
+worktree and local branch are safe to discard. Remove them so the base
+repo stays clean:
+
+```bash
+git -C "{{project.path}}" worktree remove "$WT" \
+  || git -C "{{project.path}}" worktree remove --force "$WT"   # --force only if leftover untracked / build artifacts block removal
+git -C "{{project.path}}" branch -D "<branch>" 2>/dev/null || true   # local branch is merged on the remote; -D since the GitHub squash/merge isn't in local history
+```
+
+Set `cleaned=yes` on the ticket's row. Any ticket NOT `merged` — left
+open for a human, or failed — **keeps its worktree and branch** so the
+human can inspect or finish the work; never clean those up (record
+`cleaned=no`).
+
+Move to the next ticket. One stuck ticket never aborts the run.
+
+## After all tickets — final sweep
+
+Once every ticket has been processed, prune stale worktree
+administrative entries so the base repo's `git worktree list` reflects
+reality (the merged tickets' worktrees were already removed in §9):
+
+```bash
+git -C "{{project.path}}" worktree prune
+```
+
+Only the worktrees + branches for tickets left **open / failed** remain
+— intentionally, for a human. If every ticket merged, the base repo is
+now fully clean.
 
 ## Final output
 
@@ -211,8 +243,10 @@ open for a human (`all-green` + `blocked` + `partial` +
 - Fully autonomous — never call `AskUserQuestion`.
 - One worktree + branch + PR per ticket. A PR is merged only by the
   watch step, only when fully green; everything else is left open.
-- Worktrees are left in place for inspection — the `report` step
-  lists the `git worktree remove` commands.
+- A **merged** ticket's worktree and local branch are removed in §9
+  (its work is safe on the remote); worktrees + branches for tickets
+  left **open / failed** are kept for inspection, and the `report` step
+  lists the `git worktree remove` command for each one that remains.
 - A failure on one ticket is recorded and the run continues with the
   next ticket.
 - All work runs inside this Claude Code session. Parallelism uses

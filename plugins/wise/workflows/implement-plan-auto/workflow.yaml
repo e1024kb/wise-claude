@@ -9,8 +9,10 @@ description: >-
   reviewer↔fixer loop (code-reviewer ⇄ software-engineer), commits,
   pushes, opens a PR, requests review, and watches + fixes CI until the
   PR is green — end to end, with no user prompts. One worktree + branch +
-  PR per plan file; a PR is merged once all its checks pass, otherwise
-  left open for a human.
+  PR per plan file; a PR is merged once all its checks pass — and its
+  worktree + local branch are then cleaned up so the base repo stays
+  clean — otherwise it is left open for a human (worktree kept for
+  inspection).
 author: e1024kb
 
 project-selection: current
@@ -221,9 +223,12 @@ steps:
 
       Call out explicitly which PRs were merged and which were left
       open for a human (anything not fully green); for each open PR
-      say why. List the
-      `git worktree remove <path>` command for each plan worktree so
-      the operator can clean up when done.
+      say why. Merged plans had their worktree + local branch
+      auto-removed (their work is on the remote) — note that. For each
+      plan left OPEN or FAILED that still has a worktree, list its
+      `git worktree remove <path>` command so the operator can clean up
+      after inspecting. If every plan merged, state the base repo is
+      clean — no worktrees remain.
     agent: technical-writer
     model: sonnet
     depends_on: [process-plans]

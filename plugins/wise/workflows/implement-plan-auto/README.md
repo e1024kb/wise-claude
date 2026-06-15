@@ -19,7 +19,8 @@ to end, with **no user prompts**. One worktree + branch + PR per plan.
 When a PR's checks all pass, both review bots have finished, and every
 comment is fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved is left open for a
-human.
+human. When a PR is merged, its worktree and local branch are removed to
+keep the base repo clean; a PR left open keeps its worktree for inspection.
 
 This is the missing bridge in the `/wise-revise` story: `/wise-revise`
 investigates a scope and writes executable plans, but only plans —
@@ -88,7 +89,8 @@ isolated sub-pipeline:
 
 ```
 worktree → re-plan from file → implement → review↔fix loop (reviewer ⇄ fixer)
-        → commit+push → create PR → request review → watch + fix CI loop → record
+        → commit+push → create PR → request review → watch + fix CI loop
+        → record (+ remove worktree & local branch if merged)
 ```
 
 The wise workflow engine has no DAG loops, so the per-plan loop and each
@@ -114,7 +116,7 @@ cap and the CI-fix cap both default to 10 (each overridable from
 | `split-plans` | `prompt` | Parse `plan_files` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. (Per-plan existence is checked inside `process-plans` — a missing plan fails just that plan.) |
 | `process-plans` | `interactive` | The orchestrator — loops the plan list, running the full re-plan→implement→review↔fix→PR→watch pipeline per plan in its own worktree. |
-| `report` | `prompt` | Per-plan roll-up: source plan, branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); lists worktree-cleanup commands. Dispatched to `wise:technical-writer` on `sonnet`. |
+| `report` | `prompt` | Per-plan roll-up: source plan, branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); notes merged plans were auto-cleaned and lists worktree-removal commands for any that remain. Dispatched to `wise:technical-writer` on `sonnet`. |
 
 The workflow sets `agents: auto`, but most of its work runs inside the
 `process-plans` fragment, which dispatches each phase to a concrete
@@ -206,8 +208,13 @@ The natural pairing:
   Branch protection is respected — if the repo requires a human approval
   the merge is left to a human and the PR stays open. Any PR that isn't
   fully resolved is left open.
-- **Worktrees are left in place** for inspection — `report` lists the
-  `git worktree remove` commands.
+- **Merged plans are cleaned up; open/failed ones are kept.** When a
+  plan's PR is merged, its worktree and local branch are removed (the
+  work is preserved on the remote) so the base repo stays clean. A plan
+  left open for a human, or failed, keeps its worktree + branch for
+  inspection — `report` lists the `git worktree remove` command for each
+  one that remains. After the last plan a `git worktree prune` tidies any
+  stale entries.
 - **≤ 5 plans/run recommended.** Each plan runs a full
   re-plan+implement+watch pipeline; the orchestrator delegates heavy work
   to subagents to bound context, but very large batches still risk the
