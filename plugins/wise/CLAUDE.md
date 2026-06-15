@@ -390,6 +390,16 @@ one-liners below are the rule, not the argument for it.
   its `prompts/*.md` fragments, update the workflow's `README.md` in
   the SAME commit — Flow mermaid, Steps table, Inputs/Outputs tables,
   and Related-links section must reflect the new shape.
+- **The auto-orchestrators are idempotent on resume.** `ticket-auto`'s
+  `process-tickets.md` and `implement-plan-auto`'s `process-plans.md` are one
+  implementation (word-for-word identical modulo the unit noun + the §1/§2
+  re-plan deltas) and run as a single all-or-nothing `interactive` step, so a
+  compaction can orphan them mid-run. Their §1 must *ensure* (create,
+  re-attach, or adopt) each unit's worktree from a per-unit ledger under
+  `{{run.dir}}/units/` + live `git`/`gh` probes — never reintroduce a
+  collide-and-fail `git worktree add -b`. Live state is the source of truth;
+  the ledger is a hint; a worktree/branch the run did not claim is skipped,
+  never adopted. Keep the two files mirrored.
 - **All workflow YAML + state handling lives in `scripts/workflows.py`.**
   SKILL.md bodies shell out to it; they never parse YAML themselves.
   `scripts/bootstrap-deps.sh` is the single doorway to Python — every

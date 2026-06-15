@@ -24,6 +24,11 @@ calls `AskUserQuestion`.
 - `ticket_ref`, `plan_path` — **optional** context; when supplied, weigh
   findings against the ticket's intent and the plan's `## Decisions Made`
   rather than second-guessing deliberate choices.
+- `findings_file` — **optional**, `fixer=delegate` only. When supplied, WRITE
+  the numbered findings block to this path instead of emitting it inline, and
+  return its path on the final line. This keeps a large findings block out of
+  the caller's (conductor's) context across the review↔fix loop's cycles. When
+  absent, fall back to listing the block inline (the original behaviour).
 - `config_prompt` — **optional** operator standing guidance (may be
   empty). When supplied, weigh findings against its guardrails too:
   flag anything that violates a stated guardrail, and do not "fix"
@@ -52,7 +57,7 @@ The change set under review is `RANGE` — exactly the commits about to be
 pushed. If `git rev-list --count "$RANGE"` is `0` there is nothing to
 review — emit the **mode-appropriate** clean result and stop: `fixer=self`
 → `REVIEW-AUTO: applied=0 skipped=0 committed=no`; `fixer=delegate` →
-`REVIEW-AUTO: mode=delegate verdict=clean findings=0`.
+`REVIEW-AUTO: mode=delegate verdict=clean findings=0 findings_file=-`.
 
 ### 2. Review (high-effort panel)
 
@@ -73,9 +78,11 @@ Then act by `fixer` mode:
 - **`fixer=self`** (default) — apply the bounded findings in place via
   `Edit` / `Write`, then commit them (§3). One round — never re-run the
   panel.
-- **`fixer=delegate`** — apply NOTHING and skip §3. List the bounded
+- **`fixer=delegate`** — apply NOTHING and skip §3. Produce the bounded
   findings as a numbered block, each `file:line — <one-line problem> —
-  <concrete fix>`, so the caller can hand them to a fixer role.
+  <concrete fix>`, so the caller can hand them to a fixer role. If
+  `findings_file` was supplied, WRITE that block to it (and report the path on
+  the final line); otherwise list the block inline.
 
 On a hard failure (the panel errors, or — in `self` mode — the fixes
 break the tree), follow that reference's failure policy and emit
@@ -104,13 +111,15 @@ Emit, as the FINAL line — alone, no markdown, no backticks — per `fixer`:
   ```
   `applied` counts findings turned into edits, `skipped` counts findings
   left alone, `committed` is whether a fix commit landed.
-- **`fixer=delegate`** (after the numbered findings block):
+- **`fixer=delegate`** (after the numbered findings block, or after writing it
+  to `findings_file`):
   ```
-  REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n>
+  REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> findings_file=<path|->
   ```
   `verdict=clean` (`findings=0`) tells the caller the branch passes the
-  gate; `issues` with `findings=<n>` hands the numbered block to the
-  caller's fixer.
+  gate; `issues` with `findings=<n>` hands the findings to the caller's fixer —
+  via `findings_file=<path>` when one was supplied, else `findings_file=-` with
+  the numbered block listed inline above.
 
 ## Guardrails
 

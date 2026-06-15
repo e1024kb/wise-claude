@@ -174,6 +174,7 @@ steps:
         project.path:  {{project.path}}
         project.name:  {{project.name}}
         project.kind:  {{project.kind}}
+        run.dir:       {{run.dir}}
         workflow.dir:  {{workflow.dir}}
 
       `config_prompt` is the operator's standing guidance (may be
