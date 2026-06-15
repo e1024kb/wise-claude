@@ -233,7 +233,7 @@ After every plan, print the full per-plan results table (for the `report`
 step to surface), then emit — as the FINAL line, alone, no markdown, no
 backticks:
 
-```
+```text
 PLANS-DONE: processed=<N> merged=<M> open=<O> failed=<F>
 ```
 

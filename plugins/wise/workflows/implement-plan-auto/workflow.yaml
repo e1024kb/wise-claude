@@ -212,7 +212,7 @@ steps:
       Give the (absent) operator an end-of-run report. Use the
       per-plan results table `process-plans` printed. For each plan
       list: the source plan file, the branch, the worktree path, the
-      PR url, and the verdict (merged / all-green / partial /
+      PR url, and the verdict (merged / all-green / blocked / partial /
       exhausted / human-intervention / failed).
 
       Then a summary line: {{plans_processed}} processed —

@@ -58,7 +58,9 @@ and re-derive those sections from the rest in step 5.
 git -C "<worktree>" rev-parse --short HEAD
 ```
 
-Compare it with the seed's `SOURCE_SHA`:
+Compare it with the seed's `SOURCE_SHA` **by prefix** — either may be
+short or full; they refer to the same commit when one is a prefix of the
+other:
 
 - **Same SHA** → the excerpts are still valid; a light re-verify suffices.
 - **Different (or seed has none)** → the seed's `## Current state` /
@@ -118,7 +120,7 @@ needed). Use wise's standard `PLAN-*.md` schema (what the implement phase
 consumes — it reads `## Tasks`, `## Decisions Made`, `## Assumptions`,
 `## Validation`):
 
-```
+```text
 # <Title>   (carry the seed plan's title)
 ## Summary
 ## Assumptions   (every autonomous decision; the seed's provenance —
@@ -149,7 +151,7 @@ plan as `verdict=failed reason=implement`, which the report surfaces.
 
 FINAL line — alone, no markdown, no backticks — MUST match:
 
-```
+```text
 PLAN: written=<plan_path> type=<plan_type>
 ```
 
