@@ -10,9 +10,9 @@ description: >-
   edits source and never runs a plan. A panel of read-only roster lenses
   surfaces findings, the architect vets + ranks them by leverage
   (impact over effort, weighted by confidence), and each material finding becomes a
-  `PLAN-*.md` in wise's schema — directly runnable later by
-  `/wise-implement-plan-auto`, or filed as a ticket for the `ticket-auto`
-  pipeline. Invoked as
+  `PLAN-*.md` in wise's schema — driven straight to a merged PR by the
+  `implement-plan-auto` workflow, run as-is by `/wise-implement-plan-auto`,
+  or filed as a ticket for the `ticket-auto` pipeline. Invoked as
   `/wise-revise` (bare alias) or `/wise:wise-revise` (canonical). Use when
   the user says "what should I improve here", "revise this folder /
   component / project", "find improvements and plan them", "audit and give
@@ -36,11 +36,14 @@ matters, and writes the spec; **execution is delegated to you**. The
 plan is the product. The skill investigates read-only and writes only
 under `docs/plans/` — it never edits source, never runs a mutating
 command, and never executes a plan. Because each plan is authored in
-wise's existing `PLAN-*.md` schema, you can later run it verbatim with
-`/wise-implement-plan-auto docs/plans/<NNN>-<slug>.md`, file the finding as
-a ticket and let the `ticket-auto` workflow build it end to end (plan →
-implement → review → PR → merge), or hand it to any engineer — your call,
-not this skill's. (`ticket-auto` starts from a ticket and re-plans from it;
+wise's existing `PLAN-*.md` schema, you can later drive it to a merged PR
+end to end with `/wise-workflow-run implement-plan-auto
+docs/plans/<NNN>-<slug>.md` (re-plan → implement → review → PR → watch →
+merge), run it verbatim on this branch with `/wise-implement-plan-auto
+docs/plans/<NNN>-<slug>.md`, file the finding as a ticket and let the
+`ticket-auto` workflow build it from the ticket, or hand it to any
+engineer — your call, not this skill's. (`implement-plan-auto` re-plans
+from *this* file against current HEAD; `ticket-auto` starts from a ticket;
 `/wise-implement-plan-auto` runs *this* plan as written.)
 
 ## Invocation
@@ -182,16 +185,21 @@ top recommended `<NNN>-<slug>`:
 > implement — the skill plans only; **you choose how to build**:
 >
 > - **Full autonomous pipeline → merged PR** (recommended): run the
->   **`ticket-auto`** workflow — `/wise-workflow-run ticket-auto <ticket>`.
->   It plans, implements, runs the review↔fix loop, opens the PR, drives
->   CI + bot reviews, and merges — end to end, unattended. `ticket-auto`
->   starts from a tracker ticket, so file the finding as a ticket first;
->   the plan body is ready to paste as the ticket description (the workflow
->   then re-plans from it with full context).
+>   **`implement-plan-auto`** workflow —
+>   `/wise-workflow-run implement-plan-auto docs/plans/<NNN>-<slug>.md`
+>   (comma-separate several plans, no spaces). It feeds the plan file
+>   straight in, re-plans it against current HEAD, implements, runs the
+>   review↔fix loop, opens the PR, drives CI + bot reviews, and merges —
+>   end to end, unattended. One worktree + branch + PR per plan; no
+>   ticket needed.
 > - **Run a plan exactly as written, on this branch**:
 >   `/wise-implement-plan-auto docs/plans/<NNN>-<slug>.md` — parallel
 >   executors per wave, one atomic commit per task. Runs *this* plan
 >   verbatim; no PR/merge (you push + open the PR when ready).
+> - **From a tracker ticket instead**: file the finding as a ticket (the
+>   plan body is ready to paste as the description) and run
+>   `/wise-workflow-run ticket-auto <ticket>` — same pipeline, re-planned
+>   from the ticket.
 > - Or hand any `docs/plans/<NNN>-<slug>.md` to an engineer.
 
 **Stop here — propose, never execute.** The commands above are text for

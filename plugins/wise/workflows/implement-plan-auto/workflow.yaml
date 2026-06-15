@@ -1,0 +1,229 @@
+version: 1
+name: implement-plan-auto
+description: >-
+  Autonomous plan-file → PR pipeline. Give it one or more ready-made
+  `PLAN-*.md` files (e.g. the plans `/wise-revise` writes into
+  `docs/plans/`); for each one the wise SDLC roster RE-PLANS it from the
+  file against current HEAD (architect), implements it
+  (software-engineer) in an isolated git worktree, converges it through a
+  reviewer↔fixer loop (code-reviewer ⇄ software-engineer), commits,
+  pushes, opens a PR, requests review, and watches + fixes CI until the
+  PR is green — end to end, with no user prompts. One worktree + branch +
+  PR per plan file; a PR is merged once all its checks pass, otherwise
+  left open for a human.
+author: e1024kb
+
+project-selection: current
+
+# Default prompt steps to the wise SDLC agent roster. Most of this
+# workflow's real work (re-plan / implement / review / fix) happens inside
+# the `process-plans` interactive fragment, which dispatches each phase to
+# a concrete roster role brought in FRESH per phase:
+#   - re-plan   → wise:architect (opus, high)
+#   - implement → wise:software-engineer (sonnet, high)
+#   - review    → wise:code-reviewer (opus, high) — REVIEWS only
+#   - fix       → wise:software-engineer (sonnet, high) — applies the
+#                 reviewer's findings; the two cycle until the reviewer is
+#                 satisfied (cap 10, config_prompt-overridable; on non-
+#                 convergence it pushes anyway and flags the plan)
+#   - watch+fix → wise:software-engineer (sonnet)
+# At the step level `report` → wise:technical-writer; `assemble-team`
+# stays a plain run-start declaration of the roster team + config binding.
+# Model tiering: opus for the planning + review brains, sonnet for the
+# hands-on engineering + bookkeeping steps.
+#
+# This workflow is the full-pipeline wrapper around the `wise-revise` →
+# implement story. The `/wise-implement-plan-auto` SKILL (note: a skill,
+# invoked differently) is the IMPLEMENT-ONLY building block — it runs a
+# plan's task waves and commits, but stops there (no push / PR / watch).
+# This workflow reuses that same implement fragment and chains the rest of
+# the pipeline (the shared prompts) around it.
+agents: auto
+
+# implement-plan-auto is fully autonomous: it never asks the user for
+# consent, permission, or a decision. Every choice a human might make is
+# made here by the Lead Architect agent instead.
+#   control-mode: synchronous — no approval gates, no ask steps.
+#   worktree: current — NOT `new`. Pre-flight `new` would give ONE
+#     worktree for the whole run; this workflow needs one worktree PER
+#     plan, so the orchestrator creates them itself with
+#     `git worktree add`. Pinning `current` keeps {{project.path}}
+#     pointing at the real repo, the correct base for those.
+#   rename_session: skip — an unattended run has nobody to read a
+#     friendlier /resume label.
+# There are NO `ask`, `approval`, or `interactive`-gate prompts that pause
+# for a human — `process-plans` is `type: interactive` only because it
+# must run in the conductor (full Bash/Task access for the per-plan loop),
+# not because it asks anything.
+preflight:
+  control-mode:   synchronous
+  worktree:       current
+  rename_session: skip
+
+inputs:
+  - name: plan_files
+    prompt: "Which plan file(s)? Comma-separated list of PLAN-*.md paths (e.g. docs/plans/001-api-caching.md, docs/plans/002-auth-debt.md). Relative paths resolve against the repo root. When passing positionally on the command line, use NO spaces between items (docs/plans/001-foo.md,docs/plans/002-bar.md)."
+  # Free-form operator guidance, threaded to the wise:architect (re-plan
+  # phase) as standing config for the whole run. As the LAST declared
+  # input it absorbs the remainder of the command line, so it can be a
+  # full sentence:
+  #   /wise-workflow-run implement-plan-auto docs/plans/001-foo.md prefer the design-system lib; never touch infra/*; cap CI fixes at 4
+  # Optional — omit it and the run uses its max-value defaults. The
+  # prompt does NOT switch the run to asking the user anything: the
+  # architect predicts the answers to any question it implies and keeps
+  # the max-value rule. It can also override tuning knobs (e.g. the
+  # CI-fix cap and the review-cycle cap, both default 10).
+  - name: config_prompt
+    prompt: "Optional free-form guidance to tune this run — special skills/libraries to prefer, guidelines, guardrails, files to avoid, knob overrides (e.g. 'cap CI fixes at 4'). Blank = none."
+    optional: true
+
+steps:
+  - id: assemble-team
+    type: prompt
+    prompt: |
+      You are the conductor of an AUTONOMOUS plan-file → PR run. Declare
+      the wise SDLC roster team that will carry every plan, and bind the
+      standing operator guidance.
+
+      The work is done by the roster — each role brought in **fresh per
+      phase** (the per-plan orchestrator's context-budget rule keeps no
+      agent resident across plans):
+
+        • Re-plan   → `wise:architect` — the team lead and sole decision-
+          maker. Takes the provided `PLAN-*.md` as the SEED and re-plans
+          it against current HEAD: re-verifies the seed's cited evidence,
+          refreshes anything that drifted since the plan was written, and
+          owns every decision the work needs (approach, scope, task
+          breakdown, how to fix a failing check, whether a bot review
+          comment should be applied). Pragmatic, decisive, writes the
+          rationale down. On any performance / depth / thoroughness dial
+          it takes the MAXIMUM-value option — this is an autonomous run.
+        • Implement → `wise:software-engineer` — polyglot senior engineers
+          doing the hands-on work (its per-task executors run in parallel).
+        • Review    → `wise:code-reviewer` — the independent gate that
+          judges the branch; it never fixes its own findings.
+        • Fix       → `wise:software-engineer` — applies the reviewer's
+          findings and the CI / bot-comment fixes.
+
+      Standing operator guidance for this run (may be empty):
+
+        {{config_prompt}}
+
+      Every phase treats that guidance as binding configuration — preferred
+      skills / libraries, coding guidelines, guardrails, files to stay out
+      of, and any explicit knob override (e.g. the CI-fix cap or the
+      review-cycle cap). It never turns the run into a Q&A: where the
+      guidance implies an answer the run would otherwise ask for, the
+      architect predicts that answer and proceeds (taking the max-value
+      default for whatever it leaves open). Later steps receive this same
+      `config_prompt` and apply it in their own context.
+
+      Reply with a one-line confirmation naming the roster team and noting
+      whether `config_prompt` is set.
+    agent: off                  # plain setup/confirmation step — no persona needed
+    model: sonnet
+    depends_on: []
+
+  - id: split-plans
+    type: prompt
+    prompt: |
+      Parse the input `{{plan_files}}` into a clean list of plan-file
+      references: split on commas, trim each entry, drop empties. Do NOT
+      resolve paths or check existence here — that is the next step's job;
+      just produce the clean list.
+
+      If the list is empty, stop and surface the error — there is
+      nothing to process.
+
+      Your response's FINAL line MUST be exactly, on its own line
+      (join the paths with semicolons, no spaces):
+
+        PLANS: count=<n> list=<path1;path2;...>
+    until: 'PLANS: count=(\d+) list=(\S.*)'
+    max_iterations: 2
+    outputs: [plan_count, plan_list]
+    model: sonnet
+    depends_on: [assemble-team]
+
+  - id: preflight-checks
+    type: bash
+    command: |
+      set -e
+      cd "{{project.path}}"
+
+      # An autonomous multi-worktree run must start from a clean base.
+      if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "ERROR: base repo at $(pwd) has uncommitted changes." >&2
+        echo "Stash or commit them, then re-run /wise-workflow-run implement-plan-auto." >&2
+        exit 1
+      fi
+
+      gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
+      git remote get-url origin >/dev/null 2>&1 || { echo "ERROR: no 'origin' remote." >&2; exit 1; }
+
+      # Per-plan existence is checked inside process-plans (§1): a missing
+      # plan file is recorded as a failed plan and the run continues with
+      # the rest, rather than aborting the whole batch here.
+      echo "PREFLIGHT: ok"
+    cwd: "{{project.path}}"
+    success:
+      exit_code: 0
+      stdout_matches: "PREFLIGHT: ok"
+    timeout: 30
+    depends_on: [split-plans]
+
+  - id: process-plans
+    type: interactive
+    prompt: |
+      Read {{workflow.dir}}/prompts/process-plans.md and follow it
+      exactly. It is the per-plan orchestrator: for each plan file it
+      creates an isolated worktree and drives re-plan → implement → push
+      → PR → request-review → watch+fix, fully autonomously.
+
+      Runtime context:
+        plan_list:     {{plan_list}}
+        plan_count:    {{plan_count}}
+        config_prompt: {{config_prompt}}
+        project.path:  {{project.path}}
+        project.name:  {{project.name}}
+        project.kind:  {{project.kind}}
+        run.dir:       {{run.dir}}
+        workflow.dir:  {{workflow.dir}}
+
+      `config_prompt` is the operator's standing guidance (may be
+      empty) — pass it down to every per-plan phase, and resolve the
+      CI-fix cap (`max_fix_attempts`, default 10) from it when it names
+      an override.
+
+      Process plans sequentially; one failing plan never aborts the
+      run. A fully green PR is merged by the watch step; any PR that is
+      not fully green is left open for a human.
+
+      Your response's FINAL line MUST match:
+
+        PLANS-DONE: processed=<N> merged=<M> open=<O> failed=<F>
+    until: 'PLANS-DONE: processed=(\d+) merged=(\d+) open=(\d+) failed=(\d+)'
+    outputs: [plans_processed, plans_merged, plans_open, plans_failed]
+    depends_on: [preflight-checks]
+
+  - id: report
+    type: prompt
+    prompt: |
+      Give the (absent) operator an end-of-run report. Use the
+      per-plan results table `process-plans` printed. For each plan
+      list: the source plan file, the branch, the worktree path, the
+      PR url, and the verdict (merged / all-green / partial /
+      exhausted / human-intervention / failed).
+
+      Then a summary line: {{plans_processed}} processed —
+      {{plans_merged}} merged, {{plans_open}} open,
+      {{plans_failed}} failed.
+
+      Call out explicitly which PRs were merged and which were left
+      open for a human (anything not fully green); for each open PR
+      say why. List the
+      `git worktree remove <path>` command for each plan worktree so
+      the operator can clean up when done.
+    agent: technical-writer
+    model: sonnet
+    depends_on: [process-plans]
