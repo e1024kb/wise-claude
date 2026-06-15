@@ -21,7 +21,9 @@ all pass, both review bots have finished, and every comment is
 fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved — including one
 with a non-minor bot comment Claude can't confidently handle — is left
-open for a human.
+open for a human. When a PR is merged, its worktree and local branch are
+removed to keep the base repo clean; a PR left open keeps its worktree
+for inspection.
 
 It follows a spec-driven, phase-gated model:
 fresh-context executor agents working the plan's task waves in
@@ -73,7 +75,8 @@ runs an isolated sub-pipeline:
 
 ```
 worktree → plan → implement → review↔fix loop (reviewer ⇄ fixer) → commit+push
-        → create PR → request review → watch + fix CI loop → record
+        → create PR → request review → watch + fix CI loop
+        → record (+ remove worktree & local branch if merged)
 ```
 
 The wise workflow engine has no DAG loops, so the per-ticket loop and
@@ -99,7 +102,7 @@ overridable from `config_prompt`).
 | `split-tickets` | `prompt` | Parse `ticket_ids` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. |
 | `process-tickets` | `interactive` | The orchestrator — loops the ticket list, running the full plan→implement→review↔fix→PR→watch pipeline per ticket in its own worktree. |
-| `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); lists worktree-cleanup commands. Dispatched to `wise:technical-writer` on `sonnet`. |
+| `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); notes merged tickets were auto-cleaned and lists worktree-removal commands for any that remain. Dispatched to `wise:technical-writer` on `sonnet`. |
 
 The workflow sets `agents: auto`, but most of its work runs inside the
 `process-tickets` fragment, which dispatches each phase to a concrete
@@ -196,8 +199,13 @@ merge gate is checked.
   stays open. A PR with a non-minor bot comment Claude can't
   confidently resolve is left open too (the `blocked` verdict). Any PR
   that isn't fully resolved is left open.
-- **Worktrees are left in place** for inspection — `report` lists the
-  `git worktree remove` commands.
+- **Merged tickets are cleaned up; open/failed ones are kept.** When a
+  ticket's PR is merged, its worktree and local branch are removed (the
+  work is preserved on the remote) so the base repo stays clean. A ticket
+  left open for a human, or failed, keeps its worktree + branch for
+  inspection — `report` lists the `git worktree remove` command for each
+  one that remains. After the last ticket a `git worktree prune` tidies
+  any stale entries.
 - **≤ 5 tickets/run recommended.** Each ticket runs a full
   plan+implement+watch pipeline; the orchestrator delegates heavy work
   to subagents to bound context, but very large batches still risk the

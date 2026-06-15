@@ -19,7 +19,8 @@ to end, with **no user prompts**. One worktree + branch + PR per plan.
 When a PR's checks all pass, both review bots have finished, and every
 comment is fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved is left open for a
-human.
+human. When a PR is merged, its worktree and local branch are removed to
+keep the base repo clean; a PR left open keeps its worktree for inspection.
 
 This is the missing bridge in the `/wise-revise` story: `/wise-revise`
 investigates a scope and writes executable plans, but only plans —
