@@ -235,6 +235,30 @@ Run the same algorithm against the existing `state.yaml`:
 Refer to `wise-workflow-run/SKILL.md` for the exact step dispatch rules
 and the full turn-continuity note.
 
+## Stuck-run takeover
+
+A run can wedge in `status: running` with no session driving it — classically
+when a long autonomous run (`ticket-auto` / `implement-plan-auto`) is
+**orphaned by a context compaction** partway through its `process-*` step: the
+per-unit work is committed in the worktree but never pushed, no PR, and the run
+never reached its `until:` line. Such a run is still resumable here — [§3](#3-inspect-the-run)
+admits a `running` run and [§6](#6-reset-in-flight-steps)'s `reset-running` flips
+its in-flight step back to `pending`.
+
+Just resume it: `/wise-workflow-resume <run-ulid>` (or bare, then pick it from
+the list). Those orchestrators are **idempotent on resume** — `process-tickets`
+/ `process-plans` re-enter from the top, re-derive each unit's branch +
+worktree, **adopt** whatever already exists (worktree, branch, pushed commits,
+open PR) via live `git`/`gh` probes, and continue each unit from where it left
+off — pushing committed-but-unpushed work, finding or creating the PR, watching,
+and merging. No manual push / PR / merge is needed; recovery is the normal
+resume path. (A worktree/branch a *different* run created is left untouched.)
+
+If a run is genuinely unrecoverable, the manual escape hatches still apply:
+re-arm a single step with `update-step <id> status=pending` (via
+`/wise-workflow-status`), or discard the run entirely with
+`rm -rf "$RUNS_ROOT/<run-id>/"`.
+
 ## Guardrails
 
 - Never re-run a step already in `completed` / `failed` / `skipped`

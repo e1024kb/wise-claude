@@ -88,8 +88,9 @@ flowchart TD
 isolated sub-pipeline:
 
 ```
-worktree → re-plan from file → implement → review↔fix loop (reviewer ⇄ fixer)
-        → commit+push → create PR → request review → watch + fix CI loop
+ensure-worktree (create or adopt on resume) → re-plan from file → implement
+        → review↔fix loop (reviewer ⇄ fixer) → commit+push → create PR
+        → request review → watch + fix CI loop
         → record (+ remove worktree & local branch if merged)
 ```
 
@@ -215,6 +216,14 @@ The natural pairing:
   inspection — `report` lists the `git worktree remove` command for each
   one that remains. After the last plan a `git worktree prune` tidies any
   stale entries.
+- **Resumable on interrupt.** Per-plan progress is checkpointed to a ledger
+  under the run directory (off the git tree, surviving the interrupt). If a
+  context compaction orphans the run mid-flight, `/wise-workflow-resume`
+  re-enters `process-plans`, **adopts** each plan's existing worktree / branch /
+  PR via live `git`/`gh` probes, and continues it from where it left off —
+  pushing committed-but-unpushed work, finding or creating the PR, and driving
+  it to a verdict instead of stranding it. A worktree/branch this run did not
+  create is left untouched (never stomped).
 - **≤ 5 plans/run recommended.** Each plan runs a full
   re-plan+implement+watch pipeline; the orchestrator delegates heavy work
   to subagents to bound context, but very large batches still risk the

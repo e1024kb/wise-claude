@@ -46,14 +46,45 @@ return. Never inline heavy work directly in this step.
 
 ## Procedure
 
-Keep a results table — one row per plan: `plan_file`, `branch`,
-`worktree`, `pr_url`, `verdict`, `cleaned` (whether §9 removed the
-worktree + branch). Process plans **sequentially** (they are
-independent; sequential keeps the context bounded).
+Process plans **sequentially** (they are independent; sequential keeps the
+context bounded). Per-plan progress is checkpointed to a small ledger under the
+run directory, which makes this step **idempotent on resume**: if a context
+compaction orphans it mid-run, `/wise-workflow-resume` re-enters here from the
+top, re-derives the same branch + worktree for each plan, and continues each one
+from where it left off — instead of colliding on the existing worktree and failing
+(the orphan bug this design fixes).
+
+### Ledger — per-plan checkpoint + ownership token
+
+Each plan gets one line-oriented `KEY=VALUE` file under `{{run.dir}}/units/`,
+named by its `<branch>` (a legal git ref — no `/`, so a safe flat filename). It
+lives off the git tree and **survives interrupt + resume**. Its existence is this
+run's **claim** on the plan: present → this run owns it (adopt + resume);
+absent while a worktree/branch already exists on disk → another run or a stale
+leftover owns it (skip — never stomp). **Live `git`/`gh` state is always the
+source of truth; the ledger is only a hint** (to skip already-finished phases and
+to recognise the merged-then-cleaned terminal case, where nothing live remains).
+
+Fields: `ref`, `branch`, `worktree`, `base`, `pr_url`, `pr_number`, `last_phase`
+(`claiming` → `worktree` → `planned` → `implemented` → `reviewed` → `pushed` →
+`pr` → `review-requested` → `watched`), `verdict`, `reason`, `review`, `cleaned`.
+
+The ledger is **append-only** — to checkpoint, append one `KEY=VALUE` line; a
+later line for the same key overrides an earlier one (readers take the **last**
+match), so this is safe even if the shell does not persist between commands:
+
+```bash
+UNITS_DIR="{{run.dir}}/units"; mkdir -p "$UNITS_DIR"
+# checkpoint:   printf 'last_phase=pushed\n' >> "$LEDGER"    ($LEDGER is set per plan in §1)
+# read a field: grep '^verdict=' "$LEDGER" | tail -n1 | cut -d= -f2-
+```
+
+Re-establish `UNITS_DIR` and the per-plan `$LEDGER` / `$BR` / `$WT` / `$BASE`
+in any `bash` block that needs them — they are plain values carried for the plan.
 
 For each `plan` in `plan_list`:
 
-### 1. Resolve the plan + create the worktree
+### 1. Resolve the plan + ensure the worktree (idempotent)
 
 Resolve the plan path to an absolute path (if `plan` is relative, it is
 relative to `{{project.path}}`), then confirm it exists and is readable:
@@ -81,26 +112,132 @@ Derive `<slug>` from the seed plan's filename — the branch name comes
 - NEVER add a `ticket/` `jira/` `linear/` `feat/` `wise/` prefix or any
   `/` — the slug is used verbatim as `<branch>`.
 
-Then, from the base repo (the worktree DIR keeps a descriptive,
-collision-safe name; only the branch follows the rule above):
+Set the per-plan variables (the worktree DIR keeps a descriptive,
+collision-safe name; only the branch follows the rule above), and resolve the
+base branch live:
 
 ```bash
+BR="<branch>"
 WT="{{project.path}}.wise-plan-<slug>"
-git -C "{{project.path}}" worktree add "$WT" -b "<branch>"
+LEDGER="$UNITS_DIR/$BR"
+BASE="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null)"
+[ -n "$BASE" ] || BASE="$(git -C "{{project.path}}" remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')"
+[ -n "$BASE" ] || BASE="main"
 ```
 
-If `git worktree add` fails (branch or dir already exists from a prior
-run) → record the plan `verdict=failed reason=worktree`, and **continue
-to the next plan**. Everything below runs against `$WT`.
+**Ownership & dedup gate.** Before touching git, decide whether this run may
+process the plan:
 
-The refreshed plan file lives in the **run directory** (not the
-worktree) so it persists with the run state and never lands in the
-branch. Establish it once per plan and ensure the dir exists:
+```bash
+if [ -f "$LEDGER" ]; then
+  :   # OWN — this run already claimed this plan (fresh start earlier, or a
+      # resume). Fall through to "Ensure the worktree" + §1b and continue it.
+else
+  MERGED="$(gh pr list --head "$BR" --state merged --json number --jq 'length' 2>/dev/null || echo 0)"
+  if [ "${MERGED:-0}" != 0 ]; then
+    # Already shipped (a re-run, or a prior run that merged then cleaned up).
+    printf 'ref=%s\nbranch=%s\nworktree=%s\nverdict=merged\n' "<plan_file>" "$BR" "$WT" >> "$LEDGER"
+    # → run the §9 cleanup (no-op-safe when the worktree/branch are already gone),
+    #   checkpoint `cleaned=yes`, append the row, and CONTINUE to the next plan.
+  elif [ -e "$WT" ] || git -C "{{project.path}}" show-ref --verify --quiet "refs/heads/$BR"; then
+    # A worktree/branch THIS run did not create → a concurrent run or a stale
+    # leftover owns it. Never stomp it.
+    printf 'ref=%s\nbranch=%s\nworktree=%s\nverdict=failed\nreason=worktree-exists\n' "<plan_file>" "$BR" "$WT" >> "$LEDGER"
+    # → append the row and CONTINUE to the next plan.
+  else
+    # Fresh plan → claim it in the ledger BEFORE any git op (closes the window
+    # where an interrupt could strand an unclaimed worktree).
+    printf 'ref=%s\nbranch=%s\nbase=%s\nlast_phase=claiming\n' "<plan_file>" "$BR" "$BASE" >> "$LEDGER"
+  fi
+fi
+```
+
+If the gate recorded `verdict=merged` or `verdict=failed reason=worktree-exists`,
+append the plan's row from its ledger and **continue to the next plan** (the
+merged path first runs the §9 cleanup, which is safe even if nothing remains).
+
+**Ensure the worktree** (the OWN path and the freshly-claimed path reach here).
+Bring `$WT` into being from whatever state the disk is in:
+
+```bash
+if git -C "{{project.path}}" worktree list --porcelain | grep -qxF "worktree $WT"; then
+  # (b) already a registered worktree → confirm it is OUR branch, then adopt.
+  WT_BR="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  if [ "$WT_BR" != "$BR" ]; then
+    printf 'verdict=failed\nreason=worktree-conflict\n' >> "$LEDGER"   # (e) different branch → bail this plan
+  fi
+elif [ -e "$WT" ]; then
+  # (d) dir present but NOT a registered worktree → stale admin entry / corruption.
+  git -C "{{project.path}}" worktree prune
+  if git -C "{{project.path}}" worktree list --porcelain | grep -qxF "worktree $WT"; then
+    :   # prune re-surfaced it
+  elif git -C "{{project.path}}" show-ref --verify --quiet "refs/heads/$BR" && [ -z "$(ls -A "$WT" 2>/dev/null)" ]; then
+    rmdir "$WT" 2>/dev/null; git -C "{{project.path}}" worktree add "$WT" "$BR"   # empty dir → safe re-attach
+  else
+    printf 'verdict=failed\nreason=worktree-corrupt\n' >> "$LEDGER"
+  fi
+elif git -C "{{project.path}}" show-ref --verify --quiet "refs/heads/$BR"; then
+  git -C "{{project.path}}" worktree add "$WT" "$BR"        # (c) branch exists, dir gone → re-attach (no -b)
+else
+  git -C "{{project.path}}" worktree add "$WT" -b "$BR"     # (a) nothing exists → fresh
+fi
+```
+
+If the ensure step recorded `verdict=failed` (`worktree-conflict` / `-corrupt`),
+append the row and **continue to the next plan**. Otherwise checkpoint and
+proceed — everything below runs against `$WT`:
+
+```bash
+printf 'worktree=%s\nbase=%s\nlast_phase=worktree\n' "$WT" "$BASE" >> "$LEDGER"
+```
+
+The refreshed plan file lives in the **run directory** (not the worktree) so it
+persists with the run state and never lands in the branch:
 
 ```bash
 PLAN_PATH="{{run.dir}}/plans/PLAN-<slug>.md"
 mkdir -p "{{run.dir}}/plans"
 ```
+
+### 1b. Determine the resume point
+
+The worktree now exists (freshly created, re-attached, or adopted). For a **fresh**
+plan every probe below is empty, so you fall straight through to §2 — no special
+case. For an **adopted** plan (resume), live probes pick which phase to enter so
+finished work is never redone or stranded:
+
+```bash
+HAS_COMMITS="$(git -C "$WT" rev-list --count "origin/$BASE..HEAD" 2>/dev/null || echo 0)"
+UPSTREAM="$(git -C "$WT" rev-parse --abbrev-ref '@{u}' 2>/dev/null || true)"
+if [ -n "$UPSTREAM" ]; then
+  AHEAD="$(git -C "$WT" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+else
+  AHEAD="$HAS_COMMITS"
+fi
+PR_STATE="$(gh pr list --head "$BR" --state all --json state  --jq '.[0].state  // ""' 2>/dev/null || true)"
+PR_URL="$(  gh pr list --head "$BR" --state all --json url    --jq '.[0].url    // ""' 2>/dev/null || true)"
+PR_NUMBER="$(gh pr list --head "$BR" --state all --json number --jq '.[0].number // ""' 2>/dev/null || true)"
+```
+
+Choose the entry phase (live state wins; consult the ledger only to break ties):
+
+1. `PR_STATE = MERGED` → the work already shipped. Go to **§9** (record
+   `verdict=merged`, run the idempotent cleanup). Skip §2–§8.
+2. `PR_STATE = OPEN` → a live PR exists. If `AHEAD > 0`, push the stragglers first
+   (`git -C "$WT" push` when `$UPSTREAM` is set, else `git -C "$WT" push -u origin "$BR"`),
+   then go to **§8** (watch + fix + merge) with `pr_number=$PR_NUMBER`, `pr_url=$PR_URL`.
+3. `PR_STATE = CLOSED` (closed without merging) → a human closed it deliberately.
+   Append `verdict=human-intervention` + `reason=pr-closed` and **continue to the
+   next plan** — never silently re-create it.
+4. No PR but the commits are already on the remote (`$UPSTREAM` set, or
+   `HAS_COMMITS > 0` with the remote holding them) → push any stragglers, then go
+   to **§6** (create the PR) → §7 → §8.
+5. No PR, no upstream, `HAS_COMMITS > 0` → committed-but-unpushed work (the classic
+   orphan). Go to **§5** (push) → §6 → §7 → §8; run §4 (review) first only if the
+   ledger's `last_phase` is before `reviewed` (don't re-review reviewed commits).
+6. `HAS_COMMITS = 0` → nothing built yet. Go to **§2** (re-plan) — but if the
+   ledger's `last_phase` is `planned` and `$PLAN_PATH` already exists, skip to
+   **§3** (implement).
 
 ### 2. Re-plan from the file
 
@@ -113,7 +250,8 @@ context `seed_plan=$SEED_PLAN`, `worktree=$WT`, `plan_path=$PLAN_PATH`,
 It reads the provided plan as the seed, re-verifies it against the
 worktree's current HEAD, writes the refreshed plan to `plan_path`, and
 returns `PLAN: written=<path> type=<plan_type>`.
-On failure → `verdict=failed reason=replan`, continue.
+On success, checkpoint `last_phase=planned`. On failure → append
+`verdict=failed` + `reason=replan` and continue.
 
 ### 3. Implement
 
@@ -123,9 +261,10 @@ Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
 and follow it." with `plan_path=$PLAN_PATH`, `worktree=$WT`,
 `project.kind=<plan_type>`, and `config_prompt={{config_prompt}}`. (Its
 own parallel per-task executors run as that fragment's fresh sub-`Task`s.)
-It returns `IMPLEMENT: waves=… tasks=… done=… failed=…`. If `done=0` →
-`verdict=failed reason=implement`, continue. If some tasks failed, note
-it but proceed (the branch still gets reviewed in the next step).
+It returns `IMPLEMENT: waves=… tasks=… done=… failed=…`. If `done=0` → append
+`verdict=failed` + `reason=implement` and continue. If some tasks failed, note
+it but proceed (the branch still gets reviewed in the next step). Otherwise
+checkpoint `last_phase=implemented`.
 
 ### 4. Review ↔ fix loop (converge before push)
 
@@ -141,33 +280,35 @@ may override it). Set `CYCLE=0`. Loop:
    wise:code-reviewer`, `model: opus`, reason at **high** effort — : "Read
    `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
    and follow it." with `worktree=$WT`, **`fixer=delegate`**,
-   `ticket_ref=<slug>` (from §1, the plan slug stands in as the change's
-   ref), `plan_path=$PLAN_PATH` (from §1), and
-   `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
-   `origin/<base>..HEAD` (five lenses + confidence-scoring), REPORTS its
-   bounded findings as a numbered block, applies nothing, and returns
-   `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n>`.
-   - `REVIEW-AUTO: aborted …` → record `verdict=failed reason=code-review`
+   `findings_file=$UNITS_DIR/$BR.findings.md`, `ticket_ref=<slug>` (from §1, the
+   plan slug stands in as the change's ref), `plan_path=$PLAN_PATH` (from §1),
+   and `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
+   `origin/<base>..HEAD` (five lenses + confidence-scoring), WRITES its bounded
+   findings as a numbered block to `findings_file`, applies nothing, and returns
+   `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> findings_file=<path>`.
+   Keeping the findings in the file (not pasted into this conductor's context each
+   cycle) is what bounds the loop's context growth.
+   - `REVIEW-AUTO: aborted …` → append `verdict=failed` + `reason=code-review`
      and continue to the next plan (leave the loop).
-   - `verdict=clean` → the branch passes the gate. **Leave the loop**, go to §5.
+   - `verdict=clean` → the branch passes the gate. Checkpoint `last_phase=reviewed`,
+     **leave the loop**, go to §5.
 2. **Fix.** `verdict=issues`: dispatch a `Task` subagent — `subagent_type:
    wise:software-engineer`, `model: sonnet`, reason at **high** effort — :
-   "Apply EXACTLY these review findings to the branch in `$WT`, nothing
-   more:\n\n<paste the reviewer's numbered findings block>\n\nMake the
-   concrete fix for each; respect the plan's deliberate decisions and the
-   `config_prompt` guardrails; do not redesign or widen scope. Then commit
-   by following
+   "Apply EXACTLY the review findings written in `<findings_file>` to the branch
+   in `$WT`, nothing more. Make the concrete fix for each; respect the plan's
+   deliberate decisions and the `config_prompt` guardrails; do not redesign or
+   widen scope. Then commit by following
    `${CLAUDE_PLUGIN_ROOT}/skills/wise-commit/commit-routine.md` with
-   `SIMPLIFY=no PUSH=no`." The fixer owns the edits + the fix commit; the
-   reviewer never touches the code.
+   `SIMPLIFY=no PUSH=no`." The fixer reads the findings from the file and owns the
+   edits + the fix commit; the reviewer never touches the code.
 3. `CYCLE=CYCLE+1`. If `CYCLE < MAX_REVIEW_CYCLES`, loop back to step 1
    (the re-review verifies the fixes); otherwise exit the loop.
 
 After the loop:
 - **Converged** (`verdict=clean`) → proceed to §5.
 - **Did NOT converge** within `MAX_REVIEW_CYCLES` → **push anyway**
-  (continue to §5), but set `review=not-converged cycles=<MAX_REVIEW_CYCLES>`
-  on the plan's row so §9's results table and the end-of-run report flag
+  (continue to §5), but checkpoint `review=not-converged cycles=<MAX_REVIEW_CYCLES>`
+  (and `last_phase=reviewed`) so §9's results table and the end-of-run report flag
   that the branch shipped with unresolved reviewer findings — left for the
   human + the CI/bot review (§7–§8) to catch.
 
@@ -184,15 +325,17 @@ refuses to auto-set upstream, so do it explicitly):
 git -C "$WT" push -u origin "<branch>"
 ```
 
-On push failure → `verdict=failed reason=push`, continue.
+On push failure → append `verdict=failed` + `reason=push` and continue. On
+success, checkpoint `last_phase=pushed`.
 
 ### 6. Create the PR
 
 Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/ensure-pr-auto.md`
 and follow it with `current_branch=<branch>`, `project.path=$WT`. Capture
-`PR-CREATE: number=<n> url=<url>`. On failure → `verdict=failed
-reason=pr-create`, continue.
+`PR-CREATE: number=<n> url=<url>`. On failure → append `verdict=failed` +
+`reason=pr-create` and continue. On success, checkpoint `pr_number=<n>`,
+`pr_url=<url>`, `last_phase=pr`.
 
 ### 7. Request review
 
@@ -204,7 +347,7 @@ best-effort — a request failure never blocks. Capture
 `REVIEW-REQUEST: copilot=<…> coderabbit=<…>`. The watch step (§8) does
 the real confirmation: it detects each bot, waits for the head review,
 and handles CodeRabbit's out-of-credits (bypass) / rate-limit
-(retry-then-give-up) states.
+(retry-then-give-up) states. Checkpoint `last_phase=review-requested`.
 
 ### 8. Watch + fix
 
@@ -220,29 +363,33 @@ waits for CodeRabbit / Copilot to finish reviewing, fixes or dismisses
 every bot comment, and — when the PR is fully resolved — merges it.
 Capture the `WATCH-AUTO:` verdict and record it as the plan's `verdict`
 (`merged` / `all-green` / `blocked …` / `partial …` / `exhausted …` /
-`human-intervention`).
+`human-intervention`) — checkpoint `verdict=<verdict>` and `last_phase=watched`.
 
 ### 9. Record, clean up merged plans, and continue
 
-Append the plan's row to the results table. The watch step already merged
+The plan's ledger row is already written by the per-phase checkpoints; this
+step finalizes the `verdict` and `cleaned` fields. The watch step already merged
 the PR if it reached fully-green; this step merges nothing itself.
 
 **Clean up on merge.** If — and ONLY if — the plan's `verdict` is
 `merged`, the branch's work is now preserved on the remote, so the
 worktree and local branch are safe to discard. Remove them so the base
-repo stays clean:
+repo stays clean (each step is no-op-safe when the worktree/branch are already
+gone — e.g. a resume that re-entered here for an already-merged plan):
 
 ```bash
-git -C "{{project.path}}" worktree remove "$WT" \
-  || git -C "{{project.path}}" worktree remove --force "$WT"   # --force only if leftover untracked / build artifacts block removal
-git -C "{{project.path}}" branch -D "<branch>" 2>/dev/null || true   # local branch is merged on the remote; -D since the GitHub squash/merge isn't in local history
+if git -C "{{project.path}}" worktree list --porcelain | grep -qxF "worktree $WT"; then
+  git -C "{{project.path}}" worktree remove "$WT" \
+    || git -C "{{project.path}}" worktree remove --force "$WT"   # --force only if leftover untracked / build artifacts block removal
+fi
+git -C "{{project.path}}" branch -D "$BR" 2>/dev/null || true   # local branch is merged on the remote; -D since the GitHub squash/merge isn't in local history
+printf 'cleaned=yes\n' >> "$LEDGER"
 ```
 
-Set `cleaned=yes` on the plan's row. Any plan NOT `merged` — left open for
-a human, or failed — **keeps its worktree and branch** so the human can
-inspect or finish the work; never clean those up (record `cleaned=no`).
-
-Move to the next plan. One stuck plan never aborts the run.
+Any plan NOT `merged` — left open for a human, or failed — **keeps its worktree
+and branch** so the human can inspect or finish the work; never clean those up
+(checkpoint `cleaned=no`). Move to the next plan. One stuck plan never aborts
+the run.
 
 ## After all plans — final sweep
 
@@ -260,9 +407,13 @@ fully clean.
 
 ## Final output
 
-After every plan, print the full per-plan results table (for the `report`
-step to surface), then emit — as the FINAL line, alone, no markdown, no
-backticks:
+The per-plan ledgers under `{{run.dir}}/units/` are the source of truth for the
+roll-up — they survive a compaction that would have eaten an in-chat table. Read
+every ledger file in `{{run.dir}}/units/` (skip the `*.findings.md` files) and
+print the per-plan results table from their fields (`ref`, `branch`, `worktree`,
+`pr_url`, `verdict`, `review`, `cleaned`; for each key take the last line) for the
+`report` step to surface. Then compute the tally from the same files and emit — as
+the FINAL line, alone, no markdown, no backticks:
 
 ```text
 PLANS-DONE: processed=<N> merged=<M> open=<O> failed=<F>
@@ -277,6 +428,10 @@ and `failed` counts `failed` + `exhausted`.
 - Fully autonomous — never call `AskUserQuestion`.
 - One worktree + branch + PR per plan. A PR is merged only by the watch
   step, only when fully green; everything else is left open.
+- **Idempotent on resume.** §1 *ensures* (creates, re-attaches, or adopts) the
+  worktree — it never collides-and-fails on an existing one. Live `git`/`gh` state
+  is the source of truth; the ledger under `{{run.dir}}/units/` is a hint. A
+  worktree/branch this run did not claim is **skipped, never adopted**.
 - A **merged** plan's worktree and local branch are removed in §9 (its
   work is safe on the remote); worktrees + branches for plans left
   **open / failed** are kept for inspection, and the `report` step lists
