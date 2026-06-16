@@ -74,13 +74,14 @@ steps:
   - id: assemble-team
     type: prompt
     prompt: |
-      You are the conductor of an AUTONOMOUS ticket → PR run. Declare the
-      wise SDLC roster team that will carry every ticket, and bind the
-      standing operator guidance.
+      This is a run-start declaration step for an AUTONOMOUS ticket → PR
+      run. State the wise SDLC roster team that will carry every ticket in
+      later phases, and record the standing operator guidance.
 
-      The work is done by the roster — each role brought in **fresh per
-      phase** (the per-ticket orchestrator's context-budget rule keeps no
-      agent resident across tickets):
+      For reference, the work is done in **later phases** by the roster —
+      each role brought in **fresh per phase** (the per-ticket
+      orchestrator's context-budget rule keeps no agent resident across
+      tickets). This step only names them; it does no work itself:
 
         • Plan      → `wise:architect` — the team lead and sole decision-
           maker. Owns every decision the interactive ticket-plan flow would
@@ -113,6 +114,8 @@ steps:
 
       Reply with a one-line confirmation naming the roster team and noting
       whether `config_prompt` is set.
+
+      Do NOT plan, investigate, audit the codebase, or dispatch / spawn any other agent (no Task tool). Reply with the one-line confirmation and nothing else.
     agent: off                  # plain setup/confirmation step — no persona needed
     model: sonnet
     depends_on: []

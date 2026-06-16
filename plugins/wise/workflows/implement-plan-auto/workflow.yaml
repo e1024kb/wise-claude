@@ -83,13 +83,14 @@ steps:
   - id: assemble-team
     type: prompt
     prompt: |
-      You are the conductor of an AUTONOMOUS plan-file → PR run. Declare
-      the wise SDLC roster team that will carry every plan, and bind the
-      standing operator guidance.
+      This is a run-start declaration step for an autonomous plan-file → PR
+      run. State the wise SDLC roster team that will carry every plan in
+      later phases, and record the standing operator guidance.
 
-      The work is done by the roster — each role brought in **fresh per
-      phase** (the per-plan orchestrator's context-budget rule keeps no
-      agent resident across plans):
+      For reference, the work in later phases is done by the roster — each
+      role brought in **fresh per phase** (the per-plan orchestrator's
+      context-budget rule keeps no agent resident across plans). This step
+      only names them; it does not act on them:
 
         • Re-plan   → `wise:architect` — the team lead and sole decision-
           maker. Takes the provided `PLAN-*.md` as the SEED and re-plans
@@ -122,6 +123,8 @@ steps:
 
       Reply with a one-line confirmation naming the roster team and noting
       whether `config_prompt` is set.
+
+      Do NOT plan, investigate, audit the codebase, or dispatch / spawn any other agent (no Task tool). Reply with the one-line confirmation and nothing else.
     agent: off                  # plain setup/confirmation step — no persona needed
     model: sonnet
     depends_on: []
