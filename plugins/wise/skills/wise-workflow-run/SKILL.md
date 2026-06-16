@@ -186,19 +186,31 @@ distinguish concurrent workflow sessions.
 
 **5d. Check for an existing session claim:**
 
-A session that already hosts a non-terminal run *cannot* cleanly
+A session that already hosts a *live* non-terminal run cannot cleanly
 host a second one — `/resume <session>` would return the user to a
 conductor whose loop belongs to whichever run renamed the session
-most recently, not whichever the user actually wanted. Probe:
+most recently, not whichever the user actually wanted. But a run that
+was abandoned mid-flight stays non-terminal (`running`/`paused`/
+`failed`) forever; it is not a live conflict and must not block a new
+run. Probe:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
   find-runs-by-session "$SESSION_ID"
 ```
 
-Each stdout line is `<run-id>\t<workflow-name>\t<status>` for a
-non-terminal run in this workspace that claims the same session.
-If there are any matches, `AskUserQuestion`:
+Each stdout line is
+`<run-id>\t<workflow-name>\t<status>\t<last-activity>\t<fresh|stale>`
+for a non-terminal run in this workspace claiming the same session.
+The 5th field is the genuine-conflict signal:
+
+- **`fresh`** — the run checked in recently; the user is interrupting
+  an in-flight conductor. This is the real conflict.
+- **`stale`** — the run's activity froze long ago (abandoned). Not a
+  conflict. The classification (idle threshold, `WISE_SESSION_STALE_SECS`,
+  default 30 min) is owned by `workflows.py`; do not second-guess it.
+
+Only prompt when **at least one match is `fresh`**. Then `AskUserQuestion`:
 
 - Question: `This Claude Code session already has another running
   workflow (<run-id>, <workflow-name>, <status>). Starting a second
@@ -208,7 +220,13 @@ If there are any matches, `AskUserQuestion`:
   - `Continue anyway — both runs share the session.` — proceed.
   - `Abort this run.` — stop without writing state.
 
-Skip 5d's prompt when `SESSION_ID` is `null` (nothing to conflict
+When every match is `stale` (or there are none), do **not** prompt —
+proceed straight to 5e. If any stale matches were present, drop a
+single informational line first (not a question), e.g. `Note: a prior
+run in this session (<run-id>) looks abandoned (idle since
+<last-activity>); proceeding.` so the reclaim is visible.
+
+Skip 5d entirely when `SESSION_ID` is `null` (nothing to conflict
 with) or when stdout was empty.
 
 **5e. Write the stub state:**

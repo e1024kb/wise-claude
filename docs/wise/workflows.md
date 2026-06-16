@@ -476,10 +476,16 @@ pre-flight, the conductor:
    `<run-ulid>_<first-7-hyphen-tokens-of-workflow-name>` and
    records it as `session_label:`.
 5. Checks for **session conflicts** — other non-terminal runs in
-   the same workspace that have already claimed this session. On
-   match, asks whether to continue (both runs share the session —
-   `/resume` will only return to whichever renamed the session
-   most recently) or abort.
+   the same workspace that have already claimed this session. Only a
+   *live* run counts: matches are classified by how recently they
+   checked in (`last_activity_at` vs `WISE_SESSION_STALE_SECS`,
+   default 30 min). A `fresh` match means the user is interrupting an
+   in-flight run, and asks whether to continue (both runs share the
+   session — `/resume` will only return to whichever renamed the
+   session most recently) or abort. A `stale` match is a run that was
+   abandoned mid-flight and whose state froze at non-terminal; it is
+   not a real conflict, so the new run proceeds (with a one-line note)
+   rather than prompting.
 6. Prints a copy-pasteable `/rename <session_label>` command and
    asks the user to confirm (rename / skip rename / abort run).
    The rename is cosmetic: resume uses the UUID, not the label,
