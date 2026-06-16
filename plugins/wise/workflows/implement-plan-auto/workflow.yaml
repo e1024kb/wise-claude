@@ -124,9 +124,7 @@ steps:
       Reply with a one-line confirmation naming the roster team and noting
       whether `config_prompt` is set.
 
-      Do NOT plan, investigate, audit the codebase, or dispatch / spawn any
-      other agent (no Task tool). Reply with the one-line confirmation and
-      nothing else.
+      Do NOT plan, investigate, audit the codebase, or dispatch / spawn any other agent (no Task tool). Reply with the one-line confirmation and nothing else.
     agent: off                  # plain setup/confirmation step — no persona needed
     model: sonnet
     depends_on: []
