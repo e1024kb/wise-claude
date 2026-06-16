@@ -823,9 +823,15 @@ def cmd_dump_state(state_path: str) -> int:
 # Claude Code writes one .jsonl per session at
 #   ~/.claude/projects/<cwd-slug>/<session-uuid>.jsonl
 # where <cwd-slug> is the absolute cwd path with every `/` replaced by `-`.
-# No documented env var surfaces the session UUID into a skill's shell, so
-# we pick the most-recently-modified .jsonl in that directory: the active
-# session is being appended to right now, which keeps its mtime freshest.
+# Claude Code also exports the active session UUID into every skill's shell
+# as $CLAUDE_CODE_SESSION_ID — that is exact and per-process, so we read it
+# first. The mtime sweep below (pick the most-recently-modified .jsonl in the
+# cwd's project dir) is only a fallback for older Claude Code that predates
+# the env var: it is UNRELIABLE when several sessions run in the same cwd,
+# because they all share one project dir and the freshest transcript may
+# belong to a sibling session, not this one. Preferring the env var fixes the
+# false "this session already has another running workflow" conflicts that
+# concurrent same-repo runs hit.
 
 def _cwd_session_dir() -> Path:
     # Shares the slug shape with wise_runs_root_for_cwd so the two namespaces
@@ -835,6 +841,9 @@ def _cwd_session_dir() -> Path:
 
 
 def _current_session_id() -> str | None:
+    env_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+    if env_sid:
+        return env_sid
     session_dir = _cwd_session_dir()
     if not session_dir.is_dir():
         return None
