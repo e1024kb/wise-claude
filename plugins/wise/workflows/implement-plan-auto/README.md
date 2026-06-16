@@ -113,7 +113,7 @@ cap and the CI-fix cap both default to 10 (each overridable from
 
 | Step | Type | Purpose |
 |---|---|---|
-| `assemble-team` | `prompt` | Run-start declaration of the roster team (`wise:architect` lead + `wise:software-engineer` + `wise:code-reviewer`) and binding of the operator `config_prompt`. `agent: off` (plain confirmation step), `model: sonnet`. |
+| `assemble-team` | `prompt` | Run-start declaration of the roster team (`wise:architect` lead + `wise:software-engineer` + `wise:code-reviewer`) and binding of the operator `config_prompt`. `agent: off` (plain confirmation step), `model: sonnet`. Declaration-only — explicitly guarded against planning, codebase work, or spawning any subagent. |
 | `split-plans` | `prompt` | Parse `plan_files` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. (Per-plan existence is checked inside `process-plans` — a missing plan fails just that plan.) |
 | `process-plans` | `interactive` | The orchestrator — loops the plan list, running the full re-plan→implement→review↔fix→PR→watch pipeline per plan in its own worktree. |
