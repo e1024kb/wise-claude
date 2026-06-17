@@ -1,7 +1,7 @@
 # replan-from-file — refresh a ready-made plan against current HEAD, autonomously
 
 The autonomous planning procedure for a **single** pre-built
-`PLAN-*.md`. It is the plan phase of `implement-plan-auto`'s per-plan
+`PLAN-*.md`. It is the plan phase of `impl-plan-auto`'s per-plan
 pipeline — the same role `plan-ticket.md` plays for `ticket-auto`, but
 seeded from a **provided plan file** (e.g. one `/wise-revise` wrote into
 `docs/plans/`) instead of a tracker ticket.
@@ -14,7 +14,7 @@ drifted, and re-deciding the approach — then writes a fresh plan the
 implement phase runs. Every choice a human might make is made by the
 **Lead Architect**.
 
-Source of truth for `implement-plan-auto`'s re-plan phase. The
+Source of truth for `impl-plan-auto`'s re-plan phase. The
 orchestrator runs this against each plan's worktree.
 
 ## Context the caller supplies

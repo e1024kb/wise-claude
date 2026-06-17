@@ -1,4 +1,4 @@
-# implement-plan-auto
+# impl-plan-auto
 
 <!-- This README is the source of truth for how the workflow
      LOOKS to users. Keep it in sync with workflow.yaml +
@@ -24,22 +24,22 @@ keep the base repo clean; a PR left open keeps its worktree for inspection.
 
 This is the missing bridge in the `/wise-revise` story: `/wise-revise`
 investigates a scope and writes executable plans, but only plans —
-execution is yours to schedule. `implement-plan-auto` takes those plan
+execution is yours to schedule. `impl-plan-auto` takes those plan
 files and drives each one all the way to a merged PR.
 
-## implement-plan-auto vs. its neighbours
+## impl-plan-auto vs. its neighbours
 
 | You have… | …and want | Use |
 |---|---|---|
 | a tracker **ticket** | full pipeline → merged PR, unattended | `ticket-auto` |
-| a ready **`PLAN-*.md`** | full pipeline → merged PR, unattended | **`implement-plan-auto`** (this) |
+| a ready **`PLAN-*.md`** | full pipeline → merged PR, unattended | **`impl-plan-auto`** (this) |
 | a ready **`PLAN-*.md`** | just implement + commit (you push / PR) | `/wise-implement-plan-auto` *(the skill)* |
 
 Note the name overlap: `/wise-implement-plan-auto` is a **skill** (the
 implement-only building block — task waves → commits, no push/PR) and
 this is a **workflow** of the same stem (the full-pipeline wrapper). They
 are invoked differently — `/wise-implement-plan-auto <plan>` runs the
-skill; `/wise-workflow-run implement-plan-auto <plan>` runs this
+skill; `/wise-workflow-run impl-plan-auto <plan>` runs this
 workflow — and this workflow **reuses that same implement fragment**,
 chaining the review / push / PR / watch / merge phases around it.
 
@@ -179,13 +179,13 @@ pushed anyway and the plan is flagged `review=not-converged` for the human
 ## Examples
 
 ```
-/wise-workflow-run implement-plan-auto
+/wise-workflow-run impl-plan-auto
 # Bare: prompts only for the plan-file list (config_prompt is optional and skipped).
 
-/wise-workflow-run implement-plan-auto docs/plans/001-api-caching.md,docs/plans/002-auth-debt.md
+/wise-workflow-run impl-plan-auto docs/plans/001-api-caching.md,docs/plans/002-auth-debt.md
 # Two plans, no prompts. Comma-separated, NO spaces. Max-value defaults.
 
-/wise-workflow-run implement-plan-auto docs/plans/001-api-caching.md prefer the design-system lib; never touch infra/*; cap CI fixes at 4
+/wise-workflow-run impl-plan-auto docs/plans/001-api-caching.md prefer the design-system lib; never touch infra/*; cap CI fixes at 4
 # One plan + free-form config_prompt (everything after the first token).
 # Steers the Lead Architect's re-plan decisions; still no questions asked.
 ```
@@ -194,7 +194,7 @@ The natural pairing:
 
 ```
 /wise-revise improve performance of src/api      # writes docs/plans/NNN-*.md
-/wise-workflow-run implement-plan-auto docs/plans/001-api-caching.md
+/wise-workflow-run impl-plan-auto docs/plans/001-api-caching.md
 ```
 
 ## Notes

@@ -247,7 +247,7 @@ and the full turn-continuity note.
 ## Stuck-run takeover
 
 A run can wedge in `status: running` with no session driving it — classically
-when a long autonomous run (`ticket-auto` / `implement-plan-auto`) is
+when a long autonomous run (`ticket-auto` / `impl-plan-auto`) is
 **orphaned by a context compaction** partway through its `process-*` step: the
 per-unit work is committed in the worktree but never pushed, no PR, and the run
 never reached its `until:` line. Such a run is still resumable here — [§3](#3-inspect-the-run)

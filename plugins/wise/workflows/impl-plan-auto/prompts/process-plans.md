@@ -1,6 +1,6 @@
-# process-plans — the implement-plan-auto orchestrator
+# process-plans — the impl-plan-auto orchestrator
 
-The per-plan pipeline driver for the `implement-plan-auto` workflow. Run
+The per-plan pipeline driver for the `impl-plan-auto` workflow. Run
 by the workflow's `process-plans` step (`type: interactive`, so this runs
 inline in the conductor with full `Bash` / `Task` / `Read` access). It
 loops over the plan-file list and, for each plan, drives re-plan →

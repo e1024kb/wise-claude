@@ -53,7 +53,7 @@ full command catalog.
 
 - **`ticket-auto`** — autonomous ticket → plan → implement → review → PR →
   watch CI → resolve review bots → merge, with no prompts.
-- **`implement-plan-auto`** — same autonomous pipeline, but fed a ready
+- **`impl-plan-auto`** — same autonomous pipeline, but fed a ready
   `PLAN-*.md` (e.g. one `/wise-revise` wrote): re-plan from the file →
   implement → review → PR → watch → merge.
 - **`ticket-plan`** — autonomous planning you review and adjust before you
