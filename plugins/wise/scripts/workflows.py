@@ -44,6 +44,9 @@
 #   session-path       <session-id>                     → path to the .jsonl; exit 2 if stale
 #   session-label      <run-id> <workflow-name>         → <run-id>_<first-7-hyphen-tokens>
 #   find-runs-by-session <session-id>                   → non-terminal runs in cwd claiming this session; per line: run-id, workflow, status, last_activity_at, fresh|stale (stale = abandoned, not a real conflict)
+#   worker-heartbeat   <run-dir> <name> [phase] [task]  → refresh <run-dir>/workers/<name>.hb with the current UTC stamp (supervised workers call this every turn)
+#   stale-workers      <run-dir> [expected-csv]         → supervised workers that look hung; per line: name, last-hb, stale|missing, age-secs (SILENT when all fresh — Monitor-safe)
+#   supervise-config                                    → JSON {stale_secs, poll_secs, max_nudges, max_respawns} resolved from WISE_WORKER_* env (one shell call for the supervisor loop)
 #   list-defs                                           → JSON [{name, description, source}] of bundled + user workflow definitions
 #   list-resumable-runs                                 → JSON [{run_id, workflow_name, status, last_activity_at, session_label}] of non-terminal runs in cwd
 #   prune-runs                                          → delete oldest terminal runs in cwd so total run count ≤ WISE_RUN_HISTORY_CAP (default 25)
@@ -116,7 +119,10 @@ def wise_runs_root_for_cwd() -> Path:
     return wise_data_root() / "runs" / _cwd_slug()
 
 RESERVED_NAMES = {"list", "create", "run", "resume", "remove", "status"}
-STEP_TYPES = {"skill", "prompt", "bash", "approval", "ask", "interactive"}
+STEP_TYPES = {
+    "skill", "prompt", "bash", "approval", "ask", "interactive",
+    "supervised-prompt",
+}
 TERMINAL_STEP = {"completed", "failed", "skipped", "cancelled"}
 TERMINAL_RUN = {"completed", "failed", "cancelled"}
 RUN_HISTORY_CAP_DEFAULT = 25
@@ -132,6 +138,19 @@ RUN_HISTORY_CAP_DEFAULT = 25
 # seconds-to-minutes old, while an orphaned run's timestamp is frozen far in
 # the past. Overridable via WISE_SESSION_STALE_SECS.
 SESSION_STALE_SECS_DEFAULT = 1800
+
+# Supervised-execution (watchdog) knobs. DISTINCT from the session staleness
+# above on purpose: SESSION_STALE_SECS_DEFAULT (1800s) decides whether a whole
+# *run* was abandoned mid-flight; WORKER_STALE_SECS_DEFAULT decides whether a
+# single supervised *worker* (a background teammate) has gone hung mid-turn and
+# needs a nudge — a much tighter window, since a worker silent for minutes with
+# no heartbeat is almost certainly stuck, not thinking. A run can be fresh while
+# one of its workers is stale, and vice versa; never collapse the two knobs.
+# All four are positive-int env overrides read through `_env_positive_int`.
+WORKER_STALE_SECS_DEFAULT = 180     # WISE_WORKER_STALE_SECS  — nudge after this much silence
+WORKER_POLL_SECS_DEFAULT = 30       # WISE_WORKER_POLL_SECS   — supervisor Monitor poll interval
+WORKER_MAX_NUDGES_DEFAULT = 2       # WISE_WORKER_MAX_NUDGES  — nudges before TaskStop + respawn
+WORKER_MAX_RESPAWNS_DEFAULT = 1     # WISE_WORKER_MAX_RESPAWNS — respawns before failing the slot
 TRIGGER_RULES = {
     "all-success",
     "one-success",
@@ -1378,6 +1397,113 @@ def cmd_find_runs_by_session(session_id: str) -> int:
     return 0
 
 
+# ---------- supervised execution (watchdog) ---------------------------------
+
+def _read_heartbeat(path: Path) -> str | None:
+    """The first whitespace-delimited token of a worker heartbeat file — its
+    ISO `%Y-%m-%dT%H:%M:%SZ` activity stamp — or None when the file is
+    unreadable or empty. Any trailing `phase=…`/`task=…` annotations are
+    ignored here; only the stamp drives freshness.
+    """
+    try:
+        text = path.read_text().strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    return text.split()[0]
+
+
+def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
+    """Refresh one supervised worker's heartbeat: write the current UTC stamp
+    (plus optional phase/task annotations) to `<run_dir>/workers/<name>.hb`.
+
+    A worker calls this as the first action of every turn and after each
+    significant tool call, so the supervisor can tell a live worker from a
+    hung one. Going through this subcommand (rather than each worker crafting
+    its own `date`/redirect one-liner) keeps the format identical to
+    `utc_now()` so `_session_is_fresh()` parses it unchanged.
+    """
+    workers_dir = Path(run_dir) / "workers"
+    workers_dir.mkdir(parents=True, exist_ok=True)
+    line = utc_now()
+    if phase:
+        line += f"\tphase={phase}"
+    if task:
+        line += f"\ttask={task}"
+    (workers_dir / f"{name}.hb").write_text(line + "\n")
+    return 0
+
+
+def cmd_stale_workers(run_dir: str, expected: str) -> int:
+    """Emit the supervised workers that look hung — SILENT when all are fresh.
+
+    Reads heartbeat files under `<run_dir>/workers/<name>.hb` (see
+    `cmd_worker_heartbeat`) and classifies each against WISE_WORKER_STALE_SECS.
+    One tab-separated line per problem worker — and ONLY problem workers, so
+    this is safe to run on a Monitor poll loop (the "emit only the lines you'd
+    act on" rule); a fully-healthy wave prints nothing:
+
+        <name>\t<last-hb-or-NONE>\t<stale|missing>\t<age-secs-or-?>
+
+    `stale`   = has a heartbeat file but the stamp is older than the threshold
+                (or unparseable/empty — treated as long-silent).
+    `missing` = a name in `expected` with no heartbeat file at all (the worker
+                never checked in once — spawned-but-dead, distinct from stale).
+
+    `expected` is a comma-separated list of the worker names the conductor
+    spawned this wave; pass "" to report purely on whatever .hb files exist.
+    """
+    stale_after = _env_positive_int(
+        "WISE_WORKER_STALE_SECS", WORKER_STALE_SECS_DEFAULT)
+    workers_dir = Path(run_dir) / "workers"
+    now = datetime.now(timezone.utc)
+
+    def _age(iso_ts: str | None) -> str:
+        if not iso_ts:
+            return "?"
+        try:
+            dt = datetime.strptime(iso_ts, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=timezone.utc)
+        except ValueError:
+            return "?"
+        return str(int((now - dt).total_seconds()))
+
+    seen: set[str] = set()
+    if workers_dir.is_dir():
+        for hb in sorted(workers_dir.glob("*.hb")):
+            name = hb.stem
+            seen.add(name)
+            stamp = _read_heartbeat(hb)
+            if _session_is_fresh(stamp, stale_after):
+                continue
+            print(f"{name}\t{stamp or 'NONE'}\tstale\t{_age(stamp)}")
+
+    for raw in (expected or "").split(","):
+        name = raw.strip()
+        if name and name not in seen:
+            print(f"{name}\tNONE\tmissing\t?")
+    return 0
+
+
+def cmd_supervise_config() -> int:
+    """Emit the supervisor's resolved knobs as one JSON object so the conductor
+    reads them in a single shell call instead of parsing env itself (mirrors
+    `resolve-model`'s emit-JSON shape). See the WORKER_*_DEFAULT constants.
+    """
+    print(json.dumps({
+        "stale_secs": _env_positive_int(
+            "WISE_WORKER_STALE_SECS", WORKER_STALE_SECS_DEFAULT),
+        "poll_secs": _env_positive_int(
+            "WISE_WORKER_POLL_SECS", WORKER_POLL_SECS_DEFAULT),
+        "max_nudges": _env_positive_int(
+            "WISE_WORKER_MAX_NUDGES", WORKER_MAX_NUDGES_DEFAULT),
+        "max_respawns": _env_positive_int(
+            "WISE_WORKER_MAX_RESPAWNS", WORKER_MAX_RESPAWNS_DEFAULT),
+    }))
+    return 0
+
+
 # ---------- render-template -------------------------------------------------
 
 def cmd_render(template: str, state_path: str) -> int:
@@ -1451,6 +1577,15 @@ def main() -> int:
     p = sub.add_parser("session-label")
     p.add_argument("run_id"); p.add_argument("workflow_name")
     p = sub.add_parser("find-runs-by-session"); p.add_argument("session_id")
+
+    p = sub.add_parser("worker-heartbeat")
+    p.add_argument("run_dir"); p.add_argument("name")
+    p.add_argument("phase", nargs="?", default="")
+    p.add_argument("task", nargs="?", default="")
+    p = sub.add_parser("stale-workers")
+    p.add_argument("run_dir"); p.add_argument("expected", nargs="?", default="")
+    sub.add_parser("supervise-config")
+
     sub.add_parser("list-defs")
     sub.add_parser("list-agents")
 
@@ -1489,6 +1624,9 @@ def main() -> int:
         "session-path": lambda: cmd_session_path(args.session_id),
         "session-label": lambda: cmd_session_label(args.run_id, args.workflow_name),
         "find-runs-by-session": lambda: cmd_find_runs_by_session(args.session_id),
+        "worker-heartbeat": lambda: cmd_worker_heartbeat(args.run_dir, args.name, args.phase, args.task),
+        "stale-workers": lambda: cmd_stale_workers(args.run_dir, args.expected),
+        "supervise-config": lambda: cmd_supervise_config(),
         "list-defs": lambda: cmd_list_defs(),
         "list-agents": lambda: cmd_list_agents(),
         "resolve-model": lambda: cmd_resolve_model(args.pinned, args.effort),

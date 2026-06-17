@@ -873,9 +873,10 @@ user-visible change).
 
 Listed so proposals land in the right version:
 
-- **`TeamCreate`-based long-lived agents** for step-level streaming
-  progress and multi-turn coordination.
-- **`Monitor`-based live state tailing** from a secondary subagent.
+- **`TeamCreate` / `Monitor` / `SendMessage` for general step execution.**
+  `Task` stays the default step backend. Team tools are permitted ONLY inside
+  the supervised-execution surface — see [§9.11](#911-supervised-execution);
+  do not reach for them as a generic "run a step in the background" mechanism.
 - **Workflow-definition schema migrations** — the path is designed,
   not yet built.
 - **Cross-workflow composition** (workflow as a step type).
@@ -915,6 +916,50 @@ sync the same way workflow READMEs track their YAML.
 The `agent:` / `model:` / `effort:` step fields and the `agents:` workflow
 policy that bind to this roster are documented in
 [§9.3](#93-definition-schema-v1) and `docs/wise/workflows.md`.
+
+### 9.11 Supervised execution
+
+Claude Code's `Task` has no timeout or heartbeat: a subagent that hangs
+mid-tool-call hangs the conductor indefinitely, and a background teammate that
+finishes a turn goes idle and waits forever unless messaged. **Supervised
+execution** is wise's watchdog answer — a leader loop that detects a stalled or
+idle-but-unfinished worker, nudges it, and escalates if it stays stuck. It is
+the automation of the manual "ping all your subagents, are you on track?" nudge.
+
+The single source of truth for the routine is
+`plugins/wise/references/supervise-loop.md`. It is consumed by:
+
+- the `type: supervised-prompt` step (dispatched in `wise-workflow-run` §9d) —
+  a `prompt` step run as one watched background worker instead of a blocking
+  `Task`;
+- the `implement-plan.md §2a` executor fan-out under `SUPERVISE=yes` (the
+  `-auto` orchestrators pass it; the default is plain blocking `Task`);
+- the standalone `/wise-supervise [team]` skill — attach the loop to any
+  already-running team (e.g. an ad-hoc `ticket-pr-run`).
+
+**The hard invariant:** a live watchdog is only possible when workers are
+addressable BACKGROUND teammates (`Agent(team_name, name, run_in_background:
+true)`), so the conductor's turn stays free to poll + `SendMessage`. This is
+the ONLY sanctioned use of `TeamCreate` / `SendMessage` / `Monitor` / the
+`Task*` tools in step execution. It does NOT relax the no-headless rule:
+background `Agent` teammates are in-conversation and subscription-covered, so
+they satisfy the same constraint as `Task`. **Never** shell out to `claude -p`
+or any external agent CLI to supervise or to work.
+
+**Liveness contract.** Workers heartbeat via
+`workflows.py worker-heartbeat <run-dir> <name> [phase] [task]` (writes
+`<run-dir>/workers/<name>.hb`); the supervisor polls via
+`workflows.py stale-workers <run-dir> [expected-csv]` (silent when all fresh —
+Monitor-safe) and reads thresholds via `workflows.py supervise-config`. The
+knobs are distinct from the session-staleness knob on purpose: `WISE_WORKER_STALE_SECS`
+(180s, worker-hang) is NOT `WISE_SESSION_STALE_SECS` (1800s, run-abandonment);
+plus `WISE_WORKER_POLL_SECS` / `_MAX_NUDGES` / `_MAX_RESPAWNS`.
+
+**To change the supervisor's behaviour,** edit `supervise-loop.md` (the routine)
+and/or the `workflows.py` `worker-heartbeat` / `stale-workers` / `supervise-config`
+subcommands — never fork a divergent copy into a skill. Minor version bump
+(supervised execution is additive — the blocking-`Task` path stays the default
+everywhere except the `-auto` implement phase).
 
 ---
 

@@ -122,7 +122,7 @@ Driven by `prompts/process-tickets.md`, which follows these fragments:
 | Phase | Fragment | Role · model | Autonomous analogue of |
 |---|---|---|---|
 | Plan | `prompts/plan-ticket.md` | `wise:architect` · opus | the interactive `ticket-plan` workflow |
-| Implement | `prompts/implement-plan.md` | `wise:software-engineer` · sonnet | (phase-gated executor; code-simplifier per task commit) |
+| Implement | `prompts/implement-plan.md` | `wise:software-engineer` · sonnet | (phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit) |
 | Review ↔ fix | `prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus ⇄ `wise:software-engineer` · sonnet | high-depth review gate (judges only) + an independent fixer, cycling before push |
 | Push | `wise-commit/commit-routine.md` | (inline) | `/wise-commit-push` |
 | Create PR | `prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
