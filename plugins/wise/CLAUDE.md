@@ -403,7 +403,7 @@ one-liners below are the rule, not the argument for it.
   the SAME commit — Flow mermaid, Steps table, Inputs/Outputs tables,
   and Related-links section must reflect the new shape.
 - **The auto-orchestrators are idempotent on resume.** `ticket-auto`'s
-  `process-tickets.md` and `implement-plan-auto`'s `process-plans.md` are one
+  `process-tickets.md` and `impl-plan-auto`'s `process-plans.md` are one
   implementation (word-for-word identical modulo the unit noun + the §1/§2
   re-plan deltas) and run as a single all-or-nothing `interactive` step, so a
   compaction can orphan them mid-run. Their §1 must *ensure* (create,

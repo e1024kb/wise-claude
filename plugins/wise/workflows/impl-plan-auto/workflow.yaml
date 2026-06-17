@@ -1,5 +1,5 @@
 version: 1
-name: implement-plan-auto
+name: impl-plan-auto
 description: >-
   Autonomous plan-file → PR pipeline. Give it one or more ready-made
   `PLAN-*.md` files (e.g. the plans `/wise-revise` writes into
@@ -42,7 +42,7 @@ project-selection: current
 # the pipeline (the shared prompts) around it.
 agents: auto
 
-# implement-plan-auto is fully autonomous: it never asks the user for
+# impl-plan-auto is fully autonomous: it never asks the user for
 # consent, permission, or a decision. Every choice a human might make is
 # made here by the Lead Architect agent instead.
 #   control-mode: synchronous — no approval gates, no ask steps.
@@ -69,7 +69,7 @@ inputs:
   # phase) as standing config for the whole run. As the LAST declared
   # input it absorbs the remainder of the command line, so it can be a
   # full sentence:
-  #   /wise-workflow-run implement-plan-auto docs/plans/001-foo.md prefer the design-system lib; never touch infra/*; cap CI fixes at 4
+  #   /wise-workflow-run impl-plan-auto docs/plans/001-foo.md prefer the design-system lib; never touch infra/*; cap CI fixes at 4
   # Optional — omit it and the run uses its max-value defaults. The
   # prompt does NOT switch the run to asking the user anything: the
   # architect predicts the answers to any question it implies and keeps
@@ -159,7 +159,7 @@ steps:
       # An autonomous multi-worktree run must start from a clean base.
       if ! git diff --quiet || ! git diff --cached --quiet; then
         echo "ERROR: base repo at $(pwd) has uncommitted changes." >&2
-        echo "Stash or commit them, then re-run /wise-workflow-run implement-plan-auto." >&2
+        echo "Stash or commit them, then re-run /wise-workflow-run impl-plan-auto." >&2
         exit 1
       fi
 

@@ -11,7 +11,7 @@ description: >-
   surfaces findings, the architect vets + ranks them by leverage
   (impact over effort, weighted by confidence), and each material finding becomes a
   `PLAN-*.md` in wise's schema — driven straight to a merged PR by the
-  `implement-plan-auto` workflow, run as-is by `/wise-implement-plan-auto`,
+  `impl-plan-auto` workflow, run as-is by `/wise-implement-plan-auto`,
   or filed as a ticket for the `ticket-auto` pipeline. Invoked as
   `/wise-revise` (bare alias) or `/wise:wise-revise` (canonical). Use when
   the user says "what should I improve here", "revise this folder /
@@ -37,12 +37,12 @@ plan is the product. The skill investigates read-only and writes only
 under `docs/plans/` — it never edits source, never runs a mutating
 command, and never executes a plan. Because each plan is authored in
 wise's existing `PLAN-*.md` schema, you can later drive it to a merged PR
-end to end with `/wise-workflow-run implement-plan-auto
+end to end with `/wise-workflow-run impl-plan-auto
 docs/plans/<NNN>-<slug>.md` (re-plan → implement → review → PR → watch →
 merge), run it verbatim on this branch with `/wise-implement-plan-auto
 docs/plans/<NNN>-<slug>.md`, file the finding as a ticket and let the
 `ticket-auto` workflow build it from the ticket, or hand it to any
-engineer — your call, not this skill's. (`implement-plan-auto` re-plans
+engineer — your call, not this skill's. (`impl-plan-auto` re-plans
 from *this* file against current HEAD; `ticket-auto` starts from a ticket;
 `/wise-implement-plan-auto` runs *this* plan as written.)
 
@@ -185,8 +185,8 @@ top recommended `<NNN>-<slug>`:
 > implement — the skill plans only; **you choose how to build**:
 >
 > - **Full autonomous pipeline → merged PR** (recommended): run the
->   **`implement-plan-auto`** workflow —
->   `/wise-workflow-run implement-plan-auto docs/plans/<NNN>-<slug>.md`
+>   **`impl-plan-auto`** workflow —
+>   `/wise-workflow-run impl-plan-auto docs/plans/<NNN>-<slug>.md`
 >   (comma-separate several plans, no spaces). It feeds the plan file
 >   straight in, re-plans it against current HEAD, implements, runs the
 >   review↔fix loop, opens the PR, drives CI + bot reviews, and merges —
