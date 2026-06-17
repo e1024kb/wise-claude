@@ -43,7 +43,7 @@
 #   current-session-id                                  → UUID of the active Claude Code session, inferred from ~/.claude/projects/<cwd-slug>/
 #   session-path       <session-id>                     → path to the .jsonl; exit 2 if stale
 #   session-label      <run-id> <workflow-name>         → <run-id>_<first-7-hyphen-tokens>
-#   find-runs-by-session <session-id>                   → non-terminal runs in cwd that claim this session
+#   find-runs-by-session <session-id>                   → non-terminal runs in cwd claiming this session; per line: run-id, workflow, status, last_activity_at, fresh|stale (stale = abandoned, not a real conflict)
 #   list-defs                                           → JSON [{name, description, source}] of bundled + user workflow definitions
 #   list-resumable-runs                                 → JSON [{run_id, workflow_name, status, last_activity_at, session_label}] of non-terminal runs in cwd
 #   prune-runs                                          → delete oldest terminal runs in cwd so total run count ≤ WISE_RUN_HISTORY_CAP (default 25)
@@ -120,6 +120,18 @@ STEP_TYPES = {"skill", "prompt", "bash", "approval", "ask", "interactive"}
 TERMINAL_STEP = {"completed", "failed", "skipped", "cancelled"}
 TERMINAL_RUN = {"completed", "failed", "cancelled"}
 RUN_HISTORY_CAP_DEFAULT = 25
+
+# A non-terminal run that shares the *current* session id is only a genuine
+# conflict while its conductor is in-flight. A Claude Code session is
+# single-threaded: the live conductor is the one running this check, so any
+# OTHER run tagged with the same session is necessarily quiescent right now.
+# We tell "the user just interrupted an active run" (worth a prompt) apart from
+# "a run was abandoned mid-flight and its state froze at running/paused/failed"
+# (false conflict, must not block) by the age of `last_activity_at`: an active
+# run checkpoints every step/output transition, so a genuine interruption is
+# seconds-to-minutes old, while an orphaned run's timestamp is frozen far in
+# the past. Overridable via WISE_SESSION_STALE_SECS.
+SESSION_STALE_SECS_DEFAULT = 1800
 TRIGGER_RULES = {
     "all-success",
     "one-success",
@@ -177,6 +189,34 @@ RETIRED_MODELS = {
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """A positive-int env override, falling back to `default` when the
+    variable is unset, non-numeric, or not positive."""
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _session_is_fresh(iso_ts: str | None, stale_after: int) -> bool:
+    """Whether an ISO `%Y-%m-%dT%H:%M:%SZ` activity stamp is recent enough
+    to count as a live run rather than one abandoned mid-flight.
+
+    Missing or unparseable → False (treat as long-abandoned). A future
+    stamp (clock skew) reads as fresh. See SESSION_STALE_SECS_DEFAULT for
+    why recency distinguishes a live conductor from an orphaned run.
+    """
+    if not iso_ts:
+        return False
+    try:
+        dt = datetime.strptime(iso_ts, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return (datetime.now(timezone.utc) - dt).total_seconds() <= stale_after
 
 
 def load_yaml(path: Path) -> dict:
@@ -1236,12 +1276,7 @@ def cmd_prune_runs() -> int:
     `PRUNE-FAILED:<run-id>:<reason>` on stderr for any that couldn't
     be removed.
     """
-    try:
-        cap = int(os.environ.get("WISE_RUN_HISTORY_CAP", RUN_HISTORY_CAP_DEFAULT))
-    except ValueError:
-        cap = RUN_HISTORY_CAP_DEFAULT
-    if cap < 1:
-        cap = RUN_HISTORY_CAP_DEFAULT
+    cap = _env_positive_int("WISE_RUN_HISTORY_CAP", RUN_HISTORY_CAP_DEFAULT)
 
     runs_root = wise_runs_root_for_cwd().resolve()
     if not runs_root.is_dir():
@@ -1304,9 +1339,23 @@ def cmd_prune_runs() -> int:
 
 
 def cmd_find_runs_by_session(session_id: str) -> int:
+    """Emit non-terminal runs in this workspace claiming `session_id`.
+
+    One tab-separated line per match:
+        <run-id>\t<workflow>\t<status>\t<last_activity_at>\t<fresh|stale>
+
+    The freshness flag is the genuine-conflict signal. `fresh` means the
+    run checked in within WISE_SESSION_STALE_SECS — the live conductor is
+    interrupting an in-flight run, worth a prompt. `stale` means the run's
+    activity froze long ago (abandoned mid-flight) — not a real conflict;
+    callers must not block on it. A missing/unparseable timestamp counts
+    as stale.
+    """
     runs_root = wise_runs_root_for_cwd()
     if not runs_root.is_dir():
         return 0
+    stale_after = _env_positive_int(
+        "WISE_SESSION_STALE_SECS", SESSION_STALE_SECS_DEFAULT)
     for child in sorted(runs_root.iterdir()):
         state_path = child / "state.yaml"
         if not state_path.is_file():
@@ -1319,9 +1368,13 @@ def cmd_find_runs_by_session(session_id: str) -> int:
             continue
         if state.get("status") in TERMINAL_RUN:
             continue
+        last = state.get("last_activity_at")
+        fresh = _session_is_fresh(last, stale_after)
         print(f"{state.get('run_id', child.name)}\t"
               f"{state.get('workflow_name', '?')}\t"
-              f"{state.get('status', '?')}")
+              f"{state.get('status', '?')}\t"
+              f"{last or '?'}\t"
+              f"{'fresh' if fresh else 'stale'}")
     return 0
 
 
