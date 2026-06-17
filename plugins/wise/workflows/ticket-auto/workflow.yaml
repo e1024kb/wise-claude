@@ -206,15 +206,42 @@ steps:
         operator to fix tracker access and re-run
         `/wise-workflow-run ticket-auto`. Then reply `ACCESS: blocked`.
 
-      FINAL line MUST be exactly `ACCESS: ok` or `ACCESS: blocked`. A
-      `blocked` result fails this step on purpose, which halts the run
-      before any worktree, branch, plan, or PR is created. Emit the
+      FINAL line MUST be exactly `ACCESS: ok` (every tracker reachable)
+      or `ACCESS: blocked` (one or more unreachable — the per-tracker
+      fixes you printed above tell the operator what to do). Emit the
       verdict token ONLY as that final standalone line — never as a
-      mid-sentence mention earlier in the message.
-    until: '^ACCESS: ok$'
-    max_iterations: 1
+      mid-sentence mention earlier in the message. The next step
+      (`gate-access`) halts the run before any worktree / branch / plan
+      / PR exists when this is `blocked`.
+    until: '^ACCESS: (ok|blocked)$'
+    max_iterations: 2
+    outputs: [access_status]
     model: sonnet
     depends_on: [preflight-checks]
+
+  - id: gate-access
+    type: bash
+    command: |
+      # Hard stop for the autonomous run when ensure-access found any
+      # tracker unreachable. The detailed per-tracker fix instructions
+      # are in the ensure-access output above; this gate is the explicit
+      # halt so a `blocked` outcome can never fall through to ticket
+      # processing (capturing the verdict as an output + halting here
+      # surfaces the reason in-chat, rather than burying it in a failed
+      # prompt step's log).
+      if [ "{{access_status}}" = "ok" ]; then
+        echo "ACCESS-GATE: ok"
+      else
+        echo "ERROR: tracker access is blocked — one or more tickets' trackers are unreachable." >&2
+        echo "See the ensure-access output above for each tracker and how to fix it (install + authenticate its MCP/CLI, or make the ticket URL public-fetchable)." >&2
+        echo "Fix tracker access, then re-run /wise-workflow-run ticket-auto." >&2
+        exit 1
+      fi
+    success:
+      exit_code: 0
+      stdout_matches: "ACCESS-GATE: ok"
+    timeout: 15
+    depends_on: [ensure-access]
 
   - id: process-tickets
     type: interactive
@@ -248,7 +275,7 @@ steps:
         TICKETS-DONE: processed=<N> merged=<M> open=<O> failed=<F>
     until: 'TICKETS-DONE: processed=(\d+) merged=(\d+) open=(\d+) failed=(\d+)'
     outputs: [tickets_processed, tickets_merged, tickets_open, tickets_failed]
-    depends_on: [ensure-access]
+    depends_on: [gate-access]
 
   - id: report
     type: prompt

@@ -68,8 +68,9 @@ before pushing, autonomous chaining.
 flowchart TD
     A[assemble-team<br/>prompt — declare roster team + bind config] --> B[split-tickets<br/>prompt → ticket_count, ticket_list]
     B --> C[preflight-checks<br/>bash — clean tree, gh auth, origin]
-    C --> G[ensure-access<br/>prompt — every ticket's tracker reachable, else halt]
-    G --> D[process-tickets<br/>interactive — per-ticket orchestrator loop]
+    C --> G[ensure-access<br/>prompt — probe every ticket's tracker]
+    G --> H[gate-access<br/>bash — halt run if any tracker blocked]
+    H --> D[process-tickets<br/>interactive — per-ticket orchestrator loop]
     D --> E[report<br/>prompt — per-ticket roll-up]
 ```
 
@@ -105,7 +106,8 @@ overridable from `config_prompt`).
 | `assemble-team` | `prompt` | Run-start declaration of the roster team (`wise:architect` lead + `wise:software-engineer` + `wise:code-reviewer`) and binding of the operator `config_prompt`. `agent: off` (plain confirmation step), `model: sonnet`. Declaration-only — explicitly guarded against planning, codebase work, or spawning any subagent. |
 | `split-tickets` | `prompt` | Parse `ticket_ids` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. |
-| `ensure-access` | `prompt` | Verify every ticket's tracker is actually reachable (MCP / CLI / public URL). If any is not, print the per-tracker fix and **halt the run** (`ACCESS: blocked` fails the step) — it never plans from invented ticket content. `model: sonnet`. |
+| `ensure-access` | `prompt` | Verify every ticket's tracker is actually reachable (MCP / CLI / public URL). Emits `ACCESS: ok` or, when any is unreachable, prints the per-tracker fix and emits `ACCESS: blocked` (captured as `access_status`) — it never plans from invented ticket content. `model: sonnet`. |
+| `gate-access` | `bash` | Hard stop: exits non-zero with an actionable ERROR when `access_status != ok`, so a `blocked` outcome halts the run before any worktree / branch / plan / PR — the detailed fixes stay surfaced in-chat from `ensure-access`. |
 | `process-tickets` | `interactive` | The orchestrator — loops the ticket list, running the full plan→implement→review↔fix→PR→watch pipeline per ticket in its own worktree. |
 | `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); notes merged tickets were auto-cleaned and lists worktree-removal commands for any that remain. Dispatched to `wise:technical-writer` on `sonnet`. |
 
