@@ -34,13 +34,18 @@ ambiguous, the Lead Architect picks the most likely tracker and
 records the assumption — this run never asks the user. Derive a
 lowercase `tracker_slug` and the bare `ticket_ref`.
 
-### 2. Confirm access (autonomous, graceful)
+### 2. Confirm access (autonomous, fail-closed)
 
-Probe for a tracker integration: a tracker MCP (a one-time permission
-prompt is expected), or a CLI (`command -v gh` / `glab`). If none,
-`WebFetch` a public ticket URL. If nothing works, record
-`access=degraded` and plan from the ref + the input string alone —
-do NOT block and do NOT invent ticket content.
+The run-wide `ensure-access` gate already confirmed this ticket's
+tracker is reachable, so fetch via the established channel: a tracker
+MCP (a one-time permission prompt is expected), a CLI (`command -v gh`
+/ `glab`), or — for a public ticket URL — `WebFetch`.
+
+If THIS specific ticket still cannot be fetched (the issue is missing,
+or access is denied for this one ticket), **STOP**. Do NOT record
+`access=degraded`, do NOT plan from the ref or the input string alone,
+and do NOT invent or infer ticket content from the codebase or anywhere
+else. Skip the rest of the procedure and emit the §8 blocked line.
 
 ### 3. Fetch and classify the ticket
 
@@ -106,7 +111,7 @@ needed). Structure:
 ```
 # <tracker_slug>:<ticket_ref> — <Title>
 ## Summary
-## Assumptions   (every autonomous decision; any access gap)
+## Assumptions   (every autonomous decision)
 ## Decisions Made
 ## Design Notes  (frontend / fullstack tickets with designs only)
 ## Tasks         (parallelizable WAVES; each task "Reuse: …" / "New: …";
@@ -123,8 +128,14 @@ sub-task, round the total to the nearest Fibonacci).
 
 ### 8. Final line
 
-FINAL line — alone, no markdown, no backticks — MUST match:
+FINAL line — alone, no markdown, no backticks. On success:
 
-```
+```text
 PLAN: written=<plan_path> type=<ticket_type>
+```
+
+If §2 could not fetch the ticket, write NO plan and emit instead:
+
+```text
+PLAN: blocked reason=no-ticket-access ticket=<ticket_ref>
 ```

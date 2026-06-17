@@ -221,7 +221,10 @@ follow it." with context `ticket=<ticket>`, `worktree=$WT`,
 `plan_path=$PLAN_PATH`, `project.kind={{project.kind}}`, and
 `config_prompt={{config_prompt}}`. It writes the
 plan to `plan_path` and returns `PLAN: written=<path> type=<ticket_type>`.
-On success, checkpoint `last_phase=planned`. On failure → append
+On success, checkpoint `last_phase=planned`. If it instead returns
+`PLAN: blocked reason=no-ticket-access …` (the tracker could not return
+this ticket — never plan from invented content) → append `verdict=failed`
++ `reason=plan-no-access` and continue. On any other failure → append
 `verdict=failed` + `reason=plan` and continue.
 
 ### 3. Implement

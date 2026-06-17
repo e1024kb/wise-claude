@@ -55,8 +55,10 @@ before pushing, autonomous chaining.
 - Run from inside the project's git repository — `project-selection:
   current` auto-detects it; the base working tree must be **clean**
   (`preflight-checks` refuses a dirty base).
-- No tracker plugin needs to be pre-installed — the plan phase probes
-  for a tracker MCP / CLI and degrades gracefully when none is found.
+- No tracker plugin needs to be pre-installed — the `ensure-access` gate
+  probes for a tracker MCP / CLI / public URL up front and **halts the
+  run with an actionable message** when a required tracker is
+  unreachable. It never plans from invented ticket content.
 - Recommended ≤ 5 tickets per run (each ticket's full pipeline is
   substantial; see Notes).
 
@@ -66,7 +68,9 @@ before pushing, autonomous chaining.
 flowchart TD
     A[assemble-team<br/>prompt — declare roster team + bind config] --> B[split-tickets<br/>prompt → ticket_count, ticket_list]
     B --> C[preflight-checks<br/>bash — clean tree, gh auth, origin]
-    C --> D[process-tickets<br/>interactive — per-ticket orchestrator loop]
+    C --> G[ensure-access<br/>prompt — probe every ticket's tracker]
+    G --> H[gate-access<br/>bash — halt run if any tracker blocked]
+    H --> D[process-tickets<br/>interactive — per-ticket orchestrator loop]
     D --> E[report<br/>prompt — per-ticket roll-up]
 ```
 
@@ -102,6 +106,8 @@ overridable from `config_prompt`).
 | `assemble-team` | `prompt` | Run-start declaration of the roster team (`wise:architect` lead + `wise:software-engineer` + `wise:code-reviewer`) and binding of the operator `config_prompt`. `agent: off` (plain confirmation step), `model: sonnet`. Declaration-only — explicitly guarded against planning, codebase work, or spawning any subagent. |
 | `split-tickets` | `prompt` | Parse `ticket_ids` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. |
+| `ensure-access` | `prompt` | Verify every ticket's tracker is actually reachable (MCP / CLI / public URL). Emits a final `ACCESS: ok` / `ACCESS: blocked` line whose verdict is captured into `access_status` (value `ok` or `blocked`, from the `until:` regex group); on `blocked` it first prints the per-tracker fix. Never plans from invented ticket content. `model: sonnet`. |
+| `gate-access` | `bash` | Hard stop: exits non-zero with an actionable ERROR when `access_status != ok`, so a `blocked` outcome halts the run before any worktree / branch / plan / PR — the detailed fixes stay surfaced in-chat from `ensure-access`. |
 | `process-tickets` | `interactive` | The orchestrator — loops the ticket list, running the full plan→implement→review↔fix→PR→watch pipeline per ticket in its own worktree. |
 | `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); notes merged tickets were auto-cleaned and lists worktree-removal commands for any that remain. Dispatched to `wise:technical-writer` on `sonnet`. |
 
