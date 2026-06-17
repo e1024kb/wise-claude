@@ -130,12 +130,12 @@ sub-task, round the total to the nearest Fibonacci).
 
 FINAL line — alone, no markdown, no backticks. On success:
 
-```
+```text
 PLAN: written=<plan_path> type=<ticket_type>
 ```
 
 If §2 could not fetch the ticket, write NO plan and emit instead:
 
-```
+```text
 PLAN: blocked reason=no-ticket-access ticket=<ticket_ref>
 ```
