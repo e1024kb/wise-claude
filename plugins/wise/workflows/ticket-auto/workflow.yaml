@@ -208,8 +208,10 @@ steps:
 
       FINAL line MUST be exactly `ACCESS: ok` or `ACCESS: blocked`. A
       `blocked` result fails this step on purpose, which halts the run
-      before any worktree, branch, plan, or PR is created.
-    until: 'ACCESS: ok'
+      before any worktree, branch, plan, or PR is created. Emit the
+      verdict token ONLY as that final standalone line — never as a
+      mid-sentence mention earlier in the message.
+    until: '^ACCESS: ok$'
     max_iterations: 1
     model: sonnet
     depends_on: [preflight-checks]
