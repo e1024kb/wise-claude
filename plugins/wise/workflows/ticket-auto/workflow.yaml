@@ -214,7 +214,7 @@ steps:
       (`gate-access`) halts the run before any worktree / branch / plan
       / PR exists when this is `blocked`.
     until: '^ACCESS: (ok|blocked)$'
-    max_iterations: 2
+    max_iterations: 1            # single-shot — re-running re-probes MCP/CLI (and re-prompts permissions); a missing verdict fails this step, skipping gate-access + process-tickets (all-success) so the run still halts — fail-closed
     outputs: [access_status]
     model: sonnet
     depends_on: [preflight-checks]
