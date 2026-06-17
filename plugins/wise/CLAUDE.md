@@ -74,6 +74,14 @@ Current actions (all standalone):
   `/wise-code-review-auto` (the heavyweight branch gate — a high-depth
   panel of reviewer subagents) are the two quality passes; the
   `ticket-auto` workflow follows the same fragments / references.
+- `/wise-supervise` — attach a watchdog / supervisor loop to a running
+  team of background agents and keep them on task: probe each member,
+  nudge the idle-but-unfinished or off-goal ones, escalate the
+  persistently stuck (the automation of manually typing "ping all your
+  subagents, are you on track?"). Reads the shared
+  `references/supervise-loop.md`; the workflow engine runs the same
+  routine for `type: supervised-prompt` steps and the `-auto` implement
+  phase (`SUPERVISE=yes`).
 - `/wise-revise` — the proactive planner: investigates a scope (folder /
   component / whole project) against a free-form improvement intent,
   read-only, via a panel of roster lenses; ranks findings by leverage and
@@ -151,6 +159,7 @@ plugins/wise/
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
+│   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by supervised-prompt + /wise-supervise
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
 │   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
 └── skills/
@@ -187,6 +196,7 @@ plugins/wise/
     │   └── agents/executor.md            # fresh-context per-task executor persona
     ├── wise-code-review-auto/SKILL.md     # autonomous high-depth branch code-review (no prompts)
     ├── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
+    ├── wise-supervise/SKILL.md            # attach the watchdog loop to a running team of background agents
     └── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
         ├── SKILL.md
         └── references/                    # audit-lenses.md (the panel) + plan-format.md (the plan + index schema)
@@ -341,7 +351,9 @@ one-liners below are the rule, not the argument for it.
   `wise-workflow-run` / `-resume` / `-list` / `-status`), and the two
   quality passes `simplify-pass.md` (read by the commit routine, the
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
-  (read by `review-branch-auto.md` and `wise-code-review-auto`), and the
+  (read by `review-branch-auto.md` and `wise-code-review-auto`), the
+  watchdog routine `supervise-loop.md` (read by the `supervised-prompt`
+  step, the `-auto` implement phase, and `wise-supervise`), and the
   `references/pr/` PR/commit fragments (`draft-body.md`, `ensure-pr.md`,
   `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
   the `handle-*.md` queue handlers, `paged-bulk-mode.md`,

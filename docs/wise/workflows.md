@@ -161,6 +161,7 @@ steps:
 |---|---|---|---|
 | `skill` | The `Skill` tool call returns without raising. | `Skill` errors or the invoked skill emits a fatal line. | Last message of the skill's reply. |
 | `prompt` | Subagent's final message matches `until:` regex (or, when `until:` is absent, single-shot success on return). | `max_iterations` hit without a match; subagent errors; timeout. | Named `outputs:` captured from the matching line's regex groups. |
+| `supervised-prompt` | As `prompt`, but the worker runs as a watched background teammate; success when its task completes and the final message matches `until:`. | The worker stays hung past the nudge/respawn ladder and the supervisor fails the slot; subagent errors. | Named `outputs:` captured from the worker's final line, identical to `prompt`. |
 | `bash` | `success.exit_code` matches the actual exit code AND all `success.stdout_matches` / `success.stderr_matches` regexes pass. | Any condition fails; timeout. | stdout+stderr to the step's log file; last ~1KB in state. |
 | `approval` | User picks Approve (wave-sync / auto-advance), OR the run is in synchronous mode (auto-approved). | User picks Reject or cancels (wave-sync / auto-advance only — never auto-rejects). | The selection label, or `auto-approved (sync mode)`. |
 | `ask` | User picks the skip or confirm option (wave-sync / auto-advance), OR sync mode (skipped). | — (ask steps don't fail — they always record *some* value, possibly empty). | The chosen value; see "`ask` rendering shapes" below. |
@@ -190,6 +191,25 @@ anything that calls `AskUserQuestion` more than once). Pick
 `prompt` for everything else. An `interactive` step in a wave
 with other steps forces the others to wait — don't use it as a
 drop-in replacement for `prompt`.
+
+### `supervised-prompt` — a watched `prompt`
+
+`supervised-prompt` is a `prompt` step whose worker runs as an
+**addressable background teammate** (`Agent(team_name, name,
+run_in_background: true)`) instead of a blocking `Task`, so the
+conductor stays free to watch it. A leader loop — the routine in
+`plugins/wise/references/supervise-loop.md` — polls the worker's
+heartbeat and nudges it if it hangs mid-turn or goes idle without
+finishing, escalating (`TaskStop` → respawn → fail the slot) only
+if nudging fails. Use it for a single long step where a silent hang
+would otherwise stall the run; `Task` has no timeout of its own.
+Tune the watchdog with `WISE_WORKER_STALE_SECS` (default 180s),
+`WISE_WORKER_POLL_SECS`, `WISE_WORKER_MAX_NUDGES`, and
+`WISE_WORKER_MAX_RESPAWNS`. One supervised step is one worker (no
+team `agent:` list). The same routine — under `SUPERVISE=yes` —
+drives the `-auto` implement phase's executor fan-out, and the
+standalone `/wise-supervise [team]` skill attaches it to any
+already-running team.
 
 
 ### `ask` — two rendering shapes

@@ -11,7 +11,7 @@ description: >-
   <workflow-name>", "run the ticket-plan workflow", or types
   `/wise-workflow-run`.
 argument-hint: "[<workflow-name> [<input1> <free-form remainder…>]]"
-allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
+allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
 ---
 
 # /wise-workflow-run — the conductor
@@ -630,6 +630,7 @@ The one-line description is generated from the step definition:
 |---|---|
 | `skill`    | `invoke <def.skill>` + first non-empty payload key if any |
 | `prompt`   | first 60 chars of rendered `def.prompt` (one line, ellipsise); append ` [→ wise:<role>]` when an agent resolves |
+| `supervised-prompt` | as `prompt`, plus ` [supervised]` (runs as a watched background worker) |
 | `bash`     | `$ ` + first 60 chars of rendered `def.command` + `(cwd: …)` if `def.cwd` is set |
 | `approval` | `approval: ` + first 60 chars of rendered `def.message` |
 
@@ -765,6 +766,41 @@ resolved effort → append nothing.
   degrades (the subagent typically falls back to "list the items
   and return a summary"), which is worse than the step failing
   loudly because it looks like the step worked.
+
+- `type: supervised-prompt` — a `prompt` step run as a **supervised background
+  worker** instead of a blocking `Task`, so a worker that hangs mid-turn or goes
+  idle without finishing gets nudged back on task rather than silently stalling
+  the wave (`Task` has no timeout/heartbeat — a hung subagent hangs the conductor
+  indefinitely). Resolve `agent`/`model`/`effort` exactly as `prompt`
+  (`resolve-team` → a single member; a team **list** is not supported here — one
+  supervised step is one worker). Then follow
+  `${CLAUDE_PLUGIN_ROOT}/references/supervise-loop.md`:
+  1. `TeamCreate({ team_name: "wise-<run.id>-<step.id>" })`.
+  2. `TaskCreate` the step's goal, then spawn ONE background worker:
+
+     ```text
+     Agent({
+       team_name: "wise-<run.id>-<step.id>",
+       name: "<step.id>-w1",
+       run_in_background: true,
+       subagent_type: <"wise:<role>" | "general-purpose">,
+       model: <member.model — include ONLY if not "inherit">,
+       prompt: "<rendered def.prompt>"
+               + [if member.effort] "\n\nReason at <EFFORT> effort — <gloss>."
+               + [if def.until]  "\n\nEnd your last line with a value that matches /<until>/."
+               + "\n\nHeartbeat: as your FIRST action each turn and after each significant tool call, run:\n"
+               + "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py\" worker-heartbeat \"<run.dir>\" \"<step.id>-w1\" \"<phase>\" \"<step.id>\""
+     })
+     ```
+  3. Arm the supervisor Monitor (`supervise-loop §3`) over the single worker name
+     and run the loop — idle handler (§4), Monitor stale handler (§5), escalation
+     ladder (§7) — until the worker's task is `completed`/`failed`.
+  4. **Teardown** (`§8`): `TaskStop` the Monitor, collect `TaskOutput` as the step
+     result (capture `def.until` / `def.outputs` from it exactly as a `prompt`
+     step), shut the worker down, `TeamDelete`. The step stays **atomic** — a
+     mid-step resume re-runs it whole, after `TeamDelete`-ing the orphaned team
+     (`§9`). All execution is in-conversation (subscription-covered) — the worker
+     is a native background `Agent`, never a `claude -p` subprocess.
 
 - `type: interactive`:
 

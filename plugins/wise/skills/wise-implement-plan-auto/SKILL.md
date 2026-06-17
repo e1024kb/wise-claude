@@ -12,7 +12,7 @@ description: >-
   "implement the plan", "execute PLAN-*.md", "build out the plan
   autonomously", or types `/wise-implement-plan-auto`.
 argument-hint: "[<plan-file-path>]"
-allowed-tools: Read, Edit, Write, Task, TodoWrite, Bash(git:*), Bash(npm:*), Bash(make:*), Bash(go:*), Bash(python3:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(test:*)
+allowed-tools: Read, Edit, Write, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, TodoWrite, Bash(git:*), Bash(npm:*), Bash(make:*), Bash(go:*), Bash(python3:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(test:*)
 ---
 
 # /wise-implement-plan-auto — execute a plan, autonomously
@@ -47,13 +47,15 @@ Use the toplevel as `worktree`. Resolve `plan_path` from `$ARGUMENTS`
 ### 2. Follow the shared fragment
 
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md`
-and follow it end to end with `plan_path`, `worktree`, and
-`project.kind` (infer from the worktree's manifest if unknown). The
-fragment processes waves in order, dispatches a parallel executor
-`Task` per task (persona: this skill's `agents/executor.md`), then
-simplifies (per-task, scoped to the task's files via
+and follow it end to end with `plan_path`, `worktree`, `project.kind`
+(infer from the worktree's manifest if unknown), and `SUPERVISE=yes`.
+The fragment processes waves in order, dispatches the wave's executors
+per task (persona: this skill's `agents/executor.md`) — **supervised**
+background teammates a leader loop nudges if one hangs or goes idle
+mid-task — then simplifies (per-task, scoped to the task's files via
 `references/simplify-pass.md`) and commits each task sequentially, and
-verifies per task.
+verifies per task. (To fall back to plain blocking `Task` executors,
+pass `SUPERVISE=no` / set `WISE_WORKER_*` env to tune the watchdog.)
 
 ### 3. Relay the result
 

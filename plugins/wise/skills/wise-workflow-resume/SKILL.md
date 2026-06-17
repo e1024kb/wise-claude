@@ -10,7 +10,7 @@ description: >-
   the paused run", "pick up the run", "resume run <ulid>", or types
   `/wise-workflow-resume`.
 argument-hint: "[<run-ulid>]"
-allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
+allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
 ---
 
 # /wise-workflow-resume — resume an interrupted run
@@ -190,6 +190,15 @@ This moves any step with `status: running` back to `pending` and
 clears its `started_at`, `run_id`, `log` fields so a fresh attempt
 gets its own step-run-ulid and log file. Previous logs stay on disk
 for debugging.
+
+If the interrupted run had any `supervised-prompt` steps (or invoked
+the supervisor loop), a crash can orphan a background team + its
+Monitor. Per `${CLAUDE_PLUGIN_ROOT}/references/supervise-loop.md` §9,
+`TeamDelete` any team named `wise-<run-id>-*` before re-dispatching —
+live state is the truth, an orphaned team is torn down, not adopted.
+The supervised step re-runs whole (it is atomic); stale heartbeat files
+under `<run-dir>/workers/` are harmless (the fresh worker overwrites
+its own).
 
 ### 7. TodoWrite (re-emit)
 

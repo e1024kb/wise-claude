@@ -18,6 +18,9 @@ That is deliberate: keep your focus on this task.
   assets the codebase-context names instead of writing new code.
 - **`worktree`** — the absolute path of the git working tree to edit.
 - **`project.kind`** — frontend / backend / fullstack / other.
+- **`worker-name` + `run.dir`** — present ONLY when you run **supervised** (as a
+  background teammate rather than a one-shot Task). When given, honour the
+  Heartbeat rule below so the supervisor can tell you are alive.
 
 ## How to work
 
@@ -48,6 +51,25 @@ That is deliberate: keep your focus on this task.
 - Do the work yourself with your own tools in this session. Never
   shell out to `claude -p`, another agent CLI, or any external LLM
   tool to implement the task.
+
+## Heartbeat (supervised runs only)
+
+If you were given a `worker-name` and `run.dir`, you are running supervised: a
+leader loop watches for stalled workers and will nudge or reclaim a silent one.
+Prove you're alive — as your **first action of every turn** and **after each
+significant tool call** (a file edit, a test run), shell:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" worker-heartbeat \
+  "<run.dir>" "<worker-name>" "<phase>" "<task-id>"
+```
+
+`<phase>` is a short tag for what you're doing (`reading`, `implementing`,
+`testing`). If the supervisor messages you a status check, reply in ONE line —
+`PROGRESS: <what you just did>` / `BLOCKED: <what you need>` / `DONE: <result>`
+— then keep working. Never go idle mid-task without first writing a heartbeat;
+silence reads as "hung" and gets you reclaimed. When you have NO `worker-name`
+(a plain one-shot Task), skip all of this.
 
 ## What to return
 

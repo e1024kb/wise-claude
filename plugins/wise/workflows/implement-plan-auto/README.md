@@ -138,7 +138,7 @@ prompts verbatim, so the two workflows stay one implementation.
 | Phase | Fragment | Role · model | Notes |
 |---|---|---|---|
 | Re-plan | `prompts/replan-from-file.md` | `wise:architect` · opus | seeds from the provided plan, re-verifies + refreshes against current HEAD |
-| Implement | `ticket-auto/prompts/implement-plan.md` | `wise:software-engineer` · sonnet | phase-gated executor; code-simplifier per task commit |
+| Implement | `ticket-auto/prompts/implement-plan.md` | `wise:software-engineer` · sonnet | phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit |
 | Review ↔ fix | `ticket-auto/prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus ⇄ `wise:software-engineer` · sonnet | high-depth review gate (judges only) + an independent fixer, cycling before push |
 | Push | `wise-commit/commit-routine.md` | (inline) | `/wise-commit-push` |
 | Create PR | `ticket-auto/prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |

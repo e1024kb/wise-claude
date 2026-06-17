@@ -259,9 +259,11 @@ Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
 `model: sonnet`, reason at **high** effort — : "Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md`
 and follow it." with `plan_path=$PLAN_PATH`, `worktree=$WT`,
-`project.kind=<plan_type>`, and `config_prompt={{config_prompt}}`. (Its
-own parallel per-task executors run as that fragment's fresh sub-`Task`s.)
-It returns `IMPLEMENT: waves=… tasks=… done=… failed=…`. If `done=0` → append
+`project.kind=<plan_type>`, `config_prompt={{config_prompt}}`, and
+`SUPERVISE=yes`. (Its own parallel per-task executors run **supervised** —
+background teammates a leader loop nudges if they hang or go idle mid-task,
+since this is an unattended run.) It returns
+`IMPLEMENT: waves=… tasks=… done=… failed=…`. If `done=0` → append
 `verdict=failed` + `reason=implement` and continue. If some tasks failed, note
 it but proceed (the branch still gets reviewed in the next step). Otherwise
 checkpoint `last_phase=implemented`.
