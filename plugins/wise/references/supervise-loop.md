@@ -73,7 +73,7 @@ Spawn exactly **one** persistent Monitor per supervised wave. Its job is to
 emit a line only when a worker looks hung — `stale-workers` is silent when all
 workers are fresh, so the Monitor stays quiet until there is something to act on:
 
-```
+```text
 Monitor({
   description: "wise supervisor: stale/hung workers in run <run.id> wave <N>",
   persistent: true,
@@ -120,7 +120,7 @@ wakes it; sending to a busy one queues — either way it gets prodded.
 ## 6. Message templates
 
 **Status-check (nudge 1):**
-```
+```text
 to: <worker-name>
 summary: status check on <task-id>
 message: |
@@ -132,7 +132,7 @@ message: |
 ```
 
 **Directive re-nudge (nudge 2):**
-```
+```text
 to: <worker-name>
 summary: resume <task-id> now
 message: |
@@ -142,7 +142,7 @@ message: |
 ```
 
 **Final warning before reclaim (logged):**
-```
+```text
 to: <worker-name>
 summary: reclaiming <task-id>
 message: |
@@ -155,7 +155,7 @@ message: |
 Track a per-worker nudge count in working memory, keyed by name (display-only,
 not persisted — like the wave counter; it does not survive resume).
 
-```
+```text
 nudge 1            → SendMessage status-check (§6)        — "progressing? blocked?"
 nudge 2            → SendMessage directive re-nudge (§6)  — "resume now, or say BLOCKED"
 nudge ≥ max_nudges → TaskStop(<task_id>) → respawn a FRESH teammate for the same task

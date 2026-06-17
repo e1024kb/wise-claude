@@ -777,7 +777,8 @@ resolved effort → append nothing.
   `${CLAUDE_PLUGIN_ROOT}/references/supervise-loop.md`:
   1. `TeamCreate({ team_name: "wise-<run.id>-<step.id>" })`.
   2. `TaskCreate` the step's goal, then spawn ONE background worker:
-     ```
+
+     ```text
      Agent({
        team_name: "wise-<run.id>-<step.id>",
        name: "<step.id>-w1",

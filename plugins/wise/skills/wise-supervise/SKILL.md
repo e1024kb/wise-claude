@@ -61,13 +61,20 @@ the worker members, not yourself.
 
 ### 2. Pick the detection mode
 
-- **Heartbeat-aware** — if the run exposes a `workers/` heartbeat dir (a team
-  spawned under the `supervised-prompt` contract, with a known `run.dir`): arm
-  the supervisor Monitor per `supervise-loop.md §3` so workers hung mid-turn
-  surface on their own, AND active-probe (below).
-- **Legacy / ad-hoc team** (e.g. `ticket-pr-run` with `engineer-1/2/3`, spawned
-  before the heartbeat contract): no heartbeat files, so out-of-band hung
-  detection isn't available — use **active probing** as the primary mechanism.
+`run.dir` (and thus a `workers/` heartbeat dir) is only known when a workflow
+run hands it to you — e.g. the conductor invoking the loop for a
+`supervised-prompt` step. A **standalone** `/wise-supervise <team>` typed by the
+user has no run context, so it has no `run.dir` and falls through to the legacy
+path. Concretely:
+
+- **Heartbeat-aware** — `run.dir` is known AND a `workers/` heartbeat dir exists
+  under it (a team spawned under the `supervised-prompt` contract): arm the
+  supervisor Monitor per `supervise-loop.md §3` so workers hung mid-turn surface
+  on their own, AND active-probe (below).
+- **Legacy / ad-hoc team** (the standalone default, e.g. `ticket-pr-run` with
+  `engineer-1/2/3`, spawned before the heartbeat contract): no `run.dir` / no
+  heartbeat files, so out-of-band hung detection isn't available — use **active
+  probing** as the primary mechanism.
 
 ### 3. Active-probe round
 
