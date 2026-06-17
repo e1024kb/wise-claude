@@ -162,6 +162,58 @@ steps:
     timeout: 30
     depends_on: [split-tickets]
 
+  - id: ensure-access
+    type: prompt
+    prompt: |
+      Gate the run on TRACKER ACCESS before any ticket is planned. This
+      autonomous pipeline must fetch each ticket's REAL content from its
+      tracker — it must NEVER invent, infer, or scrape ticket content
+      from the codebase or the bare id when the tracker is unreachable.
+      So verify access up front and halt the whole run if any required
+      tracker cannot be reached.
+
+      For each ref in `{{ticket_list}}` (semicolon-separated), identify
+      its tracker from the URL host / id shape:
+        • *.atlassian.net/browse/, jira.*   → Jira
+        • linear.app/*/issue/               → Linear
+        • github.com/*/issues/              → GitHub Issues
+        • gitlab.com/*/-/issues/            → GitLab Issues
+        • app.asana.com/*                   → Asana
+        • *.monday.com / trello.com/c/ / *.shortcut.com / *.notion.so
+          / dev.azure.com/*/_workitems/     → Monday / Trello / Shortcut / Notion / Azure Boards
+      WebSearch an unknown host to classify it; for a bare ambiguous id
+      predict the most likely tracker (never ask the user). Collect the
+      DISTINCT trackers the run needs.
+
+      For each distinct tracker, probe for a channel that ACTUALLY
+      RETURNS the ticket — not merely one that exists:
+        • a tracker MCP (a one-time permission prompt on first use is
+          expected);
+        • a CLI (`command -v gh`, `command -v glab`, …);
+        • for a PUBLIC ticket URL, `WebFetch`.
+      A channel that returns a login page, 401/403, or empty body does
+      NOT count as access.
+
+      - If EVERY distinct tracker has a working channel → reply
+        `ACCESS: ok`.
+      - If ANY tracker has NO working channel → this run cannot proceed.
+        Do NOT fall back to guessing ticket content. For each unreachable
+        tracker, state: the tracker name, the tickets that need it, and
+        the concrete fix — WebSearch `"<tracker> Claude Code MCP server"`
+        and `"<tracker> CLI"` and print the install + authenticate
+        options (mark them as unverified suggestions), or note that a
+        private ticket URL must be made public-fetchable. Tell the
+        operator to fix tracker access and re-run
+        `/wise-workflow-run ticket-auto`. Then reply `ACCESS: blocked`.
+
+      FINAL line MUST be exactly `ACCESS: ok` or `ACCESS: blocked`. A
+      `blocked` result fails this step on purpose, which halts the run
+      before any worktree, branch, plan, or PR is created.
+    until: 'ACCESS: ok'
+    max_iterations: 1
+    model: sonnet
+    depends_on: [preflight-checks]
+
   - id: process-tickets
     type: interactive
     prompt: |
@@ -194,7 +246,7 @@ steps:
         TICKETS-DONE: processed=<N> merged=<M> open=<O> failed=<F>
     until: 'TICKETS-DONE: processed=(\d+) merged=(\d+) open=(\d+) failed=(\d+)'
     outputs: [tickets_processed, tickets_merged, tickets_open, tickets_failed]
-    depends_on: [preflight-checks]
+    depends_on: [ensure-access]
 
   - id: report
     type: prompt
