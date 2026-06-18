@@ -577,7 +577,12 @@ logged.
      `<project-path>.wise-<run-ulid>` on branch
      `wise/<name>-<run-ulid>`. All `{{project.path}}` templates and
      bash `cwd` fields resolve to the worktree. Cleanup is manual
-     (`git worktree remove` when you're done).
+     (`git worktree remove` when you're done). On creation, files listed
+     in a `.worktreeinclude` at the base repo root (gitignore syntax) are
+     copied into the new worktree — `git worktree add` checks out only
+     tracked files, so untracked artifacts the tree needs to run (`.env`,
+     local config) are carried over automatically. Best-effort: no file,
+     a non-git base, or a missing listed path are silent no-ops.
 
    Pin `current` for read-only workflows (status checks, reports).
    Pin `new` for workflows that make destructive-ish edits and the

@@ -50,6 +50,7 @@
 #   list-defs                                           → JSON [{name, description, source}] of bundled + user workflow definitions
 #   list-resumable-runs                                 → JSON [{run_id, workflow_name, status, last_activity_at, session_label}] of non-terminal runs in cwd
 #   prune-runs                                          → delete oldest terminal runs in cwd so total run count ≤ WISE_RUN_HISTORY_CAP (default 25)
+#   apply-worktree-include <repo-root> <worktree-dir>   → copy .worktreeinclude-listed untracked files from repo-root into a new worktree (gitignore-syntax; git does the matching; overwrites; best-effort, always exit 0)
 
 from __future__ import annotations
 
@@ -58,6 +59,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -1521,6 +1523,93 @@ def cmd_render(template: str, state_path: str) -> int:
     return 0
 
 
+# ---------- apply-worktree-include ------------------------------------------
+
+def cmd_apply_worktree_include(repo_root: str, worktree_dir: str) -> int:
+    """Copy `.worktreeinclude`-listed files from a base repo into a new worktree.
+
+    `git worktree add` checks out only TRACKED files; the untracked / gitignored
+    artifacts a working tree needs to actually run (`.env`, local config, build
+    caches) do not come along. This reads the gitignore-syntax `.worktreeinclude`
+    file at `repo_root` and copies the matching files into `worktree_dir`.
+
+    Matching is delegated to git itself for full gitignore semantics:
+
+        git -C <repo_root> ls-files -z --others --ignored \
+            --directory --no-empty-directory \
+            --exclude-from=<repo_root>/.worktreeinclude
+
+    `--others` limits output to UNTRACKED files, so tracked files (already in the
+    checkout) are never touched — the safety guarantee. With no `--exclude-standard`
+    the only exclude source is `.worktreeinclude`, so output is exactly the paths
+    its patterns match. `--directory` collapses a fully-ignored dir to `dir/` so we
+    copy it once via copytree. Existing files in the worktree are OVERWRITTEN.
+
+    Best-effort and graceful: a missing file → no-op; a non-git dir or git error →
+    logged and skipped; a listed path that vanished → skipped. ALWAYS returns 0 so
+    it never aborts a run (mirrors the conductor's graceful worktree fallback).
+    """
+    root = Path(repo_root)
+    dest_root = Path(worktree_dir)
+    inc = root / ".worktreeinclude"
+    if not inc.is_file():
+        print("worktree-include: no .worktreeinclude — nothing to copy",
+              file=sys.stderr)
+        return 0
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--others", "--ignored",
+             "--directory", "--no-empty-directory", f"--exclude-from={inc}"],
+            capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"worktree-include: git ls-files failed ({exc}); skipping",
+              file=sys.stderr)
+        return 0
+
+    entries = [e for e in proc.stdout.split("\0") if e]
+    try:
+        root_res = root.resolve()
+        dest_res = dest_root.resolve()
+    except OSError as exc:
+        print(f"worktree-include: cannot resolve paths ({exc}); skipping",
+              file=sys.stderr)
+        return 0
+
+    copied = skipped = 0
+    for rel in entries:
+        src = root / rel
+        dst = dest_root / rel
+        try:
+            # Stay inside repo_root / worktree_dir — never follow a `..` escape.
+            src.resolve().relative_to(root_res)
+            dst.resolve().relative_to(dest_res)
+        except (ValueError, OSError):
+            print(f"worktree-include: skip out-of-tree path {rel!r}",
+                  file=sys.stderr)
+            skipped += 1
+            continue
+        if not src.exists():
+            skipped += 1
+            continue
+        try:
+            if rel.endswith("/") or src.is_dir():
+                shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=True)
+            else:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+            copied += 1
+        except OSError as exc:
+            print(f"worktree-include: failed to copy {rel!r} ({exc})",
+                  file=sys.stderr)
+            skipped += 1
+
+    print(f"worktree-include: copied {copied} (skipped {skipped})",
+          file=sys.stderr)
+    return 0
+
+
 # ---------- CLI -------------------------------------------------------------
 
 def main() -> int:
@@ -1599,6 +1688,9 @@ def main() -> int:
     sub.add_parser("list-resumable-runs")
     sub.add_parser("prune-runs")
 
+    p = sub.add_parser("apply-worktree-include")
+    p.add_argument("repo_root"); p.add_argument("worktree_dir")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -1633,6 +1725,8 @@ def main() -> int:
         "resolve-team": lambda: cmd_resolve_team(args.def_path, args.step_id),
         "list-resumable-runs": lambda: cmd_list_resumable_runs(),
         "prune-runs": lambda: cmd_prune_runs(),
+        "apply-worktree-include": lambda: cmd_apply_worktree_include(
+            args.repo_root, args.worktree_dir),
     }
     return dispatch[args.cmd]()
 

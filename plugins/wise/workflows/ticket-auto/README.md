@@ -78,7 +78,7 @@ flowchart TD
 runs an isolated sub-pipeline:
 
 ```
-ensure-worktree (create or adopt on resume) → plan → implement
+ensure-worktree (create or adopt; carry over .worktreeinclude) → plan → implement
         → review↔fix loop (reviewer ⇄ fixer) → commit+push → create PR
         → request review → watch + fix CI loop
         → record (+ remove worktree & local branch if merged)

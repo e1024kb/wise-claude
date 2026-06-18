@@ -88,7 +88,7 @@ flowchart TD
 isolated sub-pipeline:
 
 ```
-ensure-worktree (create or adopt on resume) → re-plan from file → implement
+ensure-worktree (create or adopt; carry over .worktreeinclude) → re-plan from file → implement
         → review↔fix loop (reviewer ⇄ fixer) → commit+push → create PR
         → request review → watch + fix CI loop
         → record (+ remove worktree & local branch if merged)
