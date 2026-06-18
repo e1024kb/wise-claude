@@ -411,7 +411,10 @@ one-liners below are the rule, not the argument for it.
   `{{run.dir}}/units/` + live `git`/`gh` probes — never reintroduce a
   collide-and-fail `git worktree add -b`. Live state is the source of truth;
   the ledger is a hint; a worktree/branch the run did not claim is skipped,
-  never adopted. Keep the two files mirrored.
+  never adopted. After ensuring a worktree, §1 carries over the base repo's
+  `.worktreeinclude` files via `workflows.py apply-worktree-include`, gated by
+  an `includes=done` ledger key so it runs once per worktree (not re-clobbering
+  on resume re-attach). Keep the two files mirrored.
 - **All workflow YAML + state handling lives in `scripts/workflows.py`.**
   SKILL.md bodies shell out to it; they never parse YAML themselves.
   `scripts/bootstrap-deps.sh` is the single doorway to Python — every

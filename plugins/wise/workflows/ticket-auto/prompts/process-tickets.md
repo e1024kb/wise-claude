@@ -163,6 +163,20 @@ proceed — everything below runs against `$WT`:
 printf 'worktree=%s\nbase=%s\nlast_phase=worktree\n' "$WT" "$BASE" >> "$LEDGER"
 ```
 
+Carry over any `.worktreeinclude` files from the base repo into the worktree —
+`git worktree add` checks out only tracked files, so the untracked artifacts a
+tree needs to run (`.env`, local config) would otherwise be missing. Gate on the
+ledger so it runs **once per worktree**, not on every resume re-attach (which
+would re-clobber in-progress local edits):
+
+```bash
+if ! grep -q '^includes=done$' "$LEDGER"; then
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
+    apply-worktree-include "{{project.path}}" "$WT" || true
+  printf 'includes=done\n' >> "$LEDGER"
+fi
+```
+
 The plan file lives in the **run directory** (not the worktree) so it persists
 with the run state and never lands in the branch (`<ref>` is `ticket_ref` with any
 leading `#` stripped):

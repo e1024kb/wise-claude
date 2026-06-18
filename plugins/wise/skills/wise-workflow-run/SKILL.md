@@ -500,6 +500,22 @@ On git failure, fall back to the original `project.path` and pass
 created and why. If the worktree WAS created, override
 `project.path` to `WT_DIR` in the payload below.
 
+If the worktree was created, carry over any `.worktreeinclude` files
+from the original base repo into it — `git worktree add` checks out
+only tracked files, so untracked artifacts a tree needs to run
+(`.env`, local config) would otherwise be missing:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
+  apply-worktree-include "<project.path>" "$WT_DIR" || true
+```
+
+(`<project.path>` is the ORIGINAL base path from §7 — the source of the
+`.worktreeinclude` file and the files it lists — not `$WT_DIR`. Run
+this BEFORE overriding `project.path` below. The helper is best-effort:
+no `.worktreeinclude`, a non-git base, or a missing listed path are all
+silent no-ops and never abort the run, so the `|| true` is belt-and-braces.)
+
 Fold the pre-flight answers into `state.yaml` (flipping
 `status: initializing` → `status: running`) via `start-run`:
 
