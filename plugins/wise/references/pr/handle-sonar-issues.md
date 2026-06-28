@@ -261,7 +261,7 @@ Pass the queue-specific inputs:
   would change behavior) — never `S`.
 - `picks_action_label = Accept`. The first option of each page
   reads `Accept: <decisions-string>` (e.g.
-  `Accept: 1A 2F 3S 4F 5A`). **Sonar keeps the "Accept"
+  `Accept: 1A 2F 3F 4A 5A`). **Sonar keeps the "Accept"
   wording** — adding a NOSONAR-style suppression is genuinely
   a distinct semantic ("we are choosing to live with this
   rule violation"), not a fix; the bot review queues use
@@ -363,8 +363,8 @@ If at least one staged change exists after the walk, drive
 
 - `COMMIT: ok subject="…" pushed=no` → continue to §6.
 - `COMMIT: skip` → no Fix / local Accept landed (only
-  MCP-Accept decisions); skip to §6 (the MCP calls still need to
-  fire) and then directly to §8 — no push needed.
+  MCP-Accept decisions); continue to §6 (the MCP calls still need
+  to fire), skip §7's push, and go to §9 — no push needed.
 - `COMMIT: failed` → emit
   `SONAR: aborted reason=commit-failed`.
 

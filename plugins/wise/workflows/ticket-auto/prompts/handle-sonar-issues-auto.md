@@ -55,6 +55,7 @@ Decide one outcome from the issues-search call alone:
 
 ### 2. Resolve every issue (autonomous — Fix or Accept)
 
+Start with an empty `MCP_STATUS_CALLS=[]` (the §3 push phase iterates it).
 Walk the fetched issues. For each, the Lead Architect picks **Fix** or
 **Accept** — never Skip. Default to **Fix**; choose **Accept** only when
 a behavior-preserving patch isn't available or would change runtime

@@ -251,7 +251,9 @@ Capture its verdict into `SONAR_STATE`:
 - `SONAR-AUTO: blocked-fetch reason=<r>` → `SONAR_STATE=blocked-fetch`:
   the issues could not be fetched (no token / no MCP / auth). **Postpone
   Sonar — never guess "0 issues", never merge on it, but do not stop.**
-  Surface the reminder once per run:
+  Surface the reminder on each §5.5 pass that returns `blocked-fetch`
+  (so the §6.5 stability windows re-surface it while the blocker
+  persists — not a single one-shot notice):
   `Sonar issues can't be fetched (<r>) — set SONAR_TOKEN or install the
   Sonar MCP so the run can verify 0 issues. Continuing with every other
   check/comment; the PR is left open until Sonar is verifiable.` Keep
