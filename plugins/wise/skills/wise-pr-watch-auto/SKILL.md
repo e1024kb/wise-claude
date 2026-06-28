@@ -8,9 +8,10 @@ description: >-
   retried-then-given-up on a rate limit) and handle every bot review
   comment by severity (minors fixed, majors via a considered decision,
   false positives dismissed with a reasoned reply). Loops
-  until CI is green and every comment is resolved, or an attempt cap is
-  hit; then merges the PR (squash → merge-commit fallback, branch
-  protection respected). Leaves the PR open for a human on any non-minor
+  until CI is green and every comment is resolved and the PR has stayed
+  quiet for two consecutive post-green stability windows (so late
+  comments aren't missed), or an attempt cap is hit; then merges the PR
+  (squash → merge-commit fallback, branch protection respected). Leaves the PR open for a human on any non-minor
   comment it can't confidently resolve, and stands down the moment a
   human comments. NO prompts. Built for unattended ticket→PR runs.
   Invoked as `/wise-pr-watch-auto` (bare alias) or
@@ -86,8 +87,14 @@ arrived.
   reviewed fixed-or-dismissed; never force a merge or override branch
   protection; never merge past an unresolved non-minor bot comment (a
   `blocked` verdict leaves the PR open).
-- Never suppress a Sonar issue autonomously.
+- Drive SonarCloud open issues to **zero** before merging — fix each, or
+  accept it with a minimum-scope suppression + rationale (or a Sonar MCP
+  `change_issue_status`). Never merge with open issues. If the issues
+  can't be fetched (no token / no MCP), postpone: keep working
+  everything else, remind the operator, and leave the PR open
+  (`all-green reason=sonar-unchecked`) rather than guessing it's clean.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.
 - Never invoke another wise action skill (the fragment reads
-  `commit-from-fix.md` / `handle-bot-reviews-auto.md` directly).
+  `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
+  `handle-sonar-issues-auto.md` directly).

@@ -14,8 +14,9 @@ You (Claude) drive this as a long-running conversational step: poll
 GitHub for the PR's check runs + new comments, react per check
 class, commit autofixes via the shared `commit-from-fix.md`
 fragment, and loop until either (a) every check is green and
-there are no unresolved comments, or (b) you hit the abort path
-from the user.
+there are no unresolved comments — confirmed stable across two
+consecutive post-green stability windows (§5), so a late comment
+isn't missed — or (b) you hit the abort path from the user.
 
 ## Context the caller supplies
 
@@ -193,18 +194,25 @@ line.
 
 The top-level gate for each queue is:
 
-- **Bot queues (Copilot, CodeRabbit) and Sonar** —
+- **Bot queues (Copilot, CodeRabbit)** —
   `Paged-bulk (5/page, auto-classified) — recommended` /
   `Fix all in one shot` / `Walk step-by-step` / `Skip queue`.
   Paged-bulk is the default: 5 items on screen per page with
   Claude's pre-classified decision for each, the user
   confirms or edits the whole page in one prompt. The first
-  option's verb is queue-specific — bot queues read `Fix:
-  <decisions>`, Sonar reads `Accept: <decisions>` (suppressing
-  a Sonar rule violation is a distinct semantic from fixing a
-  comment). Walk step-by-step keeps the per-item cadence for
-  users who want to inspect every decision. See
-  `paged-bulk-mode.md` for the shared algorithm.
+  option's verb reads `Fix: <decisions>`. Walk step-by-step
+  keeps the per-item cadence for users who want to inspect
+  every decision. See `paged-bulk-mode.md` for the shared
+  algorithm.
+- **Sonar** — same gate **minus `Skip queue`**:
+  `Paged-bulk (5/page, auto-classified) — recommended` /
+  `Fix all in one shot` / `Walk step-by-step`. Sonar has no
+  Skip — every fetched issue is Fixed or Accepted so the PR
+  ships with 0 open issues (the only escape is a fetch
+  failure → `unchecked`). The first option's verb reads
+  `Accept: <decisions>` (suppressing a Sonar rule violation
+  is a distinct semantic from fixing a comment). See
+  `handle-sonar-issues.md` for the queue.
 - **Humans** — `Paged-bulk (5/page) — recommended` /
   `Walk step-by-step` / `Skip queue`. Auto-classify is OFF
   for humans (review judgement shouldn't be pre-graded by
@@ -361,7 +369,10 @@ Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-sonar-issues.md
 
 Context: `pr_number`, `pr_url`, `current_branch`, `project.path`.
 Emits `SONAR: <all-clear | handled committed=N |
-partial pending=N | unchecked reason=… | aborted reason=…>`.
+unchecked reason=… | aborted reason=…>`. No `partial pending` —
+the Sonar queue has no Skip, so a successful fetch always ends
+`all-clear` or `handled` (every issue Fixed/Accepted);
+`unchecked` covers only a fetch failure.
 
 #### 4e. Re-poll after any committed batch
 
@@ -374,19 +385,61 @@ again only for the queues that had items in the LAST iteration
 If none of the queues committed anything (all `all-clear` /
 `partial` / `unchecked`), proceed to §5.
 
-### 5. All green + all queues resolved
+### 5. Post-green stability window
 
 When a poll comes back with every non-skipped check as
 `conclusion: SUCCESS` AND every §4 queue returned `all-clear`
-OR `partial` OR `unchecked` (no `aborted`):
+OR `partial` OR `unchecked` (no `aborted`), do **not** exit
+immediately — a fix push you (or a bot) just made can produce
+new comments or a fresh failing check a minute or two later.
+Hold a stability window and only finish once the PR has been
+quiet for **two consecutive** windows.
 
-- Announce `All checks passed ✓` in chat.
-- If any queue was `partial` / `unchecked`, list the markers
-  the user should know about: `with the following left for
-  you to handle: humans-skipped, sonar-unchecked, …`.
-- Print the PR url:
-  `PR is ready for review: {{pr_url}}`
-- Emit the final line (§7).
+Constants (tunable):
+
+```bash
+POST_GREEN_STABILITY=180     # secs per stability window (3 min)
+STABILITY_CLEAN_TARGET=2     # consecutive clean windows required to finish
+STABILITY_MAX_ROUNDS=10      # hard cap on windows before standing down
+```
+
+Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
+
+1. `ROUNDS=ROUNDS+1`. If `ROUNDS > STABILITY_MAX_ROUNDS`, the PR
+   never settled (a reviewer keeps posting) — announce
+   `Reviewers still active after <STABILITY_MAX_ROUNDS> stability
+   windows — standing down for a human.` and emit the §7 `partial`
+   line with the `stability-capped` marker.
+2. Announce (first round only)
+   `All checks green — holding <POST_GREEN_STABILITY/60> min for late comments…`.
+   Record the current head: `STABLE_SHA="$(git rev-parse HEAD)"`.
+   The §1 `LAST_SEEN` watermark (`/tmp/wise-pr-lastcomment-$<pr_number>`)
+   already marks the last comment you saw.
+3. `sleep POST_GREEN_STABILITY`.
+4. Re-poll: run §1 (`gh pr checks --watch`) to refresh checks and
+   fetch new comments since `LAST_SEEN`. A window is **dirty** if
+   any of these hold:
+   - a non-skipped check is no longer `SUCCESS` (a new run failed),
+   - a new **human** comment arrived (surface it per §1 — a "please
+     hold off" is still an implicit abort, §6),
+   - a new **bot** review item arrived that a §4 queue classifier
+     would surface (re-running §4 for the affected queues is the
+     existing mechanism),
+   - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone
+     pushed).
+5. **Dirty window** → `CLEAN_STREAK=0`, re-enter §1 (full poll →
+   §3 dispatch → §4 queues → back here). Any §4 commit re-greens via
+   the normal §4e re-poll before the window restarts.
+6. **Clean window** → `CLEAN_STREAK=CLEAN_STREAK+1`. If
+   `CLEAN_STREAK < STABILITY_CLEAN_TARGET`, loop to step 1 for the
+   next consecutive window. Otherwise the PR is settled — finish:
+   - Announce `All checks passed ✓` in chat.
+   - If any queue was `partial` / `unchecked`, list the markers
+     the user should know about: `with the following left for
+     you to handle: humans-skipped, sonar-unchecked, …`.
+   - Print the PR url:
+     `PR is ready for review: {{pr_url}}`
+   - Emit the final line (§7).
 
 ### 6. Abort paths
 
@@ -421,9 +474,15 @@ WATCH: partial url=<url> accepted=<comma-separated-check-names>
   - `humans-skipped=<N>` / item locations when walking
   - `copilot-skipped=<N>` / locations
   - `coderabbit-skipped=<N>` / locations
-  - `sonar-skipped=<N>`
+
+  Sonar has no Skip, so there is no `sonar-skipped` marker — a
+  Sonar gap only ever appears as `sonar-unchecked` (fetch
+  failure) below.
 - A §4 queue returned `unchecked` (Sonar fetch failure, user
   picked `Mark unchecked`). Marker: `sonar-unchecked`.
+- The §5 stability loop hit `STABILITY_MAX_ROUNDS` without two
+  consecutive clean windows (reviewers still active). Marker:
+  `stability-capped`.
 
 When emitting `partial`, `accepted` should include ALL
 applicable markers. Examples:
@@ -432,6 +491,7 @@ applicable markers. Examples:
 WATCH: partial url=<url> accepted=sonar-unchecked
 WATCH: partial url=<url> accepted=copilot-skipped=3,AuditPanel.tsx:42
 WATCH: partial url=<url> accepted=humans-skipped=1,coderabbit-skipped=5,sonar-unchecked
+WATCH: partial url=<url> accepted=stability-capped
 ```
 
 The workflow's `report` step surfaces this verbatim so the user

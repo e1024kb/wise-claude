@@ -9,8 +9,9 @@ description: >-
   Paged-bulk / Fix-all / Walk-step-by-step / Skip choice with a phased
   collect → commit → remote-side-effects → push apply. Surfaces new PR
   comments each iteration (a reviewer saying "stop autofixing"
-  short-circuits the loop) and exits on all-green, push failure, user
-  abort, or a no-progress safety catch. Runs the shared
+  short-circuits the loop) and exits on all-green — confirmed across two
+  consecutive post-green stability windows so late comments aren't
+  missed — push failure, user abort, or a no-progress safety catch. Runs the shared
   `watch-pipelines` procedure. Requires an open PR on the
   current branch. Invoked as `/wise-pr-watch` (bare alias) or
   `/wise:wise-pr-watch` (canonical). Use when the user says "watch the

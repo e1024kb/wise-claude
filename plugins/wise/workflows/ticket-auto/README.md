@@ -168,6 +168,25 @@ consolidated decision), genuine false positives dismissed with a
 reasoned reply, and every handled thread resolved on the PR before the
 merge gate is checked.
 
+Open SonarCloud issues are driven to **zero** too (sub-fragment
+`prompts/handle-sonar-issues-auto.md`): a green Sonar quality gate can
+still leave OPEN issues on the PR, so the phase fetches them every
+iteration and Fixes or Accepts (suppresses with a rationale, or a Sonar
+MCP `change_issue_status`) each — there is no Skip, and the merge gate
+requires Sonar verified clean. When the issues can't be fetched (no
+`SONAR_TOKEN`, no Sonar MCP), it **postpones**: it keeps working every
+other check/comment, reminds the operator, and leaves the PR open
+(`all-green reason=sonar-unchecked`) rather than merging on an unverified
+Sonar state.
+
+Reaching green once does not trigger the merge. The phase then holds a
+**post-green stability window** (3 min) and re-checks CI + comments; a
+late failing check or bot comment folds back into the fix/handle loop
+and restarts the count. The PR is merged only after **two consecutive**
+clean windows. If reviewers keep posting past `STABILITY_MAX_ROUNDS`
+(10) windows, the phase stands down (`human-intervention
+reason=stability-capped`) and leaves the green PR open for a human.
+
 ## Inputs
 
 | Name | Required | Description |

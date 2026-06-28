@@ -1,10 +1,12 @@
-# handle-sonar-issues — SonarCloud open issues queue (Paged-bulk / Fix all / Walk step-by-step / Skip)
+# handle-sonar-issues — SonarCloud open issues queue (Paged-bulk / Fix all / Walk step-by-step)
 
 Dedicated fragment for the SonarCloud issues mini-pipeline,
 called from `watch-pipelines.md` §4 after the human + bot-review
 queues. Factored out of the earlier in-line §3b so it follows the
 same shape as the other reviewable queues (consistent top-level
-gate, skip-queue option, per-queue verdict line).
+gate, per-queue verdict line). Unlike the bot/human queues, this
+one has **no Skip** — every fetched issue is Fixed or Accepted so
+the PR carries 0 open issues.
 
 **Why this matters — pass doesn't mean clean.** SonarCloud's
 quality gate is about "new code" thresholds; OPEN issues can
@@ -200,10 +202,16 @@ to trust.
     look mechanical (unused imports, cognitive-complexity
     refactors) and you want the queue cleared.
   - `Walk step-by-step` — per-issue wizard (§4). Each issue
-    gets Fix / Accept (suppression) / Skip. Wizard records
-    decisions only; the apply phases run after the walk.
-  - `Skip queue — handle later` — emit
-    `SONAR: partial pending=<N>`. Don't touch any issue.
+    gets Fix / Accept (suppression). Wizard records decisions
+    only; the apply phases run after the walk.
+
+There is **no `Skip queue` option and no per-item Skip** — a
+fetched Sonar issue is always Fixed or Accepted so the PR ships
+with **0 open issues**. (Skip lived here pre-3.x and let PRs
+merge with open issues; that's the gap this queue now closes.)
+The only "leave it" escape is a *fetch failure* — §3b's
+`unchecked` — because issues you can't enumerate can't be
+resolved.
 
 ### 3d. Fix all in one shot
 
@@ -236,22 +244,24 @@ Pass the queue-specific inputs:
     `rule`, `severity`, `type`, `component`, `line`,
     `message`).
 - `queue_label = Sonar`.
-- `allowed_letters = F,A,S`. Meanings — `F` = Fix (patch the
+- `allowed_letters = F,A`. Meanings — `F` = Fix (patch the
   file per the rule); `A` = Accept (add the project's Sonar
   suppression annotation with a one-line rationale; prefer the
-  Sonar MCP's `change_issue_status` when available); `S` =
-  Skip (record in pending list). `D` and `R` are not valid in
-  this queue — `paged-bulk-mode.md` rejects them on Custom
-  input.
+  Sonar MCP's `change_issue_status` when available). `S` (Skip),
+  `D` and `R` are not valid in this queue — every fetched issue
+  must be Fixed or Accepted, so `paged-bulk-mode.md` rejects them
+  on Custom input.
 - `auto_classify = true`. Pre-classification heuristics in
   `paged-bulk-mode.md` §2 (Sonar branch) — mechanical rules
   (unused import, missing `const`, naming violations) steer
   toward `F`; false-positive-prone rules (cognitive
   complexity, nesting depth) steer toward `A` with a
-  suppression rationale; ambiguous rules toward `S`.
+  suppression rationale; ambiguous rules default toward `F`
+  (the §5 Fix path falls back to a suppression when a patch
+  would change behavior) — never `S`.
 - `picks_action_label = Accept`. The first option of each page
   reads `Accept: <decisions-string>` (e.g.
-  `Accept: 1A 2F 3S 4F 5A`). **Sonar keeps the "Accept"
+  `Accept: 1A 2F 3F 4A 5A`). **Sonar keeps the "Accept"
   wording** — adding a NOSONAR-style suppression is genuinely
   a distinct semantic ("we are choosing to live with this
   rule violation"), not a fix; the bot review queues use
@@ -297,13 +307,14 @@ records decisions; **no apply happens here**. Per issue:
 
 - `Fix (Claude edits)` — `Record a Fix decision. The apply phase reads the file + Sonar's message and applies a focused patch.`
 - `Accept (add suppression)` — `Record an Accept decision. The apply phase writes a minimum-scope Sonar suppression annotation with a rationale comment, OR (when the Sonar MCP exposes change_issue_status) marks the issue "won't fix" server-side without touching code. "Accept" is intentional here: suppressing a Sonar finding is a deliberate acceptance of the rule violation, distinct from a fix.`
-- `Skip — decide later` — `Record a Skip; the issue stays open.`
+
+Every issue must be Fixed or Accepted — there is **no Skip
+option**; the queue drives to 0 open issues.
 
 Per-option recording — append to `decisions[]`:
 
 - `Fix (Claude edits)` → `{ item, letter: F }`.
 - `Accept (add suppression)` → `{ item, letter: A }`.
-- `Skip — decide later` → `{ item, letter: S }`.
 
 After the last item, fall through to §5.
 
@@ -332,8 +343,10 @@ item:
     at the issue's `line` with a one-line rationale comment.
     Suppressions without rationale are a review red flag.
     Then `git add -- "<component-path>"`.
-- **`S` — Skip.** No local action. Append the issue's
-  `<file:line>` to `pending_items` for §9.
+
+Only `F` and `A` reach this phase — `decisions[]` never carries
+an `S` for Sonar (the queue has no Skip), so every fetched issue
+is resolved.
 
 **Apply-time failure mode.** If a routine throws (file
 vanished, edit failed, etc.): fail fast. Print one line
@@ -350,8 +363,8 @@ If at least one staged change exists after the walk, drive
 
 - `COMMIT: ok subject="…" pushed=no` → continue to §6.
 - `COMMIT: skip` → no Fix / local Accept landed (only
-  MCP-Accept / Skip); skip to §6 (the MCP calls still need to
-  fire) and then directly to §8 — no push needed.
+  MCP-Accept decisions); continue to §6 (the MCP calls still need
+  to fire), skip §7's push, and go to §9 — no push needed.
 - `COMMIT: failed` → emit
   `SONAR: aborted reason=commit-failed`.
 
@@ -381,9 +394,9 @@ On failure, do NOT retry, do NOT force-push. Emit
 On success, re-enter `watch-pipelines.md §1` — the push may
 trigger fresh Sonar analysis on the PR.
 
-If §5 emitted `COMMIT: skip` (all MCP-Accept / Skip — nothing
-local landed), there's nothing to push. Skip directly to §9
-without re-polling.
+If §5 emitted `COMMIT: skip` (all MCP-Accept — nothing local
+landed), there's nothing to push. Skip directly to §9 without
+re-polling.
 
 ### 8. Fall-back annotations when the CHECK is FAILED
 
@@ -411,10 +424,15 @@ Alone on its own line:
 ```
 SONAR: all-clear                                    # 0 issues found
 SONAR: handled committed=<N>                        # all applied + pushed (or MCP-only when committed=0)
-SONAR: partial pending=<count>                      # queue-skip or per-item skip (give count)
 SONAR: unchecked reason=<auth|fetch|bad-key>        # fetch failed, user picked unchecked
 SONAR: aborted reason=<short-reason>                # apply / commit / push failure or user abort
 ```
+
+There is no `partial pending` line — the queue has no Skip, so a
+successful fetch always ends `all-clear` (0 issues) or `handled`
+(every issue Fixed/Accepted). `unchecked` is reserved for a
+fetch failure (§3b), the one case where issues can't be
+enumerated.
 
 `reason=` on the `aborted` line is one of:
 
@@ -426,6 +444,10 @@ SONAR: aborted reason=<short-reason>                # apply / commit / push fail
 
 ## Guardrails
 
+- **Zero open issues on a successful fetch.** Every fetched issue
+  ends Fixed or Accepted — there is no Skip and no `partial
+  pending`. The only non-resolved outcome is `unchecked`, reserved
+  for a fetch failure (§3b) where issues can't be enumerated.
 - Never silently write `[]` on a 401 — see §3b. AUTH-FAIL must
   reach the user.
 - Never apply a "Fix all" suppression without a rationale
