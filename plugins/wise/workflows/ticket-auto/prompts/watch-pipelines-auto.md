@@ -10,7 +10,9 @@ severity, fixes or dismisses each one, commits + pushes, and loops until
 the PR is fully resolved or a cap is hit. It only merges once CI is
 green, every expected bot is terminal (Copilot reviewed; CodeRabbit
 reviewed / bypassed / gave-up / absent), and every comment from a bot
-that reviewed is fixed-or-dismissed and resolved. It NEVER calls
+that reviewed is fixed-or-dismissed and resolved — and only after the
+PR has held green and quiet for two consecutive post-green stability
+windows (§6.5), so late comments are not missed. It NEVER calls
 `AskUserQuestion` — every decision the interactive watcher escalates to
 the user is made autonomously by the **Lead Architect** persona and
 recorded.
@@ -106,6 +108,9 @@ BOT_REVIEW_TIMEOUT=900      # 15 min wall-clock cap per bot
 BOT_GRACE=180               # secs to wait for a bot's FIRST footprint after a trigger
 CR_RL_RETRY=30              # secs between CodeRabbit rate-limit re-triggers
 CR_RL_MAX=10                # CodeRabbit rate-limit re-triggers before giving up
+POST_GREEN_STABILITY=180    # secs per post-green stability window (3 min) — §6.5
+STABILITY_CLEAN_TARGET=2    # consecutive clean windows required before merge — §6.5
+STABILITY_MAX_ROUNDS=10     # hard cap on stability windows before standing down — §6.5
 
 bot_review_done() {   # $1 = login regex — has the bot reviewed THIS head?
   gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
@@ -219,10 +224,40 @@ re-handles. Keep looping §1 → §4 → §5 until a §5 pass reports
 pending re-review), bounded by `ATTEMPTS >= max_fix_attempts` and the
 §6 stuck-loop catch.
 
-**Sonar issues are not auto-suppressed.** If a Sonar quality-gate
-check is failing, treat it as an `other` check in §3 (attempt a real
-fix); never suppress a Sonar rule autonomously — record any unfixed
-Sonar issues for the report instead.
+### 5.5 SonarCloud open issues (autonomous — drive to zero)
+
+CI green does not mean Sonar-clean: SonarCloud's quality gate scores
+"new code" thresholds, so OPEN issues can sit on the PR while the gate
+check is green. Fetch and resolve them every iteration — after the bot
+queues, before the merge gate — so the PR ships with **0 open issues**.
+(A *failing* Sonar quality-gate check is separate: §3 already treats it
+as an `other` check and attempts a real fix. This section is about open
+issues regardless of the check's PASS/FAIL state.)
+
+Read
+`${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/handle-sonar-issues-auto.md`
+and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
+`project.path`, and `config_prompt` when supplied. It fetches every open
+issue and **Fixes or Accepts (suppresses) each** — there is no Skip.
+Capture its verdict into `SONAR_STATE`:
+
+- `SONAR-AUTO: all-clear` → `SONAR_STATE=clean`.
+- `SONAR-AUTO: handled committed=yes …` → a push happened: increment
+  `ATTEMPTS` and **re-enter §1** (the push re-triggers CI + a fresh
+  Sonar analysis, so the new `HEAD_SHA` must be re-verified to zero).
+- `SONAR-AUTO: handled committed=no …` (MCP-only accepts, nothing
+  local) → `SONAR_STATE=clean` (resolved server-side, nothing to
+  re-poll).
+- `SONAR-AUTO: blocked-fetch reason=<r>` → `SONAR_STATE=blocked-fetch`:
+  the issues could not be fetched (no token / no MCP / auth). **Postpone
+  Sonar — never guess "0 issues", never merge on it, but do not stop.**
+  Surface the reminder once per run:
+  `Sonar issues can't be fetched (<r>) — set SONAR_TOKEN or install the
+  Sonar MCP so the run can verify 0 issues. Continuing with every other
+  check/comment; the PR is left open until Sonar is verifiable.` Keep
+  working everything else.
+- `SONAR-AUTO: aborted reason=<r>` → record it; treat like a §5 abort
+  for the merge gate (do not merge).
 
 ### 6. Safety cap
 
@@ -230,9 +265,68 @@ If `ITERS` (incremented once per §1 poll) exceeds 10 without the
 failing-check count going down, stop — something is stuck. Emit
 `WATCH-AUTO: exhausted url=<pr_url>` with `reason=stuck-loop`.
 
+### 6.5 Post-green stability window
+
+Reaching green once is not enough to merge: a fix push (yours or a
+bot's) can produce a fresh failing check or a new review comment a
+minute or two after the loop last saw green. Before merging, hold a
+stability window and require the PR to stay quiet for **two
+consecutive** windows. Enter this whenever every §7 merge condition
+**except 7 (Sonar)** holds — checks green, bots terminal, `BLOCKED`
+empty, no abort. Running it even while `SONAR_STATE=blocked-fetch`
+(rather than exiting straight to a verdict) is what "keep watching but
+remind" means: each window re-attempts the Sonar fetch in case the
+operator sets the token mid-run.
+
+Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
+
+1. `ROUNDS=ROUNDS+1`. If `ROUNDS > STABILITY_MAX_ROUNDS`, stand down
+   without merging:
+   - if the only unmet gate is Sonar (`SONAR_STATE=blocked-fetch`, every
+     other condition holds) → emit
+     `WATCH-AUTO: all-green url=<pr_url> reason=sonar-unchecked` with the
+     §5.5 reminder (PR green and quiet, but Sonar was never verifiable);
+   - otherwise (a reviewer keeps posting) → emit
+     `WATCH-AUTO: human-intervention url=<pr_url> reason=stability-capped`.
+2. Record the current head: `STABLE_SHA="$(git rev-parse HEAD)"`.
+3. `sleep POST_GREEN_STABILITY`.
+4. Re-check. A window is **dirty** if any of these hold:
+   - a non-skipped check is no longer `SUCCESS` (re-run §1's
+     `gh pr checks`),
+   - a **human** commented (the §1 jq) — stand down immediately with
+     `WATCH-AUTO: human-intervention url=<pr_url>` (never fight a
+     reviewer),
+   - a bot reviewed a new head or left a new actionable review-thread
+     comment (`bot_review_done` / `bot_footprint` against a refreshed
+     `HEAD_SHA`),
+   - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone pushed),
+   - **Sonar is not yet verified clean** — if `SONAR_STATE != clean`,
+     re-run §5.5 now (a token / MCP may have appeared). If it returns
+     `handled committed=yes`, that is a real push: handle as a dirty
+     window below. If it still returns `blocked-fetch`, the window is
+     **not clean** — re-surface the §5.5 reminder and keep looping
+     (do not count it toward `CLEAN_STREAK`).
+5. **Dirty window (non-human)** → `CLEAN_STREAK=0`, re-enter §1 — it
+   re-waits §4 on the new `HEAD_SHA` and re-handles §5 + §5.5. A
+   committed fix increments `ATTEMPTS` exactly as today; the §6
+   stuck-loop catch and `max_fix_attempts` still bound real fix churn.
+   After it re-greens, resume this loop at step 1.
+6. **Clean window** (nothing new **and** `SONAR_STATE=clean`) →
+   `CLEAN_STREAK=CLEAN_STREAK+1`. If
+   `CLEAN_STREAK < STABILITY_CLEAN_TARGET`, loop to step 1 for the next
+   consecutive window. Otherwise the PR is settled — proceed to §7. A
+   window where Sonar is still `blocked-fetch` is never clean — it keeps
+   the loop alive (and reminding) until the token appears or the cap in
+   step 1 stands the run down.
+
+`STABILITY_MAX_ROUNDS` bounds *quiet* re-check rounds (nothing to fix);
+`max_fix_attempts` and the §6 stuck-loop catch bound rounds that commit
+fixes. The two caps are independent.
+
 ### 7. Merge when fully resolved
 
-Merge the PR — and only when **all** of these hold:
+Once §6.5 reports the PR settled (two consecutive clean windows), merge
+the PR — and only when **all** of these hold:
 
 1. every non-skipped CI check is `SUCCESS`,
 2. every review bot reached a terminal §4 state — Copilot `reviewed`
@@ -247,7 +341,12 @@ Merge the PR — and only when **all** of these hold:
    PR — every §5 bot invocation returned `handled` (or `all-clear`),
    none returned `aborted` with `reason=unresolved-threads`,
 5. the rolled-up `BLOCKED` set is empty,
-6. no §5 bot invocation emitted `aborted`.
+6. no §5 bot invocation emitted `aborted`,
+7. `SONAR_STATE=clean` (§5.5 fetched the open issues and drove them to
+   zero). A `SONAR_STATE=blocked-fetch` does **not** merge — the run
+   could not verify Sonar is clean, so the PR is left open with the §5.5
+   reminder (do not force a merge on an unverified Sonar state). A §5.5
+   `aborted` likewise does not merge.
 
 ```bash
 gh pr merge <pr_number> --squash
@@ -262,8 +361,12 @@ leave the PR green and open for a human, and record why.
 If the `BLOCKED` set is non-empty (5 fails), leave the PR open and go
 to §8 with the `blocked` verdict. If a §5 invocation `aborted` (6
 fails), leave the PR open and emit `partial` / `exhausted` per the
-abort reason. Never merge on any non-merged verdict — those PRs are
-always left open.
+abort reason. If `SONAR_STATE=blocked-fetch` (7 fails) is the only thing
+keeping the PR from merging — every other gate holds — leave the PR
+open and emit `all-green reason=sonar-unchecked`, with the §5.5 reminder
+to set `SONAR_TOKEN` / install the Sonar MCP so a re-run can verify and
+merge. Never merge on any non-merged verdict — those PRs are always left
+open.
 
 ### 8. Terminal verdict
 
@@ -275,7 +378,7 @@ WATCH-AUTO: all-green url=<pr_url> reason=<why-not-merged> [coderabbit=<bypassed
 WATCH-AUTO: blocked url=<pr_url> items=<file:line;file:line;...>
 WATCH-AUTO: partial url=<pr_url> accepted=<comma-separated-markers>
 WATCH-AUTO: exhausted url=<pr_url> reason=<lint|tests|other|stuck-loop>
-WATCH-AUTO: human-intervention url=<pr_url> [reason=copilot-review-timeout]
+WATCH-AUTO: human-intervention url=<pr_url> [reason=copilot-review-timeout|stability-capped]
 ```
 
 - `merged` — every check green, every expected bot terminal (Copilot
@@ -284,8 +387,12 @@ WATCH-AUTO: human-intervention url=<pr_url> [reason=copilot-review-timeout]
   When CodeRabbit could not review, append
   `coderabbit=<bypassed|gave-up> reason=<…>` so the report flags it.
 - `all-green` — every check green and every reviewed-bot comment
-  resolved, but the merge was blocked (branch protection / required
-  approval / conflict); PR left open. Same CodeRabbit annotation.
+  resolved, but the merge was blocked; PR left open. Same CodeRabbit
+  annotation. `reason=<why-not-merged>` is one of: branch protection /
+  required approval / conflict, or `sonar-unchecked` (§5.5 could not
+  fetch the open issues — no token / no MCP — so the run could not
+  verify Sonar is clean; the reminder names what to set so a re-run can
+  verify and merge).
 - `blocked` — CI green and the reviewing bots done, but at least one
   non-minor bot comment could not be confidently resolved; `items=`
   names every blocked `file:line`; PR left open for a human.
@@ -294,8 +401,11 @@ WATCH-AUTO: human-intervention url=<pr_url> [reason=copilot-review-timeout]
 - `exhausted` — `max_fix_attempts` or the stuck-loop catch hit.
 - `human-intervention` — a human commented (the loop stood down), or
   `reason=copilot-review-timeout` (Copilot was requested but never
-  reviewed the head). A stalled CodeRabbit never lands here — it
-  bypasses / gives up instead (§4b).
+  reviewed the head), or `reason=stability-capped` (the §6.5 window hit
+  `STABILITY_MAX_ROUNDS` without two consecutive clean windows —
+  reviewers kept posting, so the PR is green but left open for a human
+  to merge). A stalled CodeRabbit never lands here — it bypasses / gives
+  up instead (§4b).
 
 Only a `merged` verdict closes the PR; every other verdict
 (`all-green` / `blocked` / `partial` / `exhausted` /
@@ -315,7 +425,12 @@ Only a `merged` verdict closes the PR; every other verdict
 - Merge only a fully resolved PR — never force a merge or override
   branch protection; a blocked merge leaves the PR open, it does not
   fail the run.
-- Never suppress a Sonar issue autonomously — fix or report it.
+- Drive SonarCloud open issues to **zero** before merging (§5.5): fix
+  each, or accept it with a minimum-scope suppression + rationale (or a
+  Sonar MCP `change_issue_status` call). Never leave a fetched issue
+  open, and never claim clean on a failed fetch — a `blocked-fetch`
+  Sonar postpones (reminder surfaced, PR left open), it never merges and
+  never guesses "0 issues".
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop catch — an
   autonomous run must not churn forever.

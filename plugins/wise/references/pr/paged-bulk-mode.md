@@ -62,7 +62,7 @@ handler's remote phase; only the wording is locked in here.
 - `allowed_letters` — the set of decision letters valid for
   this queue. One of:
   - `F,A,D,S` — bot review queue (Copilot / CodeRabbit)
-  - `F,A,S`   — Sonar queue
+  - `F,A`     — Sonar queue (no Skip — every issue Fixed/Accepted)
   - `F,R,D,S` — humans queue
   Letter meanings (the queue context determines `A`):
   - `F` — Fix (Claude patches per the comment / rule)
@@ -149,8 +149,10 @@ entirely; items carry no suggestion.
   "false-positive-prone — accept with suppression."
 - Rule is a potential bug (`null` deref, off-by-one, lost
   `await`) → `F`. Rationale: "bug rule."
-- Rule is ambiguous / needs context → `S`. Rationale: "needs
-  human judgement — skipping."
+- Rule is ambiguous / needs context → `F`. Rationale: "attempt a
+  fix; the apply phase falls back to an Accept (suppression) when a
+  patch would change behaviour." The Sonar queue has no `S` — every
+  issue must be Fixed or Accepted.
 
 **Humans:** auto-classify is disabled; no suggestion is shown.
 Rationale: human review comments carry opinion, domain
