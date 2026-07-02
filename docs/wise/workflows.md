@@ -392,9 +392,12 @@ baseline. It is **best-effort and may be ignored** by the model/harness
 today — the field is forward-looking (Claude-Code-first; a future model
 may act on it at a lower level). When the effort knob must be real, pick a
 roster agent whose default effort already matches. The directive uses the
-**resolved** effort, clamped to what the model supports (Opus, Sonnet —
-Sonnet 5 and later — and Fable take the full range; Haiku has no effort
-control so it is dropped) — see
+**resolved** effort, clamped to what the model's **family** supports
+(Opus, Sonnet, and Fable take the full range as of Sonnet 5; Haiku has
+no effort control so it is dropped). Clamping is family-level, not
+per-version — a pinned pre-Sonnet-5 id (e.g. `claude-sonnet-4-6`) is
+treated as the `sonnet` family and so also passes `xhigh` through
+unclamped — see
 [Model availability and fallback](#model-availability-and-fallback).
 
 ### Model availability and fallback
