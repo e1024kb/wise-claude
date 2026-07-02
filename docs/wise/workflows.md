@@ -392,8 +392,9 @@ baseline. It is **best-effort and may be ignored** by the model/harness
 today — the field is forward-looking (Claude-Code-first; a future model
 may act on it at a lower level). When the effort knob must be real, pick a
 roster agent whose default effort already matches. The directive uses the
-**resolved** effort, clamped to what the model supports (`xhigh` on a
-Sonnet step → `high`; Haiku has no effort control so it is dropped) — see
+**resolved** effort, clamped to what the model supports (Opus, Sonnet —
+Sonnet 5 and later — and Fable take the full range; Haiku has no effort
+control so it is dropped) — see
 [Model availability and fallback](#model-availability-and-fallback).
 
 ### Model availability and fallback

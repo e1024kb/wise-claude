@@ -175,7 +175,11 @@ EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max"]
 MODEL_EFFORT_SUPPORT = {
     "opus":  {"low", "medium", "high", "xhigh", "max"},
     "fable": {"low", "medium", "high", "xhigh", "max"},
-    "sonnet": {"low", "medium", "high", "max"},   # no xhigh
+    # Sonnet 5 (the alias target) added xhigh — first Sonnet tier with it.
+    # Family granularity means a pinned claude-sonnet-4-6 (no xhigh) slips
+    # through unclamped; acceptable — effort is a best-effort prompt
+    # directive, and aliases are the recommended way to author workflows.
+    "sonnet": {"low", "medium", "high", "xhigh", "max"},
     "haiku": set(),                                 # no effort control
 }
 
