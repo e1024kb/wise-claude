@@ -125,13 +125,15 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
                 seen_ids.add(step_id)
 
             step_type = step.get("type")
-            if step_type not in step_types:
+            if not isinstance(step_type, str) or step_type not in step_types:
                 errors.append(
                     f"{rel}: step {step_id!r} has unknown type {step_type!r}"
                 )
 
             trigger_rule = step.get("trigger-rule")
-            if trigger_rule is not None and trigger_rule not in trigger_rules:
+            if trigger_rule is not None and (
+                not isinstance(trigger_rule, str) or trigger_rule not in trigger_rules
+            ):
                 errors.append(
                     f"{rel}: step {step_id!r} has unknown trigger-rule {trigger_rule!r}"
                 )
@@ -211,7 +213,11 @@ def check_doc_references(errors: list[str]) -> None:
 
     for md_path in md_files:
         rel = md_path.relative_to(REPO_ROOT)
-        text = md_path.read_text(encoding="utf-8")
+        try:
+            text = md_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{rel}: could not read file ({exc})")
+            continue
 
         for match in PLUGIN_ROOT_REF_RE.finditer(text):
             ref = _clean_ref(match.group(1))
