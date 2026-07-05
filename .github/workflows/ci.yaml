@@ -70,7 +70,7 @@ jobs:
         continue-on-error: true
         run: ruff check plugins/wise/scripts
 
-      # CONTRIBUTING.md §9.6: a plugins/wise/ change must bump
+      # CONTRIBUTING.md §8: a plugins/wise/ change must bump
       # plugins/wise/.claude-plugin/plugin.json in the same PR.
       - name: Version-bump check
         if: github.event_name == 'pull_request'
@@ -82,6 +82,6 @@ jobs:
           # .md, e.g. workflows/*/README.md, still counts).
           plugin_changes="$(printf '%s\n' "$changed" | grep '^plugins/wise/' | grep -v '^plugins/wise/[^/]*\.md$' || true)"
           if [ -n "$plugin_changes" ] && ! printf '%s\n' "$changed" | grep -q '^plugins/wise/\.claude-plugin/plugin\.json$'; then
-            echo "::error::plugins/wise/ changed but plugins/wise/.claude-plugin/plugin.json was not bumped — see CONTRIBUTING.md §9.6"
+            echo "::error::plugins/wise/ changed but plugins/wise/.claude-plugin/plugin.json was not bumped — see CONTRIBUTING.md §8"
             exit 1
           fi
