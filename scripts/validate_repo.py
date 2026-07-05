@@ -24,7 +24,13 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    sys.exit(
+        "error: PyYAML is required to run this validator "
+        "(pip install pyyaml)"
+    )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WISE_PLUGIN_DIR = "plugins/wise"
@@ -98,7 +104,7 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
                 f"{rel}: folder name {folder_name!r} != top-level name {top_name!r}"
             )
 
-        steps = data.get("steps") or []
+        steps = data.get("steps", [])
         if not isinstance(steps, list):
             errors.append(f"{rel}: top-level 'steps' is not a list: {steps!r}")
             continue
@@ -131,7 +137,7 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
             if not isinstance(step, dict):
                 continue
             step_id = step.get("id")
-            depends_on = step.get("depends_on") or []
+            depends_on = step.get("depends_on", [])
             if not isinstance(depends_on, list) or not all(
                 isinstance(dep, str) for dep in depends_on
             ):
@@ -182,14 +188,18 @@ def check_doc_references(errors: list[str]) -> None:
     md_files: list[Path] = []
     for d in search_dirs:
         md_files.extend(sorted(d.rglob("*.md")))
-    # Root-level plugin docs and the repo's live docs/wise/ tree also
-    # carry ${CLAUDE_PLUGIN_ROOT} references in prose (e.g.
-    # plugins/wise/README.md, plugins/wise/CLAUDE.md,
+    # Root-level plugin/repo docs and the repo's live docs/wise/ tree
+    # also carry ${CLAUDE_PLUGIN_ROOT} references in prose (e.g.
+    # plugins/wise/README.md, plugins/wise/CLAUDE.md, CONTRIBUTING.md,
     # docs/wise/workflows.md) — not just the skills/workflows/references
     # markdown scanned above. docs/plans/ is deliberately excluded: those
     # are point-in-time planning artifacts describing proposed or
     # historical states, not live docs whose references must resolve now.
-    for extra in (plugin_root / "README.md", plugin_root / "CLAUDE.md"):
+    for extra in (
+        plugin_root / "README.md",
+        plugin_root / "CLAUDE.md",
+        REPO_ROOT / "CONTRIBUTING.md",
+    ):
         if extra.is_file():
             md_files.append(extra)
     docs_wise_dir = REPO_ROOT / "docs" / "wise"
@@ -237,7 +247,7 @@ def check_marketplace_sources(errors: list[str]) -> None:
     if not isinstance(data, dict):
         errors.append(f"{rel}: top-level JSON is not a mapping")
         return
-    plugins = data.get("plugins") or []
+    plugins = data.get("plugins", [])
     if not isinstance(plugins, list):
         errors.append(f"{rel}: 'plugins' is not a list: {plugins!r}")
         return
