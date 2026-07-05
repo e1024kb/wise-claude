@@ -1343,8 +1343,7 @@ def cmd_prune_runs() -> int:
         key=lambda e: (e[0], e[2].name),
         reverse=True,
     )
-    keep = non_term + term
-    to_delete = keep[cap:]
+    to_delete = term[max(0, cap - len(non_term)):]
 
     root_str = str(runs_root)
     for _last, _term, path in to_delete:
