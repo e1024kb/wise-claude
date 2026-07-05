@@ -16,7 +16,8 @@ REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS_PATH = REPO / "plugins" / "wise" / "scripts" / "workflows.py"
 
 _spec = importlib.util.spec_from_file_location("workflows", WORKFLOWS_PATH)
-assert _spec is not None and _spec.loader is not None, f"cannot load workflows module from {WORKFLOWS_PATH}"
+assert _spec is not None, f"cannot load workflows module from {WORKFLOWS_PATH}"
+assert _spec.loader is not None, f"no loader for workflows module at {WORKFLOWS_PATH}"
 workflows = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(workflows)
 
