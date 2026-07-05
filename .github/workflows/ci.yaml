@@ -60,7 +60,7 @@ jobs:
           changed="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
           # Non-.md-at-plugin-root plugins/wise/ changes (a nested dir's
           # .md, e.g. workflows/*/README.md, still counts).
-          plugin_changes="$(echo "$changed" | grep '^plugins/wise/' | grep -v '^plugins/wise/[^/]*\.md$')"
+          plugin_changes="$(echo "$changed" | grep '^plugins/wise/' | grep -v '^plugins/wise/[^/]*\.md$' || true)"
           if [ -n "$plugin_changes" ] && ! echo "$changed" | grep -q '^plugins/wise/\.claude-plugin/plugin\.json$'; then
             echo "::error::plugins/wise/ changed but plugins/wise/.claude-plugin/plugin.json was not bumped — see CONTRIBUTING.md §9.6"
             exit 1
