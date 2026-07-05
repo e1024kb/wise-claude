@@ -40,9 +40,11 @@ is unguarded against PermissionError. Done = all four fixed + tests.
 - Step-id validation: at `init-state` (and `next-wave` defensively),
   reject ids not matching `^[a-z][a-z0-9_-]*$` with a clear error
   naming the workflow file — mirroring the input-name validation style
-  at workflows.py:590. This also protects `write-log`'s path build; no
-  change needed inside `cmd_write_log` itself beyond relying on
-  validated ids (belt: assert the id matches there too, cheap).
+  at workflows.py:590. This also protects `write-log`'s path build, but
+  `cmd_write_log` itself gets an explicit validation/error path (not
+  just a `assert`, which optimized Python (`-O`) can strip) that
+  rejects a mismatching id before `<run-dir>/logs/<step-id>.<step-run-id>.log`
+  is built.
 - `installed_plugins()` fallback: read the `name` field from the found
   plugin.json (fall back to dir name if the key is absent/unparseable);
   wrap the two `iterdir()` calls in try/except OSError → skip.

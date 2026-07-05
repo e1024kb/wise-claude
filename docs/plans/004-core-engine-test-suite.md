@@ -51,8 +51,9 @@ Zero test files exist (`find . -name 'test_*'` → only PLAN-001's file if
 landed). Key behaviours to pin, all currently unspecified anywhere but
 code:
 - `_trigger_rule_satisfied` (workflows.py:659-691): 4 rules
-  (all-success default, all-done, one-success, always); unknown rule
-  falls back to all-success with a stderr warning (:690-691).
+  (all-success default, all-done, one-success,
+  none-failed-min-one-success); unknown rule falls back to all-success
+  with a stderr warning (:690-691).
 - `cmd_next_wave` (:737-797): a pending step whose deps can never
   complete is classified failed; `when:` expressions that do not match
   the `<lhs> == <rhs>` regex are treated as TRUE (:769-773).

@@ -24,8 +24,9 @@ def _make_run(runs_root: Path, run_id: str, status: str, last_activity_at: str) 
     """Write `<runs_root>/<run_id>/state.yaml` with `status` and `last_activity_at`."""
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "state.yaml").write_text(
-        f"status: {status}\nlast_activity_at: {last_activity_at}\n"
+    workflows.save_yaml(
+        run_dir / "state.yaml",
+        {"status": status, "last_activity_at": last_activity_at},
     )
     return run_dir
 

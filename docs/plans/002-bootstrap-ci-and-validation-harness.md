@@ -102,7 +102,7 @@ has a bug, not the repo).
 - `python3 scripts/validate_repo.py` → exits 0, prints per-section OK summary
 - `python3 -m json.tool .claude-plugin/marketplace.json > /dev/null && python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null` → exits 0
 - `bash -n plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh` → exits 0
-- `python3 -m py_compile plugins/wise/scripts/*.py` → exits 0
+- `python3 -m py_compile plugins/wise/scripts/*.py scripts/validate_repo.py` → exits 0
 - Sabotage check: temporarily set a workflow step `type: bogus` → `python3 scripts/validate_repo.py` exits non-zero naming the file; revert
 - `yamllint .github/workflows/ci.yaml` or `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yaml'))"` → exits 0
 
