@@ -179,6 +179,19 @@ def check_doc_references(errors: list[str]) -> None:
     md_files: list[Path] = []
     for d in search_dirs:
         md_files.extend(sorted(d.rglob("*.md")))
+    # Root-level plugin docs and the repo's live docs/wise/ tree also
+    # carry ${CLAUDE_PLUGIN_ROOT} references in prose (e.g.
+    # plugins/wise/README.md, plugins/wise/CLAUDE.md,
+    # docs/wise/workflows.md) — not just the skills/workflows/references
+    # markdown scanned above. docs/plans/ is deliberately excluded: those
+    # are point-in-time planning artifacts describing proposed or
+    # historical states, not live docs whose references must resolve now.
+    for extra in (plugin_root / "README.md", plugin_root / "CLAUDE.md"):
+        if extra.is_file():
+            md_files.append(extra)
+    docs_wise_dir = REPO_ROOT / "docs" / "wise"
+    if docs_wise_dir.is_dir():
+        md_files.extend(sorted(docs_wise_dir.rglob("*.md")))
 
     for md_path in md_files:
         rel = md_path.relative_to(REPO_ROOT)
@@ -271,7 +284,8 @@ def main() -> int:
     except SystemExit as exc:
         workflow_errors.append(str(exc.code))
         skill_errors.append(
-            "skipped: workflows.py failed to load, see workflow.yaml errors above"
+            "skipped: skill frontmatter check requires workflows.py, which failed "
+            "to load (see the workflow.yaml error above)"
         )
     else:
         step_types = workflows_module.STEP_TYPES
