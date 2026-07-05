@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -13,6 +17,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
@@ -20,7 +25,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pyyaml python-ulid typing_extensions pytest
+        run: pip install pyyaml python-ulid typing_extensions pytest ruff
 
       # §6.2 Syntax and structural checks (CONTRIBUTING.md) — copied
       # verbatim so CI is the single enforcement of the documented gate.
@@ -33,10 +38,20 @@ jobs:
         run: bash -n plugins/wise/scripts/*.sh
 
       - name: Python scripts compile
-        run: python3 -m py_compile plugins/wise/scripts/*.py
+        run: python3 -m py_compile plugins/wise/scripts/*.py scripts/validate_repo.py
 
       - name: No stale /wise:* name references
-        run: grep -Rn "/wise:old-name" plugins/ docs/ README.md CONTRIBUTING.md || echo "clean"
+        run: |
+          # Excludes matches that are themselves quoting this exact grep
+          # invocation (CONTRIBUTING.md §6.2's own documented command, and
+          # docs/plans/ prose describing it) — those aren't stale skill
+          # references, they're the check's own literal search pattern.
+          if grep -Rn "/wise:old-name" plugins/ docs/ README.md CONTRIBUTING.md \
+              | grep -vF 'grep -Rn "/wise:old-name"'; then
+            echo "::error::stale /wise:old-name reference found"
+            exit 1
+          fi
+          echo "clean"
 
       - name: Repo validation harness
         run: python3 scripts/validate_repo.py
@@ -56,8 +71,10 @@ jobs:
       # plugins/wise/.claude-plugin/plugin.json in the same PR.
       - name: Version-bump check
         if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          changed="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          changed="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
           # Non-.md-at-plugin-root plugins/wise/ changes (a nested dir's
           # .md, e.g. workflows/*/README.md, still counts).
           plugin_changes="$(echo "$changed" | grep '^plugins/wise/' | grep -v '^plugins/wise/[^/]*\.md$' || true)"

@@ -54,8 +54,13 @@ def _load_workflows_module():
     instead of a duplicated, driftable copy."""
     path = REPO_ROOT / WISE_PLUGIN_DIR / "scripts" / "workflows.py"
     spec = importlib.util.spec_from_file_location("wise_workflows", path)
+    if spec is None or spec.loader is None:
+        sys.exit(f"error: cannot load {path} for validation")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001
+        sys.exit(f"error: failed to load {path}: {exc}")
     return module
 
 
@@ -123,7 +128,16 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
             if not isinstance(step, dict):
                 continue
             step_id = step.get("id")
-            for dep in step.get("depends_on") or []:
+            depends_on = step.get("depends_on") or []
+            if not isinstance(depends_on, list) or not all(
+                isinstance(dep, str) for dep in depends_on
+            ):
+                errors.append(
+                    f"{rel}: step {step_id!r} depends_on must be a list of strings, "
+                    f"got {depends_on!r}"
+                )
+                continue
+            for dep in depends_on:
                 if dep not in seen_ids:
                     errors.append(
                         f"{rel}: step {step_id!r} depends_on unresolved id {dep!r}"
@@ -145,17 +159,23 @@ def _clean_ref(ref: str) -> str | None:
     """Strip trailing shell-glob-permission suffixes (`:*`, `\\`) and
     trailing punctuation from a captured path reference. Returns None
     for references that are templated placeholders (`<name>`, `${x}`)
-    rather than concrete paths — those aren't real files to check."""
+    or bare directory mentions (trailing `/`, e.g. prose like
+    "...under `${CLAUDE_PLUGIN_ROOT}/references/pr/`") rather than
+    concrete file paths — those aren't files to check."""
     ref = ref.split(":*", 1)[0]
     ref = ref.rstrip("\\").rstrip(".,;:")
-    if "<" in ref or "${" in ref:
+    if "<" in ref or "${" in ref or ref.endswith("/"):
         return None
     return ref
 
 
 def check_doc_references(errors: list[str]) -> None:
     plugin_root = REPO_ROOT / WISE_PLUGIN_DIR
-    search_dirs = [plugin_root / "skills", plugin_root / "workflows"]
+    search_dirs = [
+        plugin_root / "skills",
+        plugin_root / "workflows",
+        plugin_root / "references",
+    ]
     md_files: list[Path] = []
     for d in search_dirs:
         md_files.extend(sorted(d.rglob("*.md")))
@@ -169,7 +189,7 @@ def check_doc_references(errors: list[str]) -> None:
             if ref is None or ref in RUNTIME_GENERATED_REFS:
                 continue
             target = plugin_root / ref
-            if not target.exists():
+            if not target.is_file():
                 errors.append(
                     f"{rel}: ${{CLAUDE_PLUGIN_ROOT}}/{ref} does not resolve to a file"
                 )
@@ -184,7 +204,7 @@ def check_doc_references(errors: list[str]) -> None:
                 if ref is None:
                     continue
                 target = workflow_dir / "prompts" / ref
-                if not target.exists():
+                if not target.is_file():
                     errors.append(
                         f"{rel}: {{{{workflow.dir}}}}/prompts/{ref} does not resolve to a file"
                     )
@@ -201,6 +221,12 @@ def check_marketplace_sources(errors: list[str]) -> None:
     for plugin in data.get("plugins") or []:
         source = plugin.get("source", "")
         name = plugin.get("name", "<unnamed>")
+        if not isinstance(source, str):
+            errors.append(
+                f"{rel}: plugin {name!r} source {source!r} is neither a local "
+                "./ path nor SHA-pinned"
+            )
+            continue
         if source.startswith("./"):
             continue
         # Accept a 40-char hex SHA anywhere in the source string (e.g.
@@ -227,22 +253,32 @@ def main() -> int:
     if args.root is not None:
         REPO_ROOT = args.root.resolve()
 
-    workflows_module = _load_workflows_module()
-    step_types = workflows_module.STEP_TYPES
-    trigger_rules = workflows_module.TRIGGER_RULES
-    parse_frontmatter = workflows_module._parse_frontmatter
-
     json_errors: list[str] = []
     workflow_errors: list[str] = []
     skill_errors: list[str] = []
     ref_errors: list[str] = []
     source_errors: list[str] = []
 
+    # Run the checks that don't depend on workflows.py first, so a
+    # missing/broken workflows.py still gets json/doc-ref/source errors
+    # reported instead of aborting the whole harness before any output.
     check_json_manifests(json_errors)
-    check_workflows(workflow_errors, step_types, trigger_rules)
-    check_skill_frontmatter(skill_errors, parse_frontmatter)
     check_doc_references(ref_errors)
     check_marketplace_sources(source_errors)
+
+    try:
+        workflows_module = _load_workflows_module()
+    except SystemExit as exc:
+        workflow_errors.append(str(exc.code))
+        skill_errors.append(
+            "skipped: workflows.py failed to load, see workflow.yaml errors above"
+        )
+    else:
+        step_types = workflows_module.STEP_TYPES
+        trigger_rules = workflows_module.TRIGGER_RULES
+        parse_frontmatter = workflows_module._parse_frontmatter
+        check_workflows(workflow_errors, step_types, trigger_rules)
+        check_skill_frontmatter(skill_errors, parse_frontmatter)
 
     sections = [
         ("json manifests", json_errors),
