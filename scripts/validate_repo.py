@@ -71,7 +71,7 @@ def check_json_manifests(errors: list[str]) -> None:
     ):
         path = REPO_ROOT / rel
         try:
-            json.loads(path.read_text())
+            json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             errors.append(f"{rel}: file not found")
         except json.JSONDecodeError as exc:
@@ -84,7 +84,7 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
         rel = workflow_yaml.relative_to(REPO_ROOT)
         folder_name = workflow_yaml.parent.name
         try:
-            data = yaml.safe_load(workflow_yaml.read_text())
+            data = yaml.safe_load(workflow_yaml.read_text(encoding="utf-8"))
         except yaml.YAMLError as exc:
             errors.append(f"{rel}: invalid YAML ({exc})")
             continue
@@ -198,7 +198,7 @@ def check_doc_references(errors: list[str]) -> None:
 
     for md_path in md_files:
         rel = md_path.relative_to(REPO_ROOT)
-        text = md_path.read_text()
+        text = md_path.read_text(encoding="utf-8")
 
         for match in PLUGIN_ROOT_REF_RE.finditer(text):
             ref = _clean_ref(match.group(1))
@@ -230,7 +230,7 @@ def check_marketplace_sources(errors: list[str]) -> None:
     path = REPO_ROOT / ".claude-plugin/marketplace.json"
     rel = path.relative_to(REPO_ROOT)
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         # Already reported by check_json_manifests.
         return
@@ -295,12 +295,13 @@ def main() -> int:
     try:
         workflows_module = _load_workflows_module()
     except SystemExit as exc:
-        load_error = f"workflows.py failed to load: {exc.code}"
+        workflows_py = f"{WISE_PLUGIN_DIR}/scripts/workflows.py"
+        load_error = f"{workflows_py}: {exc.code}"
         workflow_errors.append(
-            f"skipped: workflow.yaml checks require workflows.py — {load_error}"
+            f"{load_error} (workflow.yaml checks skipped — they depend on this module)"
         )
         skill_errors.append(
-            f"skipped: skill frontmatter check requires workflows.py — {load_error}"
+            f"{load_error} (skill frontmatter check skipped — it depends on this module)"
         )
     else:
         step_types = workflows_module.STEP_TYPES
