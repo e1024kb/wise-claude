@@ -317,11 +317,22 @@ def main() -> int:
             f"{load_error} (skill frontmatter check skipped — it depends on this module)"
         )
     else:
-        step_types = workflows_module.STEP_TYPES
-        trigger_rules = workflows_module.TRIGGER_RULES
-        parse_frontmatter = workflows_module._parse_frontmatter
-        check_workflows(workflow_errors, step_types, trigger_rules)
-        check_skill_frontmatter(skill_errors, parse_frontmatter)
+        workflows_py = f"{WISE_PLUGIN_DIR}/scripts/workflows.py"
+        try:
+            step_types = workflows_module.STEP_TYPES
+            trigger_rules = workflows_module.TRIGGER_RULES
+            parse_frontmatter = workflows_module._parse_frontmatter
+        except AttributeError as exc:
+            missing_error = f"{workflows_py}: missing expected export ({exc})"
+            workflow_errors.append(
+                f"{missing_error} (workflow.yaml checks skipped — they depend on this export)"
+            )
+            skill_errors.append(
+                f"{missing_error} (skill frontmatter check skipped — it depends on this export)"
+            )
+        else:
+            check_workflows(workflow_errors, step_types, trigger_rules)
+            check_skill_frontmatter(skill_errors, parse_frontmatter)
 
     sections = [
         ("json manifests", json_errors),
