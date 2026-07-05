@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml python-ulid typing_extensions pytest
+
+      # §6.2 Syntax and structural checks (CONTRIBUTING.md) — copied
+      # verbatim so CI is the single enforcement of the documented gate.
+      - name: JSON manifests parse
+        run: |
+          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+          python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
+
+      - name: Bash scripts parse
+        run: bash -n plugins/wise/scripts/*.sh
+
+      - name: Python scripts compile
+        run: python3 -m py_compile plugins/wise/scripts/*.py
+
+      - name: No stale /wise:* name references
+        run: grep -Rn "/wise:old-name" plugins/ docs/ README.md CONTRIBUTING.md || echo "clean"
+
+      - name: Repo validation harness
+        run: python3 scripts/validate_repo.py
+
+      - name: Pytest
+        run: python3 -m pytest plugins/wise/tests -q || [ $? -eq 5 ]
+
+      - name: Shellcheck (non-blocking)
+        continue-on-error: true
+        run: shellcheck plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh
+
+      - name: Ruff (non-blocking)
+        continue-on-error: true
+        run: ruff check plugins/wise/scripts
+
+      # CONTRIBUTING.md §9.6: a plugins/wise/ change must bump
+      # plugins/wise/.claude-plugin/plugin.json in the same PR.
+      - name: Version-bump check
+        if: github.event_name == 'pull_request'
+        run: |
+          changed="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          # Non-.md-at-plugin-root plugins/wise/ changes (a nested dir's
+          # .md, e.g. workflows/*/README.md, still counts).
+          plugin_changes="$(echo "$changed" | grep '^plugins/wise/' | grep -v '^plugins/wise/[^/]*\.md$')"
+          if [ -n "$plugin_changes" ] && ! echo "$changed" | grep -q '^plugins/wise/\.claude-plugin/plugin\.json$'; then
+            echo "::error::plugins/wise/ changed but plugins/wise/.claude-plugin/plugin.json was not bumped — see CONTRIBUTING.md §9.6"
+            exit 1
+          fi
