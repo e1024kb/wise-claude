@@ -99,6 +99,9 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
             )
 
         steps = data.get("steps") or []
+        if not isinstance(steps, list):
+            errors.append(f"{rel}: top-level 'steps' is not a list: {steps!r}")
+            continue
         seen_ids: set[str] = set()
         for step in steps:
             if not isinstance(step, dict):
@@ -231,7 +234,17 @@ def check_marketplace_sources(errors: list[str]) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         # Already reported by check_json_manifests.
         return
-    for plugin in data.get("plugins") or []:
+    if not isinstance(data, dict):
+        errors.append(f"{rel}: top-level JSON is not a mapping")
+        return
+    plugins = data.get("plugins") or []
+    if not isinstance(plugins, list):
+        errors.append(f"{rel}: 'plugins' is not a list: {plugins!r}")
+        return
+    for plugin in plugins:
+        if not isinstance(plugin, dict):
+            errors.append(f"{rel}: plugin entry is not a mapping: {plugin!r}")
+            continue
         source = plugin.get("source", "")
         name = plugin.get("name", "<unnamed>")
         if not isinstance(source, str):
@@ -282,10 +295,12 @@ def main() -> int:
     try:
         workflows_module = _load_workflows_module()
     except SystemExit as exc:
-        workflow_errors.append(str(exc.code))
+        load_error = f"workflows.py failed to load: {exc.code}"
+        workflow_errors.append(
+            f"skipped: workflow.yaml checks require workflows.py — {load_error}"
+        )
         skill_errors.append(
-            "skipped: skill frontmatter check requires workflows.py, which failed "
-            "to load (see the workflow.yaml error above)"
+            f"skipped: skill frontmatter check requires workflows.py — {load_error}"
         )
     else:
         step_types = workflows_module.STEP_TYPES
