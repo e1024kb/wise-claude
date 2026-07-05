@@ -5,9 +5,12 @@ Cross-checks the invariants this repo relies on contributor discipline
 for today: JSON manifests parse, every bundled workflow.yaml is
 internally consistent (step ids/types/trigger-rules/depends_on), every
 skill's frontmatter `name:` matches its directory, every
-`${CLAUDE_PLUGIN_ROOT}` / `{{workflow.dir}}` reference in the docs
-resolves to a real file, and every marketplace plugin `source` is
-either a local path or SHA-pinned.
+`${CLAUDE_PLUGIN_ROOT}/<path>` reference in the scanned docs resolves
+to a real file, every `{{workflow.dir}}/prompts/<file>` reference
+inside a workflow's own markdown resolves to a real file (other
+`{{workflow.dir}}/...` forms, e.g. `templates/...`, are not checked),
+and every marketplace plugin `source` is either a local path or
+SHA-pinned.
 
 Exits 0 and prints a per-section OK summary when everything checks out;
 exits non-zero and prints one `file: reason` line per failure otherwise
