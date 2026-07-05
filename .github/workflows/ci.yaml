@@ -77,6 +77,9 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
+          # fetch-depth: 0 fetches all branches, but ensure the base
+          # ref is present regardless in case checkout ever changes.
+          git fetch --quiet origin "${BASE_REF}"
           changed="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
           # Non-.md-at-plugin-root plugins/wise/ changes (a nested dir's
           # .md, e.g. workflows/*/README.md, still counts).
