@@ -420,6 +420,13 @@ collects, Phase B/C/D apply.
 
 ### 9. Emit the final line
 
+Before emitting the final line, clean up this invocation's scratch
+dir:
+
+```bash
+rm -rf "$SCRATCH"
+```
+
 Alone on its own line:
 
 ```

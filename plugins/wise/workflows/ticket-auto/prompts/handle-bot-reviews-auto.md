@@ -114,8 +114,9 @@ Skip items from the other bot, from humans, bot issue-comment
 summaries, `APPROVED` / `COMMENTED` summary-only reviews, and
 already-resolved or outdated threads.
 
-If the actionable list is empty → emit
-`BOT-REVIEWS-AUTO: all-clear bot=<bot_filter>` and return (skip
+If the actionable list is empty → clean up this invocation's scratch
+dir (`rm -rf "$SCRATCH"`), emit
+`BOT-REVIEWS-AUTO: all-clear bot=<bot_filter>`, and return (skip
 §3–§9).
 
 ### 3. Classify every comment by severity
@@ -306,6 +307,13 @@ On success the caller (`watch-pipelines-auto.md`) re-enters its poll
 loop — the push kicks new CI runs and a fresh bot pass.
 
 ### 9. Emit the final verdict line
+
+Before emitting the final line, clean up this invocation's scratch
+dir:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 As the FINAL line — alone, no markdown, no backticks — one of:
 

@@ -168,6 +168,12 @@ doesn't have repo access") in the step prose.
 
 ### 6. Emit the final line
 
+Before emitting the final line, clean up the step's scratch dir:
+
+```bash
+rm -rf "$SCRATCH"
+```
+
 Your response's FINAL line — alone on its own line, no markdown,
 no backticks — MUST match:
 

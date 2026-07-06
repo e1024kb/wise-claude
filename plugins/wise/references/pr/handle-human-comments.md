@@ -342,6 +342,12 @@ Reply already landed in §6, Skip opts out.
 
 ### 8. Emit the final line
 
+Before emitting the final line, clean up the step's scratch dir:
+
+```bash
+rm -rf "$SCRATCH"
+```
+
 Alone on its own line, no markdown:
 
 ```

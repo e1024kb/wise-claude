@@ -438,6 +438,13 @@ opts out.
 
 ### 8. Emit the final line
 
+Before emitting the final line, clean up this invocation's scratch
+dir:
+
+```bash
+rm -rf "$SCRATCH"
+```
+
 The caller (`watch-pipelines.md`) consumes this line. `bot=` is
 the `bot_filter` value the caller supplied (`copilot` or
 `coderabbit`) so two invocations of this fragment can be told

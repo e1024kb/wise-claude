@@ -39,6 +39,7 @@ one scratch dir for the whole loop:
 `SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"` — every
 `/tmp` payload / watermark file below lives under it so it survives
 across loop iterations without colliding with another run's files.
+§7 removes it on every exit path, so it never outlives the run.
 
 ### 1. Start a poll loop
 
@@ -457,6 +458,13 @@ Any of these conditions exits the loop:
   is stuck; escalate via chat and stop).
 
 ### 7. Emit the final line
+
+Before emitting the final line, clean up the loop's scratch dir on
+every exit path — green, aborted, partial, all of them:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 Your response's FINAL line — alone on its own line, no markdown,
 no backticks — MUST match one of:

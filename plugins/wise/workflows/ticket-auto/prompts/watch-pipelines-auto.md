@@ -40,7 +40,8 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 Run all `gh` / `git` commands with `cd <project.path>` first. Keep a
 counter `ATTEMPTS = 0` and an iteration counter `ITERS = 0`. Create one
 scratch dir for the whole loop, before §1's first entry, so it survives
-across loop iterations:
+across loop iterations — §8 removes it on every exit path, so it never
+outlives the run:
 
 ```bash
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
@@ -68,8 +69,9 @@ login like `coolbot` must NOT be waved through as a bot. Use `gh
 gh pr view <pr_number> --json comments --jq '
   [.comments[] | select(.createdAt > "'"$RUN_STARTED"'")] |
   .[] | select(.author.login as $l |
-    ["copilot-pull-request-reviewer[bot]","Copilot","coderabbitai[bot]","coderabbitai",
-     "sonarqubecloud[bot]","sonarqubecloud","sonarcloud[bot]","sonarcloud"] |
+    ["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot",
+     "coderabbitai[bot]","coderabbitai","sonarqubecloud[bot]","sonarqubecloud",
+     "sonarcloud[bot]","sonarcloud"] |
     index($l) | not) | .author.login
 '
 ```
@@ -469,6 +471,10 @@ Only a `merged` verdict closes the PR; every other verdict
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop catch — an
   autonomous run must not churn forever.
+- `rm -rf "$SCRATCH"` before EVERY exit — the terminal verdict (§8),
+  and every earlier `stop and emit` point (§1's human-intervention,
+  §3's `exhausted`, §4a's `copilot-review-timeout`, §6's stuck-loop).
+  None of them may leave the scratch dir behind.
 - All work runs inside this Claude Code session with native tools
   (`Bash`, `Read`, `Edit`/`Write`). Never shell out to `claude -p`,
   another agent CLI, or any external LLM tool.
