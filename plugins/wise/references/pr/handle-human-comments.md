@@ -344,6 +344,10 @@ Reply already landed in §6, Skip opts out.
 
 ### 8. Emit the final line
 
+Any path that reaches this section without already cleaning up
+(the normal `handled` completion) must `rm -rf "$SCRATCH"` here
+before emitting.
+
 Alone on its own line, no markdown:
 
 ```
@@ -398,8 +402,8 @@ Example pending format: `AuditPanel.tsx:42,top-level-3,jlevdev`.
   back-and-forth the queue restructure exists to prevent.
 - Stop immediately on any body that reads as an abort signal
   until the user confirms otherwise.
-- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§8), the
-  empty-comments announce-and-exit (§2), and every early
-  `emit … and return` abort (`apply-failed-on` / `commit-failed` in
-  §5, `push-failed` in §7). None of them may leave the scratch dir
-  behind.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§8, which
+  also covers the normal `handled` completion), the empty-comments
+  announce-and-exit (§2), and every early `emit … and return` abort
+  (`apply-failed-on` / `commit-failed` in §5, `push-failed` in §7).
+  None of them may leave the scratch dir behind.

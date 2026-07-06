@@ -138,28 +138,31 @@ POST_GREEN_STABILITY=180    # secs per post-green stability window (3 min) — �
 STABILITY_CLEAN_TARGET=2    # consecutive clean windows required before merge — §6.5
 STABILITY_MAX_ROUNDS=10     # hard cap on stability windows before standing down — §6.5
 
-bot_logins() {        # $1 = "copilot" | "coderabbit" — exact logins for that bot only
+bot_logins() {        # $1 = "copilot" | "coderabbit" — exact logins for that bot only, as a jq array literal
   case "$1" in
     copilot)    printf '["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot"]' ;;
     coderabbit) printf '["coderabbitai[bot]","coderabbitai"]' ;;
   esac
 }
 bot_review_done() {   # $1 = "copilot" | "coderabbit" — has the bot reviewed THIS head?
+  local logins; logins="$(bot_logins "$1")"
   gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-    --jq --argjson logins "$(bot_logins "$1")" \
-    'any(.[]; (.user.login as $l | $logins | index($l)) and .commit_id=="'"$HEAD_SHA"'")'
+    --jq "any(.[]; (.user.login as \$l | $logins | index(\$l)) and .commit_id==\"$HEAD_SHA\")"
 }
 bot_footprint() {     # $1 = "copilot" | "coderabbit" — has the bot EVER touched this PR (review OR comment)?
-  local r c
+  local r c logins; logins="$(bot_logins "$1")"
   r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-        --jq --argjson logins "$(bot_logins "$1")" \
-        'any(.[]; .user.login as $l | $logins | index($l))')
+        --jq "any(.[]; .user.login as \$l | $logins | index(\$l))")
   c=$(gh pr view <pr_number> --json comments \
-        --jq --argjson logins "$(bot_logins "$1")" \
-        'any(.comments[]; .author.login as $l | $logins | index($l))')
+        --jq "any(.comments[]; .author.login as \$l | $logins | index(\$l))")
   [ "$r" = true ] || [ "$c" = true ] && echo true || echo false
 }
 ```
+
+`gh api --jq` / `gh pr view --jq` take a single jq expression string, not
+the standalone `jq` CLI — there is no `--argjson`. `bot_logins()` returns
+a fixed, trusted JSON array literal (never external data), so inlining it
+straight into the jq expression string is safe.
 
 Every check here is an **exact-login match** against the same allowlist
 philosophy as §1 — no substring `test()` against a bot name. A human
