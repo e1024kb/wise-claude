@@ -43,8 +43,9 @@ counter `ATTEMPTS = 0` and an iteration counter `ITERS = 0`.
 ### 1. Poll the checks
 
 ```bash
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 gh pr checks <pr_number> --watch --interval 10
-gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > /tmp/ticket-auto-checks-$<pr_number>.json
+gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > "$SCRATCH/ticket-auto-checks-$<pr_number>.json"
 ```
 
 `--watch` blocks until every check reaches a terminal state. Then

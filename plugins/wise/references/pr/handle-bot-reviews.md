@@ -52,18 +52,19 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 # Issue comments (top-level). Author/body/url etc.
 gh pr view "$PR" --json comments \
-  > /tmp/pr-$PR-issue-comments.json
+  > "$SCRATCH/pr-$PR-issue-comments.json"
 
 # Line-level review comments (path + line + suggestion bodies).
 gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate \
-  > /tmp/pr-$PR-review-comments.json
+  > "$SCRATCH/pr-$PR-review-comments.json"
 
 # Review summaries (state: CHANGES_REQUESTED / APPROVED / COMMENTED).
 gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  > /tmp/pr-$PR-reviews.json
+  > "$SCRATCH/pr-$PR-reviews.json"
 ```
 
 Also fetch review threads via GraphQL — we'll need thread IDs for
@@ -86,7 +87,7 @@ gh api graphql -f query='
     }
   }
 ' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
-  > /tmp/pr-$PR-threads.json
+  > "$SCRATCH/pr-$PR-threads.json"
 ```
 
 The resulting mapping: each review-comment `databaseId` (from #2)
@@ -330,7 +331,7 @@ paged-bulk, or §4 Walk). Walk it in order; per item:
   ```
 
   Append this item's review-thread id (looked up from
-  `/tmp/pr-$PR-threads.json` by matching the review-comment's
+  `"$SCRATCH/pr-$PR-threads.json"` by matching the review-comment's
   numeric `id` against `comments.nodes[0].databaseId`) into
   `FIXED_THREAD_IDS` for the §6 resolve.
 

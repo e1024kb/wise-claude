@@ -51,6 +51,7 @@ config files; fall back to the `<org>_<repo>` convention last.
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 # a) SonarCloud bot comment — parse id=<key> from the issues URL.
 SONAR_KEY="$(gh api "repos/$OWNER_REPO/issues/$PR/comments" \
@@ -92,7 +93,7 @@ Fallback order if no MCP is visible:
    ```bash
    curl -fsSL -u "$SONAR_TOKEN:" \
      "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_KEY&pullRequest=$PR&issueStatuses=OPEN,CONFIRMED&resolved=false&ps=500" \
-     > /tmp/sonar-issues-$PR.json
+     > "$SCRATCH/sonar-issues-$PR.json"
    ```
 2. **Anonymous curl** (public projects only).
 

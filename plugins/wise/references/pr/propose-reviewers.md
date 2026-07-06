@@ -28,14 +28,16 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 ### 1. Gather PR context
 
 ```bash
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
+
 # Files changed in the PR
-gh pr view <pr_number> --json files --jq '.files[].path' > /tmp/pr-files.txt
+gh pr view <pr_number> --json files --jq '.files[].path' > "$SCRATCH/pr-files.txt"
 
 # PR author — exclude from candidates (self-review isn't useful)
 PR_AUTHOR="$(gh pr view <pr_number> --json author --jq .author.login)"
 ```
 
-If `/tmp/pr-files.txt` is empty (empty PR), skip to §4 and propose
+If `"$SCRATCH/pr-files.txt"` is empty (empty PR), skip to §4 and propose
 nothing — there's nothing to rank against.
 
 ### 2. Build the candidate pool
@@ -49,13 +51,13 @@ BASE="<pr_base>"
 # Check the PR's base branch for a CODEOWNERS file
 for p in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
   if git show "origin/$BASE:$p" >/dev/null 2>&1; then
-    git show "origin/$BASE:$p" > /tmp/CODEOWNERS
+    git show "origin/$BASE:$p" > "$SCRATCH/CODEOWNERS"
     break
   fi
 done
 ```
 
-If `/tmp/CODEOWNERS` was produced, parse it and match each line's
+If `"$SCRATCH/CODEOWNERS"` was produced, parse it and match each line's
 glob pattern against the PR's changed files. The logins / team
 slugs after the pattern become high-weight candidates (they're
 the project's declared owners — strong prior).
@@ -85,11 +87,11 @@ then list its members:
 
 ```bash
 ORG="$(gh repo view --json owner --jq .owner.login)"
-gh api "orgs/$ORG/members" --paginate --jq '.[].login' | sort -u > /tmp/org-members.txt
+gh api "orgs/$ORG/members" --paginate --jq '.[].login' | sort -u > "$SCRATCH/org-members.txt"
 ```
 
 Intersect the combined candidate pool (§2a + §2b) with
-`/tmp/org-members.txt`. Drop anyone NOT in the org — a PR should
+`"$SCRATCH/org-members.txt"`. Drop anyone NOT in the org — a PR should
 have reviewers from the repo's own org. If the org-members call
 fails (e.g. the token lacks org-read scope), skip this filter
 rather than failing the step.

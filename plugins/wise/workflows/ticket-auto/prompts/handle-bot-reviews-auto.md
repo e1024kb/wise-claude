@@ -53,18 +53,19 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 # Issue comments (top-level conversation; bot summaries).
 gh pr view "$PR" --json comments \
-  > /tmp/pr-$PR-auto-issue-comments.json
+  > "$SCRATCH/pr-$PR-auto-issue-comments.json"
 
 # Line-level review comments (path + line + suggestion bodies).
 gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate \
-  > /tmp/pr-$PR-auto-review-comments.json
+  > "$SCRATCH/pr-$PR-auto-review-comments.json"
 
 # Review summaries (state: CHANGES_REQUESTED / APPROVED / COMMENTED).
 gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  > /tmp/pr-$PR-auto-reviews.json
+  > "$SCRATCH/pr-$PR-auto-reviews.json"
 ```
 
 Also fetch the review threads via GraphQL — thread node IDs are
@@ -87,7 +88,7 @@ gh api graphql -f query='
     }
   }
 ' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
-  > /tmp/pr-$PR-auto-threads.json
+  > "$SCRATCH/pr-$PR-auto-threads.json"
 ```
 
 Each review-comment `databaseId` maps to a thread `id` (GraphQL node

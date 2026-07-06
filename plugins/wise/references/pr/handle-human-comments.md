@@ -49,10 +49,11 @@ the user walks it twice:
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
-gh pr view "$PR" --json comments > /tmp/wise-hum-issue-$PR.json
-gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate > /tmp/wise-hum-review-$PR.json
-gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100"  --paginate > /tmp/wise-hum-reviews-$PR.json
+gh pr view "$PR" --json comments > "$SCRATCH/wise-hum-issue-$PR.json"
+gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate > "$SCRATCH/wise-hum-review-$PR.json"
+gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100"  --paginate > "$SCRATCH/wise-hum-reviews-$PR.json"
 ```
 
 Also pull review-thread resolution + outdated state (same GraphQL
