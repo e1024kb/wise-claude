@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml python-ulid typing_extensions pytest ruff
+
+      # §6.2 Syntax and structural checks (CONTRIBUTING.md) — copied
+      # verbatim so CI is the single enforcement of the documented gate.
+      - name: JSON manifests parse
+        run: |
+          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+          python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
+
+      - name: Bash scripts parse
+        run: bash -n plugins/wise/scripts/*.sh
+
+      - name: Python scripts compile
+        run: python3 -m py_compile plugins/wise/scripts/*.py scripts/validate_repo.py
+
+      - name: No stale /wise:* name references
+        run: |
+          # Excludes matches that are themselves quoting this exact grep
+          # invocation (CONTRIBUTING.md §6.2's own documented command, and
+          # docs/plans/ prose describing it) — those aren't stale skill
+          # references, they're the check's own literal search pattern.
+          if grep -Rn "/wise:old-name" plugins/ docs/ README.md CONTRIBUTING.md \
+              | grep -vF 'grep -Rn "/wise:old-name"'; then
+            echo "::error::stale /wise:old-name reference found"
+            exit 1
+          fi
+          echo "clean"
+
+      - name: Repo validation harness
+        run: python3 scripts/validate_repo.py
+
+      - name: Pytest
+        run: python3 -m pytest plugins/wise/tests -q || [ $? -eq 5 ]
+
+      - name: Shellcheck (non-blocking)
+        continue-on-error: true
+        run: shellcheck plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh
+
+      - name: Ruff (non-blocking)
+        continue-on-error: true
+        run: ruff check plugins/wise/scripts
+
+      # CONTRIBUTING.md §8: a plugins/wise/ change must bump
+      # plugins/wise/.claude-plugin/plugin.json in the same PR.
+      - name: Version-bump check
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # fetch-depth: 0 fetches all branches, but ensure the base
+          # ref is present regardless in case checkout ever changes.
+          git fetch --quiet origin "${BASE_REF}"
+          changed="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          # Non-.md-at-plugin-root plugins/wise/ changes (a nested dir's
+          # .md, e.g. workflows/*/README.md, still counts).
+          plugin_changes="$(printf '%s\n' "$changed" | grep '^plugins/wise/' | grep -v '^plugins/wise/[^/]*\.md$' || true)"
+          if [ -n "$plugin_changes" ] && ! printf '%s\n' "$changed" | grep -q '^plugins/wise/\.claude-plugin/plugin\.json$'; then
+            echo "::error::plugins/wise/ changed but plugins/wise/.claude-plugin/plugin.json was not bumped — see CONTRIBUTING.md §8"
+            exit 1
+          fi
