@@ -142,6 +142,7 @@ bot_logins() {        # $1 = "copilot" | "coderabbit" — exact logins for that 
   case "$1" in
     copilot)    printf '["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot"]' ;;
     coderabbit) printf '["coderabbitai[bot]","coderabbitai"]' ;;
+    *)          printf '[]' ;;  # unknown type → empty allowlist, fails closed (never matches)
   esac
 }
 bot_review_done() {   # $1 = "copilot" | "coderabbit" — has the bot reviewed THIS head?

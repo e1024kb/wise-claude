@@ -441,8 +441,11 @@ opts out.
 ### 8. Emit the final line
 
 Any path that reaches this section without already cleaning up
-(the normal `handled` completion) must `rm -rf "$SCRATCH"` here
-before emitting.
+(the normal `handled` completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 The caller (`watch-pipelines.md`) consumes this line. `bot=` is
 the `bot_filter` value the caller supplied (`copilot` or

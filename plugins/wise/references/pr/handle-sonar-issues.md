@@ -423,8 +423,11 @@ collects, Phase B/C/D apply.
 ### 9. Emit the final line
 
 Any path that reaches this section without already cleaning up
-(the normal `handled` completion) must `rm -rf "$SCRATCH"` here
-before emitting.
+(the normal `handled` completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 Alone on its own line:
 

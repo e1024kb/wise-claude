@@ -169,8 +169,11 @@ doesn't have repo access") in the step prose.
 ### 6. Emit the final line
 
 Any path that reaches this section without already cleaning up
-(the normal candidates-picked completion) must `rm -rf "$SCRATCH"`
-here before emitting.
+(the normal candidates-picked completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 Your response's FINAL line — alone on its own line, no markdown,
 no backticks — MUST match:
