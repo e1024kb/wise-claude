@@ -50,7 +50,7 @@ SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 ```bash
 gh pr checks <pr_number> --watch --interval 10
-gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > "$SCRATCH/ticket-auto-checks-$<pr_number>.json"
+gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > "$SCRATCH/ticket-auto-checks-<pr_number>.json"
 ```
 
 `--watch` blocks until every check reaches a terminal state. Then
@@ -59,10 +59,10 @@ gate is an **exact-login allowlist**, not a regex — a login like
 `coolbot` must NOT be waved through as a bot:
 
 ```bash
-KNOWN_BOT_LOGINS='["copilot-pull-request-reviewer[bot]","Copilot","coderabbitai[bot]","sonarqubecloud[bot]","sonarcloud[bot]"]'
+KNOWN_BOT_LOGINS='["copilot-pull-request-reviewer[bot]","Copilot","coderabbitai[bot]","coderabbitai","sonarqubecloud[bot]","sonarqubecloud","sonarcloud[bot]","sonarcloud"]'
 gh pr view <pr_number> --json comments --jq '.comments' \
   | jq -r --argjson bots "$KNOWN_BOT_LOGINS" \
-      '.[] | select((.author.login | IN($bots[])) | not) | .author.login'
+      '.[] | select((.author.login as $l | $bots | index($l)) | not) | .author.login'
 ```
 
 Any author whose login is not an exact match on the allowlist is
