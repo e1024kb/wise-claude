@@ -40,8 +40,8 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 Run all `gh` / `git` commands with `cd <project.path>` first. Keep a
 counter `ATTEMPTS = 0` and an iteration counter `ITERS = 0`. Create one
 scratch dir for the whole loop, before §1's first entry, so it survives
-across loop iterations — §8 removes it on every exit path, so it never
-outlives the run:
+across loop iterations — the Guardrails section requires `rm -rf
+"$SCRATCH"` at every exit point below, so it never outlives the run:
 
 ```bash
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
@@ -137,19 +137,33 @@ POST_GREEN_STABILITY=180    # secs per post-green stability window (3 min) — �
 STABILITY_CLEAN_TARGET=2    # consecutive clean windows required before merge — §6.5
 STABILITY_MAX_ROUNDS=10     # hard cap on stability windows before standing down — §6.5
 
-bot_review_done() {   # $1 = login regex — has the bot reviewed THIS head?
-  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-    --jq "any(.[]; (.user.login|test(\"$1\";\"i\")) and .commit_id==\"$HEAD_SHA\")"
+bot_logins() {        # $1 = "copilot" | "coderabbit" — exact logins for that bot only
+  case "$1" in
+    copilot)    printf '["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot"]' ;;
+    coderabbit) printf '["coderabbitai[bot]","coderabbitai"]' ;;
+  esac
 }
-bot_footprint() {     # $1 = login regex — has the bot EVER touched this PR (review OR comment)?
+bot_review_done() {   # $1 = "copilot" | "coderabbit" — has the bot reviewed THIS head?
+  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
+    --jq --argjson logins "$(bot_logins "$1")" \
+    'any(.[]; (.user.login as $l | $logins | index($l)) and .commit_id=="'"$HEAD_SHA"'")'
+}
+bot_footprint() {     # $1 = "copilot" | "coderabbit" — has the bot EVER touched this PR (review OR comment)?
   local r c
   r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-        --jq "any(.[]; .user.login|test(\"$1\";\"i\"))")
+        --jq --argjson logins "$(bot_logins "$1")" \
+        'any(.[]; .user.login as $l | $logins | index($l))')
   c=$(gh pr view <pr_number> --json comments \
-        --jq "any(.comments[]; .author.login|test(\"$1\";\"i\"))")
+        --jq --argjson logins "$(bot_logins "$1")" \
+        'any(.comments[]; .author.login as $l | $logins | index($l))')
   [ "$r" = true ] || [ "$c" = true ] && echo true || echo false
 }
 ```
+
+Every check here is an **exact-login match** against the same allowlist
+philosophy as §1 — no substring `test()` against a bot name. A human
+account whose login merely contains "copilot" / "coderabbit" must NOT
+satisfy "the bot reviewed" or "the bot has a footprint".
 
 Track two states for the merge gate: `COPILOT_STATE` ∈
 {`reviewed`, `absent`} and `CODERABBIT_STATE` ∈

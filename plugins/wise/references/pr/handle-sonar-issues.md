@@ -420,13 +420,6 @@ collects, Phase B/C/D apply.
 
 ### 9. Emit the final line
 
-Before emitting the final line, clean up this invocation's scratch
-dir:
-
-```bash
-rm -rf "$SCRATCH"
-```
-
 Alone on its own line:
 
 ```
@@ -495,3 +488,7 @@ enumerated.
   happens. Pushing inside Phase B would land the commit before
   any queued Sonar MCP `change_issue_status` calls fire and
   reorder the queue's effect on the dashboard.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§9), and
+  every early `emit … and return` abort (`apply-failed-on` /
+  `commit-failed` in §5, `push-failed` in §7). None of them may
+  leave the scratch dir behind.

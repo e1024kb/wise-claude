@@ -368,6 +368,11 @@ caller whether a push happened and CI / the bots must be re-polled.
 - Stop after 10 internal rounds in a single invocation (safety catch
   — a bot that re-posts on every commit is in a fight; escalate via
   the verdict line instead of looping forever).
+- `rm -rf "$SCRATCH"` before EVERY exit — the final verdict (§9), the
+  empty-queue `all-clear` (§2), and every early `emit … and return`
+  abort (`commit-failed` / `apply-failed-on` in §6, `unresolved-threads`
+  in §7b, `push-failed` in §8). None of them may leave the scratch dir
+  behind.
 - All work runs inside this Claude Code session with native tools
   (`Bash`, `Read`, `Edit`/`Write`). Never shell out to `claude -p`,
   another agent CLI, or any external LLM tool.

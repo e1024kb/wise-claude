@@ -438,13 +438,6 @@ opts out.
 
 ### 8. Emit the final line
 
-Before emitting the final line, clean up this invocation's scratch
-dir:
-
-```bash
-rm -rf "$SCRATCH"
-```
-
 The caller (`watch-pipelines.md`) consumes this line. `bot=` is
 the `bot_filter` value the caller supplied (`copilot` or
 `coderabbit`) so two invocations of this fragment can be told
@@ -515,3 +508,8 @@ BOT-REVIEWS: aborted bot=coderabbit reason=apply-failed-on=AuditPanel.tsx:88
   invocation (safety catch — if we're still processing bot
   comments after 10 iterations, the PR is in a fight with the
   review bot that auto-posts on every commit; escalate to chat).
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§8), the
+  empty-queue `all-clear` (§2), `Skip queue` (§3), and every early
+  `emit … and return` abort (`apply-failed-on` / `commit-failed` in
+  §5, `push-failed` in §7). None of them may leave the scratch dir
+  behind.

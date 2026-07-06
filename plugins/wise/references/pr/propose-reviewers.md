@@ -168,12 +168,6 @@ doesn't have repo access") in the step prose.
 
 ### 6. Emit the final line
 
-Before emitting the final line, clean up the step's scratch dir:
-
-```bash
-rm -rf "$SCRATCH"
-```
-
 Your response's FINAL line — alone on its own line, no markdown,
 no backticks — MUST match:
 
@@ -206,3 +200,6 @@ nothing was attached.
   paragraph in the step prose explaining *why* these three (so the
   user can override if Claude's reasoning is off). Transparency
   over magic.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§6) and the
+  no-candidates early exit (§3). Neither may leave the scratch dir
+  behind.

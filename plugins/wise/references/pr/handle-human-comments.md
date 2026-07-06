@@ -342,12 +342,6 @@ Reply already landed in §6, Skip opts out.
 
 ### 8. Emit the final line
 
-Before emitting the final line, clean up the step's scratch dir:
-
-```bash
-rm -rf "$SCRATCH"
-```
-
 Alone on its own line, no markdown:
 
 ```
@@ -402,3 +396,8 @@ Example pending format: `AuditPanel.tsx:42,top-level-3,jlevdev`.
   back-and-forth the queue restructure exists to prevent.
 - Stop immediately on any body that reads as an abort signal
   until the user confirms otherwise.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§8), the
+  empty-comments announce-and-exit (§2), and every early
+  `emit … and return` abort (`apply-failed-on` / `commit-failed` in
+  §5, `push-failed` in §7). None of them may leave the scratch dir
+  behind.
