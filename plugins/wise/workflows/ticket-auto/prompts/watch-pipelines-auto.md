@@ -44,7 +44,12 @@ across loop iterations:
 
 ```bash
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
+RUN_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
+
+`RUN_STARTED` is captured once, before §1's first entry, so the
+human-comment gate below can tell a comment posted during this run
+apart from one that predates it.
 
 ### 1. Poll the checks
 
@@ -54,22 +59,27 @@ gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > "$SCRATC
 ```
 
 `--watch` blocks until every check reaches a terminal state. Then
-check for a **human** comment since the run started. The human-stop
-gate is an **exact-login allowlist**, not a regex — a login like
-`coolbot` must NOT be waved through as a bot:
+check for a **human** comment since the run started (`RUN_STARTED`).
+The human-stop gate is an **exact-login allowlist**, not a regex — a
+login like `coolbot` must NOT be waved through as a bot. Use `gh
+--jq` only — no dependency on a separate `jq` binary:
 
 ```bash
-KNOWN_BOT_LOGINS='["copilot-pull-request-reviewer[bot]","Copilot","coderabbitai[bot]","coderabbitai","sonarqubecloud[bot]","sonarqubecloud","sonarcloud[bot]","sonarcloud"]'
-gh pr view <pr_number> --json comments --jq '.comments' \
-  | jq -r --argjson bots "$KNOWN_BOT_LOGINS" \
-      '.[] | select((.author.login as $l | $bots | index($l)) | not) | .author.login'
+gh pr view <pr_number> --json comments --jq '
+  [.comments[] | select(.createdAt > "'"$RUN_STARTED"'")] |
+  .[] | select(.author.login as $l |
+    ["copilot-pull-request-reviewer[bot]","Copilot","coderabbitai[bot]","coderabbitai",
+     "sonarqubecloud[bot]","sonarqubecloud","sonarcloud[bot]","sonarcloud"] |
+    index($l) | not) | .author.login
+'
 ```
 
 Any author whose login is not an exact match on the allowlist is
 treated as **human** for this stop — fail toward stopping, never
 toward silently treating an unverified login as a bot. If a non-bot
-(allowlist-miss) commenter has posted, **stop immediately** — never
-fight a reviewer. Emit `WATCH-AUTO: human-intervention url=<pr_url>`.
+(allowlist-miss) commenter has posted since `RUN_STARTED`, **stop
+immediately** — never fight a reviewer. Emit
+`WATCH-AUTO: human-intervention url=<pr_url>`.
 
 ### 2. Classify failing checks
 
