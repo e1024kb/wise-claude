@@ -262,7 +262,8 @@ walk). Walk it in order; per item:
 **Apply-time failure mode.** If a routine throws (file vanished,
 edit failed to apply cleanly, etc.): fail fast. Print one line
 in chat naming items already applied + the failing item. Do
-**not** commit, do **not** run §6, do **not** push. Emit at §8:
+**not** commit, do **not** run §6, do **not** push. `rm -rf
+"$SCRATCH"` and emit at §8:
 
 ```
 HUMANS: aborted reason=apply-failed-on=<file:line>
@@ -278,7 +279,7 @@ Expect:
 - `COMMIT: skip` → no Fix landed (only Reply / Dismiss / Skip);
   skip the Fix-thread-resolve loop in §6 but still post replies
   and run Dismiss resolves.
-- `COMMIT: failed` → emit
+- `COMMIT: failed` → `rm -rf "$SCRATCH"`, emit
   `HUMANS: aborted reason=commit-failed`.
 
 ### 6. Phase C — Apply remote side effects
@@ -331,7 +332,8 @@ git push
 ```
 
 On failure (non-fast-forward, auth, hook), do NOT retry, do
-NOT force-push. Emit `HUMANS: aborted reason=push-failed`.
+NOT force-push. `rm -rf "$SCRATCH"` and emit
+`HUMANS: aborted reason=push-failed`.
 
 On success, re-enter `watch-pipelines.md §1` — the push may
 kick new CI runs and fresh review-bot passes.

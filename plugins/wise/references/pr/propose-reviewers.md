@@ -113,9 +113,9 @@ Pick the **top 3** by score. Tiebreak by login alphabetically.
 
 If fewer than 3 candidates emerged, that's fine — show whatever you
 have. If zero candidates emerged (empty CODEOWNERS, no file
-history, tiny org), skip the AskUserQuestion entirely and emit
-`EXTRAS: attached=NONE-no-candidates` (the step still completes
-cleanly — the user just didn't get suggestions).
+history, tiny org), skip the AskUserQuestion entirely, `rm -rf
+"$SCRATCH"`, and emit `EXTRAS: attached=NONE-no-candidates` (the step
+still completes cleanly — the user just didn't get suggestions).
 
 ### 4. Present picks via AskUserQuestion
 

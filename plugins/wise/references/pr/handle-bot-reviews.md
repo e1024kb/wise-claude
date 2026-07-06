@@ -135,8 +135,9 @@ children (the top-level `body` counts as one actionable item).
 ### 3. Top-level gate
 
 If the classified list is empty → announce
-`<bot_display_name>: 0 actionable items ✓` in chat and emit
-`BOT-REVIEWS: all-clear bot=<bot_filter>`. Skip §4–§7 and emit at §8.
+`<bot_display_name>: 0 actionable items ✓` in chat, `rm -rf
+"$SCRATCH"`, and emit `BOT-REVIEWS: all-clear bot=<bot_filter>`. Skip
+§4–§7.
 
 Otherwise, `AskUserQuestion`:
 
@@ -167,8 +168,8 @@ Otherwise, `AskUserQuestion`:
     decisions only; the apply phases run after the walk
     finishes. Pick this when you want to inspect every change.
   - `Skip queue — handle later` — don't touch this queue in
-    this run. Emit `BOT-REVIEWS: partial bot=<bot_filter> pending=<K>`
-    and return.
+    this run. `rm -rf "$SCRATCH"`, emit
+    `BOT-REVIEWS: partial bot=<bot_filter> pending=<K>`, and return.
 
 ### 3a. Fix all in one shot
 
@@ -182,8 +183,9 @@ CodeRabbit `Prompt for AI Agents` block → comment body) so a
 single Fix-all run still benefits from the same per-item
 heuristics the Walk wizard would.
 
-If §5 hits an apply-time failure on any item, the queue aborts
-with `BOT-REVIEWS: aborted bot=<bot_filter> reason=apply-failed-on=<file:line>` —
+If §5 hits an apply-time failure on any item, the queue aborts —
+`rm -rf "$SCRATCH"` — with
+`BOT-REVIEWS: aborted bot=<bot_filter> reason=apply-failed-on=<file:line>` —
 the user can re-run and pick `Walk step-by-step` to take items
 one at a time.
 
@@ -385,7 +387,7 @@ If at least one staged change exists after the walk, drive
 - `COMMIT: skip` → no Fix / Accept landed (only Dismiss + Skip);
   skip §6's Fix/Accept resolves and continue at §6's Dismiss
   block.
-- `COMMIT: failed` → emit
+- `COMMIT: failed` → `rm -rf "$SCRATCH"`, emit
   `BOT-REVIEWS: aborted bot=<bot_filter> reason=commit-failed`.
 
 ### 6. Phase C — Apply remote side effects
@@ -424,7 +426,7 @@ git push
 ```
 
 On failure (non-fast-forward, auth, hook), do NOT retry, do
-NOT force-push. Emit
+NOT force-push. `rm -rf "$SCRATCH"` and emit
 `BOT-REVIEWS: aborted bot=<bot_filter> reason=push-failed`.
 
 On success, re-enter `watch-pipelines.md §1` — the push may

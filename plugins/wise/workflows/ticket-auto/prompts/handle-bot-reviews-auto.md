@@ -220,14 +220,15 @@ Parse its `COMMIT:` line:
 - `COMMIT: ok … pushed=no` → continue to §7.
 - `COMMIT: skip` → no `Fixed` item landed (only `Dismissed` /
   `Blocked`); skip the push, still run §7.
-- `COMMIT: failed` → emit
-  `BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=commit-failed`
+- `COMMIT: failed` → `rm -rf "$SCRATCH"`, emit
+  `BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=commit-failed`,
   and return.
 
 **Apply-time failure mode.** If a routine throws inside §4 / §5
 (malformed suggestion, conflicting edit, file vanished since fetch):
-fail fast. Do NOT commit, do NOT run §7, do NOT push. Emit
-`BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=apply-failed-on=<file:line>`
+fail fast. Do NOT commit, do NOT run §7, do NOT push. `rm -rf
+"$SCRATCH"`, emit
+`BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=apply-failed-on=<file:line>`,
 and return.
 
 ### 7. Phase C — remote side effects (mandatory)
@@ -285,10 +286,10 @@ are NOT resolved (they stay open for the human, by design — they are
 not failures and never enter `UNRESOLVED`).
 
 If `UNRESOLVED` is non-empty after the retries, the run did not
-finish its job — emit
-`BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=unresolved-threads=<id;id;...>`
-and return (Phase D still runs first if §6 committed — push the fix,
-then emit the abort).
+finish its job — Phase D still runs first if §6 committed (push the
+fix), then `rm -rf "$SCRATCH"`, emit
+`BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=unresolved-threads=<id;id;...>`,
+and return.
 
 ### 8. Phase D — push
 
@@ -300,7 +301,7 @@ git push
 ```
 
 On push failure (non-fast-forward, auth, hook), do NOT retry, do NOT
-force — emit
+force — `rm -rf "$SCRATCH"` and emit
 `BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=push-failed`.
 
 On success the caller (`watch-pipelines-auto.md`) re-enters its poll

@@ -80,7 +80,7 @@ Any author whose login is not an exact match on the allowlist is
 treated as **human** for this stop — fail toward stopping, never
 toward silently treating an unverified login as a bot. If a non-bot
 (allowlist-miss) commenter has posted since `RUN_STARTED`, **stop
-immediately** — never fight a reviewer. Emit
+immediately** — `rm -rf "$SCRATCH"`, never fight a reviewer, and emit
 `WATCH-AUTO: human-intervention url=<pr_url>`.
 
 ### 2. Classify failing checks
@@ -93,11 +93,12 @@ For each check with `conclusion` `FAILURE` / `CANCELLED`, classify by
 ### 3. Fix failing checks (autonomous)
 
 Handle failures one at a time. After each fix that produces a commit,
-increment `ATTEMPTS`; if `ATTEMPTS >= max_fix_attempts`, stop and emit
-`WATCH-AUTO: exhausted url=<pr_url>` with the last failing check's
-name. Honor `config_prompt` guardrails throughout: a fix must not edit
-a file the operator told the run to avoid (or otherwise cross a stated
-guardrail) — if the only available fix would, leave the check
+increment `ATTEMPTS`; if `ATTEMPTS >= max_fix_attempts`, stop —
+`rm -rf "$SCRATCH"` — and emit `WATCH-AUTO: exhausted url=<pr_url>`
+with the last failing check's name. Honor `config_prompt` guardrails
+throughout: a fix must not edit a file the operator told the run to
+avoid (or otherwise cross a stated guardrail) — if the only available
+fix would, leave the check
 `accepted` and record it rather than crossing the guardrail. For each
 failure:
 
@@ -181,8 +182,8 @@ Track two states for the merge gate: `COPILOT_STATE` ∈
 - **Wait.** When expected, poll `bot_review_done "copilot"` against
   `HEAD_SHA` every `BOT_REVIEW_POLL`s. Done → `COPILOT_STATE=reviewed`.
 - **Timeout.** If `BOT_REVIEW_TIMEOUT` elapses with Copilot still not
-  done, do NOT merge — emit
-  `WATCH-AUTO: human-intervention url=<pr_url> reason=copilot-review-timeout`
+  done, do NOT merge — `rm -rf "$SCRATCH"`, emit
+  `WATCH-AUTO: human-intervention url=<pr_url> reason=copilot-review-timeout`,
   and stop. Copilot is the strict gate: a requested Copilot review must
   land or a human steps in.
 
@@ -303,8 +304,9 @@ Capture its verdict into `SONAR_STATE`:
 ### 6. Safety cap
 
 If `ITERS` (incremented once per §1 poll) exceeds 10 without the
-failing-check count going down, stop — something is stuck. Emit
-`WATCH-AUTO: exhausted url=<pr_url>` with `reason=stuck-loop`.
+failing-check count going down, stop — something is stuck. `rm -rf
+"$SCRATCH"` and emit `WATCH-AUTO: exhausted url=<pr_url>` with
+`reason=stuck-loop`.
 
 ### 6.5 Post-green stability window
 
@@ -322,7 +324,7 @@ operator sets the token mid-run.
 Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 
 1. `ROUNDS=ROUNDS+1`. If `ROUNDS > STABILITY_MAX_ROUNDS`, stand down
-   without merging:
+   without merging — `rm -rf "$SCRATCH"` in either case:
    - if the only unmet gate is Sonar (`SONAR_STATE=blocked-fetch`, every
      other condition holds) → emit
      `WATCH-AUTO: all-green url=<pr_url> reason=sonar-unchecked` with the
@@ -334,7 +336,8 @@ Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 4. Re-check. A window is **dirty** if any of these hold:
    - a non-skipped check is no longer `SUCCESS` (re-run §1's
      `gh pr checks`),
-   - a **human** commented (the §1 allowlist jq) — stand down immediately with
+   - a **human** commented (the §1 allowlist jq) — stand down
+     immediately: `rm -rf "$SCRATCH"`, emit
      `WATCH-AUTO: human-intervention url=<pr_url>` (never fight a
      reviewer),
    - a bot reviewed a new head or left a new actionable review-thread
@@ -410,6 +413,10 @@ merge. Never merge on any non-merged verdict — those PRs are always left
 open.
 
 ### 8. Terminal verdict
+
+`rm -rf "$SCRATCH"` — every path that reaches this section (merged,
+all-green, blocked, partial, exhausted) funnels through here, so this
+is where they all get swept up.
 
 Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
