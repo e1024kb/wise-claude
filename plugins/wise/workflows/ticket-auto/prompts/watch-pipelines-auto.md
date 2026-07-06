@@ -48,15 +48,22 @@ gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > /tmp/tic
 ```
 
 `--watch` blocks until every check reaches a terminal state. Then
-check for a **human** comment since the run started:
+check for a **human** comment since the run started. The human-stop
+gate is an **exact-login allowlist**, not a regex — a login like
+`coolbot` must NOT be waved through as a bot:
 
 ```bash
+KNOWN_BOT_LOGINS='copilot-pull-request-reviewer[bot]|Copilot|coderabbitai[bot]|sonarqubecloud[bot]|sonarcloud[bot]'
 gh pr view <pr_number> --json comments \
-  --jq '.comments[] | select((.author.login | test("(?i)copilot|coderabbit|sonar|bot$") | not)) | .author.login'
+  --jq --arg bots "$KNOWN_BOT_LOGINS" \
+  '.comments[] | select((.author.login | test($bots) | not)) | .author.login'
 ```
 
-If a non-bot human has commented, **stop immediately** — never fight
-a reviewer. Emit `WATCH-AUTO: human-intervention url=<pr_url>`.
+Any author whose login is not an exact match on the allowlist is
+treated as **human** for this stop — fail toward stopping, never
+toward silently treating an unverified login as a bot. If a non-bot
+(allowlist-miss) commenter has posted, **stop immediately** — never
+fight a reviewer. Emit `WATCH-AUTO: human-intervention url=<pr_url>`.
 
 ### 2. Classify failing checks
 
@@ -295,7 +302,7 @@ Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 4. Re-check. A window is **dirty** if any of these hold:
    - a non-skipped check is no longer `SUCCESS` (re-run §1's
      `gh pr checks`),
-   - a **human** commented (the §1 jq) — stand down immediately with
+   - a **human** commented (the §1 allowlist jq) — stand down immediately with
      `WATCH-AUTO: human-intervention url=<pr_url>` (never fight a
      reviewer),
    - a bot reviewed a new head or left a new actionable review-thread
