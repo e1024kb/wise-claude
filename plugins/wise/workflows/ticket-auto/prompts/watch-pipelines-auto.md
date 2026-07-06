@@ -67,7 +67,7 @@ login like `coolbot` must NOT be waved through as a bot. Use `gh
 
 ```bash
 gh pr view <pr_number> --json comments --jq '
-  [.comments[] | select(.createdAt > "'"$RUN_STARTED"'")] |
+  [.comments[] | select(.createdAt >= "'"$RUN_STARTED"'")] |
   .[] | select(.author.login as $l |
     ["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot",
      "coderabbitai[bot]","coderabbitai","sonarqubecloud[bot]","sonarqubecloud",

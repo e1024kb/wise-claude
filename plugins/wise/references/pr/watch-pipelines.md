@@ -51,7 +51,7 @@ and avoids burning the prompt cache.
 When it returns:
 
 ```bash
-gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completedAt' > "$SCRATCH/wise-pr-checks-$<pr_number>.json"
+gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completedAt' > "$SCRATCH/wise-pr-checks-<pr_number>.json"
 ```
 
 Checks are one source of unfinished business; **PR comments are
@@ -73,11 +73,11 @@ the last iteration — and surface them immediately; actionable bot
 items are handled in §3e after the per-check dispatches:
 
 ```bash
-LAST_SEEN="$(cat "$SCRATCH/wise-pr-lastcomment-$<pr_number>" 2>/dev/null || echo 1970-01-01T00:00:00Z)"
+LAST_SEEN="$(cat "$SCRATCH/wise-pr-lastcomment-<pr_number>" 2>/dev/null || echo 1970-01-01T00:00:00Z)"
 gh pr view <pr_number> --json comments --jq \
   '.comments | map(select(.createdAt > "'"$LAST_SEEN"'")) | .[] | "[\(.createdAt)] @\(.author.login): \(.body)"'
 # Then update LAST_SEEN:
-date -u +%Y-%m-%dT%H:%M:%SZ > "$SCRATCH/wise-pr-lastcomment-$<pr_number>"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$SCRATCH/wise-pr-lastcomment-<pr_number>"
 ```
 
 If a **human** left a new comment, surface it to the user in-chat
@@ -418,7 +418,7 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 2. Announce (first round only)
    `All checks green — holding <POST_GREEN_STABILITY/60> min for late comments…`.
    Record the current head: `STABLE_SHA="$(git rev-parse HEAD)"`.
-   The §1 `LAST_SEEN` watermark (`"$SCRATCH/wise-pr-lastcomment-$<pr_number>"`)
+   The §1 `LAST_SEEN` watermark (`"$SCRATCH/wise-pr-lastcomment-<pr_number>"`)
    already marks the last comment you saw.
 3. `sleep POST_GREEN_STABILITY`.
 4. Re-poll: run §1 (`gh pr checks --watch`) to refresh checks and
