@@ -38,12 +38,17 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 ## Procedure
 
 Run all `gh` / `git` commands with `cd <project.path>` first. Keep a
-counter `ATTEMPTS = 0` and an iteration counter `ITERS = 0`.
+counter `ATTEMPTS = 0` and an iteration counter `ITERS = 0`. Create one
+scratch dir for the whole loop, before §1's first entry, so it survives
+across loop iterations:
+
+```bash
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
+```
 
 ### 1. Poll the checks
 
 ```bash
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 gh pr checks <pr_number> --watch --interval 10
 gh pr checks <pr_number> --json name,state,conclusion,link,detailsUrl > "$SCRATCH/ticket-auto-checks-$<pr_number>.json"
 ```
@@ -54,10 +59,10 @@ gate is an **exact-login allowlist**, not a regex — a login like
 `coolbot` must NOT be waved through as a bot:
 
 ```bash
-KNOWN_BOT_LOGINS='copilot-pull-request-reviewer[bot]|Copilot|coderabbitai[bot]|sonarqubecloud[bot]|sonarcloud[bot]'
-gh pr view <pr_number> --json comments \
-  --jq --arg bots "$KNOWN_BOT_LOGINS" \
-  '.comments[] | select((.author.login | test($bots) | not)) | .author.login'
+KNOWN_BOT_LOGINS='["copilot-pull-request-reviewer[bot]","Copilot","coderabbitai[bot]","sonarqubecloud[bot]","sonarcloud[bot]"]'
+gh pr view <pr_number> --json comments --jq '.comments' \
+  | jq -r --argjson bots "$KNOWN_BOT_LOGINS" \
+      '.[] | select((.author.login | IN($bots[])) | not) | .author.login'
 ```
 
 Any author whose login is not an exact match on the allowlist is
