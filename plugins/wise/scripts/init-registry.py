@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -61,10 +62,17 @@ def load_registry() -> dict | None:
 
 
 def save_registry(data: dict) -> None:
-    tmp = REGISTRY_PATH.with_suffix(REGISTRY_PATH.suffix + ".tmp")
-    with tmp.open("w") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
-    tmp.replace(REGISTRY_PATH)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=REGISTRY_PATH.name + ".", suffix=".tmp", dir=REGISTRY_PATH.parent
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
+        os.replace(tmp, REGISTRY_PATH)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 # ---------- subcommands -----------------------------------------------------

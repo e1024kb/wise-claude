@@ -61,6 +61,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -252,10 +253,15 @@ def load_yaml(path: Path) -> dict:
 
 def save_yaml(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def parse_kv_args(tokens: list[str]) -> dict:
