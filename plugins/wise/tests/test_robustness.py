@@ -9,25 +9,33 @@
   `name` from `plugin.json` rather than the containing directory (which,
   in the cache layout, is the version string).
 
-`insights.py` is not the `workflows_module` conftest fixture — it is
-loaded here via its own `importlib` spec, same pattern conftest.py uses
-for `workflows.py`.
+`insights.py` / `init-registry.py` are not the `workflows_module` conftest
+fixture — they are loaded here via their own `importlib` spec, same
+pattern conftest.py uses for `workflows.py`.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 INSIGHTS_PATH = REPO / "plugins" / "wise" / "scripts" / "insights.py"
+INIT_REGISTRY_PATH = REPO / "plugins" / "wise" / "scripts" / "init-registry.py"
 
 _spec = importlib.util.spec_from_file_location("insights", INSIGHTS_PATH)
 assert _spec is not None, f"cannot load insights module from {INSIGHTS_PATH}"
 assert _spec.loader is not None, f"no loader for insights module at {INSIGHTS_PATH}"
 insights = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(insights)
+
+_init_registry_spec = importlib.util.spec_from_file_location("init_registry", INIT_REGISTRY_PATH)
+assert _init_registry_spec is not None, f"cannot load init-registry module from {INIT_REGISTRY_PATH}"
+assert _init_registry_spec.loader is not None, f"no loader for init-registry module at {INIT_REGISTRY_PATH}"
+init_registry = importlib.util.module_from_spec(_init_registry_spec)
+_init_registry_spec.loader.exec_module(init_registry)
 
 
 # ---------- save_yaml: atomic per-writer tmp -------------------------------
@@ -124,6 +132,38 @@ def test_init_state_rejects_missing_id_or_type(workflows_module, wise_env, tmp_p
     assert workflows_module.cmd_init_state(str(def_path_no_type), str(run_dir), "run-1", ctx) != 0
 
 
+# ---------- next-wave: shares init-state's step-id validation contract -----
+
+
+def test_next_wave_rejects_traversal_step_id(workflows_module, wise_env, tmp_path):
+    def_path = _def_yaml(workflows_module, tmp_path, [{"id": "ok-step", "type": "bash"}])
+    run_dir = tmp_path / "run-1"
+    ctx = json.dumps({"claude_session_id": None, "session_label": None})
+    assert workflows_module.cmd_init_state(str(def_path), str(run_dir), "run-1", ctx) == 0
+    state_path = run_dir / "state.yaml"
+
+    # Re-point def_path at a malformed def, same path cmd_next_wave re-reads.
+    _def_yaml(workflows_module, tmp_path, [{"id": "../evil", "type": "bash"}])
+
+    rc = workflows_module.cmd_next_wave(str(def_path), str(state_path))
+
+    assert rc != 0
+
+
+def test_next_wave_rejects_missing_id_or_type(workflows_module, wise_env, tmp_path):
+    def_path = _def_yaml(workflows_module, tmp_path, [{"id": "ok-step", "type": "bash"}])
+    run_dir = tmp_path / "run-1"
+    ctx = json.dumps({"claude_session_id": None, "session_label": None})
+    assert workflows_module.cmd_init_state(str(def_path), str(run_dir), "run-1", ctx) == 0
+    state_path = run_dir / "state.yaml"
+
+    _def_yaml(workflows_module, tmp_path, [{"type": "bash"}])
+
+    rc = workflows_module.cmd_next_wave(str(def_path), str(state_path))
+
+    assert rc != 0
+
+
 # ---------- write-log: refuses to write outside <run-dir>/logs/ -----------
 
 
@@ -141,6 +181,55 @@ def test_write_log_refuses_traversing_step_run_id(workflows_module, tmp_path):
 
     assert rc != 0
     assert not (run_dir / "logs").exists()
+
+
+def test_write_log_writes_expected_path_for_valid_ids(workflows_module, tmp_path, monkeypatch):
+    run_dir = tmp_path / "run-1"
+    monkeypatch.setattr("sys.stdin", io.StringIO("hello world\n"))
+
+    rc = workflows_module.cmd_write_log(str(run_dir), "valid-step", "01ABCDEFGH")
+
+    assert rc == 0
+    log_path = run_dir / "logs" / "valid-step.01ABCDEFGH.log"
+    assert log_path.is_file()
+    assert log_path.read_text() == "hello world\n"
+
+
+# ---------- worker-heartbeat: atomic write + name validation ---------------
+
+
+def test_worker_heartbeat_leaves_no_tmp_sibling(workflows_module, tmp_path):
+    run_dir = tmp_path / "run-1"
+
+    rc = workflows_module.cmd_worker_heartbeat(str(run_dir), "worker-1", "implementing", "task-1")
+
+    assert rc == 0
+    workers_dir = run_dir / "workers"
+    assert (workers_dir / "worker-1.hb").is_file()
+    assert list(workers_dir.glob("*.tmp")) == []
+
+
+def test_worker_heartbeat_rejects_traversal_name(workflows_module, tmp_path):
+    run_dir = tmp_path / "run-1"
+
+    rc = workflows_module.cmd_worker_heartbeat(str(run_dir), "../evil", "", "")
+
+    assert rc != 0
+    assert not (run_dir / "workers").exists()
+
+
+# ---------- init-registry.save_registry: atomic per-writer tmp -------------
+
+
+def test_save_registry_leaves_no_tmp_sibling_and_parses(tmp_path, monkeypatch):
+    registry_path = tmp_path / ".wise-init-registry.yaml"
+    monkeypatch.setattr(init_registry, "REGISTRY_PATH", registry_path)
+
+    init_registry.save_registry({"a": 1})
+    init_registry.save_registry({"a": 2})
+
+    assert init_registry.load_registry() == {"a": 2}
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 # ---------- installed_plugins(): cache-layout fallback ---------------------

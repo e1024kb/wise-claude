@@ -67,11 +67,19 @@ def save_registry(data: dict) -> None:
     )
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w") as fh:
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
             yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
         os.replace(tmp, REGISTRY_PATH)
     except BaseException:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise
 
 

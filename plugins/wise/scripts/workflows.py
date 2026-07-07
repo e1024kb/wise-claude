@@ -256,11 +256,19 @@ def save_yaml(path: Path, data: dict) -> None:
     fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w") as fh:
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
             yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
         os.replace(tmp, path)
     except BaseException:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise
 
 
@@ -423,8 +431,9 @@ def cmd_new_ulid() -> int:
 # Step ids come from user-authored workflow.yaml and get interpolated
 # straight into filesystem paths (write-log's <step-id>.<step-run-id>.log),
 # so they're validated wherever a workflow definition is first read.
-# Adds `-` to the input-name pattern above (:590) since step ids are
-# hyphen-case, not snake_case.
+# Adds `-` to the input-name pattern used by cmd_list_inputs's
+# `INVALID:input-name` check, since step ids are hyphen-case, not
+# snake_case.
 STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*\Z")
 
 
@@ -1499,7 +1508,17 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
     hung one. Going through this subcommand (rather than each worker crafting
     its own `date`/redirect one-liner) keeps the format identical to
     `utc_now()` so `_session_is_fresh()` parses it unchanged.
+
+    Defense-in-depth: `name` is interpolated straight into the heartbeat
+    path, so a value containing `/` or `..` could escape
+    `<run_dir>/workers/`. Validated as a safe single path component before
+    the path is built, rather than trusting the caller (this runs
+    unattended, same rationale as `cmd_write_log`'s `step_id` check).
     """
+    if not re.match(r"^[A-Za-z0-9_-]+\Z", name):
+        print(f"INVALID:worker-name:{name!r} (must be a bare "
+              f"alphanumeric/_/- token)", file=sys.stderr)
+        return 2
     workers_dir = Path(run_dir) / "workers"
     workers_dir.mkdir(parents=True, exist_ok=True)
     line = utc_now()
