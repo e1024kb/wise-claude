@@ -1,8 +1,7 @@
 """Round-trips the state.yaml lifecycle (plugins/wise/scripts/workflows.py):
 
-    cmd_init_state (399-443) -> cmd_start_run (446-474)
-    -> cmd_update_step (802-812) -> cmd_record_output (824-829)
-    -> cmd_reset_running (834-845)
+    cmd_init_state -> cmd_start_run -> cmd_update_step
+    -> cmd_record_output -> cmd_reset_running
 
 against a tmpdir state.yaml, via the shared `wise_env` fixture.
 """

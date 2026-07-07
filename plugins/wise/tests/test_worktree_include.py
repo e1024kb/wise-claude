@@ -1,7 +1,7 @@
-"""Pins `cmd_apply_worktree_include` (plugins/wise/scripts/workflows.py:
-1531-1613) — the PR #20 `.worktreeinclude` copier that carries untracked /
-gitignored artifacts into a fresh `git worktree add` checkout, plus its
-path-escape guard.
+"""Pins `cmd_apply_worktree_include` (plugins/wise/scripts/workflows.py) —
+the PR #20 `.worktreeinclude` copier that carries untracked / gitignored
+artifacts into a fresh `git worktree add` checkout, plus its path-escape
+guard.
 """
 
 from __future__ import annotations
@@ -81,6 +81,7 @@ def test_escape_entry_is_refused_and_counted_skipped(workflows_module, tmp_path,
     assert rc == 0
     err = capsys.readouterr().err
     assert "skip out-of-tree path" in err
+    assert "copied 0 (skipped 1)" in err
     assert not (worktree / "linked").exists()
 
 

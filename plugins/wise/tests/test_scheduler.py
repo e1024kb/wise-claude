@@ -1,6 +1,6 @@
-"""Pins `_trigger_rule_satisfied` and `cmd_next_wave` (plugins/wise/scripts/
-workflows.py:659-797) — the DAG scheduler's core trigger-rule truth table,
-terminal classification, and `when:` evaluation.
+"""Pins `_trigger_rule_satisfied` and `cmd_next_wave`
+(plugins/wise/scripts/workflows.py) — the DAG scheduler's core
+trigger-rule truth table, terminal classification, and `when:` evaluation.
 """
 
 from __future__ import annotations

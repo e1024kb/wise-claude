@@ -1,7 +1,7 @@
 """Pins the two template renderers (plugins/wise/scripts/workflows.py):
 
-    `_render_step` (694-734)  — used by cmd_next_wave; knows {{workflow.dir}}
-    `cmd_render`   (1514-1527) — the CLI form; does NOT know {{workflow.dir}}
+    `_render_step` — used by cmd_next_wave; knows {{workflow.dir}}
+    `cmd_render`   — the CLI form; does NOT know {{workflow.dir}}
 
 Both are sequential `str.replace` passes where outputs substitute LAST, so
 an output key colliding with a project/run key shadows it, and any
