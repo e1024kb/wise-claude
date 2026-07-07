@@ -44,7 +44,9 @@ def test_init_state_writes_stub(workflows_module, wise_env, tmp_path):
     assert state["last_activity_at"]
 
 
-def test_start_run_merges_inputs_and_flips_running(workflows_module, wise_env, tmp_path):
+def test_start_run_merges_inputs_and_flips_running(
+    workflows_module, wise_env, tmp_path, monkeypatch
+):
     def_path = _def_yaml(workflows_module, tmp_path)
     run_dir = tmp_path / "run-1"
     workflows_module.cmd_init_state(
@@ -53,6 +55,11 @@ def test_start_run_merges_inputs_and_flips_running(workflows_module, wise_env, t
     )
     state_path = run_dir / "state.yaml"
     before = workflows_module.load_yaml(state_path)["last_activity_at"]
+
+    # utc_now() has one-second granularity, so init and start_run could
+    # produce the identical stamp; force a strictly later value to prove
+    # cmd_start_run actually refreshes last_activity_at.
+    monkeypatch.setattr(workflows_module, "utc_now", lambda: "2099-01-01T00:00:00Z")
 
     ctx = json.dumps({
         "control_mode": "wave-sync",
@@ -69,7 +76,8 @@ def test_start_run_merges_inputs_and_flips_running(workflows_module, wise_env, t
     assert state["worktree"]["branch"] == "b"
     assert state["project"]["kind"] == "backend"
     assert state["outputs"] == {"ticket": "ABC-1"}
-    assert state["last_activity_at"] >= before
+    assert state["last_activity_at"] > before
+    assert state["last_activity_at"] == "2099-01-01T00:00:00Z"
 
 
 def test_update_step_mutates_and_unknown_step_returns_1(workflows_module, wise_env, tmp_path):
@@ -126,7 +134,7 @@ def test_reset_running_pops_running_fields_and_reverts_to_pending(
             step["log"] = "/tmp/x.log"
         else:
             step["status"] = "completed"
-    state["status"] = "running"
+    state["status"] = "interrupted"
     workflows_module.save_yaml(state_path, state)
 
     rc = workflows_module.cmd_reset_running(str(state_path))
@@ -140,4 +148,4 @@ def test_reset_running_pops_running_fields_and_reverts_to_pending(
     assert "log" not in step_a
     step_b = next(s for s in state["steps"] if s["id"] == "b")
     assert step_b["status"] == "completed"  # untouched — was not running
-    assert state["status"] == "running"
+    assert state["status"] == "running"  # re-armed from "interrupted"
