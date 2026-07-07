@@ -372,7 +372,7 @@ def installed_plugins() -> set[str]:
         if pj.is_file():
             name = p.name
             try:
-                data = json.loads(pj.read_text())
+                data = json.loads(pj.read_text(encoding="utf-8"))
                 if isinstance(data, dict) and isinstance(data.get("name"), str) and data["name"]:
                     name = data["name"]
             except (OSError, ValueError):
@@ -1538,10 +1538,13 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
     hb_path = workers_dir / f"{name}.hb"
     tmp = workers_dir / f"{name}.hb.{os.getpid()}.tmp"
     try:
-        tmp.write_text(line + "\n")
+        tmp.write_text(line + "\n", encoding="utf-8")
         os.replace(tmp, hb_path)
     except BaseException:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise
     return 0
 
