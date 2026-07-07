@@ -425,7 +425,7 @@ def cmd_new_ulid() -> int:
 # so they're validated wherever a workflow definition is first read.
 # Adds `-` to the input-name pattern above (:590) since step ids are
 # hyphen-case, not snake_case.
-STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*\Z")
 
 
 def _validate_step_defs(steps: list, def_path: str) -> str | None:
@@ -553,7 +553,7 @@ def cmd_write_log(run_dir: str, step_id: str, step_run_id: str) -> int:
         print(f"INVALID:step-id:{step_id!r} (must match {STEP_ID_RE.pattern})",
               file=sys.stderr)
         return 2
-    if not re.match(r"^[A-Za-z0-9_-]+$", step_run_id):
+    if not re.match(r"^[A-Za-z0-9_-]+\Z", step_run_id):
         print(f"INVALID:step-run-id:{step_run_id!r} (must be a bare "
               f"alphanumeric/_/- token)", file=sys.stderr)
         return 2
@@ -1509,8 +1509,12 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
         line += f"\ttask={task}"
     hb_path = workers_dir / f"{name}.hb"
     tmp = workers_dir / f"{name}.hb.{os.getpid()}.tmp"
-    tmp.write_text(line + "\n")
-    os.replace(tmp, hb_path)
+    try:
+        tmp.write_text(line + "\n")
+        os.replace(tmp, hb_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return 0
 
 
