@@ -76,6 +76,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -377,11 +378,17 @@ def compact_ledger(records: dict[str, dict]) -> None:
     """Rewrite the ledger to one line per session (drops superseded lines).
     Called opportunistically by `mine` after self-heal."""
     _ensure_root()
-    tmp = ledger_path().with_suffix(".jsonl.tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        for sid in sorted(records):
-            fh.write(json.dumps(records[sid], ensure_ascii=False, sort_keys=True) + "\n")
-    tmp.replace(ledger_path())
+    path = ledger_path()
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for sid in sorted(records):
+                fh.write(json.dumps(records[sid], ensure_ascii=False, sort_keys=True) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 # ---- decisions + candidates I/O --------------------------------------------
