@@ -352,18 +352,38 @@ def installed_plugins() -> set[str]:
 
     # Fallback: walk looking for `.claude-plugin/plugin.json`. Goes up to
     # four levels deep to cover cache/<marketplace>/<plugin>/<version>/.
+    # Read the plugin's own `name` field rather than the directory it was
+    # found in — in the cache layout that directory is the VERSION string
+    # (cache/<marketplace>/<plugin>/<version>/.claude-plugin/plugin.json),
+    # not the plugin name, so using `p.name` there falsely reports the
+    # actual plugin as not installed.
     def _walk(p: Path, depth: int) -> None:
         if depth > 4 or not p.is_dir():
             return
         pj = p / ".claude-plugin" / "plugin.json"
         if pj.is_file():
-            names.add(p.name)
+            name = p.name
+            try:
+                data = json.loads(pj.read_text())
+                if isinstance(data, dict) and isinstance(data.get("name"), str) and data["name"]:
+                    name = data["name"]
+            except (OSError, ValueError):
+                pass
+            names.add(name)
             return
-        for child in p.iterdir():
+        try:
+            children = list(p.iterdir())
+        except OSError:
+            return
+        for child in children:
             if child.is_dir():
                 _walk(child, depth + 1)
 
-    for child in root.iterdir():
+    try:
+        top_children = list(root.iterdir())
+    except OSError:
+        return names
+    for child in top_children:
         if child.is_dir():
             _walk(child, 1)
     return names
