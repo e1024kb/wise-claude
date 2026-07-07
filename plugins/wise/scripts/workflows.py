@@ -1442,7 +1442,10 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
         line += f"\tphase={phase}"
     if task:
         line += f"\ttask={task}"
-    (workers_dir / f"{name}.hb").write_text(line + "\n")
+    hb_path = workers_dir / f"{name}.hb"
+    tmp = workers_dir / f"{name}.hb.{os.getpid()}.tmp"
+    tmp.write_text(line + "\n")
+    os.replace(tmp, hb_path)
     return 0
 
 
