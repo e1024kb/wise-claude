@@ -34,7 +34,12 @@ there.
 
 ## Procedure
 
-Run all `gh` / `git` commands with `cd <project.path>` first.
+Run all `gh` / `git` commands with `cd <project.path>` first. Create
+one scratch dir for the whole loop:
+`SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"` — every
+`/tmp` payload / watermark file below lives under it so it survives
+across loop iterations without colliding with another run's files.
+§7 removes it on every exit path, so it never outlives the run.
 
 ### 1. Start a poll loop
 
@@ -46,7 +51,7 @@ and avoids burning the prompt cache.
 When it returns:
 
 ```bash
-gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completedAt' > /tmp/wise-pr-checks-$<pr_number>.json
+gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completedAt' > "$SCRATCH/wise-pr-checks-<pr_number>.json"
 ```
 
 Checks are one source of unfinished business; **PR comments are
@@ -68,11 +73,11 @@ the last iteration — and surface them immediately; actionable bot
 items are handled in §3e after the per-check dispatches:
 
 ```bash
-LAST_SEEN="$(cat /tmp/wise-pr-lastcomment-$<pr_number> 2>/dev/null || echo 1970-01-01T00:00:00Z)"
+LAST_SEEN="$(cat "$SCRATCH/wise-pr-lastcomment-<pr_number>" 2>/dev/null || echo 1970-01-01T00:00:00Z)"
 gh pr view <pr_number> --json comments --jq \
   '.comments | map(select(.createdAt > "'"$LAST_SEEN"'")) | .[] | "[\(.createdAt)] @\(.author.login): \(.body)"'
 # Then update LAST_SEEN:
-date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/wise-pr-lastcomment-$<pr_number>
+date -u +%Y-%m-%dT%H:%M:%SZ > "$SCRATCH/wise-pr-lastcomment-<pr_number>"
 ```
 
 If a **human** left a new comment, surface it to the user in-chat
@@ -281,7 +286,7 @@ gh api graphql -f query='
     }
   }
 ' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
-  > /tmp/pr-$PR-threads-preamble.json
+  > "$SCRATCH/pr-$PR-threads-preamble.json"
 
 STALE=0
 RESOLVED=0
@@ -289,7 +294,7 @@ for THREAD_ID in $(jq -r '
   .data.repository.pullRequest.reviewThreads.nodes[]
   | select(.isOutdated == true and .isResolved == false)
   | .id
-' /tmp/pr-$PR-threads-preamble.json); do
+' "$SCRATCH/pr-$PR-threads-preamble.json"); do
   STALE=$((STALE + 1))
   if gh api graphql -f query='
     mutation($threadId: ID!) {
@@ -413,7 +418,7 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 2. Announce (first round only)
    `All checks green — holding <POST_GREEN_STABILITY/60> min for late comments…`.
    Record the current head: `STABLE_SHA="$(git rev-parse HEAD)"`.
-   The §1 `LAST_SEEN` watermark (`/tmp/wise-pr-lastcomment-$<pr_number>`)
+   The §1 `LAST_SEEN` watermark (`"$SCRATCH/wise-pr-lastcomment-<pr_number>"`)
    already marks the last comment you saw.
 3. `sleep POST_GREEN_STABILITY`.
 4. Re-poll: run §1 (`gh pr checks --watch`) to refresh checks and
@@ -453,6 +458,13 @@ Any of these conditions exits the loop:
   is stuck; escalate via chat and stop).
 
 ### 7. Emit the final line
+
+Before emitting the final line, clean up the loop's scratch dir on
+every exit path — green, aborted, partial, all of them:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 Your response's FINAL line — alone on its own line, no markdown,
 no backticks — MUST match one of:

@@ -52,18 +52,19 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 # Issue comments (top-level). Author/body/url etc.
 gh pr view "$PR" --json comments \
-  > /tmp/pr-$PR-issue-comments.json
+  > "$SCRATCH/pr-$PR-issue-comments.json"
 
 # Line-level review comments (path + line + suggestion bodies).
 gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate \
-  > /tmp/pr-$PR-review-comments.json
+  > "$SCRATCH/pr-$PR-review-comments.json"
 
 # Review summaries (state: CHANGES_REQUESTED / APPROVED / COMMENTED).
 gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  > /tmp/pr-$PR-reviews.json
+  > "$SCRATCH/pr-$PR-reviews.json"
 ```
 
 Also fetch review threads via GraphQL — we'll need thread IDs for
@@ -86,7 +87,7 @@ gh api graphql -f query='
     }
   }
 ' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
-  > /tmp/pr-$PR-threads.json
+  > "$SCRATCH/pr-$PR-threads.json"
 ```
 
 The resulting mapping: each review-comment `databaseId` (from #2)
@@ -134,8 +135,9 @@ children (the top-level `body` counts as one actionable item).
 ### 3. Top-level gate
 
 If the classified list is empty → announce
-`<bot_display_name>: 0 actionable items ✓` in chat and emit
-`BOT-REVIEWS: all-clear bot=<bot_filter>`. Skip §4–§7 and emit at §8.
+`<bot_display_name>: 0 actionable items ✓` in chat, `rm -rf
+"$SCRATCH"`, and emit `BOT-REVIEWS: all-clear bot=<bot_filter>`. Skip
+§4–§7.
 
 Otherwise, `AskUserQuestion`:
 
@@ -166,8 +168,8 @@ Otherwise, `AskUserQuestion`:
     decisions only; the apply phases run after the walk
     finishes. Pick this when you want to inspect every change.
   - `Skip queue — handle later` — don't touch this queue in
-    this run. Emit `BOT-REVIEWS: partial bot=<bot_filter> pending=<K>`
-    and return.
+    this run. `rm -rf "$SCRATCH"`, emit
+    `BOT-REVIEWS: partial bot=<bot_filter> pending=<K>`, and return.
 
 ### 3a. Fix all in one shot
 
@@ -181,8 +183,9 @@ CodeRabbit `Prompt for AI Agents` block → comment body) so a
 single Fix-all run still benefits from the same per-item
 heuristics the Walk wizard would.
 
-If §5 hits an apply-time failure on any item, the queue aborts
-with `BOT-REVIEWS: aborted bot=<bot_filter> reason=apply-failed-on=<file:line>` —
+If §5 hits an apply-time failure on any item, the queue aborts —
+`rm -rf "$SCRATCH"` — with
+`BOT-REVIEWS: aborted bot=<bot_filter> reason=apply-failed-on=<file:line>` —
 the user can re-run and pick `Walk step-by-step` to take items
 one at a time.
 
@@ -330,7 +333,7 @@ paged-bulk, or §4 Walk). Walk it in order; per item:
   ```
 
   Append this item's review-thread id (looked up from
-  `/tmp/pr-$PR-threads.json` by matching the review-comment's
+  `"$SCRATCH/pr-$PR-threads.json"` by matching the review-comment's
   numeric `id` against `comments.nodes[0].databaseId`) into
   `FIXED_THREAD_IDS` for the §6 resolve.
 
@@ -384,7 +387,7 @@ If at least one staged change exists after the walk, drive
 - `COMMIT: skip` → no Fix / Accept landed (only Dismiss + Skip);
   skip §6's Fix/Accept resolves and continue at §6's Dismiss
   block.
-- `COMMIT: failed` → emit
+- `COMMIT: failed` → `rm -rf "$SCRATCH"`, emit
   `BOT-REVIEWS: aborted bot=<bot_filter> reason=commit-failed`.
 
 ### 6. Phase C — Apply remote side effects
@@ -423,7 +426,7 @@ git push
 ```
 
 On failure (non-fast-forward, auth, hook), do NOT retry, do
-NOT force-push. Emit
+NOT force-push. `rm -rf "$SCRATCH"` and emit
 `BOT-REVIEWS: aborted bot=<bot_filter> reason=push-failed`.
 
 On success, re-enter `watch-pipelines.md §1` — the push may
@@ -436,6 +439,13 @@ re-polling — Dismiss already resolved its threads in §6, Skip
 opts out.
 
 ### 8. Emit the final line
+
+Any path that reaches this section without already cleaning up
+(the normal `handled` completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 The caller (`watch-pipelines.md`) consumes this line. `bot=` is
 the `bot_filter` value the caller supplied (`copilot` or
@@ -507,3 +517,9 @@ BOT-REVIEWS: aborted bot=coderabbit reason=apply-failed-on=AuditPanel.tsx:88
   invocation (safety catch — if we're still processing bot
   comments after 10 iterations, the PR is in a fight with the
   review bot that auto-posts on every commit; escalate to chat).
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§8, which
+  also covers the normal `handled` completion), the empty-queue
+  `all-clear` and `Skip queue` (both §3), and every early
+  `emit … and return` abort (`apply-failed-on` / `commit-failed` in
+  §5, `push-failed` in §7). None of them may leave the scratch dir
+  behind.

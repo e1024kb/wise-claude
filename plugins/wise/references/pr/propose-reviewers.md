@@ -28,14 +28,16 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 ### 1. Gather PR context
 
 ```bash
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
+
 # Files changed in the PR
-gh pr view <pr_number> --json files --jq '.files[].path' > /tmp/pr-files.txt
+gh pr view <pr_number> --json files --jq '.files[].path' > "$SCRATCH/pr-files.txt"
 
 # PR author — exclude from candidates (self-review isn't useful)
 PR_AUTHOR="$(gh pr view <pr_number> --json author --jq .author.login)"
 ```
 
-If `/tmp/pr-files.txt` is empty (empty PR), skip to §4 and propose
+If `"$SCRATCH/pr-files.txt"` is empty (empty PR), skip to §4 and propose
 nothing — there's nothing to rank against.
 
 ### 2. Build the candidate pool
@@ -49,13 +51,13 @@ BASE="<pr_base>"
 # Check the PR's base branch for a CODEOWNERS file
 for p in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
   if git show "origin/$BASE:$p" >/dev/null 2>&1; then
-    git show "origin/$BASE:$p" > /tmp/CODEOWNERS
+    git show "origin/$BASE:$p" > "$SCRATCH/CODEOWNERS"
     break
   fi
 done
 ```
 
-If `/tmp/CODEOWNERS` was produced, parse it and match each line's
+If `"$SCRATCH/CODEOWNERS"` was produced, parse it and match each line's
 glob pattern against the PR's changed files. The logins / team
 slugs after the pattern become high-weight candidates (they're
 the project's declared owners — strong prior).
@@ -85,11 +87,11 @@ then list its members:
 
 ```bash
 ORG="$(gh repo view --json owner --jq .owner.login)"
-gh api "orgs/$ORG/members" --paginate --jq '.[].login' | sort -u > /tmp/org-members.txt
+gh api "orgs/$ORG/members" --paginate --jq '.[].login' | sort -u > "$SCRATCH/org-members.txt"
 ```
 
 Intersect the combined candidate pool (§2a + §2b) with
-`/tmp/org-members.txt`. Drop anyone NOT in the org — a PR should
+`"$SCRATCH/org-members.txt"`. Drop anyone NOT in the org — a PR should
 have reviewers from the repo's own org. If the org-members call
 fails (e.g. the token lacks org-read scope), skip this filter
 rather than failing the step.
@@ -111,9 +113,9 @@ Pick the **top 3** by score. Tiebreak by login alphabetically.
 
 If fewer than 3 candidates emerged, that's fine — show whatever you
 have. If zero candidates emerged (empty CODEOWNERS, no file
-history, tiny org), skip the AskUserQuestion entirely and emit
-`EXTRAS: attached=NONE-no-candidates` (the step still completes
-cleanly — the user just didn't get suggestions).
+history, tiny org), skip the AskUserQuestion entirely, `rm -rf
+"$SCRATCH"`, and emit `EXTRAS: attached=NONE-no-candidates` (the step
+still completes cleanly — the user just didn't get suggestions).
 
 ### 4. Present picks via AskUserQuestion
 
@@ -166,6 +168,13 @@ doesn't have repo access") in the step prose.
 
 ### 6. Emit the final line
 
+Any path that reaches this section without already cleaning up
+(the normal candidates-picked completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
+
 Your response's FINAL line — alone on its own line, no markdown,
 no backticks — MUST match:
 
@@ -198,3 +207,7 @@ nothing was attached.
   paragraph in the step prose explaining *why* these three (so the
   user can override if Claude's reasoning is off). Transparency
   over magic.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§6, which
+  also covers the normal candidates-picked completion) and the
+  no-candidates early exit (§3). Neither may leave the scratch dir
+  behind.

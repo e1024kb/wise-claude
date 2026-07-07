@@ -49,10 +49,11 @@ the user walks it twice:
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
-gh pr view "$PR" --json comments > /tmp/wise-hum-issue-$PR.json
-gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate > /tmp/wise-hum-review-$PR.json
-gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100"  --paginate > /tmp/wise-hum-reviews-$PR.json
+gh pr view "$PR" --json comments > "$SCRATCH/wise-hum-issue-$PR.json"
+gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate > "$SCRATCH/wise-hum-review-$PR.json"
+gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100"  --paginate > "$SCRATCH/wise-hum-reviews-$PR.json"
 ```
 
 Also pull review-thread resolution + outdated state (same GraphQL
@@ -261,7 +262,8 @@ walk). Walk it in order; per item:
 **Apply-time failure mode.** If a routine throws (file vanished,
 edit failed to apply cleanly, etc.): fail fast. Print one line
 in chat naming items already applied + the failing item. Do
-**not** commit, do **not** run §6, do **not** push. Emit at §8:
+**not** commit, do **not** run §6, do **not** push. `rm -rf
+"$SCRATCH"` and emit at §8:
 
 ```
 HUMANS: aborted reason=apply-failed-on=<file:line>
@@ -277,7 +279,7 @@ Expect:
 - `COMMIT: skip` → no Fix landed (only Reply / Dismiss / Skip);
   skip the Fix-thread-resolve loop in §6 but still post replies
   and run Dismiss resolves.
-- `COMMIT: failed` → emit
+- `COMMIT: failed` → `rm -rf "$SCRATCH"`, emit
   `HUMANS: aborted reason=commit-failed`.
 
 ### 6. Phase C — Apply remote side effects
@@ -330,7 +332,8 @@ git push
 ```
 
 On failure (non-fast-forward, auth, hook), do NOT retry, do
-NOT force-push. Emit `HUMANS: aborted reason=push-failed`.
+NOT force-push. `rm -rf "$SCRATCH"` and emit
+`HUMANS: aborted reason=push-failed`.
 
 On success, re-enter `watch-pipelines.md §1` — the push may
 kick new CI runs and fresh review-bot passes.
@@ -340,6 +343,13 @@ to push. Skip directly to §8 without re-polling — Dismiss /
 Reply already landed in §6, Skip opts out.
 
 ### 8. Emit the final line
+
+Any path that reaches this section without already cleaning up
+(the normal `handled` completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 Alone on its own line, no markdown:
 
@@ -395,3 +405,8 @@ Example pending format: `AuditPanel.tsx:42,top-level-3,jlevdev`.
   back-and-forth the queue restructure exists to prevent.
 - Stop immediately on any body that reads as an abort signal
   until the user confirms otherwise.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§8, which
+  also covers the normal `handled` completion), the empty-comments
+  announce-and-exit (§2), and every early `emit … and return` abort
+  (`apply-failed-on` / `commit-failed` in §5, `push-failed` in §7).
+  None of them may leave the scratch dir behind.

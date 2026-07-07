@@ -51,6 +51,7 @@ config files; fall back to the `<org>_<repo>` convention last.
 ```bash
 PR=<pr_number>
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 # a) SonarCloud bot comment — parse id=<key> from the issues URL.
 SONAR_KEY="$(gh api "repos/$OWNER_REPO/issues/$PR/comments" \
@@ -92,7 +93,7 @@ Fallback order if no MCP is visible:
    ```bash
    curl -fsSL -u "$SONAR_TOKEN:" \
      "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_KEY&pullRequest=$PR&issueStatuses=OPEN,CONFIRMED&resolved=false&ps=500" \
-     > /tmp/sonar-issues-$PR.json
+     > "$SCRATCH/sonar-issues-$PR.json"
    ```
 2. **Anonymous curl** (public projects only).
 
@@ -142,7 +143,7 @@ Sonar: 0 open issues ✓
 If `SONAR_KEY_GUESSED=true`, append a one-line note:
 `(SONAR_KEY was guessed — click to confirm.)`. The user can
 sanity-check from one click; we do not pre-emptively ask.
-Emit `SONAR: all-clear`. Skip the rest.
+`rm -rf "$SCRATCH"` and emit `SONAR: all-clear`. Skip the rest.
 
 #### 3b. On AUTH-FAIL / FETCH-FAIL
 
@@ -162,15 +163,16 @@ Then `AskUserQuestion` with a smaller, action-only option set
 - header: `Sonar fetch`
 - multiSelect: false
 - options (3, AskUserQuestion's text-input handles edge cases):
-  - `Mark unchecked — keep going` — emit
+  - `Mark unchecked — keep going` — `rm -rf "$SCRATCH"` and emit
     `SONAR: unchecked reason=<auth|fetch|bad-key>`. The caller
     MUST include `sonar-unchecked` in the final watch verdict.
   - `Set SONAR_TOKEN and retry` — print setup instructions
     (`https://sonarcloud.io/account/security → Generate Token →
     export SONAR_TOKEN=<token> in your shell → re-run`), then
     mark unchecked + return (env vars don't propagate into a
-    running Claude Code session).
-  - `Abort watch` — emit `SONAR: aborted reason=<short-reason>`.
+    running Claude Code session) — `rm -rf "$SCRATCH"` first.
+  - `Abort watch` — `rm -rf "$SCRATCH"` and emit
+    `SONAR: aborted reason=<short-reason>`.
 
 Return without processing any items. Do **not** offer "Trust
 0-issues result" — by construction we only reach §3b when the
@@ -351,7 +353,8 @@ is resolved.
 **Apply-time failure mode.** If a routine throws (file
 vanished, edit failed, etc.): fail fast. Print one line
 naming items already applied + the failing item. Do not
-commit, do not run §6, do not push. Emit at §9:
+commit, do not run §6, do not push. `rm -rf "$SCRATCH"` and
+emit at §9:
 
 ```
 SONAR: aborted reason=apply-failed-on=<file:line>
@@ -365,7 +368,7 @@ If at least one staged change exists after the walk, drive
 - `COMMIT: skip` → no Fix / local Accept landed (only
   MCP-Accept decisions); continue to §6 (the MCP calls still need
   to fire), skip §7's push, and go to §9 — no push needed.
-- `COMMIT: failed` → emit
+- `COMMIT: failed` → `rm -rf "$SCRATCH"`, emit
   `SONAR: aborted reason=commit-failed`.
 
 ### 6. Phase C — Apply remote side effects
@@ -388,8 +391,8 @@ push now:
 git push
 ```
 
-On failure, do NOT retry, do NOT force-push. Emit
-`SONAR: aborted reason=push-failed`.
+On failure, do NOT retry, do NOT force-push. `rm -rf "$SCRATCH"`
+and emit `SONAR: aborted reason=push-failed`.
 
 On success, re-enter `watch-pipelines.md §1` — the push may
 trigger fresh Sonar analysis on the PR.
@@ -418,6 +421,13 @@ annotations playing the role of "issues" — Phase A still
 collects, Phase B/C/D apply.
 
 ### 9. Emit the final line
+
+Any path that reaches this section without already cleaning up
+(the normal `handled` completion) must clean up first:
+
+```bash
+rm -rf "$SCRATCH"
+```
 
 Alone on its own line:
 
@@ -487,3 +497,8 @@ enumerated.
   happens. Pushing inside Phase B would land the commit before
   any queued Sonar MCP `change_issue_status` calls fire and
   reorder the queue's effect on the dashboard.
+- `rm -rf "$SCRATCH"` before EVERY exit — the final line (§9, which
+  also covers the normal `handled` / `all-clear` completion), and
+  every early `emit … and return` abort (`apply-failed-on` /
+  `commit-failed` in §5, `push-failed` in §7). None of them may
+  leave the scratch dir behind.
