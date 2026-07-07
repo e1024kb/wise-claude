@@ -363,14 +363,18 @@ def installed_plugins() -> set[str]:
         path when `plugin.json` itself can't supply a usable `name` — used
         when the file is missing/unparseable/nameless, so we don't fall
         back to `p.name`, which is the VERSION string two levels below the
-        plugin dir in that layout, not the plugin name. Non-cache layouts
-        (no `cache` ancestor) just return `p.name` unchanged."""
-        parts = p.parts
+        plugin dir in that layout, not the plugin name. Layout is derived
+        relative to `root` (`_walk`'s own traversal root), not by matching
+        "cache" anywhere in the absolute path — HOME itself could contain
+        a "cache" ancestor unrelated to this layout. Non-cache layouts
+        just return `p.name` unchanged."""
         try:
-            idx = parts.index("cache")
+            parts = p.relative_to(root).parts
         except ValueError:
             return p.name
-        return parts[idx + 2] if idx + 2 < len(parts) else p.name
+        if len(parts) >= 3 and parts[0] == "cache":
+            return parts[2]
+        return p.name
 
     # Fallback: walk looking for `.claude-plugin/plugin.json`. Goes up to
     # four levels deep to cover cache/<marketplace>/<plugin>/<version>/.
@@ -463,7 +467,12 @@ def _validate_step_defs(steps: list, def_path: str) -> str | None:
     actually runs."""
     seen: set[str] = set()
     for step in steps:
-        if not isinstance(step, dict) or "id" not in step or "type" not in step:
+        if (
+            not isinstance(step, dict)
+            or "id" not in step
+            or not isinstance(step.get("type"), str)
+            or not step["type"]
+        ):
             return f"INVALID:step-missing-id-or-type in {def_path}: {step!r}"
         sid = step["id"]
         if not isinstance(sid, str) or not STEP_ID_RE.match(sid):
@@ -1552,9 +1561,20 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
     if task:
         line += f"\ttask={task}"
     hb_path = workers_dir / f"{name}.hb"
-    tmp = workers_dir / f"{name}.hb.{os.getpid()}.tmp"
+    # A PID-scoped name isn't enough — same-process concurrent heartbeat
+    # calls for the same worker would share it and could unlink/replace
+    # each other's tmp file. mkstemp gives every call its own file, same
+    # as the other atomic writers in this module.
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{name}.hb.", suffix=".tmp", dir=workers_dir)
+    tmp = Path(tmp_name)
     try:
-        tmp.write_text(line + "\n", encoding="utf-8")
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
+            fh.write(line + "\n")
         os.replace(tmp, hb_path)
     except BaseException:
         try:

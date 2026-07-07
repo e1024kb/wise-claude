@@ -147,6 +147,17 @@ def test_init_state_rejects_duplicate_step_id(workflows_module, wise_env, tmp_pa
     assert not (run_dir / "state.yaml").is_file()
 
 
+def test_init_state_rejects_null_or_empty_type(workflows_module, wise_env, tmp_path):
+    run_dir = tmp_path / "run-1"
+    ctx = json.dumps({"claude_session_id": None, "session_label": None})
+
+    def_path_null = _def_yaml(workflows_module, tmp_path, [{"id": "build", "type": None}])
+    assert workflows_module.cmd_init_state(str(def_path_null), str(run_dir), "run-1", ctx) != 0
+
+    def_path_empty = _def_yaml(workflows_module, tmp_path, [{"id": "build", "type": ""}])
+    assert workflows_module.cmd_init_state(str(def_path_empty), str(run_dir), "run-1", ctx) != 0
+
+
 # ---------- next-wave: shares init-state's step-id validation contract -----
 
 
@@ -222,6 +233,24 @@ def test_worker_heartbeat_leaves_no_tmp_sibling(workflows_module, tmp_path):
     workers_dir = run_dir / "workers"
     assert (workers_dir / "worker-1.hb").is_file()
     assert list(workers_dir.glob("*.tmp")) == []
+
+
+def test_worker_heartbeat_uses_unique_tmp_name_per_call(workflows_module, tmp_path, monkeypatch):
+    run_dir = tmp_path / "run-1"
+    seen_sources: list[str] = []
+    real_replace = workflows_module.os.replace
+
+    def spy_replace(src, dst):
+        seen_sources.append(str(src))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(workflows_module.os, "replace", spy_replace)
+
+    workflows_module.cmd_worker_heartbeat(str(run_dir), "worker-1", "implementing", "task-1")
+    workflows_module.cmd_worker_heartbeat(str(run_dir), "worker-1", "testing", "task-1")
+
+    assert len(seen_sources) == 2
+    assert seen_sources[0] != seen_sources[1]
 
 
 def test_worker_heartbeat_rejects_traversal_name(workflows_module, tmp_path):
