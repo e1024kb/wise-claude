@@ -1,7 +1,7 @@
 """Shared pytest fixtures for the wise workflow-engine test suite.
 
 DRYs the importlib loader `test_prune_runs.py` hand-rolled (PLAN-001) into
-one module-level import + a `workflows` fixture, plus a `wise_env` fixture
+one module-level import + a `workflows_module` fixture, plus a `wise_env` fixture
 for tmpdir/XDG isolation (same pattern as `test_prune_runs.py:36-42`).
 `test_prune_runs.py` itself is left untouched — it landed, passes, and its
 own copy of the loader is harmless duplication (see PLAN-004 Decisions).

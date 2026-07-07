@@ -18,6 +18,7 @@ def _init_repo(repo):
     _git(repo, "init", "-q")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test")
+    _git(repo, "config", "commit.gpgsign", "false")
 
 
 def test_untracked_matching_files_are_copied(workflows_module, tmp_path):
