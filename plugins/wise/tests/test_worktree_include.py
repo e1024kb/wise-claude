@@ -107,3 +107,47 @@ def test_git_failure_is_graceful_and_returns_0(workflows_module, tmp_path):
 
     rc = workflows_module.cmd_apply_worktree_include(str(repo), str(worktree))
     assert rc == 0
+
+
+def test_ignored_directory_is_copied_via_copytree(workflows_module, tmp_path):
+    # `git ls-files --directory` collapses a fully-ignored dir to a single
+    # `dir/`-suffixed entry, which the function copies via `shutil.copytree`
+    # instead of `shutil.copy2` — exercise that branch specifically.
+    repo = tmp_path / "repo"
+    worktree = tmp_path / "worktree"
+    _init_repo(repo)
+    (repo / ".worktreeinclude").write_text("cache/\n")
+    cache_dir = repo / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "nested.bin").write_text("data\n")
+    worktree.mkdir()
+
+    rc = workflows_module.cmd_apply_worktree_include(str(repo), str(worktree))
+    assert rc == 0
+    assert (worktree / "cache" / "nested.bin").read_text() == "data\n"
+
+
+def test_vanished_listed_path_is_skipped(workflows_module, tmp_path, monkeypatch):
+    # A path `git ls-files` reported can still vanish before the copy loop
+    # reaches it (race, or any other on-disk change) — the function must
+    # skip it gracefully rather than raise. Inject a phantom entry into the
+    # real `git ls-files` output to force that path deterministically.
+    repo = tmp_path / "repo"
+    worktree = tmp_path / "worktree"
+    _init_repo(repo)
+    (repo / ".worktreeinclude").write_text("ghost.txt\n")
+    worktree.mkdir()
+
+    real_run = workflows_module.subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        result = real_run(cmd, *args, **kwargs)
+        if isinstance(cmd, list) and "ls-files" in cmd:
+            result.stdout = (result.stdout or "") + "ghost.txt\0"
+        return result
+
+    monkeypatch.setattr(workflows_module.subprocess, "run", fake_run)
+
+    rc = workflows_module.cmd_apply_worktree_include(str(repo), str(worktree))
+    assert rc == 0
+    assert not (worktree / "ghost.txt").exists()

@@ -41,7 +41,7 @@ def test_init_state_writes_stub(workflows_module, wise_env, tmp_path):
     assert state["claude_session_id"] == "sess-1"
     assert [s["status"] for s in state["steps"]] == ["pending", "pending"]
     assert [s["id"] for s in state["steps"]] == ["a", "b"]
-    assert state["last_activity_at"]
+    assert isinstance(state["last_activity_at"], str) and state["last_activity_at"].endswith("Z")
 
 
 def test_start_run_merges_inputs_and_flips_running(
