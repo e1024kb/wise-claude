@@ -262,7 +262,7 @@ def test_installed_plugins_reads_plugin_json_name_not_version_dir(
     assert workflows_module.installed_plugins() == {"p"}
 
 
-def test_installed_plugins_falls_back_to_dir_name_when_json_unparseable(
+def test_installed_plugins_recovers_cache_plugin_name_when_json_unparseable(
     workflows_module, tmp_path, monkeypatch
 ):
     home = tmp_path / "home"
@@ -271,4 +271,22 @@ def test_installed_plugins_falls_back_to_dir_name_when_json_unparseable(
     (plugin_dir / "plugin.json").write_text("not json")
     monkeypatch.setattr(workflows_module, "HOME", home)
 
-    assert workflows_module.installed_plugins() == {"1.2.3"}
+    # `plugin.json` is unparseable, so the directory-name fallback kicks
+    # in — but the cache layout's directory is the VERSION ("1.2.3"), not
+    # the plugin id ("p"), so the walk must recover "p" from the path
+    # shape rather than misreport the version as the plugin name.
+    assert workflows_module.installed_plugins() == {"p"}
+
+
+def test_installed_plugins_falls_back_to_dir_name_outside_cache_layout(
+    workflows_module, tmp_path, monkeypatch
+):
+    home = tmp_path / "home"
+    plugin_dir = home / ".claude" / "plugins" / "my-dev-plugin" / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text("not json")
+    monkeypatch.setattr(workflows_module, "HOME", home)
+
+    # No `cache` ancestor to recover a plugin id from — the containing
+    # directory name is the best available fallback here.
+    assert workflows_module.installed_plugins() == {"my-dev-plugin"}

@@ -358,26 +358,42 @@ def installed_plugins() -> set[str]:
     if names:
         return names
 
+    def _cache_layout_name(p: Path) -> str:
+        """Recover `<plugin>` from a `cache/<marketplace>/<plugin>[/<version>]/`
+        path when `plugin.json` itself can't supply a usable `name` — used
+        when the file is missing/unparseable/nameless, so we don't fall
+        back to `p.name`, which is the VERSION string two levels below the
+        plugin dir in that layout, not the plugin name. Non-cache layouts
+        (no `cache` ancestor) just return `p.name` unchanged."""
+        parts = p.parts
+        try:
+            idx = parts.index("cache")
+        except ValueError:
+            return p.name
+        return parts[idx + 2] if idx + 2 < len(parts) else p.name
+
     # Fallback: walk looking for `.claude-plugin/plugin.json`. Goes up to
     # four levels deep to cover cache/<marketplace>/<plugin>/<version>/.
     # Read the plugin's own `name` field rather than the directory it was
     # found in — in the cache layout that directory is the VERSION string
     # (cache/<marketplace>/<plugin>/<version>/.claude-plugin/plugin.json),
     # not the plugin name, so using `p.name` there falsely reports the
-    # actual plugin as not installed.
+    # actual plugin as not installed. If `plugin.json` can't supply a
+    # usable name (missing, unparseable, empty `name` field), recover the
+    # plugin id from the cache path shape instead of guessing `p.name`.
     def _walk(p: Path, depth: int) -> None:
         if depth > 4 or not p.is_dir():
             return
         pj = p / ".claude-plugin" / "plugin.json"
         if pj.is_file():
-            name = p.name
+            name = None
             try:
                 data = json.loads(pj.read_text(encoding="utf-8"))
                 if isinstance(data, dict) and isinstance(data.get("name"), str) and data["name"]:
                     name = data["name"]
             except (OSError, ValueError):
                 pass
-            names.add(name)
+            names.add(name or _cache_layout_name(p))
             return
         try:
             children = list(p.iterdir())
