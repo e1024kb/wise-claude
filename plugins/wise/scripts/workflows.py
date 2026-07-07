@@ -400,6 +400,27 @@ def cmd_new_ulid() -> int:
     return 0
 
 
+# Step ids come from user-authored workflow.yaml and get interpolated
+# straight into filesystem paths (write-log's <step-id>.<step-run-id>.log),
+# so they're validated wherever a workflow definition is first read.
+# Adds `-` to the input-name pattern above (:590) since step ids are
+# hyphen-case, not snake_case.
+STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+def _validate_step_defs(steps: list, def_path: str) -> str | None:
+    """Return an error message if any step is missing `id`/`type` or has an
+    id that fails `STEP_ID_RE`; `None` if every step is well-formed."""
+    for step in steps:
+        if not isinstance(step, dict) or "id" not in step or "type" not in step:
+            return f"INVALID:step-missing-id-or-type in {def_path}: {step!r}"
+        sid = step["id"]
+        if not isinstance(sid, str) or not STEP_ID_RE.match(sid):
+            return (f"INVALID:step-id:{sid!r} in {def_path} "
+                     f"(must match {STEP_ID_RE.pattern})")
+    return None
+
+
 # ---------- init-state ------------------------------------------------------
 
 def cmd_init_state(def_path: str, run_dir: str, run_id: str, ctx_json: str) -> int:
@@ -418,8 +439,13 @@ def cmd_init_state(def_path: str, run_dir: str, run_id: str, ctx_json: str) -> i
     """
     ctx = json.loads(ctx_json)
     definition = load_yaml(Path(def_path))
+    raw_steps = definition.get("steps") or []
+    err = _validate_step_defs(raw_steps, def_path)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
     steps = []
-    for step in definition.get("steps") or []:
+    for step in raw_steps:
         steps.append({
             "id": step["id"],
             "status": "pending",
@@ -496,7 +522,21 @@ def cmd_write_log(run_dir: str, step_id: str, step_run_id: str) -> int:
     the conductor's existing `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*)`
     allowed-tools grant, so the log write runs without a per-file
     prompt.
+
+    Defense-in-depth: `step_id`/`step_run_id` are interpolated straight
+    into the log path, so a value containing `/` or `..` could escape
+    `<run-dir>/logs/`. Both are validated as safe single path components
+    before the path is built, rather than trusting the caller (the
+    conductor's blanket Bash grant means this runs unattended).
     """
+    if not STEP_ID_RE.match(step_id):
+        print(f"INVALID:step-id:{step_id!r} (must match {STEP_ID_RE.pattern})",
+              file=sys.stderr)
+        return 2
+    if not re.match(r"^[A-Za-z0-9_-]+$", step_run_id):
+        print(f"INVALID:step-run-id:{step_run_id!r} (must be a bare "
+              f"alphanumeric/_/- token)", file=sys.stderr)
+        return 2
     path = Path(run_dir) / "logs" / f"{step_id}.{step_run_id}.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     content = sys.stdin.read()
@@ -743,7 +783,12 @@ def _render_step(step_def: dict, state: dict, workflow_dir: str = "",
 def cmd_next_wave(def_path: str, state_path: str) -> int:
     definition = load_yaml(Path(def_path))
     state = load_yaml(Path(state_path))
-    step_defs = {s["id"]: s for s in (definition.get("steps") or [])}
+    raw_steps = definition.get("steps") or []
+    err = _validate_step_defs(raw_steps, def_path)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
+    step_defs = {s["id"]: s for s in raw_steps}
     # Folder-form defs resolve to `<root>/<name>/workflow.yaml`; the
     # workflow dir is the parent of that file. Flat-form defs resolve to
     # `<root>/<name>.yaml` and have no workflow dir (empty string).
