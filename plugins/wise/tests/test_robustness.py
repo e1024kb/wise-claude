@@ -132,6 +132,21 @@ def test_init_state_rejects_missing_id_or_type(workflows_module, wise_env, tmp_p
     assert workflows_module.cmd_init_state(str(def_path_no_type), str(run_dir), "run-1", ctx) != 0
 
 
+def test_init_state_rejects_duplicate_step_id(workflows_module, wise_env, tmp_path):
+    def_path = _def_yaml(
+        workflows_module,
+        tmp_path,
+        [{"id": "dup", "type": "bash"}, {"id": "dup", "type": "bash"}],
+    )
+    run_dir = tmp_path / "run-1"
+    ctx = json.dumps({"claude_session_id": None, "session_label": None})
+
+    rc = workflows_module.cmd_init_state(str(def_path), str(run_dir), "run-1", ctx)
+
+    assert rc != 0
+    assert not (run_dir / "state.yaml").is_file()
+
+
 # ---------- next-wave: shares init-state's step-id validation contract -----
 
 

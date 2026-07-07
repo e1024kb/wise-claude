@@ -438,8 +438,14 @@ STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*\Z")
 
 
 def _validate_step_defs(steps: list, def_path: str) -> str | None:
-    """Return an error message if any step is missing `id`/`type` or has an
-    id that fails `STEP_ID_RE`; `None` if every step is well-formed."""
+    """Return an error message if any step is missing `id`/`type`, has an
+    id that fails `STEP_ID_RE`, or repeats an id already seen; `None` if
+    every step is well-formed. Duplicate ids are rejected here because
+    `cmd_next_wave` keys `step_defs` by id (last-one-wins, silently
+    dropping the earlier step) while `_step_by_id()` returns the first
+    match — a duplicate would make the two disagree on which def a step
+    actually runs."""
+    seen: set[str] = set()
     for step in steps:
         if not isinstance(step, dict) or "id" not in step or "type" not in step:
             return f"INVALID:step-missing-id-or-type in {def_path}: {step!r}"
@@ -447,6 +453,9 @@ def _validate_step_defs(steps: list, def_path: str) -> str | None:
         if not isinstance(sid, str) or not STEP_ID_RE.match(sid):
             return (f"INVALID:step-id:{sid!r} in {def_path} "
                      f"(must match {STEP_ID_RE.pattern})")
+        if sid in seen:
+            return f"INVALID:duplicate-step-id:{sid!r} in {def_path}"
+        seen.add(sid)
     return None
 
 
