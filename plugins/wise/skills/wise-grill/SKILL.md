@@ -73,7 +73,7 @@ command, marked unverified), `Paste the ticket manually`, and `Abort`.
 Fetch via the established access and normalise — omit fields the
 tracker lacks rather than faking them:
 
-```
+```text
 ## Ticket <tracker>:<ref> — <Title>
 - Status / Priority / Assignee / Reporter / Labels / Parent (if present)
 ### Description
@@ -111,7 +111,7 @@ answer the user already supplied is CLEAR, not ASSUMED.
 needed; never clobber an existing plan without saying so) in wise's
 plan schema:
 
-```
+```text
 # <tracker>:<ref> — <Title>
 ## Summary
 ## Assumptions      (every ASSUMED dimension, with confidence)
