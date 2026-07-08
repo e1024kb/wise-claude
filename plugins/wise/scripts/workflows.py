@@ -127,7 +127,7 @@ STEP_TYPES = {
     "supervised-prompt",
 }
 TERMINAL_STEP = {"completed", "failed", "skipped", "cancelled"}
-TERMINAL_RUN = {"completed", "failed", "cancelled"}
+TERMINAL_RUN = {"completed", "cancelled"}
 RUN_HISTORY_CAP_DEFAULT = 25
 
 # A non-terminal run that shares the *current* session id is only a genuine
