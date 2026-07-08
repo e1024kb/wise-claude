@@ -62,7 +62,10 @@ it and move on.
 Dispatch one research subagent per **reachable** channel family with
 work to do, **in parallel in a single message** (`Task`,
 `subagent_type: "Explore"` or the caller's mapped roster role). Keep
-only their returned summaries in the caller's context.
+only their returned summaries in the caller's context. A caller that
+cannot spawn subagents (it is itself a subagent without the `Task`
+tool) works the families itself instead, sequentially, under the same
+bounds — the fan-out is an optimisation, not part of the contract.
 
 Per family, what to chase:
 

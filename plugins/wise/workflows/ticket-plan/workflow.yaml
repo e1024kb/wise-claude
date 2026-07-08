@@ -318,7 +318,12 @@ steps:
       anything here — this is the autonomous consolidated decision the
       user reviews next.
 
-      Gap handling: the user's answers (may be empty) are:
+      Gap handling: the user's answers from `resolve-gaps` are between
+      the markers below. The block may be empty (the user skipped —
+      every question proceeds on its default), or may contain a raw
+      un-rendered placeholder token in double curly braces (the gap
+      verdict was `ready`, so the ask step never ran) — in both cases
+      there is nothing to fold in.
 
       ---
       {{gap_answers}}

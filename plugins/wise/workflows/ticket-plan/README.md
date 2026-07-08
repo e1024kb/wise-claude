@@ -66,7 +66,7 @@ flowchart TD
     A --> D[analyze-related<br/>prompt — linked items + docs]
     A --> RCx[research-context<br/>prompt — grill multi-source sweep → Context Dossier]
     A --> E[codebase-audit<br/>prompt TEAM — type-routed reuse audit]
-    C --> G[gap-analysis<br/>prompt — score 10 dimensions → READY / GAPS; on gaps write BLUEPRINT-&lt;ref&gt;.md]
+    C --> G[gap-analysis<br/>prompt — score 10 dimensions → READY / GAPS — on gaps write BLUEPRINT-&lt;ref&gt;.md]
     D --> G
     RCx --> G
     E --> G
