@@ -111,6 +111,38 @@ def test_under_cap_is_a_noop(_env, monkeypatch):
     assert all(d.is_dir() for d in dirs)
 
 
+def test_failed_alone_over_cap_survives(_env, monkeypatch):
+    runs_root = _env
+    monkeypatch.setenv("WISE_RUN_HISTORY_CAP", "2")
+
+    dirs = [
+        _make_run(runs_root, f"run-failed-{i}", "failed", f"2026-04-0{i}T00:00:00Z")
+        for i in range(1, 4)
+    ]
+
+    assert workflows.cmd_prune_runs() == 0
+    assert all(d.is_dir() for d in dirs)
+
+
+def test_mixed_failed_and_completed_keeps_failed_deletes_completed(_env, monkeypatch):
+    runs_root = _env
+    monkeypatch.setenv("WISE_RUN_HISTORY_CAP", "2")
+
+    failed_dirs = [
+        _make_run(runs_root, f"run-failed-{i}", "failed", f"2026-05-0{i}T00:00:00Z")
+        for i in range(1, 4)
+    ]
+    completed_dirs = [
+        _make_run(runs_root, f"run-completed-{i}", "completed", f"2026-01-0{i}T00:00:00Z")
+        for i in range(1, 4)
+    ]
+
+    workflows.cmd_prune_runs()
+
+    assert all(d.is_dir() for d in failed_dirs)
+    assert all(not d.is_dir() for d in completed_dirs)
+
+
 def test_orphan_dir_deleted_before_terminal_run(_env, monkeypatch):
     runs_root = _env
     monkeypatch.setenv("WISE_RUN_HISTORY_CAP", "1")
