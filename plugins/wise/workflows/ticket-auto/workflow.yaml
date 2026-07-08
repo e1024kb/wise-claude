@@ -292,7 +292,11 @@ steps:
 
       Call out explicitly which PRs were merged and which were left
       open for a human (anything not fully green); for each open PR
-      say why. Merged tickets had their worktree + local branch
+      say why. For any ticket failed with
+      `reason=plan-insufficient-context`, point at its ledger's
+      `blueprint` path — the `BLUEPRINT-<ref>.md` holds the targeted
+      per-person questions the operator must get answered before
+      re-running that ticket. Merged tickets had their worktree + local branch
       auto-removed (their work is on the remote) — note that. For each
       ticket left OPEN or FAILED that still has a worktree, list its
       `git worktree remove <path>` command so the operator can clean up

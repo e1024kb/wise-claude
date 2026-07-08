@@ -128,12 +128,28 @@ Driven by `prompts/process-tickets.md`, which follows these fragments:
 | Phase | Fragment | Role · model | Autonomous analogue of |
 |---|---|---|---|
 | Plan | `prompts/plan-ticket.md` | `wise:architect` · opus | the interactive `ticket-plan` workflow |
+| — grill context sweep + gap check | `references/grill/research-sources.md` + `references/grill/gap-analysis.md` (inside Plan) | (Explore subagents + the architect) | `/wise-grill` |
 | Implement | `prompts/implement-plan.md` | `wise:software-engineer` · sonnet | (phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit) |
 | Review ↔ fix | `prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus ⇄ `wise:software-engineer` · sonnet | high-depth review gate (judges only) + an independent fixer, cycling before push |
 | Push | `wise-commit/commit-routine.md` | (inline) | `/wise-commit-push` |
 | Create PR | `prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
 | Request review | `prompts/request-review-auto.md` | (inline) | `/wise-pr-add-reviewers` |
 | Watch + fix | `prompts/watch-pipelines-auto.md` | `wise:software-engineer` · sonnet | `/wise-pr-watch` |
+
+The **Plan** phase runs a four-way parallel research wave — design,
+related items, the grill **multi-source context sweep**
+(`references/grill/research-sources.md`, `mode=autonomous`: lexicon
+harvest, the ticket's comment thread + screenshots, wiki / chat /
+Drive channels where an MCP is available, codebase + git history) and
+the reuse-first codebase audit — then **gap-checks** the consolidated
+evidence (`references/grill/gap-analysis.md`, autonomous mode). Every
+ordinary gap becomes a predicted-answer assumption in the plan; a
+ticket whose **goal or scope** cannot be established from any
+researched source is **unplannable** — the phase writes a
+`BLUEPRINT-<ref>.md` with targeted per-person questions beside the
+plan path and fails that ticket
+(`reason=plan-insufficient-context`) instead of building from guesses.
+The `report` step points the operator at the blueprint.
 
 The **Review ↔ fix** phase separates judging from fixing: a
 `wise:code-reviewer` reviews the branch in `fixer=delegate` mode (reports
@@ -258,3 +274,11 @@ reason=stability-capped`) and leaves the green PR open for a human.
   interactive create-PR + watch + review-queue surface.
 - [`wise-estimation`](../../skills/wise-estimation/SKILL.md) — SP
   estimation reference consulted by the plan phase.
+- [`grill/research-sources.md`](../../references/grill/research-sources.md) /
+  [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) /
+  [`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)
+  — the shared grill routines the plan phase runs (context sweep + gap
+  check + the insufficient-context blueprint).
+- [`/wise-grill`](../../skills/wise-grill/SKILL.md) — the standalone
+  interactive research + gap-analysis pass; run it on a blueprint-failed
+  ticket once the questions are answered.

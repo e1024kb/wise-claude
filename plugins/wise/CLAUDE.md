@@ -89,6 +89,16 @@ Current actions (all standalone):
   for the user to execute later. Writes only under `docs/plans/`; never
   edits source and never runs a plan (execution is delegated). Reads its
   own skill-local `references/audit-lenses.md` + `references/plan-format.md`.
+- `/wise-grill` — the ticket-understanding pass: deep-researches an
+  underspecified tracker ticket across every reachable source (tracker
+  comments + screenshots, wiki, Slack, Drive, design, codebase + git
+  history), gap-checks the evidence, and forks — a ready
+  `docs/plans/PLAN-<ref>.md`, or a `BLUEPRINT-<ref>.md` with targeted
+  per-person questions (re-run with answers to upgrade it into the
+  plan). Facts get researched; only decisions get asked. Writes only
+  under `docs/plans/`; read-only against every external system. Reads
+  the shared `references/grill/*` routines — the same ones the
+  `ticket-plan` / `ticket-auto` workflows run in their plan phases.
 - `/wise` — the natural-language helper (bare = catalog; with free-form
   text = intent classifier).
 
@@ -161,6 +171,7 @@ plugins/wise/
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by supervised-prompt + /wise-supervise
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
+│   ├── grill/                      # the ticket-understanding routines (context sweep + gap analysis + blueprint schema) — read by /wise-grill, ticket-plan, ticket-auto
 │   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
 └── skills/
     ├── wise/SKILL.md               # natural-language helper (bare catalog + intent classifier)
@@ -197,9 +208,10 @@ plugins/wise/
     ├── wise-code-review-auto/SKILL.md     # autonomous high-depth branch code-review (no prompts)
     ├── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
     ├── wise-supervise/SKILL.md            # attach the watchdog loop to a running team of background agents
-    └── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
-        ├── SKILL.md
-        └── references/                    # audit-lenses.md (the panel) + plan-format.md (the plan + index schema)
+    ├── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
+    │   ├── SKILL.md
+    │   └── references/                    # audit-lenses.md (the panel) + plan-format.md (the plan + index schema)
+    └── wise-grill/SKILL.md                 # ticket-understanding pass: multi-source research → PLAN or BLUEPRINT-with-questions
 ```
 
 No `commands/` directory is present, and one must not be added without
@@ -353,7 +365,11 @@ one-liners below are the rule, not the argument for it.
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
   (read by `review-branch-auto.md` and `wise-code-review-auto`), the
   watchdog routine `supervise-loop.md` (read by the `supervised-prompt`
-  step, the `-auto` implement phase, and `wise-supervise`), and the
+  step, the `-auto` implement phase, and `wise-supervise`), the
+  `references/grill/` ticket-understanding routines
+  (`research-sources.md` + `gap-analysis.md` + `blueprint-format.md`,
+  read by `/wise-grill` and the `ticket-plan` / `ticket-auto` plan
+  phases), and the
   `references/pr/` PR/commit fragments (`draft-body.md`, `ensure-pr.md`,
   `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
   the `handle-*.md` queue handlers, `paged-bulk-mode.md`,

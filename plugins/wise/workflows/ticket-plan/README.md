@@ -11,13 +11,18 @@ workflow identifies which tracker the ticket belongs to, confirms it
 can reach that tracker (probing for an MCP or CLI and proposing install
 options when it can't), fetches and normalises the ticket, analyses
 design links + related tickets + reference docs in parallel, runs a
-"reuse first" codebase audit, then — **autonomously, no question-by-
-question wizard** — consolidates the findings and makes every scope /
-approach / component / design / testing decision, writes a
-`PLAN-<ref>.md` into the run directory, and **presents the consolidated
-decision + plan for you to review and comment**. Only after the plan is
-settled does it ask the git / session **setup** choices, as one
-composite questionnaire.
+grill **multi-source context sweep** (the ticket's comment thread +
+screenshots, wiki / Slack / Drive / design channels where reachable,
+codebase + git history) and a "reuse first" codebase audit, then
+**gap-checks** the evidence: when critical dimensions are unknown it
+writes a `BLUEPRINT-<ref>.md` with targeted per-person questions and
+lets you answer inline (or pause the run and take them to your team);
+otherwise — **autonomously, no question-by-question wizard** — it
+consolidates the findings and makes every scope / approach / component
+/ design / testing decision, writes a `PLAN-<ref>.md` into the run
+directory, and **presents the consolidated decision + plan for you to
+review and comment**. Only after the plan is settled does it ask the
+git / session **setup** choices, as one composite questionnaire.
 
 ## When to use
 
@@ -34,8 +39,13 @@ composite questionnaire.
 
 - Quick fixes that don't need planning (typo, one-line change) — skip
   the workflow and just edit.
-- Tickets without enough information to plan against — fix the ticket
-  first, or grab the PM.
+- A ticket you only want researched / clarified, not planned yet — use
+  the standalone [`/wise-grill`](../../skills/wise-grill/SKILL.md)
+  skill instead; it runs the same research + gap analysis and stops at
+  the plan-or-blueprint fork, without the branch / setup / implement
+  tail. (Tickets without enough information no longer disqualify this
+  workflow — the `gap-analysis` step catches them and produces the
+  questions to ask.)
 
 ## Prerequisites
 
@@ -54,10 +64,15 @@ flowchart TD
     X --> A[fetch-ticket<br/>prompt — fetch + normalise + classify type]
     A --> C[analyze-design<br/>prompt — design-spec summary]
     A --> D[analyze-related<br/>prompt — linked items + docs]
+    A --> RCx[research-context<br/>prompt — grill multi-source sweep → Context Dossier]
     A --> E[codebase-audit<br/>prompt TEAM — type-routed reuse audit]
-    C --> B[build-plan<br/>prompt TEAM — consolidate + DECIDE + write PLAN-&lt;ref&gt;.md → plan_path]
-    D --> B
-    E --> B
+    C --> G[gap-analysis<br/>prompt — score 10 dimensions → READY / GAPS; on gaps write BLUEPRINT-&lt;ref&gt;.md]
+    D --> G
+    RCx --> G
+    E --> G
+    G -->|gaps| RG[resolve-gaps<br/>ask → gap_answers]
+    G -->|ready| B
+    RG --> B[build-plan<br/>prompt TEAM — consolidate + DECIDE + write PLAN-&lt;ref&gt;.md → plan_path]
     B --> P[present-plan<br/>prompt — show path + summary + decisions + testing + validation]
     P --> RC[review-comments<br/>ask → user_comments]
     RC -->|comments| RF[refine-plan<br/>prompt — fold comments, rewrite plan]
@@ -69,13 +84,18 @@ flowchart TD
     IM --> FN[finalize<br/>prompt — summary + next-step, branched on implement_choice]
 ```
 
-No setup questions fire before the plan: decisions are made
-autonomously in `build-plan`, presented in `present-plan`, optionally
-adjusted via `review-comments` → `refine-plan`, and only then does the
-single `setup` questionnaire collect ticket / branch / base / session
-choices. `setup` depends on both `review-comments` and `refine-plan`
-with `trigger-rule: all-done`, so it runs whether or not `refine-plan`
-fired.
+No setup questions fire before the plan: the `gap-analysis` gate
+either passes the evidence straight through (READY) or surfaces its
+targeted questions once via `resolve-gaps` (GAPS — answer inline, or
+interrupt and `/wise-workflow-resume` after asking your team; anything
+left open proceeds on the stated default, recorded as an assumption).
+Decisions are then made autonomously in `build-plan`, presented in
+`present-plan`, optionally adjusted via `review-comments` →
+`refine-plan`, and only then does the single `setup` questionnaire
+collect ticket / branch / base / session choices. `build-plan` depends
+on `gap-analysis` + `resolve-gaps` and `setup` depends on
+`review-comments` + `refine-plan`, each with `trigger-rule: all-done`,
+so both run whether or not their conditional predecessor fired.
 
 After setup, `ask-implement` offers a yes/no opt-in to implement the
 plan right now. On **yes**, the conditional `implement` step runs the
@@ -89,7 +109,8 @@ closes the run either way, branching its message on the choice.
 The pre-flight `control-mode` is pinned to `auto-advance`: the
 workflow runs wave-to-wave on its own, with **no between-wave
 "continue?" menu**, and stops only for its own in-step questions
-(`ensure-access`, `review-comments`, `setup`, `ask-implement`). This
+(`ensure-access`, `resolve-gaps`, `review-comments`, `setup`,
+`ask-implement`). This
 DAG is mostly one step per wave, so wave-sync's between-wave menu
 would interrupt after nearly every step; auto-advance keeps the
 in-step prompts while dropping that menu. (synchronous mode is the
@@ -99,7 +120,7 @@ The pre-flight `rename_session` prompt is pinned to `skip` — at
 pre-flight all we have is the run ULID; the rename is folded into the
 `setup` questionnaire once the ticket ref is known.
 
-The three analysis steps share `depends_on: [fetch-ticket]`, so they
+The four analysis steps share `depends_on: [fetch-ticket]`, so they
 run as one parallel wave — typically the longest wave of the run — on
 the current branch (the analysis is read-only; no branch is created
 until `setup`).
@@ -113,8 +134,11 @@ until `setup`).
 | `fetch-ticket` | `prompt` | Fetches the ticket via the established access, normalises it into a tracker-agnostic shape, and classifies it as frontend / backend / fullstack / other. |
 | `analyze-design` | `prompt` | Design-spec summary (layout / states / responsive) from any design links. Emits `NO-DESIGN` for backend tickets or when there are none. Dispatched to `wise:ux-designer` on `sonnet`, `effort: high` (design specs are load-bearing for the plan). |
 | `analyze-related` | `prompt` | Fetches linked / parent tickets + reference docs. Emits `NO-RELATED` when empty. |
+| `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), fans out bounded parallel research, and returns the Context Dossier (incl. the People map and sources-unavailable list). |
 | `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. Dispatched to a **team** — `wise:software-engineer` (lead) + `wise:architect` — on `sonnet`, `effort: high`. |
-| `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the three analyses and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead, `opus`) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer` on `sonnet`, conductor-synthesized, `effort: high`. |
+| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the four analyses and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `sonnet`, `effort: high`. |
+| `resolve-gaps` | `ask` | `when: readiness == 'gaps'` — free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. |
+| `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the four analyses + gap scorecard, folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead, `opus`) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer` on `sonnet`, conductor-synthesized, `effort: high`. |
 | `present-plan` | `prompt` | Informational — surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
 | `review-comments` | `ask` | Free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. |
 | `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. Dispatched to `wise:architect` on `opus`, `effort: high`. |
@@ -130,6 +154,8 @@ steps pin roster roles and **teams**:
 - `codebase-audit` → a team — `wise:software-engineer` (lead) +
   `wise:architect` — covering both implementation-level and
   structural/pattern-level reuse.
+- `gap-analysis` → `wise:architect` (the READY / GAPS judgement is a
+  planning call).
 - `build-plan` → a cross-functional team — `wise:architect` (lead) +
   `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer`
   — whose drafts the conductor synthesizes into the plan.
@@ -138,7 +164,9 @@ steps pin roster roles and **teams**:
 **Model tiering:** `opus` for the heavy planning brain (`build-plan`'s
 architect lead + `refine-plan`); `sonnet` for every other step. The
 tracker-fetch and git steps (`detect-context`, `fetch-ticket`,
-`analyze-related`) and the presentation steps (`present-plan`,
+`analyze-related`, `research-context` — the sweep needs whatever
+tracker / wiki / chat MCP tools the session has) and the presentation
+steps (`present-plan`,
 `finalize`) carry no `agent:` and stay on `general-purpose` via the
 conductor's tool-aware auto-selection — they need tracker-MCP / git
 tools no scoped role carries — but still run on the pinned `sonnet`
@@ -158,6 +186,8 @@ model. See
 | `tracker_slug` | `detect-context` | The short tracker name (jira / linear / gh / …); used in the plan heading. |
 | `ticket_ref` | `detect-context` | The bare ticket ref; the target branch name (per `branch-naming.md`), the session label, and the plan heading. |
 | `current_branch` | `detect-context` | The branch at run start; compared against the target in `setup` to decide whether to ask the branch question. |
+| `readiness` / `open_questions` | `gap-analysis` | `ready` or `gaps` + the open-question count; `gaps` gates the `resolve-gaps` ask. |
+| `gap_answers` | `resolve-gaps` | The user's inline answers (may be empty); folded into `build-plan` as CLEAR evidence, with unanswered questions proceeding on their defaults. |
 | `plan_path` | `build-plan` | Absolute path to `PLAN-<ref>.md` in the run directory; surfaced in `present-plan` / `finalize` and consumable by `/wise-implement-plan-auto`. |
 | `user_comments` | `review-comments` | Drives `refine-plan` when non-empty. |
 | `work_branch` / `session_renamed` | `setup` | The branch the run ended on, and whether the session was renamed. |
@@ -166,8 +196,9 @@ model. See
 
 The plan file lives at `<run-dir>/plans/PLAN-<ref>.md` (beside
 `state.yaml`, off the project tree), so it persists with the run and
-never lands in the feature branch. `/wise-workflow-status <run-ulid>`
-shows `plan_path`.
+never lands in the feature branch — and, when the gap analysis found
+gaps, `BLUEPRINT-<ref>.md` sits beside it as the question / decision
+record. `/wise-workflow-status <run-ulid>` shows `plan_path`.
 
 ## Examples
 
@@ -184,3 +215,11 @@ shows `plan_path`.
   branch rule `setup` follows.
 - [`wise-estimation`](../../skills/wise-estimation/SKILL.md) — SP
   estimation reference consumed by `build-plan`.
+- [`grill/research-sources.md`](../../references/grill/research-sources.md) /
+  [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) /
+  [`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)
+  — the shared grill routines behind `research-context` and
+  `gap-analysis`.
+- [`/wise-grill`](../../skills/wise-grill/SKILL.md) — the standalone
+  research + gap-analysis pass (plan-or-blueprint fork, no setup /
+  implement tail).
