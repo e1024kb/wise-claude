@@ -451,9 +451,8 @@ def cmd_new_ulid() -> int:
 # Step ids come from user-authored workflow.yaml and get interpolated
 # straight into filesystem paths (write-log's <step-id>.<step-run-id>.log),
 # so they're validated wherever a workflow definition is first read.
-# Adds `-` to the input-name pattern used by cmd_list_inputs's
-# `INVALID:input-name` check, since step ids are hyphen-case, not
-# snake_case.
+# Step ids are hyphen-case (unlike cmd_list_inputs's snake_case-only
+# `^[a-z][a-z0-9_]*$` input-name pattern), so this allows `-` too.
 STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*\Z")
 
 
