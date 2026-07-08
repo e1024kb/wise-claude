@@ -74,7 +74,7 @@ vocabulary. Record `ticket_type`.
 
 ### 4. Parallel research wave
 
-Dispatch three `Task` (`subagent_type: "Explore"`) subagents
+Dispatch four `Task` (`subagent_type: "Explore"`) subagents
 concurrently, each against `<worktree>`:
 
 - **Design** — for each design link, summarise layout / typography /
@@ -82,6 +82,15 @@ concurrently, each against `<worktree>`:
   backend ticket or when there are none.
 - **Related** — fetch each related item + reference doc; one section
   with a one-paragraph summary each; reply `NO-RELATED` if empty.
+- **Context** — read
+  `${CLAUDE_PLUGIN_ROOT}/references/grill/research-sources.md` and
+  follow it with mode=`autonomous`, the normalised ticket, and the
+  worktree as the project: harvest the lexicon of unresolved terms,
+  probe every reachable channel (the ticket's full comment thread +
+  attachments — open screenshots with the `Read` tool —, wiki / docs,
+  chat, Drive, codebase + git history), and return the Context
+  Dossier, including the sources-unavailable list. Best-effort:
+  a channel without an MCP / CLI is reported, never a failure.
 - **Codebase audit** — reuse-first audit routed by `ticket_type`:
   discover the worktree's layout, then audit UI components/hooks/
   styling (frontend) or API handlers/models/services (backend) or
@@ -90,13 +99,31 @@ concurrently, each against `<worktree>`:
 
 ### 5. Consolidate
 
-The Lead Architect folds the three outputs into one investigation
-summary: requirements, design notes, related resources, codebase
+The Lead Architect folds the four outputs into one investigation
+summary: requirements, design notes, related resources, the context
+dossier (lexicon, attributed decisions, people map), codebase
 context / reusable assets.
 
-### 6. Decide
+### 6. Gap-check, then decide
 
-The Lead Architect makes — autonomously, with rationale — every
+First the gap check: apply
+`${CLAUDE_PLUGIN_ROOT}/references/grill/gap-analysis.md` in its
+**autonomous mode** against the consolidated investigation — score the
+ten dimensions, then:
+
+- **Goal or Scope UNKNOWN** (not stated anywhere, not responsibly
+  inferable from any researched source, and not implied by
+  `config_prompt`) → the ticket is unplannable; planning from guesses
+  is forbidden. Read
+  `${CLAUDE_PLUGIN_ROOT}/references/grill/blueprint-format.md` and
+  write `BLUEPRINT-<ref>.md` (the targeted per-person questions that
+  would close the gaps) into the same directory as `plan_path`, write
+  NO plan, skip §7, and emit the §8 insufficient-context line.
+- **Any other gap** → convert it to a decision: predict the most
+  probable answer from the evidence, record it in `## Assumptions`
+  with its confidence, and proceed.
+
+Then the Lead Architect makes — autonomously, with rationale — every
 scope / technical-approach / component / design / testing decision
 the interactive wizard would ask a human for. Apply `config_prompt`
 as binding guidance here: prefer the skills / libraries it names,
@@ -143,4 +170,12 @@ If §2 could not fetch the ticket, write NO plan and emit instead:
 
 ```text
 PLAN: blocked reason=no-ticket-access ticket=<ticket_ref>
+```
+
+If the §6 gap check found the Goal or Scope UNKNOWN, write NO plan
+(the blueprint with the questions is already written) and emit
+instead:
+
+```text
+PLAN: blocked reason=insufficient-context ticket=<ticket_ref> blueprint=<blueprint_path>
 ```

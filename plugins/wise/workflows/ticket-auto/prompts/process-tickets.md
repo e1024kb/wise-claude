@@ -58,7 +58,9 @@ to recognise the merged-then-cleaned terminal case, where nothing live remains).
 
 Fields: `ref`, `branch`, `worktree`, `base`, `pr_url`, `pr_number`, `last_phase`
 (`claiming` → `worktree` → `planned` → `implemented` → `reviewed` → `pushed` →
-`pr` → `review-requested` → `watched`), `verdict`, `reason`, `review`, `cleaned`.
+`pr` → `review-requested` → `watched`), `verdict`, `reason`, `review`, `cleaned`,
+`blueprint` (set only on `reason=plan-insufficient-context` — the
+`BLUEPRINT-<ref>.md` with the questions a human must answer).
 
 The ledger is **append-only** — to checkpoint, append one `KEY=VALUE` line; a
 later line for the same key overrides an earlier one (readers take the **last**
@@ -238,7 +240,13 @@ plan to `plan_path` and returns `PLAN: written=<path> type=<ticket_type>`.
 On success, checkpoint `last_phase=planned`. If it instead returns
 `PLAN: blocked reason=no-ticket-access …` (the tracker could not return
 this ticket — never plan from invented content) → append `verdict=failed`
-+ `reason=plan-no-access` and continue. On any other failure → append
++ `reason=plan-no-access` and continue. If it returns
+`PLAN: blocked reason=insufficient-context … blueprint=<path>` (the
+ticket's goal or scope could not be established from any researched
+source — never plan from guesses) → append `verdict=failed` +
+`reason=plan-insufficient-context` + `blueprint=<path>` and continue;
+the blueprint holds the per-person questions a human needs to ask
+before re-running this ticket. On any other failure → append
 `verdict=failed` + `reason=plan` and continue.
 
 ### 3. Implement
