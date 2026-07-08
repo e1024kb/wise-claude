@@ -61,6 +61,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -252,10 +253,23 @@ def load_yaml(path: Path) -> dict:
 
 def save_yaml(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
+            yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def parse_kv_args(tokens: list[str]) -> dict:
@@ -344,20 +358,60 @@ def installed_plugins() -> set[str]:
     if names:
         return names
 
+    def _cache_layout_name(p: Path) -> str:
+        """Recover `<plugin>` from a `cache/<marketplace>/<plugin>[/<version>]/`
+        path when `plugin.json` itself can't supply a usable `name` — used
+        when the file is missing/unparseable/nameless, so we don't fall
+        back to `p.name`, which is the VERSION string two levels below the
+        plugin dir in that layout, not the plugin name. Layout is derived
+        relative to `root` (`_walk`'s own traversal root), not by matching
+        "cache" anywhere in the absolute path — HOME itself could contain
+        a "cache" ancestor unrelated to this layout. Non-cache layouts
+        just return `p.name` unchanged."""
+        try:
+            parts = p.relative_to(root).parts
+        except ValueError:
+            return p.name
+        if len(parts) >= 3 and parts[0] == "cache":
+            return parts[2]
+        return p.name
+
     # Fallback: walk looking for `.claude-plugin/plugin.json`. Goes up to
     # four levels deep to cover cache/<marketplace>/<plugin>/<version>/.
+    # Read the plugin's own `name` field rather than the directory it was
+    # found in — in the cache layout that directory is the VERSION string
+    # (cache/<marketplace>/<plugin>/<version>/.claude-plugin/plugin.json),
+    # not the plugin name, so using `p.name` there falsely reports the
+    # actual plugin as not installed. If `plugin.json` can't supply a
+    # usable name (missing, unparseable, empty `name` field), recover the
+    # plugin id from the cache path shape instead of guessing `p.name`.
     def _walk(p: Path, depth: int) -> None:
         if depth > 4 or not p.is_dir():
             return
         pj = p / ".claude-plugin" / "plugin.json"
         if pj.is_file():
-            names.add(p.name)
+            name = None
+            try:
+                data = json.loads(pj.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and isinstance(data.get("name"), str) and data["name"]:
+                    name = data["name"]
+            except (OSError, ValueError):
+                pass
+            names.add(name or _cache_layout_name(p))
             return
-        for child in p.iterdir():
+        try:
+            children = list(p.iterdir())
+        except OSError:
+            return
+        for child in children:
             if child.is_dir():
                 _walk(child, depth + 1)
 
-    for child in root.iterdir():
+    try:
+        top_children = list(root.iterdir())
+    except OSError:
+        return names
+    for child in top_children:
         if child.is_dir():
             _walk(child, 1)
     return names
@@ -394,6 +448,41 @@ def cmd_new_ulid() -> int:
     return 0
 
 
+# Step ids come from user-authored workflow.yaml and get interpolated
+# straight into filesystem paths (write-log's <step-id>.<step-run-id>.log),
+# so they're validated wherever a workflow definition is first read.
+# Step ids are hyphen-case (unlike cmd_list_inputs's snake_case-only
+# `^[a-z][a-z0-9_]*$` input-name pattern), so this allows `-` too.
+STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*\Z")
+
+
+def _validate_step_defs(steps: list, def_path: str) -> str | None:
+    """Return an error message if any step is missing `id`/`type`, has an
+    id that fails `STEP_ID_RE`, or repeats an id already seen; `None` if
+    every step is well-formed. Duplicate ids are rejected here because
+    `cmd_next_wave` keys `step_defs` by id (last-one-wins, silently
+    dropping the earlier step) while `_step_by_id()` returns the first
+    match — a duplicate would make the two disagree on which def a step
+    actually runs."""
+    seen: set[str] = set()
+    for step in steps:
+        if (
+            not isinstance(step, dict)
+            or "id" not in step
+            or not isinstance(step.get("type"), str)
+            or not step["type"]
+        ):
+            return f"INVALID:step-missing-id-or-type in {def_path}: {step!r}"
+        sid = step["id"]
+        if not isinstance(sid, str) or not STEP_ID_RE.match(sid):
+            return (f"INVALID:step-id:{sid!r} in {def_path} "
+                     f"(must match {STEP_ID_RE.pattern})")
+        if sid in seen:
+            return f"INVALID:duplicate-step-id:{sid!r} in {def_path}"
+        seen.add(sid)
+    return None
+
+
 # ---------- init-state ------------------------------------------------------
 
 def cmd_init_state(def_path: str, run_dir: str, run_id: str, ctx_json: str) -> int:
@@ -412,8 +501,13 @@ def cmd_init_state(def_path: str, run_dir: str, run_id: str, ctx_json: str) -> i
     """
     ctx = json.loads(ctx_json)
     definition = load_yaml(Path(def_path))
+    raw_steps = definition.get("steps") or []
+    err = _validate_step_defs(raw_steps, def_path)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
     steps = []
-    for step in definition.get("steps") or []:
+    for step in raw_steps:
         steps.append({
             "id": step["id"],
             "status": "pending",
@@ -490,7 +584,21 @@ def cmd_write_log(run_dir: str, step_id: str, step_run_id: str) -> int:
     the conductor's existing `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*)`
     allowed-tools grant, so the log write runs without a per-file
     prompt.
+
+    Defense-in-depth: `step_id`/`step_run_id` are interpolated straight
+    into the log path, so a value containing `/` or `..` could escape
+    `<run-dir>/logs/`. Both are validated as safe single path components
+    before the path is built, rather than trusting the caller (the
+    conductor's blanket Bash grant means this runs unattended).
     """
+    if not STEP_ID_RE.match(step_id):
+        print(f"INVALID:step-id:{step_id!r} (must match {STEP_ID_RE.pattern})",
+              file=sys.stderr)
+        return 2
+    if not re.match(r"^[A-Za-z0-9_-]+\Z", step_run_id):
+        print(f"INVALID:step-run-id:{step_run_id!r} (must be a bare "
+              f"alphanumeric/_/- token)", file=sys.stderr)
+        return 2
     path = Path(run_dir) / "logs" / f"{step_id}.{step_run_id}.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     content = sys.stdin.read()
@@ -737,7 +845,12 @@ def _render_step(step_def: dict, state: dict, workflow_dir: str = "",
 def cmd_next_wave(def_path: str, state_path: str) -> int:
     definition = load_yaml(Path(def_path))
     state = load_yaml(Path(state_path))
-    step_defs = {s["id"]: s for s in (definition.get("steps") or [])}
+    raw_steps = definition.get("steps") or []
+    err = _validate_step_defs(raw_steps, def_path)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
+    step_defs = {s["id"]: s for s in raw_steps}
     # Folder-form defs resolve to `<root>/<name>/workflow.yaml`; the
     # workflow dir is the parent of that file. Flat-form defs resolve to
     # `<root>/<name>.yaml` and have no workflow dir (empty string).
@@ -1428,7 +1541,17 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
     hung one. Going through this subcommand (rather than each worker crafting
     its own `date`/redirect one-liner) keeps the format identical to
     `utc_now()` so `_session_is_fresh()` parses it unchanged.
+
+    Defense-in-depth: `name` is interpolated straight into the heartbeat
+    path, so a value containing `/` or `..` could escape
+    `<run_dir>/workers/`. Validated as a safe single path component before
+    the path is built, rather than trusting the caller (this runs
+    unattended, same rationale as `cmd_write_log`'s `step_id` check).
     """
+    if not re.match(r"^[A-Za-z0-9_-]+\Z", name):
+        print(f"INVALID:worker-name:{name!r} (must be a bare "
+              f"alphanumeric/_/- token)", file=sys.stderr)
+        return 2
     workers_dir = Path(run_dir) / "workers"
     workers_dir.mkdir(parents=True, exist_ok=True)
     line = utc_now()
@@ -1436,7 +1559,28 @@ def cmd_worker_heartbeat(run_dir: str, name: str, phase: str, task: str) -> int:
         line += f"\tphase={phase}"
     if task:
         line += f"\ttask={task}"
-    (workers_dir / f"{name}.hb").write_text(line + "\n")
+    hb_path = workers_dir / f"{name}.hb"
+    # A PID-scoped name isn't enough — same-process concurrent heartbeat
+    # calls for the same worker would share it and could unlink/replace
+    # each other's tmp file. mkstemp gives every call its own file, same
+    # as the other atomic writers in this module.
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{name}.hb.", suffix=".tmp", dir=workers_dir)
+    tmp = Path(tmp_name)
+    try:
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
+            fh.write(line + "\n")
+        os.replace(tmp, hb_path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     return 0
 
 
