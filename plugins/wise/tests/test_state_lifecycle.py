@@ -163,7 +163,7 @@ def _run_state(run_dir, status, **extra):
 
 
 def test_list_resumable_runs_includes_failed_excludes_completed(
-    workflows_module, wise_env, tmp_path, capsys
+    workflows_module, wise_env, capsys
 ):
     runs_root = wise_env
 
@@ -188,7 +188,7 @@ def test_list_resumable_runs_includes_failed_excludes_completed(
 
 
 def test_find_runs_by_session_reports_fresh_failed_run(
-    workflows_module, wise_env, tmp_path, capsys
+    workflows_module, wise_env, capsys
 ):
     runs_root = wise_env
 
