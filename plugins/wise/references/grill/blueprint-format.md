@@ -7,7 +7,7 @@ evidence-backed understanding of the ticket **plus** the targeted
 questions that close the remaining gaps; once answered, it upgrades
 into a regular `PLAN-<ref>.md`. Read by:
 
-- `skills/wise-grill/SKILL.md` §6 — writes and later upgrades it.
+- `skills/wise-grill/SKILL.md` — §6 writes it; §7 upgrades it.
 - `workflows/ticket-plan/workflow.yaml` `gap-analysis` step — writes it
   when the run pauses on gaps.
 - `workflows/ticket-auto/prompts/plan-ticket.md` §6 — writes it beside

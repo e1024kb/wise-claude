@@ -15,7 +15,7 @@ description: >-
   "research this ticket", "build context around PROJ-123", "this
   ticket has no description", or types `/wise-grill`.
 argument-hint: "[<ticket-url-or-id>] [<extra guidance>]"
-allowed-tools: Read, Write, Task, Glob, Grep, WebSearch, WebFetch, AskUserQuestion, Bash(git:*), Bash(gh:*)
+allowed-tools: Read, Write, Edit, Task, Glob, Grep, WebSearch, WebFetch, AskUserQuestion, Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(command:*)
 ---
 
 # /wise-grill — understand an underspecified ticket, then plan it or grill the right people

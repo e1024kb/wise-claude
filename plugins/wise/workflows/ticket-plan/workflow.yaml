@@ -216,6 +216,12 @@ steps:
       reachable and the ticket has no comments / attachments / links,
       reply with the dossier anyway (it may be nearly empty) — the
       gap-analysis step needs the sources-unavailable list either way.
+
+      Persist the dossier for the later steps (they run as isolated
+      subagents that cannot see this step's chat output): first
+      `mkdir -p "{{run.dir}}/research"`, then `Write` the full dossier
+      to `{{run.dir}}/research/dossier.md`, AND return it as your
+      response too.
     model: sonnet
     effort: high
     depends_on: [fetch-ticket]
@@ -224,10 +230,15 @@ steps:
     type: prompt
     prompt: |
       Read ${CLAUDE_PLUGIN_ROOT}/references/grill/gap-analysis.md and
-      follow it against the `research-context` dossier plus the
-      `analyze-design`, `analyze-related`, and `codebase-audit`
-      outputs: score the ten dimensions, print the scorecard table,
-      and reach the READY / GAPS verdict.
+      follow it against the Context Dossier at
+      `{{run.dir}}/research/dossier.md` (written by the
+      `research-context` step — Read it first; you cannot see that
+      step's chat output). Its design-evidence / technical-context /
+      requirements sections carry the design and codebase signals;
+      where they are thin, supplement with your own Read / Grep of
+      `{{project.path}}` before scoring a dimension UNKNOWN. Score the
+      ten dimensions, print the scorecard table, and reach the
+      READY / GAPS verdict.
 
       If the verdict is GAPS: read
       ${CLAUDE_PLUGIN_ROOT}/references/grill/blueprint-format.md and
@@ -256,13 +267,14 @@ steps:
     type: ask
     when: "readiness == 'gaps'"
     question: |
-      The gap analysis found open questions (listed above, and written
-      to the blueprint in the run directory). Answer the ones you can
-      right here — free text, in any form. Whatever you leave open
-      proceeds on the stated default, recorded as an assumption in the
-      plan. If you'd rather take the questions to your team first:
-      interrupt the run now and /wise-workflow-resume it once you have
-      answers.
+      The gap analysis found open questions — the full per-person
+      blocks are in the blueprint at {{run.dir}}/plans/ (the
+      BLUEPRINT-<ref>.md file; also printed in the step result above).
+      Answer the ones you can right here — free text, in any form.
+      Whatever you leave open proceeds on the stated default, recorded
+      as an assumption in the plan. If you'd rather take the questions
+      to your team first: interrupt the run now and
+      /wise-workflow-resume it once you have answers.
     header: "Gaps"
     output: gap_answers
     skip_label: "Proceed on the stated defaults"
@@ -381,7 +393,10 @@ steps:
     model: sonnet                # shared default for the non-lead members
     effort: high
     depends_on: [gap-analysis, resolve-gaps]
-    trigger-rule: all-done       # runs whether or not resolve-gaps fired
+    trigger-rule: none-failed-min-one-success  # runs whether or not the
+      # conditional resolve-gaps fired (skipped counts as done), but a
+      # failed or skip-propagated gap-analysis blocks the plan instead
+      # of letting it build from nothing (all-done would run it anyway)
 
   - id: present-plan
     type: prompt

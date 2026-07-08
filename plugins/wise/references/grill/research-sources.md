@@ -5,7 +5,7 @@ underspecified ticket: harvest the unknowns, probe every reachable
 knowledge source, fan out research, and consolidate the findings into a
 **Context Dossier**. Read by:
 
-- `skills/wise-grill/SKILL.md` §3–§4 — the standalone `/wise-grill`
+- `skills/wise-grill/SKILL.md` §4 — the standalone `/wise-grill`
   deep-research pass.
 - `workflows/ticket-plan/workflow.yaml` `research-context` step — the
   interactive planning workflow's context lens.

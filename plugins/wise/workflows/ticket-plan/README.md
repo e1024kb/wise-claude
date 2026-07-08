@@ -93,9 +93,13 @@ Decisions are then made autonomously in `build-plan`, presented in
 `present-plan`, optionally adjusted via `review-comments` →
 `refine-plan`, and only then does the single `setup` questionnaire
 collect ticket / branch / base / session choices. `build-plan` depends
-on `gap-analysis` + `resolve-gaps` and `setup` depends on
-`review-comments` + `refine-plan`, each with `trigger-rule: all-done`,
-so both run whether or not their conditional predecessor fired.
+on `gap-analysis` + `resolve-gaps` with
+`trigger-rule: none-failed-min-one-success` (a when-skipped
+`resolve-gaps` doesn't block it, but a failed / skip-propagated
+`gap-analysis` does — the plan is never built from a missing
+investigation); `setup` depends on `review-comments` + `refine-plan`
+with `trigger-rule: all-done`, so it runs whether or not `refine-plan`
+fired.
 
 After setup, `ask-implement` offers a yes/no opt-in to implement the
 plan right now. On **yes**, the conditional `implement` step runs the
@@ -134,9 +138,9 @@ until `setup`).
 | `fetch-ticket` | `prompt` | Fetches the ticket via the established access, normalises it into a tracker-agnostic shape, and classifies it as frontend / backend / fullstack / other. |
 | `analyze-design` | `prompt` | Design-spec summary (layout / states / responsive) from any design links. Emits `NO-DESIGN` for backend tickets or when there are none. Dispatched to `wise:ux-designer` on `sonnet`, `effort: high` (design specs are load-bearing for the plan). |
 | `analyze-related` | `prompt` | Fetches linked / parent tickets + reference docs. Emits `NO-RELATED` when empty. |
-| `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), fans out bounded parallel research, and returns the Context Dossier (incl. the People map and sources-unavailable list). |
+| `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and returns the Context Dossier (incl. the People map and sources-unavailable list) — persisted to `<run-dir>/research/dossier.md` so the isolated `gap-analysis` subagent can read it. |
 | `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. Dispatched to a **team** — `wise:software-engineer` (lead) + `wise:architect` — on `sonnet`, `effort: high`. |
-| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the four analyses and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `sonnet`, `effort: high`. |
+| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `sonnet`, `effort: high`. |
 | `resolve-gaps` | `ask` | `when: readiness == 'gaps'` — free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. |
 | `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the four analyses + gap scorecard, folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead, `opus`) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer` on `sonnet`, conductor-synthesized, `effort: high`. |
 | `present-plan` | `prompt` | Informational — surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
