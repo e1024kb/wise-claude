@@ -24,9 +24,11 @@ core/
 ## How it's used
 
 `scripts/build_ports.py` renders every port from here. Some outputs are
-byte-copies (the engine, the neutral agent cards on non-Claude ports);
-others are transformed (the Claude roster gains `tools` / `model` /
-`effort` / `color` frontmatter from `profiles/claude.yaml`; port skills
+byte-copies (the engine, the neutral agent cards on ports whose profile
+adds no agent frontmatter — codex, cursor, hermes); others are
+transformed (the Claude roster gains `tools` / `model` / `effort` /
+`color` frontmatter from `profiles/claude.yaml`, the opencode cards gain
+`mode: subagent` from `profiles/opencode.yaml`; port skills
 are derived from the Claude skills with `${CLAUDE_PLUGIN_ROOT}` rewritten
 per the context-dependent rule in `CONTRIBUTING.md` §10.3 — the defaulted
 `${WISE_PLUGIN_ROOT:-…}` expansion in bash contexts, the short

@@ -34,7 +34,7 @@ wise-claude/
 │       ├── overlays/             # per-skill find/replace hunks
 │       └── static/               # byte-copied per-port files (README, manifests)
 └── harnesses/
-    └── <harness>/wise/            # one port per harness (claude, codex, cursor, hermes)
+    └── <harness>/wise/            # one port per harness (claude, codex, cursor, hermes, opencode)
         ├── .claude-plugin/plugin.json   # (claude) manifest — the single version source
         ├── CLAUDE.md · README.md · AGENTS.md
         ├── .mcp.json             # bundled MCP servers (currently empty)
@@ -999,7 +999,7 @@ everywhere except the `-auto` implement phase).
 
 Since **v3.0.0** the repo ships the `wise` plugin to more than one agent
 harness. The Claude Code plugin lives at `harnesses/claude/wise/`; other
-ports (Codex, Cursor, Hermes) live under `harnesses/<harness>/wise/`.
+ports (Codex, Cursor, Hermes, opencode) live under `harnesses/<harness>/wise/`.
 All port content — plus the Claude port's `references/`, `agents/`,
 `workflows/`, and `scripts/` — is **generated** by
 `scripts/build_ports.py` from three hand-maintained sources and stays
@@ -1043,9 +1043,10 @@ the Claude skills:
 
 - **`profiles/<harness>.yaml`** — one per port (including `claude`).
   Declares the harness id/name, which skills ship at which tier (full /
-  adapted / excluded), the skill-frontmatter keep-list, and — for the
-  Claude profile — the `tools` / `model` / `effort` / `color`
-  frontmatter lines added to each agent card.
+  adapted / excluded), the skill-frontmatter keep-list, and — for
+  profiles that declare an `agent_frontmatter` mapping — the extra
+  frontmatter lines added to each agent card (Claude's `tools` /
+  `model` / `effort` / `color`; opencode's `mode: subagent`).
 - **`notes/`** — the harness-adaptation note templates injected into
   ported skills. `notes/<skill>.md` is the shared template
   (`{{harness_name}}` / `{{harness_id}}` placeholders);

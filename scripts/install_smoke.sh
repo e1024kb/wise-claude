@@ -8,11 +8,17 @@
 # dir, (c) a fresh .wise-version and no stale init registry, and (d) an
 # engine that answers via the defaulted expansion without any export.
 #
-# Usage: bash scripts/install_smoke.sh [harness ...]   (default: cursor hermes)
+# For opencode it additionally asserts the port's native extras: the
+# command wrappers land in ~/.config/opencode/commands/, the role cards
+# land in ~/.config/opencode/agents/ renamed to wise-<role>.md (the
+# in-pack copies stay neutral), and the shared-root pack keeps the
+# commands/ dir.
+#
+# Usage: bash scripts/install_smoke.sh [harness ...]   (default: cursor hermes opencode)
 set -eu
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HARNESSES="${*:-cursor hermes}"
+HARNESSES="${*:-cursor hermes opencode}"
 
 fail() { echo "install-smoke: $*" >&2; exit 1; }
 
@@ -28,12 +34,23 @@ for h in $HARNESSES; do
   [ -f "$root/.wise-version" ] || fail "$h: missing .wise-version"
   [ ! -e "$root/.wise-init-registry.yaml" ] || fail "$h: stale init registry survived install"
   case "$h" in
-    codex)  skills_dir="$H/.agents/skills" ;;
-    cursor) skills_dir="$H/.cursor/skills" ;;
-    hermes) skills_dir="$H/.hermes/skills" ;;
+    codex)    skills_dir="$H/.agents/skills" ;;
+    cursor)   skills_dir="$H/.cursor/skills" ;;
+    hermes)   skills_dir="$H/.hermes/skills" ;;
+    opencode) skills_dir="$H/.config/opencode/skills" ;;
     *) fail "unknown harness '$h'" ;;
   esac
   [ -f "$skills_dir/wise-commit/SKILL.md" ] || fail "$h: discovery dir lacks skills"
+  if [ "$h" = "opencode" ]; then
+    # Native extras: wrappers + prefixed role cards, and commands/ in the pack.
+    [ -f "$H/.config/opencode/commands/wise-commit.md" ] \
+      || fail "$h: command wrappers missing from ~/.config/opencode/commands"
+    [ -f "$H/.config/opencode/agents/wise-architect.md" ] \
+      || fail "$h: wise-architect.md missing from ~/.config/opencode/agents"
+    [ ! -e "$H/.config/opencode/agents/architect.md" ] \
+      || fail "$h: neutral-named architect.md leaked into ~/.config/opencode/agents"
+    [ -d "$root/commands" ] || fail "$h: shared-root pack lacks commands/"
+  fi
   # The baked default resolves the engine with no export.
   env -u WISE_PLUGIN_ROOT WISE_DATA_DIR="$W" bash -c \
     'python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/'"$h"'}/scripts/workflows.py" list-defs > /dev/null' \

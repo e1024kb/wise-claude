@@ -25,6 +25,7 @@ build-check:
 #   just install codex
 #   just install cursor
 #   just install hermes
+#   just install opencode
 #   just install cursor project ./my-repo
 install harness scope="user" project=".":
     ./install.sh {{harness}} {{ if scope == "project" { "--project " + project } else { "--user" } }}
