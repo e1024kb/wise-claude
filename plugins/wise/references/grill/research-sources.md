@@ -1,28 +1,35 @@
-# grill/research-sources — the multi-source ticket context sweep
+# grill/research-sources — the multi-source context sweep
 
 Single source of truth for **how** wise builds context around an
-underspecified ticket: harvest the unknowns, probe every reachable
+underspecified subject: harvest the unknowns, probe every reachable
 knowledge source, fan out research, and consolidate the findings into a
 **Context Dossier**. Read by:
 
 - `skills/wise-grill/SKILL.md` §4 — the standalone `/wise-grill`
-  deep-research pass.
+  deep-research pass (any subject type).
 - `workflows/ticket-plan/workflow.yaml` `research-context` step — the
-  interactive planning workflow's context lens.
+  interactive planning workflow's context lens (ticket subjects).
 - `workflows/ticket-auto/prompts/plan-ticket.md` §4 — the autonomous
-  pipeline's **Context** research subagent.
+  pipeline's **Context** research subagent (ticket subjects).
 
-The caller supplies: the **normalised ticket** (title, description,
-acceptance criteria, comments, attachments, links — the fetch-ticket
-shape), the **project path**, the **mode** (`interactive` |
-`autonomous`), and any free-form operator guidance.
+The caller supplies: the **normalised subject** — a **ticket** (title,
+description, acceptance criteria, comments, attachments, links — the
+fetch-ticket shape), a **doc** (page body, author, comments, linked /
+child pages), or a **prompt / question brief** (the user's text plus
+implied context; the shapes are defined in `wise-grill` §3 — workflow
+callers always pass a ticket) — the **project path**, the **mode**
+(`interactive` | `autonomous`), and any free-form operator guidance.
+Everything below reads the same for every subject type; where a step
+only makes sense for one type, it says so.
 
 ## 1. Harvest the unknowns
 
-Read the ticket end to end — description, acceptance criteria, the
-full comment thread, and every attachment name — and extract a
-**lexicon**: every item a competent newcomer could not resolve from the
-ticket alone.
+Read the subject end to end — for a ticket: description, acceptance
+criteria, the full comment thread, and every attachment name; for a
+doc: the page body, its comments, and its linked / child page titles;
+for a prompt / question: the stated text and its implied context — and
+extract a **lexicon**: every item a competent newcomer could not
+resolve from the subject alone.
 
 - Domain terms, acronyms, internal product / feature / system names.
 - People and teams mentioned ("check with the payments folks").
@@ -31,18 +38,28 @@ ticket alone.
   log, spreadsheet).
 
 Each lexicon entry starts `UNRESOLVED`; the sweep below tries to
-resolve it. Also capture the ticket's **people seeds**: reporter,
-assignee, commenters, watchers where the tracker exposes them — they
-feed the People map (§4) and, later, question targeting.
+resolve it. Also capture the subject's **people seeds** — ticket:
+reporter, assignee, commenters, watchers where the tracker exposes
+them; doc: author, editors, commenters; prompt / question: the user
+themselves — they feed the People map (§4) and, later, question
+targeting.
 
 ## 2. Probe the channels (never fail on a missing one)
 
-Enumerate which knowledge channels this session can actually reach —
-one cheap probe each, no hard failure when a channel is absent:
+Which channels are *relevant* follows the subject: a ticket starts
+from its tracker, a doc starts from its own links and comment thread,
+a prompt / question has no home system and leans on the generic
+channels (codebase, wiki, chat, Drive, web). Probe what's relevant;
+skip what isn't (a prompt with no tracker in evidence needs no tracker
+probe — that is *not* an "unavailable" channel).
+
+Enumerate which relevant knowledge channels this session can actually
+reach — one cheap probe each, no hard failure when a channel is
+absent:
 
 | Channel | Probe | Typical yield |
 |---|---|---|
-| Tracker (Jira / Linear / GitHub / …) | the access the caller already established | comments, history, linked / parent / epic tickets, attachments |
+| Tracker (Jira / Linear / GitHub / …) | the access the caller already established (ticket subjects; or any tracker link the subject cites) | comments, history, linked / parent / epic tickets, attachments |
 | Wiki / docs (Confluence, Notion, …) | matching MCP tool, else `WebFetch` on doc links from the ticket | definitions, specs, ADRs, runbooks |
 | Chat (Slack, …) | matching MCP search tool | decisions, disagreements, tribal knowledge, who-knows-what |
 | Drive / mail (Google Drive, Gmail, …) | matching MCP tool | specs, sheets, exported docs |
@@ -69,17 +86,20 @@ bounds — the fan-out is an optimisation, not part of the contract.
 
 Per family, what to chase:
 
-- **Tracker deep-read** — the full comment thread and change history;
-  every linked / parent / epic / blocking ticket (one-paragraph summary
-  each); every attachment. **Open screenshots and images with the
-  `Read` tool and describe what each actually shows** — screen, state,
-  annotations, error text; a screenshot is often the only real spec.
-- **Docs** — search the wiki for each UNRESOLVED lexicon term, the
-  ticket title, and the epic / feature name; summarise the top matches
-  per term (author + date + one paragraph). Resolve doc links from the
-  ticket first.
-- **Chat** — search for the ticket ref, the feature name, and the
-  strongest lexicon terms; capture decisions, open disagreements, and
+- **Tracker deep-read** (ticket subjects) — the full comment thread
+  and change history; every linked / parent / epic / blocking ticket
+  (one-paragraph summary each); every attachment. **Open screenshots
+  and images with the `Read` tool and describe what each actually
+  shows** — screen, state, annotations, error text; a screenshot is
+  often the only real spec.
+- **Docs** — resolve doc links from the subject first (for a doc
+  subject that means its own linked / child pages and comment thread —
+  the doc-family deep-read); then search the wiki for each UNRESOLVED
+  lexicon term, the subject's title, and the epic / feature name;
+  summarise the top matches per term (author + date + one paragraph).
+- **Chat** — search for the subject's ref / title, the feature name,
+  and the strongest lexicon terms; capture decisions, open
+  disagreements, and
   **who said what** (name + channel + date) — attributed claims feed
   both the dossier and the People map.
 - **Drive / mail** — search the same terms; summarise matching specs /
@@ -95,8 +115,8 @@ Per family, what to chase:
 
 **Bounds.** Search-then-read-top-N (N ≤ 5 per term per channel), never
 spider a whole wiki or channel history; cap the whole sweep at one
-subagent per family. Depth follows the ticket: a one-line bug does not
-need a Drive sweep.
+subagent per family. Depth follows the subject: a one-line bug — or a
+narrow factual question — does not need a Drive sweep.
 
 Every finding is recorded as: **fact → source (link / ref / file:line)
 → confidence → person associated** (author, committer, speaker), so
@@ -108,14 +128,14 @@ Fold every family's findings into one structure (this is the input to
 `grill/gap-analysis.md`):
 
 ```markdown
-## Context Dossier — <tracker>:<ref>
+## Context Dossier — <subject ref>
 ### Lexicon            (term → resolved meaning → source | UNRESOLVED)
-### Goal evidence      (why this ticket exists — quotes + sources)
+### Goal evidence      (why this subject exists / what it is really asking — quotes + sources)
 ### Requirements & acceptance signals   (stated + implied, each sourced)
 ### Design evidence    (screens / states / screenshots, described)
 ### Technical context  (code areas, similar implementations, recent related changes)
 ### Decisions & discussions             (attributed: who decided / claimed what, where)
-### People map         (name → relationship to the ticket → evidence)
+### People map         (name → relationship to the subject → evidence)
 ### Sources unavailable (channel → why → what it likely holds)
 ```
 

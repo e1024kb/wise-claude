@@ -1,13 +1,15 @@
 # grill/blueprint-format — the BLUEPRINT-<ref>.md schema
 
 Single source of truth for the **blueprint** artifact — what wise
-writes when a researched ticket is **not** plannable yet
-(`gap-analysis.md` verdict `GAPS`). A blueprint is the normalized,
-evidence-backed understanding of the ticket **plus** the targeted
-questions that close the remaining gaps; once answered, it upgrades
-into a regular `PLAN-<ref>.md`. Read by:
+writes when a researched subject is **not** actionable yet
+(`gap-analysis.md` verdict `GAPS` with questions left open). A
+blueprint is the normalized, evidence-backed understanding of the
+subject **plus** the targeted questions that close the remaining gaps;
+once answered, it upgrades into a regular `PLAN-<ref>.md` (or, for a
+question subject, an `ANSWER-<ref>.md`). Read by:
 
-- `skills/wise-grill/SKILL.md` — §6 writes it; §7 upgrades it.
+- `skills/wise-grill/SKILL.md` — §6 writes it (any subject type:
+  ticket, doc, prompt, question); §7 upgrades it.
 - `workflows/ticket-plan/workflow.yaml` `gap-analysis` step — writes it
   when the run pauses on gaps.
 - `workflows/ticket-auto/prompts/plan-ticket.md` §6 — writes it beside
@@ -16,28 +18,31 @@ into a regular `PLAN-<ref>.md`. Read by:
 ## File naming and location
 
 `BLUEPRINT-<ref>.md`, where `<ref>` is the ticket ref with any leading
-`#` stripped (`BLUEPRINT-PROJ-777.md`, `BLUEPRINT-678.md`). It lives
-wherever the caller keeps its plans — `docs/plans/` for the standalone
-skill, `{{run.dir}}/plans/` for a workflow run — always beside the
+`#` stripped (`BLUEPRINT-PROJ-777.md`, `BLUEPRINT-678.md`) — or, for a
+doc / prompt / question subject, the caller's derived kebab-case slug
+(`BLUEPRINT-export-api-rate-limiting.md`). It lives wherever the
+caller keeps its plans — `docs/plans/` for the standalone skill,
+`{{run.dir}}/plans/` for a workflow run — always beside the
 `PLAN-<ref>.md` it will become.
 
 ## Schema
 
 ```markdown
-# BLUEPRINT <tracker>:<ref> — <Title>
+# BLUEPRINT <ref> — <Title>
 
 > **Status:** AWAITING-ANSWERS (<n> open questions for <m> people)
-> **Source:** <ticket url> · researched <date> · HEAD <short-sha>
+> **Source:** <subject type> · <ticket / doc url, or the prompt / question quoted> · researched <date> · HEAD <short-sha>
 
-## What this ticket actually means
-One-to-three plain-language paragraphs restating the ticket as the
+## What this actually means
+One-to-three plain-language paragraphs restating the subject as the
 research understood it — the normalized version a newcomer could act
 on. No jargon that the Lexicon below doesn't resolve.
 
 ## Goal
-The user / business problem this solves, evidence-backed (quote +
-source). If the goal itself is a gap, say so here in one line and
-point at the question that covers it.
+The user / business problem this solves (or, for a question subject,
+what is really being asked and why), evidence-backed (quote + source).
+If the goal itself is a gap, say so here in one line and point at the
+question that covers it.
 
 ## Known facts
 | fact | source |
@@ -60,7 +65,10 @@ questions below may overturn these — that is the point.
       Default if unanswered: <the assumption the plan will proceed on>
       Answer: _pending_
 (One `### →` block per addressee, ordered by blocking impact;
-questions follow the crafting rules in `gap-analysis.md` §3.)
+questions follow the crafting rules in `gap-analysis.md` §3. A
+question nobody in the evidence can answer goes under a `### → You
+(requester)` block — for prompt / question subjects that block only
+holds what the user deferred when asked inline.)
 
 ## Clarifications log
 ### Session <date>
@@ -80,8 +88,9 @@ Unavailable: <channel → why → what it likely holds>
 
 ## Next step
 Fill the `Answer:` lines (or reply to the questions wherever they were
-asked) and re-run `/wise-grill <ticket>` — it ingests the answers,
-re-scores the gaps, and upgrades this blueprint into `PLAN-<ref>.md`.
+asked) and re-run `/wise-grill <subject or path-to-this-blueprint>` —
+it ingests the answers, re-scores the gaps, and upgrades this
+blueprint into `PLAN-<ref>.md` (or `ANSWER-<ref>.md` for a question).
 ```
 
 ## Rules
@@ -100,7 +109,8 @@ re-scores the gaps, and upgrades this blueprint into `PLAN-<ref>.md`.
   blocks are written to be pasted into Slack / a comment verbatim —
   context line, options, default and all.
 - **Status flips, file upgrades.** When every critical gap is closed,
-  the caller writes `PLAN-<ref>.md` (wise's regular plan schema) beside
-  the blueprint and flips the blueprint's status line to
-  `RESOLVED → see PLAN-<ref>.md`. The blueprint stays as the decision
-  record; the plan is what gets implemented.
+  the caller writes `PLAN-<ref>.md` (wise's regular plan schema) — or
+  `ANSWER-<ref>.md` for a question subject — beside the blueprint and
+  flips the blueprint's status line to `RESOLVED → see <file>`. The
+  blueprint stays as the decision record; the plan / answer is what
+  gets acted on.
