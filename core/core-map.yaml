@@ -1,79 +1,92 @@
-# core-map.yaml — maps every canonical core/ asset to its vendored
-# counterpart(s) in each harness folder. Read by
-# scripts/report_core_drift.py (non-blocking CI report) and by humans
-# following the sync checklist in CONTRIBUTING.md.
-#
-# modes:
-#   verbatim — the vendored copy must stay byte-identical to core/;
-#              the drift report diffs it and flags any divergence.
-#   adapted  — the vendored copy intentionally diverges (harness-specific
-#              frontmatter, path rewrites, adaptation preambles); the
-#              drift report lists it as "manually verify" instead of diffing.
-#
-# Paths are repo-root-relative. A trailing slash means "map the whole
-# directory recursively" (every file under core/<dir> must exist under
-# the vendored dir for verbatim mode).
-#
-# Harness folders for codex / cursor / hermes are added by their own
-# port PRs; extend the vendored lists here in the same commit.
+# core-map.yaml — see CONTRIBUTING.md §10. Generated entries kept
+# in sync by hand; edit core/ first, then propagate to each port.
+# mode: verbatim (byte-diffed) | adapted (path/frontmatter rewrites, skipped).
 
 version: 1
-
 mappings:
-  - core: references/
-    vendored:
-      - harness: claude
-        path: harnesses/claude/wise/references/
-        mode: verbatim
-      - harness: codex
-        path: harnesses/codex/wise/references/
-        mode: adapted   # ${CLAUDE_PLUGIN_ROOT} → ${WISE_PLUGIN_ROOT} path rewrites
-
-  - core: workflows/
-    vendored:
-      - harness: claude
-        path: harnesses/claude/wise/workflows/
-        mode: verbatim
-        # Workflow READMEs carry location-dependent relative links (to
-        # docs/wise/…), so they legitimately differ per port; the
-        # workflow.yaml + prompts/ are the verbatim contract.
-        exclude: ["**/README.md"]
-      - harness: codex
-        path: harnesses/codex/wise/workflows/
-        mode: adapted   # path rewrites in workflow.yaml + prompts
-
-  - core: scripts/workflows.py
-    vendored:
-      - harness: claude
-        path: harnesses/claude/wise/scripts/workflows.py
-        mode: verbatim
-      - harness: codex
-        path: harnesses/codex/wise/scripts/workflows.py
-        mode: verbatim
-
-  - core: scripts/engine.py
-    vendored:
-      - harness: claude
-        path: harnesses/claude/wise/scripts/engine.py
-        mode: verbatim
-      - harness: codex
-        path: harnesses/codex/wise/scripts/engine.py
-        mode: verbatim
-
-  - core: scripts/engine.sh
-    vendored:
-      - harness: claude
-        path: harnesses/claude/wise/scripts/engine.sh
-        mode: verbatim
-      - harness: codex
-        path: harnesses/codex/wise/scripts/engine.sh
-        mode: verbatim
-
-  - core: agents/
-    vendored:
-      - harness: claude
-        path: harnesses/claude/wise/agents/
-        mode: adapted   # Claude roster adds tools/model/effort/color frontmatter
-      - harness: codex
-        path: harnesses/codex/wise/agents/
-        mode: verbatim   # codex vendors the neutral core cards as-is
+- core: references/
+  vendored:
+  - harness: claude
+    path: harnesses/claude/wise/references/
+    mode: verbatim
+  - harness: codex
+    path: harnesses/codex/wise/references/
+    mode: adapted
+  - harness: cursor
+    path: harnesses/cursor/wise/references/
+    mode: adapted
+  - harness: hermes
+    path: harnesses/hermes/wise/references/
+    mode: adapted
+- core: workflows/
+  vendored:
+  - harness: claude
+    path: harnesses/claude/wise/workflows/
+    mode: verbatim
+    exclude:
+    - '**/README.md'
+  - harness: codex
+    path: harnesses/codex/wise/workflows/
+    mode: adapted
+  - harness: cursor
+    path: harnesses/cursor/wise/workflows/
+    mode: adapted
+  - harness: hermes
+    path: harnesses/hermes/wise/workflows/
+    mode: adapted
+- core: scripts/workflows.py
+  vendored:
+  - harness: claude
+    path: harnesses/claude/wise/scripts/workflows.py
+    mode: verbatim
+  - harness: codex
+    path: harnesses/codex/wise/scripts/workflows.py
+    mode: verbatim
+  - harness: cursor
+    path: harnesses/cursor/wise/scripts/workflows.py
+    mode: verbatim
+  - harness: hermes
+    path: harnesses/hermes/wise/scripts/workflows.py
+    mode: verbatim
+- core: scripts/engine.py
+  vendored:
+  - harness: claude
+    path: harnesses/claude/wise/scripts/engine.py
+    mode: verbatim
+  - harness: codex
+    path: harnesses/codex/wise/scripts/engine.py
+    mode: verbatim
+  - harness: cursor
+    path: harnesses/cursor/wise/scripts/engine.py
+    mode: verbatim
+  - harness: hermes
+    path: harnesses/hermes/wise/scripts/engine.py
+    mode: verbatim
+- core: scripts/engine.sh
+  vendored:
+  - harness: claude
+    path: harnesses/claude/wise/scripts/engine.sh
+    mode: verbatim
+  - harness: codex
+    path: harnesses/codex/wise/scripts/engine.sh
+    mode: verbatim
+  - harness: cursor
+    path: harnesses/cursor/wise/scripts/engine.sh
+    mode: verbatim
+  - harness: hermes
+    path: harnesses/hermes/wise/scripts/engine.sh
+    mode: verbatim
+- core: agents/
+  vendored:
+  - harness: claude
+    path: harnesses/claude/wise/agents/
+    mode: adapted
+  - harness: codex
+    path: harnesses/codex/wise/agents/
+    mode: verbatim
+  - harness: cursor
+    path: harnesses/cursor/wise/agents/
+    mode: verbatim
+  - harness: hermes
+    path: harnesses/hermes/wise/agents/
+    mode: verbatim
