@@ -1,43 +1,33 @@
 # wise-claude
 
-> A Claude Code copilot — flat `/wise-*` slash commands, a workflow engine, and autonomous git / PR / ticket-planning pipelines.
+> A coding copilot for **Claude Code, OpenAI Codex CLI, Cursor, and Nous Research Hermes Agent** — flat `/wise-*` skills, a multi-agent workflow engine, and autonomous git / PR / ticket-planning pipelines.
 
-![version](https://img.shields.io/badge/version-3.0.0-blue)
+![version](https://img.shields.io/badge/version-3.3.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A63D2)
+![harnesses](https://img.shields.io/badge/harnesses-Claude%20Code%20·%20Codex%20·%20Cursor%20·%20Hermes-8A63D2)
+![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 
-`wise-claude` is the marketplace home of the **`wise`** plugin: a set of
-tech-neutral slash commands and multi-agent workflows that take everyday
-engineering chores — drafting commits, opening and shepherding PRs, planning
-tickets, authoring PRDs/TRDs, scaffolding new skills — off your plate. Reach
-for a single quick command, or hand off a whole ticket → merged-PR pipeline
-to run unattended.
+`wise-claude` is the home of the **`wise`** copilot: flat `/wise-*` skills,
+multi-agent **workflows**, and an SDLC **agent roster** (CEO / CTO /
+architect / engineer / QA / security / SRE / …) that take everyday
+engineering chores off your plate — drafting commits, opening and
+shepherding PRs, planning tickets, authoring PRDs/TRDs, auditing a scope
+into an executable backlog. Reach for a single quick command, or hand off
+a whole **ticket → merged-PR** pipeline to run unattended.
+
+It's maintained as a harness-neutral **`core/`** plus a hand-maintained
+**port per harness** under `harnesses/<harness>/wise/`, so the same copilot
+installs natively on whichever agent you use. **25 of the 32 skills and all
+four workflows** port to every harness; see the
+[compatibility matrix](docs/compatibility.md).
 
 ## Install
 
-In Claude Code:
+From a clone, the **universal installer** covers every harness:
 
 ```
-/plugin marketplace add e1024kb/wise-claude
-/plugin install wise@wise-claude
-```
-
-(Or run `/plugins`, choose **Add marketplace**, and enter `e1024kb/wise-claude`.)
-
-Then run `/wise-init` once to probe dependencies, and `/wise` to print the
-full command catalog.
-
-### Other harnesses (Codex, Cursor, Hermes)
-
-Since **v3.0.0** the plugin also ports to **OpenAI Codex CLI**, **Cursor**,
-and **Nous Research Hermes Agent**. Each port is a committed, independently
-installable folder under `harnesses/<harness>/wise/` — go there and install
-canonically (its README has the exact command), or use the universal
-installer from a clone:
-
-```
-./install.sh codex        # or: claude | cursor | hermes
-./install.sh cursor --project ./my-repo
+./install.sh <claude|codex|cursor|hermes>          # user-wide
+./install.sh cursor --project ./my-repo            # into one project
 ```
 
 …or via [`just`](https://just.systems):
@@ -47,29 +37,37 @@ just install codex
 just install cursor project=./my-repo
 ```
 
-Codex additionally supports its plugin marketplace
-(`codex plugin marketplace add e1024kb/wise-claude`, catalog at
-`.agents/plugins/marketplace.json`). Cursor and Hermes install the skills
-by copy (`~/.cursor/skills`, `~/.hermes/skills`). Non-Claude ports set a
-`WISE_PLUGIN_ROOT` env var so skills and workflows resolve their shared
-files (the installer prints the `export` line).
+Each harness also has a **canonical install** (and each port's
+`harnesses/<harness>/wise/README.md` has the exact steps):
 
-**25 of the 32 skills port** (all four bundled workflows do); the
-self-improvement loop and a few Claude-specific skills stay Claude-only.
-See the full [compatibility matrix](docs/compatibility.md).
+| Harness | Canonical install |
+|---|---|
+| **Claude Code** | `/plugin marketplace add e1024kb/wise-claude` then `/plugin install wise@wise-claude` |
+| **OpenAI Codex CLI** | `codex plugin marketplace add e1024kb/wise-claude` then `codex plugin install wise` (catalog: `.agents/plugins/marketplace.json`) |
+| **Cursor** | copy skills into `~/.cursor/skills/` (or a project `.agents/skills/`) — or `./install.sh cursor` |
+| **Hermes Agent** | copy skills into `~/.hermes/skills/` — or `./install.sh hermes` |
+
+**Non-Claude ports** set a `WISE_PLUGIN_ROOT` env var so skills and
+workflows resolve their shared files (the installer prints the `export`
+line). On Claude Code, run `/wise-init` once to probe dependencies and
+`/wise` to print the full command catalog.
 
 ## What you get
 
-### Slash commands
+Availability varies per harness — see the
+[compatibility matrix](docs/compatibility.md).
+
+### Skills
 
 - **Git & commits** — `/wise-commit-message` (draft only), `/wise-commit`
   (draft + commit), `/wise-commit-push` (draft + commit + push), all
   Conventional-Commits aware.
 - **Pull requests** — `/wise-pr-create`, `/wise-pr-add-reviewers`,
   `/wise-pr-watch` (drive CI + review comments to green).
-- **Planning & docs** — interactive ticket planning, `/wise-revise`
-  (audit a scope and write executable improvement plans into
-  `docs/plans/`), the model-invoked `wise-prd-architect` /
+- **Planning & docs** — interactive ticket planning, `/wise-grill` (deep-
+  research a ticket / doc / prompt into a plan, blueprint, or answer),
+  `/wise-revise` (audit a scope and write executable improvement plans
+  into `docs/plans/`), the model-invoked `wise-prd-architect` /
   `wise-trd-architect` document authors, and the `wise-estimation`
   story-point reference.
 - **Authoring** — `/wise-skills-create`, `/wise-skills-edit`, and the
@@ -90,38 +88,46 @@ See the full [compatibility matrix](docs/compatibility.md).
 - **`ticket-plan`** — autonomous planning you review and adjust before you
   implement.
 
-To drive a single PR's CI + review queues to green interactively, use the
-standalone `/wise-pr-watch` command.
+The workflow **engine** runs on every harness; the **conductor** maps each
+step to that harness's primitives (parallel subagents on Claude / Hermes,
+sequential on Cursor, subagents-where-available on Codex — see each port's
+`/wise-workflow-run` execution note).
 
-See the [`wise` plugin README](harnesses/claude/wise/README.md) for the full command
-reference, and [`docs/wise/`](docs/wise/) for the workflow engine, the `/wise`
-dispatcher, and the skill-authoring guides.
+See the [Claude port's plugin README](harnesses/claude/wise/README.md) for
+the full command reference and [`docs/wise/`](docs/wise/) for the workflow
+engine, the `/wise` dispatcher, and the skill-authoring guides.
 
 ## Requirements
 
-- Claude Code
-- Python 3, Node ≥ 22, and the GitHub `gh` CLI (authenticated) — `/wise-init`
-  probes for these and walks you through anything missing.
+- **A supported harness** — Claude Code, OpenAI Codex CLI, Cursor, or
+  Nous Research Hermes Agent.
+- **`git`**, and an authenticated **`gh` CLI** for the PR skills.
+- **Python 3** (with `pyyaml` + `python-ulid`) for the workflow engine.
+- On Claude Code, `/wise-init` probes these and walks you through anything
+  missing; the other ports document prerequisites in their READMEs.
 
 ## Repository layout
 
-As of **v3.0.0** the repo is organized by harness (see the migration
-note below). `core/` is the canonical harness-neutral source; each
-`harnesses/<harness>/wise/` folder is an independently installable port.
+The repo is organized by harness (a v3.0.0 layout change — see the
+migration note). `core/` is the canonical harness-neutral source; each
+`harnesses/<harness>/wise/` folder is an independently installable port
+that vendors from it.
 
 ```
 wise-claude/
-├── .claude-plugin/marketplace.json   # Claude Code marketplace index → harnesses/claude/wise
-├── core/                             # canonical harness-neutral source (references, workflows, engine)
+├── .claude-plugin/marketplace.json      # Claude Code marketplace index → harnesses/claude/wise
+├── .agents/plugins/marketplace.json     # Codex marketplace catalog → harnesses/codex/wise
+├── core/                                # canonical harness-neutral source (references, agents, workflows, engine)
 ├── harnesses/
-│   └── claude/wise/                  # the Claude Code plugin (skills, workflows, scripts)
-├── docs/wise/                        # workflow engine + authoring reference
-└── CONTRIBUTING.md                   # full contributor manual
+│   ├── claude/wise/                     # Claude Code plugin
+│   ├── codex/wise/                      # OpenAI Codex CLI port
+│   ├── cursor/wise/                     # Cursor port
+│   └── hermes/wise/                     # Hermes Agent port
+├── install.sh · justfile                # universal installer
+├── docs/wise/                           # workflow engine + authoring reference
+├── docs/compatibility.md                # skill × harness matrix
+└── CONTRIBUTING.md                      # full contributor manual (§10 = cross-harness sync)
 ```
-
-Support for OpenAI Codex CLI, Cursor, and Nous Research Hermes Agent is
-being added under `harnesses/<harness>/wise/`; see each port's README
-for its canonical install command.
 
 ## Migrating from v2.x → v3.0.0
 
@@ -145,18 +151,26 @@ path.
 
 ## Troubleshooting
 
-- **Commands don't show up** — confirm `/plugin install wise@wise-claude` ran,
-  then start a fresh Claude Code session.
-- **PR / workflow steps fail on auth** — run `/wise-init`; make sure
-  `gh auth status` is green and an `origin` remote exists.
+- **Skills / commands don't show up** — confirm the install step for your
+  harness ran (Claude: `/plugin install`; Codex: `codex plugin install`;
+  Cursor / Hermes: the skills copied into `~/.cursor/skills` /
+  `~/.hermes/skills`), then start a fresh session.
+- **A skill or workflow can't find its shared files** (non-Claude ports) —
+  `WISE_PLUGIN_ROOT` is unset; export it to the pack's install directory
+  (the installer prints the line).
+- **PR / workflow steps fail on auth** — on Claude, run `/wise-init`;
+  everywhere, make sure `gh auth status` is green and an `origin` remote
+  exists.
 - **`/wise` can't classify a request** — type the `/wise-` prefix to browse
-  every command in the slash menu.
+  every command in the menu.
 
 ## Contributing
 
 Issues and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
-conventions, local-install steps, and validation checks. You can also file
-feedback without leaving Claude Code: `/wise-feedback`.
+conventions, local-install steps, validation checks, and the **§10
+cross-harness sync model** (edit `core/` first, then propagate to each
+port). You can also file feedback from inside the agent with
+`/wise-feedback`.
 
 ## License
 

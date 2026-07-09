@@ -15,6 +15,11 @@ for reasons that are listed there.
 
 ## What this plugin is
 
+This directory is the **Claude Code port** of `wise` — one of four
+harness ports (`harnesses/{claude,codex,cursor,hermes}/wise/`) that vendor
+from the harness-neutral `core/`. Everything below describes the Claude
+port; the cross-harness sync model is in the root `CONTRIBUTING.md` §10.
+
 `wise` is a standalone copilot plugin in the `wise-claude`
 marketplace: a workflow engine, shared scripts, and a set of
 tech-neutral action skills (`/wise-init`, `/wise-workflow-*`,
@@ -300,7 +305,10 @@ one-liners below are the rule, not the argument for it.
   hard-code paths so future relocations are one-function changes.
   (`insights.py` mirrors that helper with a stdlib-only fallback,
   because the SessionEnd hook may run before pyyaml is installed; the
-  canonical helper is still used whenever importable.)
+  canonical helper is still used whenever importable.) Off Claude, where
+  `${CLAUDE_PLUGIN_DATA}` is unset, `plugin_data_root()` falls back to
+  `$WISE_DATA_DIR` then `wise_data_root()` — so the same engine runs on the
+  other ports; on the Claude port the Claude vars win, unchanged.
 - **Init registry — the one file we write inside `${CLAUDE_PLUGIN_ROOT}`.**
   `/wise-init` caches probe results at
   `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`. It lives in the

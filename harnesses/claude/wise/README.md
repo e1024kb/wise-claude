@@ -1,5 +1,11 @@
 # wise — a Claude Code copilot
 
+> This is the **Claude Code port** of the `wise` copilot. The
+> harness-neutral source lives in [`core/`](../../../core/), and sibling
+> ports live under `harnesses/{codex,cursor,hermes}/wise/`. For what ports
+> to which harness, see the
+> [compatibility matrix](../../../docs/compatibility.md).
+
 A Claude Code plugin that ships everyday git / PR / ticket-planning /
 workflow automation as a suite of first-class, autocomplete-visible
 slash commands. Every command is flat (`/wise-init`, `/wise-workflow-run`,

@@ -111,10 +111,15 @@ alias with a notice. See
 
 ## Adding or editing a role
 
-1. Add or edit `agents/<role>.md` — match the shape of the existing
-   files (frontmatter `name`/`description`/`tools`/`model: inherit`/
-   `effort`/`color`, then the role's system prompt). Plugin subagents
-   **must not** declare `hooks`, `mcpServers`, or `permissionMode`.
+1. Edit the **canonical neutral card** at `core/agents/<role>.md` first
+   (name + description + persona prose only). Then edit this port's
+   `agents/<role>.md` — the same content plus the Claude frontmatter
+   (`tools` / `model: inherit` / `effort` / `color`). Plugin subagents
+   **must not** declare `hooks`, `mcpServers`, or `permissionMode`. The
+   other ports vendor the neutral `core/` card verbatim; keep the two in
+   sync (see the root `CONTRIBUTING.md` §10 and `core/core-map.yaml`).
 2. Add or update the row in the table above — the "When `auto` picks it"
    cell is the routing hint the conductor reads.
-3. Run `python3 scripts/workflows.py list-agents` to confirm it parses.
+3. Run `python3 scripts/workflows.py list-agents` to confirm it parses,
+   and `python3 scripts/report_core_drift.py` from the repo root to check
+   the neutral card and the port cards agree.

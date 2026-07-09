@@ -90,8 +90,10 @@ lock-step.
 
 ## Discovery
 
-`engine.py` walks `harnesses/claude/wise/skills/` and reads the `SKILL.md`
-frontmatter of every skill directory it finds. Each skill is bucketed
+`engine.py` walks the port's `skills/` directory (on the Claude port,
+`harnesses/claude/wise/skills/`; each port vendors `engine.py` and walks its
+own `skills/`) and reads the `SKILL.md` frontmatter of every skill directory
+it finds. Each skill is bucketed
 by the presence or absence of the `argument-hint:` field:
 
 - `argument-hint:` present → **standalone** (user-invocable slash
