@@ -157,6 +157,12 @@ def render_agent_card(f: Path, profile: dict) -> bytes:
     card must have an entry then)."""
     frontmatter = profile.get("agent_frontmatter")
     if frontmatter is None:
+        # The claude cards are never plain byte-copies — losing the
+        # tools/model/effort/color lines would silently de-fang every
+        # plugin subagent, so the key is mandatory there.
+        if profile["id"] == "claude":
+            sys.exit("error: profiles/claude.yaml must declare "
+                     "agent_frontmatter")
         return f.read_bytes()
     extra = frontmatter.get(f.stem)
     if extra is None:

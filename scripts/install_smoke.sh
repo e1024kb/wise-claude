@@ -47,6 +47,8 @@ for h in $HARNESSES; do
       || fail "$h: command wrappers missing from ~/.config/opencode/commands"
     [ -f "$H/.config/opencode/agents/wise-architect.md" ] \
       || fail "$h: wise-architect.md missing from ~/.config/opencode/agents"
+    grep -q '^name: wise-architect$' "$H/.config/opencode/agents/wise-architect.md" \
+      || fail "$h: installed agent card kept its neutral frontmatter name"
     [ ! -e "$H/.config/opencode/agents/architect.md" ] \
       || fail "$h: neutral-named architect.md leaked into ~/.config/opencode/agents"
     [ -d "$root/commands" ] || fail "$h: shared-root pack lacks commands/"

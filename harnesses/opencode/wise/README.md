@@ -49,11 +49,13 @@ setup.
 The same four steps by hand:
 
 ```bash
+mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands \
+         ~/.config/opencode/agents
 cp -R harnesses/opencode/wise/skills/* ~/.config/opencode/skills/
-mkdir -p ~/.config/opencode/commands ~/.config/opencode/agents
 cp harnesses/opencode/wise/commands/*.md ~/.config/opencode/commands/
 for f in harnesses/opencode/wise/agents/*.md; do
-  cp "$f" ~/.config/opencode/agents/"wise-$(basename "$f")"
+  r="$(basename "$f" .md)"
+  sed "s/^name: $r$/name: wise-$r/" "$f" > ~/.config/opencode/agents/"wise-$r.md"
 done
 mkdir -p ~/.local/share/wise/harness/opencode
 cp -R harnesses/opencode/wise/references harnesses/opencode/wise/agents \

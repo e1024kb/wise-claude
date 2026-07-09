@@ -71,7 +71,7 @@ skills_target() {
     codex)    echo "$HOME/.agents/skills" ;;
     cursor)   echo "$HOME/.cursor/skills" ;;
     hermes)   echo "$HOME/.hermes/skills" ;;
-    opencode) echo "$HOME/.config/opencode/skills" ;;
+    opencode) echo "${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}/skills" ;;
     claude)   echo "" ;;  # claude uses the plugin marketplace, not a copy
   esac
 }
@@ -101,11 +101,12 @@ lay_shared_root() {
 }
 
 # ---- opencode extras: command wrappers + subagent role cards ----------------
-# User-scope only — opencode reads both from ~/.config/opencode/, which
-# this installer has no project-scoped analogue for. The in-pack agent
-# filenames stay neutral (<role>.md); the copy adds the wise- prefix so
-# the cards register as @wise-<role> without colliding with user agents.
-OPENCODE_CONFIG="$HOME/.config/opencode"
+# User-scope only — opencode reads both from its config dir, which this
+# installer has no project-scoped analogue for. The in-pack agent
+# filenames stay neutral (<role>.md); the copy adds the wise- prefix
+# (filename AND frontmatter name:) so the cards register as
+# @wise-<role> without colliding with user agents.
+OPENCODE_CONFIG="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 
 install_opencode_extras() {
   mkdir -p "$OPENCODE_CONFIG/commands" "$OPENCODE_CONFIG/agents"
@@ -117,11 +118,12 @@ install_opencode_extras() {
     cp "$f" "$dest"
   done
   for f in "$PACK"/agents/*.md; do
-    dest="$OPENCODE_CONFIG/agents/wise-$(basename "$f")"
+    role="$(basename "$f" .md)"
+    dest="$OPENCODE_CONFIG/agents/wise-$role.md"
     if [ -e "$dest" ] && [ "$FORCE" = "0" ]; then
       die "$dest exists (use --force to overwrite)"
     fi
-    cp "$f" "$dest"
+    sed "s/^name: $role\$/name: wise-$role/" "$f" > "$dest"
   done
 }
 
