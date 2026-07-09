@@ -246,43 +246,125 @@ def check_doc_references(errors: list[str]) -> None:
                     )
 
 
-def check_marketplace_sources(errors: list[str]) -> None:
-    path = REPO_ROOT / ".claude-plugin/marketplace.json"
-    rel = path.relative_to(REPO_ROOT)
+def check_ports(errors: list[str], parse_frontmatter) -> None:
+    """Structural checks for each non-Claude harness port under
+    harnesses/<harness>/wise/ (codex, cursor, hermes):
+
+    - every skill's frontmatter `name:` matches its directory;
+    - no literal ${CLAUDE_PLUGIN_ROOT}/${CLAUDE_PLUGIN_DATA} survives in a
+      port's markdown / yaml (those must be rewritten to the neutral
+      ${WISE_PLUGIN_ROOT}/${WISE_DATA_DIR}); the vendored engine .py/.sh
+      are exempt — they read the env vars in code with fallbacks;
+    - any manifest (.codex-plugin/plugin.json) parses and its version
+      matches the single source (the Claude plugin.json).
+    """
+    harnesses_dir = REPO_ROOT / "harnesses"
+    if not harnesses_dir.is_dir():
+        return
+    claude_version = _claude_plugin_version()
+
+    for wise_dir in sorted(harnesses_dir.glob("*/wise")):
+        harness = wise_dir.parent.name
+        if harness == "claude":
+            continue  # the Claude port is checked by the main harness above
+
+        # skill frontmatter name === dir
+        for skill_md in sorted((wise_dir / "skills").glob("*/SKILL.md")):
+            rel = skill_md.relative_to(REPO_ROOT)
+            dir_name = skill_md.parent.name
+            name = parse_frontmatter(skill_md).get("name")
+            if name != dir_name:
+                errors.append(
+                    f"{rel}: frontmatter name {name!r} != dir name {dir_name!r}"
+                )
+
+        # no Claude-specific env vars left in port md / yaml
+        for f in sorted(wise_dir.rglob("*")):
+            if f.suffix not in (".md", ".yaml", ".yml") or not f.is_file():
+                continue
+            rel = f.relative_to(REPO_ROOT)
+            try:
+                text = f.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for var in ("${CLAUDE_PLUGIN_ROOT}", "${CLAUDE_PLUGIN_DATA}"):
+                if var in text:
+                    errors.append(
+                        f"{rel}: contains {var} — non-Claude ports must use "
+                        "${WISE_PLUGIN_ROOT} / ${WISE_DATA_DIR}"
+                    )
+
+        # codex plugin manifest parses + version matches the single source
+        codex_manifest = wise_dir / ".codex-plugin" / "plugin.json"
+        if codex_manifest.is_file():
+            rel = codex_manifest.relative_to(REPO_ROOT)
+            try:
+                data = json.loads(codex_manifest.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                errors.append(f"{rel}: invalid JSON ({exc})")
+            else:
+                v = data.get("version")
+                if claude_version is not None and v != claude_version:
+                    errors.append(
+                        f"{rel}: version {v!r} != single source "
+                        f"{claude_version!r} (harnesses/claude/wise/.claude-plugin/plugin.json)"
+                    )
+
+
+def _claude_plugin_version() -> str | None:
+    path = REPO_ROOT / "harnesses/claude/wise/.claude-plugin/plugin.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8")).get("version")
     except (FileNotFoundError, json.JSONDecodeError):
-        # Already reported by check_json_manifests.
-        return
-    if not isinstance(data, dict):
-        errors.append(f"{rel}: top-level JSON is not a mapping")
-        return
-    plugins = data.get("plugins", [])
-    if not isinstance(plugins, list):
-        errors.append(f"{rel}: 'plugins' is not a list: {plugins!r}")
-        return
-    for plugin in plugins:
-        if not isinstance(plugin, dict):
-            errors.append(f"{rel}: plugin entry is not a mapping: {plugin!r}")
+        return None
+
+
+def check_marketplace_sources(errors: list[str]) -> None:
+    # Both the Claude Code marketplace (repo root .claude-plugin/) and the
+    # Codex marketplace catalog (.agents/plugins/) resolve from the repo
+    # root; validate every plugin source in each.
+    for rel_manifest in (
+        ".claude-plugin/marketplace.json",
+        ".agents/plugins/marketplace.json",
+    ):
+        path = REPO_ROOT / rel_manifest
+        if not path.is_file():
             continue
-        source = plugin.get("source", "")
-        name = plugin.get("name", "<unnamed>")
-        if not isinstance(source, str):
+        rel = path.relative_to(REPO_ROOT)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            errors.append(f"{rel}: invalid JSON")
+            continue
+        if not isinstance(data, dict):
+            errors.append(f"{rel}: top-level JSON is not a mapping")
+            continue
+        plugins = data.get("plugins", [])
+        if not isinstance(plugins, list):
+            errors.append(f"{rel}: 'plugins' is not a list: {plugins!r}")
+            continue
+        for plugin in plugins:
+            if not isinstance(plugin, dict):
+                errors.append(f"{rel}: plugin entry is not a mapping: {plugin!r}")
+                continue
+            source = plugin.get("source", "")
+            name = plugin.get("name", "<unnamed>")
+            if not isinstance(source, str):
+                errors.append(
+                    f"{rel}: plugin {name!r} source {source!r} is neither a local "
+                    "./ path nor SHA-pinned"
+                )
+                continue
+            if source.startswith("./"):
+                continue
+            # Accept a 40-char hex SHA anywhere in the source string (e.g.
+            # a `github:owner/repo#<sha>` or `git+https://...#<sha>` form).
+            if any(SHA_RE.match(tok) for tok in re.split(r"[#/@]", source)):
+                continue
             errors.append(
                 f"{rel}: plugin {name!r} source {source!r} is neither a local "
                 "./ path nor SHA-pinned"
             )
-            continue
-        if source.startswith("./"):
-            continue
-        # Accept a 40-char hex SHA anywhere in the source string (e.g.
-        # a `github:owner/repo#<sha>` or `git+https://...#<sha>` form).
-        if any(SHA_RE.match(tok) for tok in re.split(r"[#/@]", source)):
-            continue
-        errors.append(
-            f"{rel}: plugin {name!r} source {source!r} is neither a local "
-            "./ path nor SHA-pinned"
-        )
 
 
 def main() -> int:
@@ -304,6 +386,7 @@ def main() -> int:
     skill_errors: list[str] = []
     ref_errors: list[str] = []
     source_errors: list[str] = []
+    port_errors: list[str] = []
 
     # Run the checks that don't depend on workflows.py first, so a
     # missing/broken workflows.py still gets json/doc-ref/source errors
@@ -340,6 +423,7 @@ def main() -> int:
         else:
             check_workflows(workflow_errors, step_types, trigger_rules)
             check_skill_frontmatter(skill_errors, parse_frontmatter)
+            check_ports(port_errors, parse_frontmatter)
 
     sections = [
         ("json manifests", json_errors),
@@ -347,6 +431,7 @@ def main() -> int:
         ("skill frontmatter", skill_errors),
         ("doc cross-references", ref_errors),
         ("marketplace source pins", source_errors),
+        ("harness ports", port_errors),
     ]
 
     all_errors = [e for _, errs in sections for e in errs]
