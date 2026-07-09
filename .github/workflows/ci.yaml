@@ -38,10 +38,12 @@ jobs:
           python3 -m json.tool harnesses/claude/wise/.claude-plugin/plugin.json > /dev/null
 
       - name: Bash scripts parse
-        run: bash -n harnesses/claude/wise/scripts/*.sh
+        run: |
+          bash -n install.sh
+          for f in harnesses/*/wise/scripts/*.sh; do bash -n "$f"; done
 
       - name: Python scripts compile
-        run: python3 -m py_compile harnesses/claude/wise/scripts/*.py core/scripts/*.py scripts/validate_repo.py
+        run: python3 -m py_compile harnesses/*/wise/scripts/*.py core/scripts/*.py scripts/*.py
 
       - name: No stale /wise:* name references
         run: |
@@ -58,6 +60,10 @@ jobs:
 
       - name: Repo validation harness
         run: python3 scripts/validate_repo.py
+
+      - name: Core drift report (non-blocking)
+        continue-on-error: true
+        run: python3 scripts/report_core_drift.py
 
       - name: Pytest
         run: python3 -m pytest harnesses/claude/wise/tests -q || [ $? -eq 5 ]

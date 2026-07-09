@@ -27,6 +27,37 @@ In Claude Code:
 Then run `/wise-init` once to probe dependencies, and `/wise` to print the
 full command catalog.
 
+### Other harnesses (Codex, Cursor, Hermes)
+
+Since **v3.0.0** the plugin also ports to **OpenAI Codex CLI**, **Cursor**,
+and **Nous Research Hermes Agent**. Each port is a committed, independently
+installable folder under `harnesses/<harness>/wise/` — go there and install
+canonically (its README has the exact command), or use the universal
+installer from a clone:
+
+```
+./install.sh codex        # or: claude | cursor | hermes
+./install.sh cursor --project ./my-repo
+```
+
+…or via [`just`](https://just.systems):
+
+```
+just install codex
+just install cursor project=./my-repo
+```
+
+Codex additionally supports its plugin marketplace
+(`codex plugin marketplace add e1024kb/wise-claude`, catalog at
+`.agents/plugins/marketplace.json`). Cursor and Hermes install the skills
+by copy (`~/.cursor/skills`, `~/.hermes/skills`). Non-Claude ports set a
+`WISE_PLUGIN_ROOT` env var so skills and workflows resolve their shared
+files (the installer prints the `export` line).
+
+**25 of the 32 skills port** (all four bundled workflows do); the
+self-improvement loop and a few Claude-specific skills stay Claude-only.
+See the full [compatibility matrix](docs/compatibility.md).
+
 ## What you get
 
 ### Slash commands
