@@ -11,7 +11,7 @@ don't edit it by hand. See the root `CONTRIBUTING.md` §10.
 
 ## Install
 
-```
+```bash
 git clone https://github.com/e1024kb/wise-claude && cd wise-claude
 ./install.sh cursor        # or: just install cursor
 ```
@@ -38,7 +38,7 @@ only to avoid duplicate skills in the `/` menu (per-project:
 
 The same two steps by hand:
 
-```
+```bash
 cp -R harnesses/cursor/wise/skills/* ~/.cursor/skills/
 mkdir -p ~/.local/share/wise/harness/cursor
 cp -R harnesses/cursor/wise/references harnesses/cursor/wise/agents \

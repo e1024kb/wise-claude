@@ -1017,16 +1017,20 @@ committed in the repo.
   - `core/ports/` — the generator inputs (§10.2): per-harness profiles,
     note templates, overlays, and static files.
 - **Regenerate** after any source edit:
+
   ```bash
   python3 scripts/build_ports.py   # or: just build
   ```
+
   It rewrites all generated content in place (and deletes stray files
   in fully-generated roots). Commit the regenerated files together with
   the source change.
 - **CI enforces sync** with:
+
   ```bash
   python3 scripts/build_ports.py --check   # or: just build-check
   ```
+
   It renders to a temp dir, diffs against the committed tree, prints
   any `differs` / `missing` / `stray` paths, and exits non-zero on
   drift. A red check means either you forgot to regenerate or you
@@ -1099,10 +1103,12 @@ There is **one version source** —
 `harnesses/claude/wise/.claude-plugin/plugin.json`. Every port manifest
 and marketplace catalog carries the same version; CI's version-match
 check enforces it. A change under `harnesses/` or `core/` must bump
-that file (§8). Note the Codex port's manifest is a generated copy of
-the static input `core/ports/static/codex/.codex-plugin/plugin.json` —
-a version bump edits **both** the Claude `plugin.json` and that static
-file, then regenerates with `python3 scripts/build_ports.py`.
+that file (§8). The Codex port's manifest is generated from the static
+input `core/ports/static/codex/.codex-plugin/plugin.json`, whose
+`version` field is a `0.0.0` placeholder — the generator injects the
+Claude `plugin.json` version on render. A version bump edits **only**
+the Claude `plugin.json`, then regenerates with
+`python3 scripts/build_ports.py`.
 
 ---
 

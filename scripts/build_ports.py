@@ -93,6 +93,17 @@ OVERLAY_SEP = "======="
 OVERLAY_END = ">>>>>>>"
 
 
+def claude_version() -> str:
+    """The single version source (CONTRIBUTING §10.4) — injected into
+    every generated port manifest."""
+    manifest = (CLAUDE_PORT / ".claude-plugin" / "plugin.json").read_text(
+        encoding="utf-8")
+    m = re.search(r'"version": *"([^"]*)"', manifest)
+    if not m:
+        sys.exit("error: no version field in the Claude plugin.json")
+    return m.group(1)
+
+
 def long_root(harness: str) -> str:
     """The canonical defaulted expansion for a port's executable bash
     contexts (CONTRIBUTING §10.3) — must byte-match what install.sh
@@ -248,7 +259,7 @@ def render_skill_md(text: str, skill: str, profile: dict, rel: str) -> str:
             profile).rstrip("\n")
         lines = body.split("\n")
         h1 = next((i for i, l in enumerate(lines) if l.startswith("# ")), None)
-        if h1 is None or lines[h1 + 1] != "":
+        if h1 is None or h1 + 1 >= len(lines) or lines[h1 + 1] != "":
             sys.exit(f"error: {rel}: cannot find 'H1 + blank line' "
                      "insertion point for the preamble blockquote")
         lines[h1 + 2:h1 + 2] = [preamble, ""]
@@ -347,7 +358,15 @@ def render_all() -> dict[str, bytes]:
         static_dir = PORTS_INPUTS / "static" / harness
         if static_dir.is_dir():
             for f in _files_under(static_dir):
-                put(port_rel / f.relative_to(static_dir), f.read_bytes())
+                data = f.read_bytes()
+                if f.name == "plugin.json":
+                    # Port manifests carry the single version source
+                    # (the Claude plugin.json, per CONTRIBUTING §10.4);
+                    # the static input's version field is a placeholder.
+                    data = re.sub(rb'"version": *"[^"]*"',
+                                  b'"version": "' + claude_version().encode("ascii") + b'"',
+                                  data, count=1)
+                put(port_rel / f.relative_to(static_dir), data)
 
     return out
 

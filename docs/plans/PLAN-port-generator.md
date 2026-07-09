@@ -85,12 +85,14 @@ checks), 83 engine tests, `install_smoke.sh`, drift-free.
 ## Tasks (waves)
 
 ### Wave 1 — extraction specs (parallel, read-only)
+
 - A1/A2/A3: for codex / cursor / hermes, inventory EVERY file differing
   from its source (claude skills or core) and classify each hunk:
   envvar | preamble | note | frontmatter | overlay | static. Emit the
   exact note texts, preamble texts, overlay sections, static file list.
 
 ### Wave 2 — generator (sequential, single owner)
+
 - B1: write `scripts/build_ports.py` (stdlib + pyyaml, bash-free), author
   `core/ports/` (profiles, note templates, overlays, static) from the
   Wave-1 specs; **loop**: generate → diff vs committed → refine until only
@@ -98,6 +100,7 @@ checks), 83 engine tests, `install_smoke.sh`, drift-free.
   Constraint: engines, install.sh, core assets unchanged.
 
 ### Wave 3 — integration (parallel, disjoint files)
+
 - C1: wiring — CI step `build --check`, `just build` + `check` recipe,
   retire `report_core_drift.py` + core-map (generator manifest subsumes
   them), update `validate_repo.py` core-map checks accordingly.
@@ -108,10 +111,12 @@ checks), 83 engine tests, `install_smoke.sh`, drift-free.
   profile + overlay work; versions shift opencode→3.6.0, pi→3.7.0.
 
 ### Wave 4 — ship
+
 - D1: version 3.4.0→3.5.0 (plugin.json + codex manifest), full verify
   (`just check` + regen check + unset-env smoke), PR, CI green, merge.
 
 ## Verification checklist
+
 1. `python3 scripts/build_ports.py --check` — clean on the committed tree.
 2. `python3 scripts/validate_repo.py` — green.
 3. `python3 -m pytest harnesses/claude/wise/tests -q` — 83 pass.
@@ -121,6 +126,7 @@ checks), 83 engine tests, `install_smoke.sh`, drift-free.
 6. Review normalization diff list (PR body).
 
 ## Out of scope
+
 - opencode / pi ports themselves (next PRs, now profile-driven).
 - Any engine (`workflows.py`/`engine.py`/`engine.sh`) or `install.sh` change.
 - Generating the claude port's `skills/` (it is the source).

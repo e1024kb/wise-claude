@@ -7,7 +7,7 @@ not installable itself** — users install a *port* under
 `harnesses/<harness>/wise/`, each of which is generated from `core/` (plus
 the Claude port's skills) by `scripts/build_ports.py`.
 
-```
+```text
 core/
 ├── references/     # shared prose routines (grill, pr, commit, supervise, …)
 ├── agents/         # 13 neutral SDLC role cards (name + description + persona;
@@ -40,7 +40,7 @@ harness-adaptation note). The generated output is committed;
 `harnesses/claude/wise/skills/` for skills, `core/ports/` for per-port
 adaptations — **then regenerate**:
 
-```
+```bash
 python3 scripts/build_ports.py     # or: just build
 ```
 

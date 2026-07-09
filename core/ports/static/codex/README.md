@@ -11,7 +11,7 @@ don't edit it by hand. See the root `CONTRIBUTING.md` §10.
 
 ## Install
 
-```
+```bash
 git clone https://github.com/e1024kb/wise-claude && cd wise-claude
 ./install.sh codex        # or: just install codex
 ```
@@ -33,7 +33,7 @@ inside Codex to finish any missing setup.
 
 The same two steps by hand:
 
-```
+```bash
 cp -R harnesses/codex/wise/skills/* ~/.agents/skills/
 mkdir -p ~/.local/share/wise/harness/codex
 cp -R harnesses/codex/wise/references harnesses/codex/wise/agents \

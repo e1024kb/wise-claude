@@ -12,7 +12,7 @@ don't edit it by hand. See the root `CONTRIBUTING.md` §10.
 
 ## Install
 
-```
+```bash
 git clone https://github.com/e1024kb/wise-claude && cd wise-claude
 ./install.sh hermes        # or: just install hermes
 ```
@@ -34,7 +34,7 @@ inside Hermes to finish any missing setup.
 
 The same two steps by hand:
 
-```
+```bash
 cp -R harnesses/hermes/wise/skills/* ~/.hermes/skills/
 mkdir -p ~/.local/share/wise/harness/hermes
 cp -R harnesses/hermes/wise/references harnesses/hermes/wise/agents \

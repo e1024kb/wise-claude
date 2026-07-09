@@ -224,11 +224,11 @@ hard-errors otherwise). Note templates use `{{harness_name}}` /
   `docs/wise/skills-authoring.md` — locate by content, not line number.
 
 **Wave A3 (after A1/A2)**
-- [ ] **A3.1 — Ship** (1 SP). Bump **both** version sources:
-  `harnesses/claude/wise/.claude-plugin/plugin.json` AND the static
-  input `core/ports/static/codex/.codex-plugin/plugin.json` → **3.6.0**
-  (the codex manifest is a byte-copied static — validate_repo enforces
-  the match), then re-run `python3 scripts/build_ports.py`. Run
+- [ ] **A3.1 — Ship** (1 SP). Bump the single version source
+  `harnesses/claude/wise/.claude-plugin/plugin.json` → **3.6.0** (the
+  codex manifest's version is injected by the generator; its static
+  input carries a `0.0.0` placeholder), then re-run
+  `python3 scripts/build_ports.py`. Run
   `just check` (validate + build --check + tests); expect clean check
   and 83 tests. Branch → PR `feat(wise): add opencode port (v3.6.0)`
   → CI green → squash-merge.
@@ -281,9 +281,9 @@ hard-errors otherwise). Note templates use `{{harness_name}}` /
   enumerations as A2.2 (now six harnesses).
 
 **Wave B3 (after B1/B2)**
-- [ ] **B3.1 — Ship** (1 SP). Version → **3.7.0** in all three places:
-  claude plugin.json, `core/ports/static/codex/.codex-plugin/plugin.json`,
-  root `package.json` — then regenerate (`build_ports.py`).
+- [ ] **B3.1 — Ship** (1 SP). Version → **3.7.0** in the claude
+  plugin.json and root `package.json` (the codex manifest's version is
+  generator-injected) — then regenerate (`build_ports.py`).
   `just check`; PR `feat(wise): add Pi port (v3.7.0)`; CI green;
   squash-merge.
 
