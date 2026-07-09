@@ -1,13 +1,13 @@
 ---
 name: wise-init
 description: >-
-  First-time setup wizard — walk the user through installing wise's
-  system deps (Python 3 + pyyaml/ulid/typing_extensions, Node ≥22, gh
-  CLI + `gh auth login`) and cache the probe results so workflow runs
-  skip the live check. Idempotent — re-running only prompts for gaps.
-  Invoked as `/wise-init`. Use when the user says "init wise", "set up
-  wise", "install wise deps", "first-time setup", "run the setup
-  wizard", or types `/wise-init`.
+  First-time setup wizard — walk the user through installing wise's system
+  deps (Python 3 + pyyaml/ulid/typing_extensions, Node ≥22, gh CLI + `gh
+  auth login`) and cache the probe results so workflow runs skip the live
+  check. Idempotent — re-running only prompts for gaps. Invoked as
+  `/wise-init`. Use when the user says "init wise", "set up wise",
+  "install wise deps", "first-time setup", "run the setup wizard", or
+  types `/wise-init`.
 ---
 
 ## Harness adaptation note

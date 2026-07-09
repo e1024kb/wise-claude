@@ -1,0 +1,81 @@
+# Harness profile — Claude Code (the reference implementation).
+#
+# The Claude port's skills/ are the canonical source and are NOT
+# generated. What IS generated for this port: references/, workflows/
+# (byte-copy from core, with the workflow-README doc links re-based one
+# directory deeper), scripts/ engine trio (byte-copy from core), and
+# agents/ (core role cards + the Claude-specific frontmatter lines
+# below, inserted before the closing `---`).
+id: claude
+name: Claude Code
+
+# Extra frontmatter appended to each core agent card, in this key
+# order. `tools` is the Claude Code tool grant; `model: inherit` keeps
+# the conductor's model; `effort`/`color` are Claude Code agent-card
+# fields.
+agent_frontmatter:
+  architect:
+    tools: Read, Grep, Glob, Bash, Write, WebSearch
+    model: inherit
+    effort: high
+    color: cyan
+  ceo:
+    tools: Read, Grep, Glob, WebSearch, WebFetch
+    model: inherit
+    effort: high
+    color: red
+  code-reviewer:
+    tools: Read, Grep, Glob, Bash
+    model: inherit
+    effort: high
+    color: yellow
+  cto:
+    tools: Read, Grep, Glob, WebSearch, WebFetch
+    model: inherit
+    effort: high
+    color: orange
+  devops-engineer:
+    tools: Read, Write, Edit, Bash, Glob, Grep
+    model: inherit
+    effort: medium
+    color: purple
+  engineering-manager:
+    tools: Read, Grep, Glob
+    model: inherit
+    effort: medium
+    color: green
+  product-manager:
+    tools: Read, Grep, Glob, WebSearch, WebFetch
+    model: inherit
+    effort: medium
+    color: yellow
+  qa-engineer:
+    tools: Read, Write, Edit, Bash, Glob, Grep
+    model: inherit
+    effort: medium
+    color: magenta
+  security-engineer:
+    tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
+    model: inherit
+    effort: high
+    color: red
+  software-engineer:
+    tools: Read, Write, Edit, Bash, Glob, Grep
+    model: inherit
+    effort: medium
+    color: blue
+  sre:
+    tools: Read, Write, Edit, Bash, Glob, Grep
+    model: inherit
+    effort: high
+    color: orange
+  technical-writer:
+    tools: Read, Write, Edit, Glob, Grep
+    model: inherit
+    effort: low
+    color: green
+  ux-designer:
+    tools: Read, Grep, Glob, WebSearch, WebFetch
+    model: inherit
+    effort: medium
+    color: pink
