@@ -90,7 +90,7 @@ lock-step.
 
 ## Discovery
 
-`engine.py` walks `plugins/wise/skills/` and reads the `SKILL.md`
+`engine.py` walks `harnesses/claude/wise/skills/` and reads the `SKILL.md`
 frontmatter of every skill directory it finds. Each skill is bucketed
 by the presence or absence of the `argument-hint:` field:
 

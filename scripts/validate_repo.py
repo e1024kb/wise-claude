@@ -36,7 +36,7 @@ except ImportError:
     )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WISE_PLUGIN_DIR = "plugins/wise"
+WISE_PLUGIN_DIR = "harnesses/claude/wise"
 
 STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
@@ -195,8 +195,9 @@ def check_doc_references(errors: list[str]) -> None:
         md_files.extend(sorted(d.rglob("*.md")))
     # Root-level plugin/repo docs and the repo's live docs/wise/ tree
     # also carry ${CLAUDE_PLUGIN_ROOT} references in prose (e.g.
-    # plugins/wise/README.md, plugins/wise/CLAUDE.md, CONTRIBUTING.md,
-    # docs/wise/workflows.md) — not just the skills/workflows/references
+    # harnesses/claude/wise/README.md, harnesses/claude/wise/CLAUDE.md,
+    # CONTRIBUTING.md, docs/wise/workflows.md) — not just the
+    # skills/workflows/references
     # markdown scanned above. docs/plans/ is deliberately excluded: those
     # are point-in-time planning artifacts describing proposed or
     # historical states, not live docs whose references must resolve now.

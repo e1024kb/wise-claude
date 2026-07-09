@@ -294,7 +294,7 @@ real state — point them at throwaway dirs:
 ```bash
 export XDG_DATA_HOME=/tmp/wise-sbx WISE_SKILLS_DIR=/tmp/wise-sbx-skills
 mkdir -p /tmp/wise-sbx-skills
-cd plugins/wise
+cd harnesses/claude/wise
 
 python3 scripts/insights.py mine --since 30d --json     # mine real transcripts, ledger → /tmp
 python3 scripts/insights.py list-skills --json          # fixture skills only

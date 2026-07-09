@@ -2,7 +2,7 @@
 
 > A Claude Code copilot — flat `/wise-*` slash commands, a workflow engine, and autonomous git / PR / ticket-planning pipelines.
 
-![version](https://img.shields.io/badge/version-1.0.0-blue)
+![version](https://img.shields.io/badge/version-3.0.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A63D2)
 
@@ -62,7 +62,7 @@ full command catalog.
 To drive a single PR's CI + review queues to green interactively, use the
 standalone `/wise-pr-watch` command.
 
-See the [`wise` plugin README](plugins/wise/README.md) for the full command
+See the [`wise` plugin README](harnesses/claude/wise/README.md) for the full command
 reference, and [`docs/wise/`](docs/wise/) for the workflow engine, the `/wise`
 dispatcher, and the skill-authoring guides.
 
@@ -74,13 +74,43 @@ dispatcher, and the skill-authoring guides.
 
 ## Repository layout
 
+As of **v3.0.0** the repo is organized by harness (see the migration
+note below). `core/` is the canonical harness-neutral source; each
+`harnesses/<harness>/wise/` folder is an independently installable port.
+
 ```
 wise-claude/
-├── .claude-plugin/marketplace.json   # marketplace index
-├── plugins/wise/                     # the wise plugin (skills, workflows, scripts)
+├── .claude-plugin/marketplace.json   # Claude Code marketplace index → harnesses/claude/wise
+├── core/                             # canonical harness-neutral source (references, workflows, engine)
+├── harnesses/
+│   └── claude/wise/                  # the Claude Code plugin (skills, workflows, scripts)
 ├── docs/wise/                        # workflow engine + authoring reference
 └── CONTRIBUTING.md                   # full contributor manual
 ```
+
+Support for OpenAI Codex CLI, Cursor, and Nous Research Hermes Agent is
+being added under `harnesses/<harness>/wise/`; see each port's README
+for its canonical install command.
+
+## Migrating from v2.x → v3.0.0
+
+v3.0.0 moves the Claude Code plugin from `plugins/wise/` to
+`harnesses/claude/wise/` (a backward-incompatible **layout** change; the
+plugin's commands and behaviour are unchanged). The marketplace still
+lives at the repo root, and its plugin `source` now points at the new
+path.
+
+- **Fresh installs** — nothing to do; `/plugin install wise@wise-claude`
+  works as before.
+- **Existing installs** — refresh the marketplace so it re-reads the new
+  source path:
+  ```
+  /plugin marketplace update wise-claude
+  /plugin install wise@wise-claude
+  ```
+  If commands still don't resolve, remove and re-add the marketplace
+  (`/plugin marketplace remove wise-claude`, then the two Install
+  commands above) and start a fresh session.
 
 ## Troubleshooting
 
