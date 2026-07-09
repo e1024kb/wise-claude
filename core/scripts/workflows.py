@@ -40,8 +40,8 @@
 #   list-runs          <runs-root>                      → summary lines
 #   dump-state         <state>                          → pretty YAML
 #   render             <template> <state>               → expand {{project.*}}, {{<output>}}, {{run.dir}}, {{run.id}} (note: does NOT expand {{workflow.dir}} — that's resolved at step-render time in cmd_next_wave, which has access to the def path)
-#   current-session-id                                  → UUID of the active Claude Code session, inferred from ~/.claude/projects/<cwd-slug>/
-#   session-path       <session-id>                     → path to the .jsonl; exit 2 if stale
+#   current-session-id                                  → harness session id: $CLAUDE_CODE_SESSION_ID / $WISE_SESSION_ID, else the newest ~/.claude/projects/<cwd-slug>/ transcript, else a synthetic per-workspace id (non-Claude harnesses)
+#   session-path       <session-id>                     → path to the Claude .jsonl transcript; exit 2 if stale/absent (always absent off Claude)
 #   session-label      <run-id> <workflow-name>         → <run-id>_<first-7-hyphen-tokens>
 #   find-runs-by-session <session-id>                   → non-terminal runs in cwd claiming this session; per line: run-id, workflow, status, last_activity_at, fresh|stale (stale = abandoned, not a real conflict)
 #   worker-heartbeat   <run-dir> <name> [phase] [task]  → refresh <run-dir>/workers/<name>.hb with the current UTC stamp (supervised workers call this every turn)
@@ -78,8 +78,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = SCRIPT_DIR.parent
 BUNDLED_DEFS = PLUGIN_ROOT / "workflows"
 BUNDLED_AGENTS = PLUGIN_ROOT / "agents"
-PLUGIN_DATA = Path(os.environ.get("CLAUDE_PLUGIN_DATA") or HOME / ".claude/plugins/data/wise")
-USER_DEFS = PLUGIN_DATA / "workflows/definitions"
+# PLUGIN_DATA / USER_DEFS are defined below, after wise_data_root(), so the
+# non-Claude fallback can reuse it.
 
 
 # ---- persistent per-user data root -----------------------------------------
@@ -100,6 +100,25 @@ def wise_data_root() -> Path:
     xdg = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg) if xdg else HOME / ".local" / "share"
     return base / "wise"
+
+
+def plugin_data_root() -> Path:
+    """Where user-authored workflow definitions live.
+
+    On Claude Code this is `$CLAUDE_PLUGIN_DATA` (Claude-managed, wiped on
+    reinstall). On any other harness that variable is unset, so we fall
+    back to `$WISE_DATA_DIR` (an explicit harness-neutral override) and
+    finally to `wise_data_root()` — co-locating definitions with runs and
+    insights under one stable, XDG-honouring tree. Kept a function (not a
+    frozen module constant) so the resolution is testable under a patched
+    environment.
+    """
+    override = os.environ.get("CLAUDE_PLUGIN_DATA") or os.environ.get("WISE_DATA_DIR")
+    return Path(override) if override else wise_data_root()
+
+
+PLUGIN_DATA = plugin_data_root()
+USER_DEFS = PLUGIN_DATA / "workflows/definitions"
 
 
 def _cwd_slug() -> str:
@@ -1018,21 +1037,38 @@ def _cwd_session_dir() -> Path:
     return HOME / ".claude/projects" / _cwd_slug()
 
 
+def _synthetic_session_id() -> str:
+    """A stable per-workspace session id for harnesses that expose no
+    session concept (Codex / Cursor / Hermes). All runs in one working
+    directory share it — mirroring Claude's per-cwd correlation closely
+    enough for the conflict check and, crucially, requiring no transcript
+    access so `/resume` still works off-Claude."""
+    return "local-" + (_cwd_slug().strip("-") or "workspace")
+
+
 def _current_session_id() -> str | None:
-    env_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
-    if env_sid:
-        return env_sid
+    # An exact, per-process id exported by the harness wins. Claude Code
+    # sets CLAUDE_CODE_SESSION_ID; other harnesses may inject WISE_SESSION_ID.
+    for var in ("CLAUDE_CODE_SESSION_ID", "WISE_SESSION_ID"):
+        sid = os.environ.get(var, "").strip()
+        if sid:
+            return sid
+    # Older Claude Code without the env var: sweep the cwd's transcript dir.
     session_dir = _cwd_session_dir()
-    if not session_dir.is_dir():
-        return None
-    newest: tuple[float, str] | None = None
-    for entry in session_dir.iterdir():
-        if entry.suffix != ".jsonl" or not entry.is_file():
-            continue
-        mtime = entry.stat().st_mtime
-        if newest is None or mtime > newest[0]:
-            newest = (mtime, entry.stem)
-    return newest[1] if newest else None
+    if session_dir.is_dir():
+        newest: tuple[float, str] | None = None
+        for entry in session_dir.iterdir():
+            if entry.suffix != ".jsonl" or not entry.is_file():
+                continue
+            mtime = entry.stat().st_mtime
+            if newest is None or mtime > newest[0]:
+                newest = (mtime, entry.stem)
+        if newest:
+            return newest[1]
+    # No harness id and no Claude transcript → a non-Claude harness. Fall
+    # back to a synthetic per-workspace id so runs are still tagged and
+    # resumable without any transcript.
+    return _synthetic_session_id()
 
 
 def cmd_current_session_id() -> int:
