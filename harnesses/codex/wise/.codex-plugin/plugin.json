@@ -1,0 +1,13 @@
+{
+  "name": "wise",
+  "version": "3.2.0",
+  "description": "wise copilot for OpenAI Codex CLI — flat /wise-* skills, a workflow engine with an SDLC agent roster, and shared scripts for everyday git / PR / ticket-planning tasks. Ported from the Claude Code plugin (github.com/e1024kb/wise-claude); see this pack's README for what is full / adapted / Claude-only.",
+  "homepage": "https://github.com/e1024kb/wise-claude",
+  "author": {
+    "name": "e1024kb",
+    "email": "e1024kb@gmail.com"
+  },
+  "repository": "https://github.com/e1024kb/wise-claude",
+  "license": "MIT",
+  "skills": "skills"
+}

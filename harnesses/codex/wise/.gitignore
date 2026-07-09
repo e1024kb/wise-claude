@@ -1,0 +1,9 @@
+# Runtime registry written by `/wise-init` — never commit.
+# Contains probed dep paths + versions specific to the user's machine.
+# Wiped on every `/plugin install wise@…` by design, so the registry
+# naturally re-generates when the user re-runs `/wise-init`.
+.wise-init-registry.yaml
+
+# Python byte-compile cache from engine.py / workflows.py / init-registry.py.
+# Regenerated on every invocation; never committed.
+scripts/__pycache__/

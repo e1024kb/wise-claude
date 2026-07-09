@@ -25,6 +25,9 @@ mappings:
       - harness: claude
         path: harnesses/claude/wise/references/
         mode: verbatim
+      - harness: codex
+        path: harnesses/codex/wise/references/
+        mode: adapted   # ${CLAUDE_PLUGIN_ROOT} → ${WISE_PLUGIN_ROOT} path rewrites
 
   - core: workflows/
     vendored:
@@ -35,11 +38,17 @@ mappings:
         # docs/wise/…), so they legitimately differ per port; the
         # workflow.yaml + prompts/ are the verbatim contract.
         exclude: ["**/README.md"]
+      - harness: codex
+        path: harnesses/codex/wise/workflows/
+        mode: adapted   # path rewrites in workflow.yaml + prompts
 
   - core: scripts/workflows.py
     vendored:
       - harness: claude
         path: harnesses/claude/wise/scripts/workflows.py
+        mode: verbatim
+      - harness: codex
+        path: harnesses/codex/wise/scripts/workflows.py
         mode: verbatim
 
   - core: scripts/engine.py
@@ -47,11 +56,17 @@ mappings:
       - harness: claude
         path: harnesses/claude/wise/scripts/engine.py
         mode: verbatim
+      - harness: codex
+        path: harnesses/codex/wise/scripts/engine.py
+        mode: verbatim
 
   - core: scripts/engine.sh
     vendored:
       - harness: claude
         path: harnesses/claude/wise/scripts/engine.sh
+        mode: verbatim
+      - harness: codex
+        path: harnesses/codex/wise/scripts/engine.sh
         mode: verbatim
 
   - core: agents/
@@ -59,3 +74,6 @@ mappings:
       - harness: claude
         path: harnesses/claude/wise/agents/
         mode: adapted   # Claude roster adds tools/model/effort/color frontmatter
+      - harness: codex
+        path: harnesses/codex/wise/agents/
+        mode: verbatim   # codex vendors the neutral core cards as-is

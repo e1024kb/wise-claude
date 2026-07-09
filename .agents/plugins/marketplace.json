@@ -1,0 +1,17 @@
+{
+  "name": "wise-claude",
+  "description": "Home of the wise plugin, ported to OpenAI Codex CLI — flat /wise-* skills, a workflow engine, and shared scripts for everyday git / PR / ticket-planning tasks. Canonical install: codex plugin marketplace add e1024kb/wise-claude.",
+  "owner": {
+    "name": "e1024kb",
+    "email": "e1024kb@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "wise",
+      "description": "Codex port of the wise copilot — flat /wise-* skills, a workflow engine with an SDLC agent roster, and shared git / PR / ticket-planning scripts.",
+      "category": "productivity",
+      "source": "./harnesses/codex/wise",
+      "homepage": "https://github.com/e1024kb/wise-claude"
+    }
+  ]
+}
