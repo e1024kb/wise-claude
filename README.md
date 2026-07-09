@@ -15,7 +15,7 @@ shepherding PRs, planning tickets, authoring PRDs/TRDs, auditing a scope
 into an executable backlog. Reach for a single quick command, or hand off
 a whole **ticket → merged-PR** pipeline to run unattended.
 
-It's maintained as a harness-neutral **`core/`** plus a hand-maintained
+It's maintained as a harness-neutral **`core/`** plus a generated
 **port per harness** under `harnesses/<harness>/wise/`, so the same copilot
 installs natively on whichever agent you use. **26 of the 32 skills and all
 four workflows** port to every harness; see the
@@ -114,13 +114,14 @@ engine, the `/wise` dispatcher, and the skill-authoring guides.
 The repo is organized by harness (a v3.0.0 layout change — see the
 migration note). `core/` is the canonical harness-neutral source; each
 `harnesses/<harness>/wise/` folder is an independently installable port
-that vendors from it.
+generated from it (and from the Claude port's skills) by
+`scripts/build_ports.py`, with the generated output committed.
 
 ```
 wise-claude/
 ├── .claude-plugin/marketplace.json      # Claude Code marketplace index → harnesses/claude/wise
 ├── .agents/plugins/marketplace.json     # Codex marketplace catalog → harnesses/codex/wise
-├── core/                                # canonical harness-neutral source (references, agents, workflows, engine)
+├── core/                                # canonical harness-neutral source (references, agents, workflows, engine, port inputs)
 ├── harnesses/
 │   ├── claude/wise/                     # Claude Code plugin
 │   ├── codex/wise/                      # OpenAI Codex CLI port
@@ -129,7 +130,7 @@ wise-claude/
 ├── install.sh · justfile                # universal installer
 ├── docs/wise/                           # workflow engine + authoring reference
 ├── docs/compatibility.md                # skill × harness matrix
-└── CONTRIBUTING.md                      # full contributor manual (§10 = cross-harness sync)
+└── CONTRIBUTING.md                      # full contributor manual (§10 = ports & the generator)
 ```
 
 ## Migrating from v2.x → v3.0.0
@@ -172,10 +173,11 @@ path.
 ## Contributing
 
 Issues and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
-conventions, local-install steps, validation checks, and the **§10
-cross-harness sync model** (edit `core/` first, then propagate to each
-port). You can also file feedback from inside the agent with
-`/wise-feedback`.
+conventions, local-install steps, validation checks, and the **§10 port
+generator model** (edit `core/`, the Claude skills, or `core/ports/`,
+then regenerate with `python3 scripts/build_ports.py` — the other ports
+are generated, never hand-edited). You can also file feedback from
+inside the agent with `/wise-feedback`.
 
 ## License
 
