@@ -1,0 +1,140 @@
+version: 1
+name: example-workflow
+description: >-
+  Reference workflow that exercises every step type AND the parallel-
+  wave dispatcher. Harmless to run — lists the available workflows,
+  classifies the current project, then runs a wide fan-out wave of
+  three parallel subagent prompts, an agent team (multiple roster roles
+  worked together and conductor-synthesized), and three parallel bash
+  steps (each with a randomised sleep to simulate different execution
+  times), finally asking for an approval. Use this to verify the
+  workflow subsystem after an install or schema change.
+author: e1024kb
+
+project-selection: prompt
+
+# Default agent policy for prompt steps: prompt steps with no explicit
+# `agent:` are auto-routed to the best-fit roster role. Individual steps
+# below override this to also smoke-test the `off` and forced-role paths.
+agents: auto
+
+steps:
+  - id: list-workflows
+    type: skill
+    skill: wise:wise-workflow-list
+    payload: {}
+    depends_on: []
+
+  - id: classify
+    type: prompt
+    prompt: |
+      The run is operating on the project {{project.name}}
+      ({{project.kind}}) at {{project.path}}.
+      Reply with exactly one word — the project's kind.
+    until: "^(frontend|backend|fullstack|other)$"
+    max_iterations: 2
+    outputs: [release_kind]
+    agent: off                  # plain general-purpose subagent (opt out of policy)
+    model: haiku                # demonstrate the per-call model override
+    depends_on: [list-workflows]
+
+  # --- parallel subagent wave (all three run concurrently) ---------------
+
+  - id: summarize-project
+    type: prompt
+    prompt: |
+      In one short sentence, summarise what a {{project.kind}} project
+      called {{project.name}} typically does. No lists, no preamble —
+      just the sentence.
+    max_iterations: 1
+    agent: technical-writer     # force a specific roster role
+    effort: low                 # demonstrate the per-step effort nudge
+    depends_on: [classify]
+
+  - id: suggest-next-step
+    type: prompt
+    prompt: |
+      Suggest one concrete improvement a {{project.kind}} project called
+      {{project.name}} might want. Reply with a single short sentence.
+    max_iterations: 1
+    agent: auto                 # explicit auto-select (conductor picks the role)
+    depends_on: [classify]
+
+  - id: pick-emoji
+    type: prompt
+    prompt: |
+      Pick one emoji that best represents a {{project.kind}} project.
+      Reply with just the emoji on its own line.
+    until: "^.+$"
+    max_iterations: 1
+    outputs: [project_emoji]
+    # no agent: → inherits the workflow `agents: auto` policy
+    depends_on: [classify]
+
+  - id: team-verdict
+    type: prompt
+    prompt: |
+      Give a one-line take on what a {{project.kind}} project called
+      {{project.name}} should prioritise next. One sentence.
+    max_iterations: 1
+    model: haiku                # shared default for members without an override
+    agent:                      # a TEAM — members run concurrently, conductor synthesizes
+      - role: architect
+        lead: true              # integrates the peers before the conductor's synthesis
+      - role: product-manager
+      - qa-engineer             # bare string → inherits the step's model: haiku
+    depends_on: [classify]
+
+  # --- parallel bash wave (all three run concurrently with random sleeps)
+
+  - id: echo-greeting
+    type: bash
+    command: |
+      sleep $((RANDOM % 3 + 1))
+      echo "hello from {{project.name}} (release kind {{release_kind}})"
+    cwd: "{{project.path}}"
+    success:
+      exit_code: 0
+    timeout: 15
+    depends_on: [classify]
+
+  - id: echo-timestamp
+    type: bash
+    command: |
+      sleep $((RANDOM % 3 + 1))
+      date -u +%Y-%m-%dT%H:%M:%SZ
+    cwd: "{{project.path}}"
+    success:
+      exit_code: 0
+    timeout: 15
+    depends_on: [classify]
+
+  - id: echo-pwd
+    type: bash
+    command: |
+      sleep $((RANDOM % 3 + 1))
+      pwd
+    cwd: "{{project.path}}"
+    success:
+      exit_code: 0
+    timeout: 15
+    depends_on: [classify]
+
+  # --- final gate (fans the parallel wave back in) -----------------------
+
+  - id: approve-summary
+    type: approval
+    message: |
+      Smoke test finished.
+      Project: {{project.name}} (kind: {{release_kind}}) {{project_emoji}}
+      Parallel wave: 3 subagent prompts + 1 agent team + 3 bash steps completed.
+      Approve to mark the run complete?
+    depends_on:
+      - summarize-project
+      - suggest-next-step
+      - pick-emoji
+      - team-verdict
+      - echo-greeting
+      - echo-timestamp
+      - echo-pwd
+    trigger-rule: all-success
