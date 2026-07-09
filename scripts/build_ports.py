@@ -28,7 +28,7 @@ sources plus the per-harness inputs in core/ports/:
   static extras                       <- core/ports/static/<p>/ (byte-copy)
 
 for <p> in the non-Claude harness profiles (codex, cursor, hermes,
-opencode).
+opencode, pi).
 The Claude port's skills/ are the canonical skill source and are never
 generated.
 
@@ -46,8 +46,9 @@ the per-harness profile:
   3. overlays: exact find/replace hunks from core/ports/overlays/<p>/
      (genuinely divergent prose; anchors are post-rewrite text).
   4. preamble / adaptation note per the profile's tier lists, rendered
-     from core/ports/notes/ ({{harness_name}}/{{harness_id}} vars;
-     notes/<skill>.<p>.md overrides notes/<skill>.md).
+     from core/ports/notes/ ({{harness_name}}/{{harness_id}}/
+     {{shared_files_extra}} vars; notes/<skill>.<p>.md overrides
+     notes/<skill>.md).
   5. skills in the profile's `excluded_skills` are not ported.
 
 Pure function of the committed inputs — no timestamps, no randomness.
@@ -137,9 +138,16 @@ def rewrite_env(text: str, harness: str) -> str:
 
 
 def render_template(template: str, profile: dict) -> str:
+    # {{shared_files_extra}} is an optional per-profile sentence appended
+    # to the shared-file-resolution text (preamble blockquote + note
+    # bullets). Templates place the var flush after the closing period;
+    # the leading space is added here so an absent key renders to the
+    # empty string with no trailing/double whitespace.
+    extra = str(profile.get("shared_files_extra") or "").strip()
     return (template
             .replace("{{harness_name}}", profile["name"])
-            .replace("{{harness_id}}", profile["id"]))
+            .replace("{{harness_id}}", profile["id"])
+            .replace("{{shared_files_extra}}", " " + extra if extra else ""))
 
 
 def rebase_doc_links(text: str) -> str:

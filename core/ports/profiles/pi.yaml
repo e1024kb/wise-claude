@@ -1,0 +1,71 @@
+# Harness profile — Pi port.
+#
+# Consumed by scripts/build_ports.py. `id` is the harness directory
+# name (harnesses/<id>/wise/), the install.sh argument, and the
+# `/harness/<id>` suffix of the baked default root (CONTRIBUTING
+# §10.3). `name` is the display name used in adaptation notes.
+id: pi
+name: Pi
+
+# Skill frontmatter keys kept when porting a Claude skill; everything
+# else (`allowed-tools`, `argument-hint`, `model`, `effort`, ...) is
+# dropped. Pi honors `disable-model-invocation`, so it survives the
+# port. Emission order follows this list.
+frontmatter_keep:
+  - name
+  - description
+  - disable-model-invocation
+
+# Last-resort shared-file fallback appended to the shared-file
+# resolution sentence (preamble blockquote + adaptation-note bullets):
+# a `pi install`ed pack lands intact under ~/.pi/agent/, so the pack a
+# skill ships in is always a valid WISE_PLUGIN_ROOT of last resort.
+shared_files_extra: >-
+  If neither the env var nor the default path exists, use the pack this
+  skill ships in — two levels up from the directory containing this
+  SKILL.md, i.e. `../../` from it (a `pi install`ed pack stays intact).
+
+# No agent_frontmatter: Pi has no subagents, so the role cards ship as
+# neutral byte-copies of core/agents/ (cursor-class port) and are
+# adopted in-context by the conductor.
+
+# Claude-only skills that are not ported (Claude-specific transcript /
+# hook / marketplace machinery).
+excluded_skills:
+  - wise-insights-mine
+  - wise-insights-refine
+  - wise-insights-reset
+  - wise-skills-create
+  - wise-skills-edit
+  - wise-supervise
+
+# Per-skill adaptation tier. The membership is editorial (recorded, not
+# derived): note-tier skills reference Claude-only tools in their flow
+# and carry a full "Harness adaptation note" (core/ports/notes/);
+# blockquote-tier skills only need the one-line shared-file-resolution
+# blockquote under the H1; every other ported skill is plain-tier
+# (frontmatter reduction is its only change).
+note_skills:
+  - wise
+  - wise-code-review-auto
+  - wise-grill
+  - wise-implement-plan-auto
+  - wise-init
+  - wise-pr-watch
+  - wise-revise
+  - wise-simplify-auto
+  - wise-workflow-create
+  - wise-workflow-remove
+  - wise-workflow-resume
+  - wise-workflow-run
+blockquote_skills:
+  - wise-commit
+  - wise-commit-message
+  - wise-commit-push
+  - wise-pr-add-reviewers
+  - wise-pr-create
+  - wise-pr-create-auto
+  - wise-pr-request-review-auto
+  - wise-pr-watch-auto
+  - wise-workflow-list
+  - wise-workflow-status

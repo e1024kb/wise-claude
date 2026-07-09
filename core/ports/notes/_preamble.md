@@ -1,1 +1,1 @@
-> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/{{harness_id}}` — where `./install.sh {{harness_id}}` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/{{harness_id}}` — where `./install.sh {{harness_id}}` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.{{shared_files_extra}}
