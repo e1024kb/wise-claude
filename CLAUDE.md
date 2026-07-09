@@ -2,7 +2,7 @@
 
 Cross-harness marketplace for the `wise` copilot — plugins, skills,
 agents, hooks, and workflows for **Claude Code, OpenAI Codex CLI,
-Cursor, and Nous Research Hermes Agent**.
+Cursor, Nous Research Hermes Agent, and opencode**.
 
 ## Structure
 
@@ -30,7 +30,7 @@ wise-claude/
 │       ├── overlays/         # per-skill find/replace hunks for genuinely divergent prose
 │       └── static/           # byte-copied per-port files (README, manifests, …)
 ├── harnesses/
-│   └── <harness>/wise/       # one port per harness (claude, codex, cursor, hermes)
+│   └── <harness>/wise/       # one port per harness (claude, codex, cursor, hermes, opencode)
 │       ├── skills/           # SKILL.md skills / slash commands (claude = source, others generated)
 │       ├── agents/           # role cards (generated)
 │       ├── workflows/        # workflow defs (generated)

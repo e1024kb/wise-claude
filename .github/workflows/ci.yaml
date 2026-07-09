@@ -72,7 +72,7 @@ jobs:
       # port skills resolve by default, and the discovery dir holds the
       # skills. See CONTRIBUTING.md §10.
       - name: Install smoke (copy ports)
-        run: bash scripts/install_smoke.sh cursor hermes
+        run: bash scripts/install_smoke.sh
 
       - name: Pytest
         run: python3 -m pytest harnesses/claude/wise/tests -q || [ $? -eq 5 ]

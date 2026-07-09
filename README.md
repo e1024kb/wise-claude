@@ -1,10 +1,10 @@
 # wise-claude
 
-> A coding copilot for **Claude Code, OpenAI Codex CLI, Cursor, and Nous Research Hermes Agent** — flat `/wise-*` skills, a multi-agent workflow engine, and autonomous git / PR / ticket-planning pipelines.
+> A coding copilot for **Claude Code, OpenAI Codex CLI, Cursor, Nous Research Hermes Agent, and opencode** — flat `/wise-*` skills, a multi-agent workflow engine, and autonomous git / PR / ticket-planning pipelines.
 
-![version](https://img.shields.io/badge/version-3.3.0-blue)
+![version](https://img.shields.io/badge/version-3.6.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![harnesses](https://img.shields.io/badge/harnesses-Claude%20Code%20·%20Codex%20·%20Cursor%20·%20Hermes-8A63D2)
+![harnesses](https://img.shields.io/badge/harnesses-Claude%20Code%20·%20Codex%20·%20Cursor%20·%20Hermes%20·%20opencode-8A63D2)
 ![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 
 `wise-claude` is the home of the **`wise`** copilot: flat `/wise-*` skills,
@@ -26,8 +26,8 @@ four workflows** port to every harness; see the
 From a clone, the **universal installer** covers every harness:
 
 ```
-./install.sh <claude|codex|cursor|hermes>          # user-wide
-./install.sh cursor --project ./my-repo            # into one project
+./install.sh <claude|codex|cursor|hermes|opencode>  # user-wide
+./install.sh cursor --project ./my-repo             # into one project
 ```
 
 …or via [`just`](https://just.systems):
@@ -46,6 +46,7 @@ Each harness also has a **canonical install** (and each port's
 | **OpenAI Codex CLI** | `./install.sh codex` — uses `codex plugin marketplace add` + `codex plugin install wise` when the CLI is present (catalog: `.agents/plugins/marketplace.json`) |
 | **Cursor** | `./install.sh cursor` (skills → `~/.cursor/skills/`; per-project: `--project <dir>`) |
 | **Hermes Agent** | `./install.sh hermes` (skills → `~/.hermes/skills/`) |
+| **opencode** | `./install.sh opencode` (skills → `~/.config/opencode/skills/`, opencode's discovery dir; plus `/wise-<action>` command wrappers → `~/.config/opencode/commands/` and `wise-<role>` subagent cards → `~/.config/opencode/agents/`) |
 
 On the non-Claude ports the installer lays the whole pack at a **stable
 shared root** (`~/.local/share/wise/harness/<harness>`) that skills and
@@ -92,8 +93,8 @@ Availability varies per harness — see the
   implement.
 
 The workflow **engine** runs on every harness; the **conductor** maps each
-step to that harness's primitives (parallel subagents on Claude / Hermes,
-sequential on Cursor, subagents-where-available on Codex — see each port's
+step to that harness's primitives (parallel subagents on Claude / Hermes /
+opencode, sequential on Cursor, subagents-where-available on Codex — see each port's
 `/wise-workflow-run` execution note).
 
 See the [Claude port's plugin README](harnesses/claude/wise/README.md) for
@@ -102,8 +103,8 @@ engine, the `/wise` dispatcher, and the skill-authoring guides.
 
 ## Requirements
 
-- **A supported harness** — Claude Code, OpenAI Codex CLI, Cursor, or
-  Nous Research Hermes Agent.
+- **A supported harness** — Claude Code, OpenAI Codex CLI, Cursor,
+  Nous Research Hermes Agent, or opencode.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
 - **Python 3** (with `pyyaml` + `python-ulid`) for the workflow engine.
 - The `wise-init` skill (all harnesses) probes these and walks you through
@@ -126,7 +127,8 @@ wise-claude/
 │   ├── claude/wise/                     # Claude Code plugin
 │   ├── codex/wise/                      # OpenAI Codex CLI port
 │   ├── cursor/wise/                     # Cursor port
-│   └── hermes/wise/                     # Hermes Agent port
+│   ├── hermes/wise/                     # Hermes Agent port
+│   └── opencode/wise/                   # opencode port
 ├── install.sh · justfile                # universal installer
 ├── docs/wise/                           # workflow engine + authoring reference
 ├── docs/compatibility.md                # skill × harness matrix
@@ -157,8 +159,9 @@ path.
 
 - **Skills / commands don't show up** — confirm the install step for your
   harness ran (Claude: `/plugin install`; Codex: `codex plugin install`;
-  Cursor / Hermes: the skills copied into `~/.cursor/skills` /
-  `~/.hermes/skills`), then start a fresh session.
+  Cursor / Hermes / opencode: the skills copied into `~/.cursor/skills` /
+  `~/.hermes/skills` / `~/.config/opencode/skills`), then start a fresh
+  session.
 - **A skill or workflow can't find its shared files** (non-Claude ports) —
   the shared root is missing: run `./install.sh <harness>` (it lays the
   whole pack at `~/.local/share/wise/harness/<harness>`, the path skills

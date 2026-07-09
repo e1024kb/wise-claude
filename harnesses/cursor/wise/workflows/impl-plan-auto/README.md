@@ -127,7 +127,7 @@ per-phase roles and models are in the [pipeline table](#per-plan-pipeline-inside
 below; at the step level `report` → `wise:technical-writer`. Model
 tiering: `opus` for the planning + review brains, `sonnet` for the
 hands-on engineering and bookkeeping steps. See
-[Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
+[Agents, model and effort](../../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Per-plan pipeline (inside `process-plans`)
 

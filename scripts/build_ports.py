@@ -11,19 +11,24 @@ sources plus the per-harness inputs in core/ports/:
                                           lines from profiles/claude.yaml
   harnesses/claude/wise/scripts/      <- core/scripts/ engine trio
                                           (byte-copy)
-  harnesses/<p>/wise/agents/          <- core/agents/      (byte-copy)
+  harnesses/<p>/wise/agents/          <- core/agents/      (byte-copy,
+                                          or + frontmatter lines when the
+                                          profile has agent_frontmatter)
   harnesses/<p>/wise/scripts/         <- core/scripts/ trio + the
                                           claude port's init trio
                                           (byte-copy; scripts self-locate
                                           and are never env-rewritten)
   harnesses/<p>/wise/references/      <- core/references/  (env rewrite)
-  harnesses/<p>/wise/workflows/       <- core/workflows/   (env rewrite)
+  harnesses/<p>/wise/workflows/       <- core/workflows/   (env rewrite +
+                                          doc links re-based one dir
+                                          deeper, as for claude)
   harnesses/<p>/wise/skills/          <- harnesses/claude/wise/skills/
                                           (transform pipeline below)
   harnesses/<p>/wise/.gitignore       <- harnesses/claude/wise/.gitignore
   static extras                       <- core/ports/static/<p>/ (byte-copy)
 
-for <p> in the non-Claude harness profiles (codex, cursor, hermes).
+for <p> in the non-Claude harness profiles (codex, cursor, hermes,
+opencode).
 The Claude port's skills/ are the canonical skill source and are never
 generated.
 
@@ -135,6 +140,40 @@ def render_template(template: str, profile: dict) -> str:
     return (template
             .replace("{{harness_name}}", profile["name"])
             .replace("{{harness_id}}", profile["id"]))
+
+
+def rebase_doc_links(text: str) -> str:
+    """core's workflow docs link to the repo's docs/ tree relative to a
+    workflows/<name>/ dir; every port's workflows/ (claude included)
+    sits one directory deeper (harnesses/<h>/wise/...), so the links
+    gain one more `../`."""
+    return text.replace("../../../../docs/", "../../../../../docs/")
+
+
+def render_agent_card(f: Path, profile: dict) -> bytes:
+    """A core/agents/ card rendered for a port: a byte-copy unless the
+    profile declares an `agent_frontmatter` mapping, in which case that
+    agent's extra lines are inserted before the closing `---` (every
+    card must have an entry then)."""
+    frontmatter = profile.get("agent_frontmatter")
+    if frontmatter is None:
+        # The claude cards are never plain byte-copies — losing the
+        # tools/model/effort/color lines would silently de-fang every
+        # plugin subagent, so the key is mandatory there.
+        if profile["id"] == "claude":
+            sys.exit("error: profiles/claude.yaml must declare "
+                     "agent_frontmatter")
+        return f.read_bytes()
+    extra = frontmatter.get(f.stem)
+    if extra is None:
+        sys.exit(f"error: profiles/{profile['id']}.yaml has no "
+                 f"agent_frontmatter entry for {f.stem!r}")
+    text = f.read_text(encoding="utf-8")
+    end = text.find("\n---\n", 4)
+    if not text.startswith("---\n") or end == -1:
+        sys.exit(f"error: core/agents/{f.name}: no frontmatter")
+    extra_lines = "".join(f"{k}: {v}\n" for k, v in extra.items())
+    return (text[:end + 1] + extra_lines + text[end + 1:]).encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -299,24 +338,10 @@ def render_all() -> dict[str, bytes]:
             f.read_bytes())
     for f in _files_under(CORE / "workflows"):
         rel = claude_rel / "workflows" / f.relative_to(CORE / "workflows")
-        text = f.read_text(encoding="utf-8")
-        # core's workflow docs link to the repo's docs/ tree relative to
-        # a port's workflows/<name>/ dir; the claude port sits one level
-        # deeper (harnesses/claude/wise/...), so re-base the links.
-        put(rel, text.replace("../../../../docs/", "../../../../../docs/"))
+        put(rel, rebase_doc_links(f.read_text(encoding="utf-8")))
     for f in _files_under(CORE / "agents"):
-        name = f.stem
-        extra = claude_profile["agent_frontmatter"].get(name)
-        if extra is None:
-            sys.exit(f"error: profiles/claude.yaml has no agent_frontmatter "
-                     f"entry for {name!r}")
-        text = f.read_text(encoding="utf-8")
-        end = text.find("\n---\n", 4)
-        if not text.startswith("---\n") or end == -1:
-            sys.exit(f"error: core/agents/{f.name}: no frontmatter")
-        extra_lines = "".join(f"{k}: {v}\n" for k, v in extra.items())
         put(claude_rel / "agents" / f.name,
-            text[:end + 1] + extra_lines + text[end + 1:])
+            render_agent_card(f, claude_profile))
     for name in ENGINE_SCRIPTS:
         put(claude_rel / "scripts" / name, (CORE / "scripts" / name).read_bytes())
 
@@ -327,7 +352,7 @@ def render_all() -> dict[str, bytes]:
         port_rel = Path("harnesses") / harness / "wise"
 
         for f in _files_under(CORE / "agents"):
-            put(port_rel / "agents" / f.name, f.read_bytes())
+            put(port_rel / "agents" / f.name, render_agent_card(f, profile))
         for name in ENGINE_SCRIPTS:
             put(port_rel / "scripts" / name, (CORE / "scripts" / name).read_bytes())
         for name in CLAUDE_SOURCED_SCRIPTS:
@@ -336,7 +361,12 @@ def render_all() -> dict[str, bytes]:
         for src_dir in ("references", "workflows"):
             for f in _files_under(CORE / src_dir):
                 rel = port_rel / src_dir / f.relative_to(CORE / src_dir)
-                put(rel, rewrite_env(f.read_text(encoding="utf-8"), harness))
+                text = rewrite_env(f.read_text(encoding="utf-8"), harness)
+                if src_dir == "workflows":
+                    # Port workflow trees sit at the same depth as the
+                    # claude port's — same doc-link re-base applies.
+                    text = rebase_doc_links(text)
+                put(rel, text)
 
         put(port_rel / ".gitignore", (CLAUDE_PORT / ".gitignore").read_bytes())
 

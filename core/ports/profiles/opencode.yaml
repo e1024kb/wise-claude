@@ -1,0 +1,92 @@
+# Harness profile — opencode port.
+#
+# Consumed by scripts/build_ports.py. `id` is the harness directory
+# name (harnesses/<id>/wise/), the install.sh argument, and the
+# `/harness/<id>` suffix of the baked default root (CONTRIBUTING
+# §10.3). `name` is the display name used in adaptation notes.
+id: opencode
+name: opencode
+
+# Skill frontmatter keys kept when porting a Claude skill; everything
+# else (`allowed-tools`, `argument-hint`, `model`, `effort`,
+# `disable-model-invocation`, ...) is dropped. Emission order follows
+# this list. opencode's skill loader reads exactly name + description.
+frontmatter_keep:
+  - name
+  - description
+
+# Extra frontmatter appended to each core agent card, in this key
+# order. opencode reads the cards as real agents
+# (~/.config/opencode/agents/ — install.sh registers them under
+# wise-<role> names); `mode: subagent` keeps every role invocable only
+# via the Task tool / an `@wise-<role>` mention, never as the primary
+# agent. No `tools:` (deprecated in opencode) and no `permission`
+# (inherit the caller's).
+agent_frontmatter:
+  architect:
+    mode: subagent
+  ceo:
+    mode: subagent
+  code-reviewer:
+    mode: subagent
+  cto:
+    mode: subagent
+  devops-engineer:
+    mode: subagent
+  engineering-manager:
+    mode: subagent
+  product-manager:
+    mode: subagent
+  qa-engineer:
+    mode: subagent
+  security-engineer:
+    mode: subagent
+  software-engineer:
+    mode: subagent
+  sre:
+    mode: subagent
+  technical-writer:
+    mode: subagent
+  ux-designer:
+    mode: subagent
+
+# Claude-only skills that are not ported (Claude-specific transcript /
+# hook / marketplace machinery).
+excluded_skills:
+  - wise-insights-mine
+  - wise-insights-refine
+  - wise-insights-reset
+  - wise-skills-create
+  - wise-skills-edit
+  - wise-supervise
+
+# Per-skill adaptation tier. The membership is editorial (recorded, not
+# derived): note-tier skills reference Claude-only tools in their flow
+# and carry a full "Harness adaptation note" (core/ports/notes/);
+# blockquote-tier skills only need the one-line shared-file-resolution
+# blockquote under the H1; every other ported skill is plain-tier
+# (frontmatter reduction is its only change).
+note_skills:
+  - wise
+  - wise-code-review-auto
+  - wise-grill
+  - wise-implement-plan-auto
+  - wise-init
+  - wise-pr-watch
+  - wise-revise
+  - wise-simplify-auto
+  - wise-workflow-create
+  - wise-workflow-remove
+  - wise-workflow-resume
+  - wise-workflow-run
+blockquote_skills:
+  - wise-commit
+  - wise-commit-message
+  - wise-commit-push
+  - wise-pr-add-reviewers
+  - wise-pr-create
+  - wise-pr-create-auto
+  - wise-pr-request-review-auto
+  - wise-pr-watch-auto
+  - wise-workflow-list
+  - wise-workflow-status

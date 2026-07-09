@@ -257,11 +257,11 @@ doesn't delegate to `skill-creator`. See
 ## Porting a new skill to the other harnesses
 
 A skill authored under `harnesses/claude/wise/skills/` reaches **only**
-Claude Code — it does **not** appear on Codex / Cursor / Hermes until
-you tell the port generator about it. The port skill trees are
-**generated** by `scripts/build_ports.py` from the Claude skill plus
-the inputs under `core/ports/` — never hand-edit a generated
-`harnesses/{codex,cursor,hermes}/wise/skills/` file. To port a new
+Claude Code — it does **not** appear on Codex / Cursor / Hermes /
+opencode until you tell the port generator about it. The port skill
+trees are **generated** by `scripts/build_ports.py` from the Claude
+skill plus the inputs under `core/ports/` — never hand-edit a generated
+`harnesses/{codex,cursor,hermes,opencode}/wise/skills/` file. To port a new
 skill, decide its tier and register it:
 
 - **Full** — pure prose + `git` / `gh`, no Claude-only tools. Add the

@@ -12,7 +12,7 @@
 # Usage:
 #   ./install.sh <harness> [--user|--project <dir>] [--force] [--uninstall]
 #
-#   <harness>   claude | codex | cursor | hermes
+#   <harness>   claude | codex | cursor | hermes | opencode
 #   --user      (default) install for the current user
 #   --project <dir>  install into a project's skills dir instead
 #   --force     overwrite an existing differing install
@@ -34,7 +34,7 @@ UNINSTALL=0
 die() { echo "install.sh: $*" >&2; exit 1; }
 
 # ---- arg parse -------------------------------------------------------------
-[ $# -ge 1 ] || die "usage: ./install.sh <claude|codex|cursor|hermes> [--user|--project <dir>] [--force] [--uninstall]"
+[ $# -ge 1 ] || die "usage: ./install.sh <claude|codex|cursor|hermes|opencode> [--user|--project <dir>] [--force] [--uninstall]"
 HARNESS="$1"; shift
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,8 +48,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HARNESS" in
-  claude|codex|cursor|hermes) ;;
-  *) die "unknown harness '$HARNESS' (expected claude|codex|cursor|hermes)" ;;
+  claude|codex|cursor|hermes|opencode) ;;
+  *) die "unknown harness '$HARNESS' (expected claude|codex|cursor|hermes|opencode)" ;;
 esac
 
 PACK="$REPO_ROOT/harnesses/$HARNESS/wise"
@@ -68,10 +68,11 @@ skills_target() {
     return
   fi
   case "$HARNESS" in
-    codex)  echo "$HOME/.agents/skills" ;;
-    cursor) echo "$HOME/.cursor/skills" ;;
-    hermes) echo "$HOME/.hermes/skills" ;;
-    claude) echo "" ;;  # claude uses the plugin marketplace, not a copy
+    codex)    echo "$HOME/.agents/skills" ;;
+    cursor)   echo "$HOME/.cursor/skills" ;;
+    hermes)   echo "$HOME/.hermes/skills" ;;
+    opencode) echo "${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}/skills" ;;
+    claude)   echo "" ;;  # claude uses the plugin marketplace, not a copy
   esac
 }
 
@@ -80,14 +81,15 @@ SHARED_ROOT="$SHARED_ROOT_BASE/$HARNESS"
 # Lay the complete intact pack at the shared root. Port skills resolve
 # this path by default (WISE_PLUGIN_ROOT only overrides it), so the pack
 # must stay whole: skills/ included — cross-skill reads like
-# skills/wise-commit/commit-routine.md resolve against it.
+# skills/wise-commit/commit-routine.md resolve against it. commands/ is
+# opencode-only (slash wrappers); the existence guard skips it elsewhere.
 lay_shared_root() {
   mkdir -p "$SHARED_ROOT"
   # Reinstall invalidates the cached dependency probe (mirrors the Claude
   # port, where /plugin install wipes the plugin dir and the registry
   # with it).
   rm -f "$SHARED_ROOT/.wise-init-registry.yaml"
-  for sub in references agents workflows scripts skills; do
+  for sub in references agents workflows scripts skills commands; do
     [ -d "$PACK/$sub" ] || continue
     if [ -e "$SHARED_ROOT/$sub" ] && [ "$FORCE" = "0" ]; then
       die "$SHARED_ROOT/$sub exists (use --force to overwrite)"
@@ -96,6 +98,42 @@ lay_shared_root() {
     cp -R "$PACK/$sub" "$SHARED_ROOT/$sub"
   done
   plugin_version > "$SHARED_ROOT/.wise-version"
+}
+
+# ---- opencode extras: command wrappers + subagent role cards ----------------
+# User-scope only — opencode reads both from its config dir, which this
+# installer has no project-scoped analogue for. The in-pack agent
+# filenames stay neutral (<role>.md); the copy adds the wise- prefix
+# (filename AND frontmatter name:) so the cards register as
+# @wise-<role> without colliding with user agents.
+OPENCODE_CONFIG="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+
+install_opencode_extras() {
+  mkdir -p "$OPENCODE_CONFIG/commands" "$OPENCODE_CONFIG/agents"
+  for f in "$PACK"/commands/*.md; do
+    dest="$OPENCODE_CONFIG/commands/$(basename "$f")"
+    if [ -e "$dest" ] && [ "$FORCE" = "0" ]; then
+      die "$dest exists (use --force to overwrite)"
+    fi
+    cp "$f" "$dest"
+  done
+  for f in "$PACK"/agents/*.md; do
+    role="$(basename "$f" .md)"
+    dest="$OPENCODE_CONFIG/agents/wise-$role.md"
+    if [ -e "$dest" ] && [ "$FORCE" = "0" ]; then
+      die "$dest exists (use --force to overwrite)"
+    fi
+    sed "s/^name: $role\$/name: wise-$role/" "$f" > "$dest"
+  done
+}
+
+remove_opencode_extras() {
+  for f in "$PACK"/commands/*.md; do
+    rm -f "$OPENCODE_CONFIG/commands/$(basename "$f")"
+  done
+  for f in "$PACK"/agents/*.md; do
+    rm -f "$OPENCODE_CONFIG/agents/wise-$(basename "$f")"
+  done
 }
 
 # ---- claude: marketplace flow ----------------------------------------------
@@ -128,6 +166,10 @@ if [ "$UNINSTALL" = "1" ]; then
   done
   rm -rf "$SHARED_ROOT"
   echo "Removed wise skills from $TARGET and shared root $SHARED_ROOT."
+  if [ "$HARNESS" = "opencode" ] && [ "$SCOPE" = "user" ]; then
+    remove_opencode_extras
+    echo "Removed wise command wrappers and wise-<role> agents from $OPENCODE_CONFIG."
+  fi
   exit 0
 fi
 
@@ -149,7 +191,7 @@ if [ "$HARNESS" = "codex" ] && [ "$SCOPE" = "user" ] && command -v codex >/dev/n
   echo "codex plugin install unavailable; falling back to a plain skills copy."
 fi
 
-# ---- copy install (codex fallback, cursor, hermes) -------------------------
+# ---- copy install (codex fallback, cursor, hermes, opencode) ---------------
 mkdir -p "$TARGET"
 
 # 1) whole pack → shared root (the default WISE_PLUGIN_ROOT)
@@ -167,6 +209,19 @@ done
 
 echo "Installed $(ls "$PACK"/skills | wc -l | tr -d ' ') wise skills → $TARGET"
 echo "Shared assets → $SHARED_ROOT"
+
+# 3) opencode only: slash-command wrappers + wise-<role> subagent cards
+if [ "$HARNESS" = "opencode" ]; then
+  if [ "$SCOPE" = "user" ]; then
+    install_opencode_extras
+    echo "Command wrappers → $OPENCODE_CONFIG/commands"
+    echo "Subagent role cards → $OPENCODE_CONFIG/agents (as wise-<role>.md)"
+  else
+    echo "Note: --project install skips the opencode command wrappers and"
+    echo "subagent cards — they are user-scope only (~/.config/opencode/)."
+    echo "Run './install.sh opencode --user' to add them."
+  fi
+fi
 echo
 echo "Skills resolve $SHARED_ROOT automatically (it is their baked-in"
 echo "default); export WISE_PLUGIN_ROOT only to override it."
