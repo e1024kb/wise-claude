@@ -12,9 +12,13 @@ validate:
 test:
     python3 -m pytest harnesses/claude/wise/tests -q
 
-# Advisory core ↔ port divergence report (always exits 0).
-drift:
-    python3 scripts/report_core_drift.py
+# Regenerate all generated port content in place (from core/ + Claude skills + core/ports/).
+build:
+    python3 scripts/build_ports.py
+
+# Verify committed generated content matches a fresh render (exits non-zero on drift).
+build-check:
+    python3 scripts/build_ports.py --check
 
 # Install a harness port. Examples:
 #   just install claude
@@ -34,5 +38,5 @@ smoke:
     bash scripts/install_smoke.sh
 
 # Everything CI runs, locally.
-check: validate drift test smoke
+check: validate build-check test smoke
     @echo "all checks passed"
