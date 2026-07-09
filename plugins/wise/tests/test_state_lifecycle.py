@@ -148,3 +148,67 @@ def test_reset_running_pops_running_fields_and_reverts_to_pending(
     step_b = next(s for s in state["steps"] if s["id"] == "b")
     assert step_b["status"] == "completed"  # untouched — was not running
     assert state["status"] == "running"  # re-armed from "interrupted"
+
+
+def _run_state(run_dir, status, **extra):
+    run_dir.mkdir(parents=True, exist_ok=True)
+    state = {
+        "run_id": run_dir.name,
+        "workflow_name": "demo",
+        "status": status,
+        "last_activity_at": "2026-01-01T00:00:00Z",
+        **extra,
+    }
+    return state
+
+
+def test_list_resumable_runs_includes_failed_excludes_completed(
+    workflows_module, wise_env, capsys
+):
+    runs_root = wise_env
+
+    failed_dir = runs_root / "run-failed"
+    workflows_module.save_yaml(
+        failed_dir / "state.yaml", _run_state(failed_dir, "failed")
+    )
+    completed_dir = runs_root / "run-completed"
+    workflows_module.save_yaml(
+        completed_dir / "state.yaml", _run_state(completed_dir, "completed")
+    )
+
+    rc = workflows_module.cmd_list_resumable_runs()
+    assert rc == 0
+
+    items = json.loads(capsys.readouterr().out)
+    run_ids = {item["run_id"] for item in items}
+    assert "run-failed" in run_ids
+    assert "run-completed" not in run_ids
+    failed_item = next(item for item in items if item["run_id"] == "run-failed")
+    assert failed_item["status"] == "failed"
+
+
+def test_find_runs_by_session_reports_fresh_failed_run(
+    workflows_module, wise_env, capsys
+):
+    runs_root = wise_env
+
+    failed_dir = runs_root / "run-failed"
+    workflows_module.save_yaml(
+        failed_dir / "state.yaml",
+        _run_state(
+            failed_dir,
+            "failed",
+            claude_session_id="sess-1",
+            last_activity_at=workflows_module.utc_now(),
+        ),
+    )
+
+    rc = workflows_module.cmd_find_runs_by_session("sess-1")
+    assert rc == 0
+
+    out = capsys.readouterr().out.strip()
+    assert out, "expected one tab-separated line for the fresh failed run"
+    run_id, workflow_name, status, last_activity_at, freshness = out.split("\t")
+    assert run_id == "run-failed"
+    assert status == "failed"
+    assert freshness == "fresh"
