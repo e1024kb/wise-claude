@@ -175,7 +175,7 @@ steps (`present-plan`,
 conductor's tool-aware auto-selection — they need tracker-MCP / git
 tools no scoped role carries — but still run on the pinned `sonnet`
 model. See
-[Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
+[Agents, model and effort](../../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Inputs
 

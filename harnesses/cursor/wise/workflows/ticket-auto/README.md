@@ -119,7 +119,7 @@ per-phase roles and models are in the [pipeline table](#per-ticket-pipeline-insi
 below; at the step level `report` → `wise:technical-writer`. Model
 tiering: `opus` for the planning + review brains, `sonnet` for the
 hands-on engineering and bookkeeping steps. See
-[Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
+[Agents, model and effort](../../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Per-ticket pipeline (inside `process-tickets`)
 

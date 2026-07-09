@@ -74,7 +74,7 @@ every agent-binding path so the dispatch logic is smoke-tested:
 (pick-emoji), and a multi-agent **team** with a lead + per-member
 model override (team-verdict → `wise:architect` lead +
 `wise:product-manager` + `wise:qa-engineer`, conductor-synthesized).
-See [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
+See [Agents, model and effort](../../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Steps
 
@@ -111,5 +111,5 @@ None.
 ## Related
 
 - [Definition YAML](./workflow.yaml)
-- [`docs/wise/workflows.md`](../../../../docs/wise/workflows.md) —
+- [`docs/wise/workflows.md`](../../../../../docs/wise/workflows.md) —
   user-facing workflow reference.
