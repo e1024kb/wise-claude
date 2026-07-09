@@ -40,10 +40,11 @@ Folder form wins on same-root collision.
   at `logs/<step-id>.<step-run-ulid>.log`.
 
 > **On non-Claude harnesses** (Codex / Cursor / Hermes): `${CLAUDE_PLUGIN_ROOT}`
-> is exported as `${WISE_PLUGIN_ROOT}` (the pack's install dir), and user
-> definitions resolve under `WISE_DATA_DIR` — both default to
-> `~/.local/share/wise`. The engine reads these neutral vars with a fallback,
-> so the paths above are the Claude spelling of a harness-neutral scheme; see
+> becomes `${WISE_PLUGIN_ROOT}`, which **defaults** to the pack's install
+> dir `~/.local/share/wise/harness/<harness>` (baked into the port skills —
+> no export needed; set `WISE_PLUGIN_ROOT` only to override). User
+> definitions resolve under `WISE_DATA_DIR`, default `~/.local/share/wise`.
+> The paths above are the Claude spelling of a harness-neutral scheme; see
 > [`docs/compatibility.md`](../compatibility.md) and each port's README.
 
 If a user definition has the same name as a bundled one, the user

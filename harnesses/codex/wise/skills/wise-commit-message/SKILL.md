@@ -15,6 +15,8 @@ description: >-
 
 # /wise-commit-message — draft a Conventional-Commits subject from pending changes
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex` — where `./install.sh codex` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 Every PR should land with a Conventional-Commits first line, and the

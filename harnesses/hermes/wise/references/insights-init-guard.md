@@ -12,7 +12,7 @@ sessions independently so the ledger is already populated once setup is done.)
 ## Fire (first thing, one bash call)
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/init-registry.py" check 2>/dev/null || true
 ```
 
 ## Interpret stdout

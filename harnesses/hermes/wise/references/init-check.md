@@ -14,7 +14,7 @@ together:
 
 1. The init-check:
    ```bash
-   python3 "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
+   python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/init-registry.py" check 2>/dev/null || true
    ```
 2. The caller's data call(s) — e.g. `workflows.py list-defs`,
    `list-resumable-runs`, `runs-root`, `list-runs <runs-root>`, or
@@ -40,7 +40,7 @@ wasted fork whose stderr was silenced.
 
   ```bash
   echo "Tip: run /wise-init to cache dep probe results and speed up future runs." >&2
-  bash "${WISE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
+  bash "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/bootstrap-deps.sh"
   ```
 
   Parse the probe stdout:

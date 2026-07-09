@@ -173,7 +173,7 @@ would re-clobber in-progress local edits):
 
 ```bash
 if ! grep -q '^includes=done$' "$LEDGER"; then
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" \
     apply-worktree-include "{{project.path}}" "$WT" || true
   printf 'includes=done\n' >> "$LEDGER"
 fi

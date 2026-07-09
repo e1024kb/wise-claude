@@ -15,6 +15,7 @@ description: >-
 This skill was authored for Claude Code and adapted for Cursor. Where the steps below reference Claude-specific tools, substitute:
 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor`, where `./install.sh cursor` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
 
 
 # /wise-workflow-remove — delete a user workflow
@@ -50,8 +51,8 @@ Check both layouts under the bundled root — a bundled workflow in
 either form is off-limits:
 
 ```bash
-test -f "${WISE_PLUGIN_ROOT}/workflows/${name}/workflow.yaml" \
-  || test -f "${WISE_PLUGIN_ROOT}/workflows/${name}.yaml"
+test -f "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor}/workflows/${name}/workflow.yaml" \
+  || test -f "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor}/workflows/${name}.yaml"
 ```
 
 If either exits 0, the target is a bundled workflow. Stop with:

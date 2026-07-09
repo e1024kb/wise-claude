@@ -1019,7 +1019,39 @@ legitimately differ). When you add a port or a new vendored asset,
 extend `core-map.yaml` in the same commit so the drift report stays
 meaningful.
 
-### 10.3 Versioning across ports
+### 10.3 Port path convention — the baked default root
+
+Port skills never depend on an exported env var. The rewrite rule when
+vendoring a Claude asset into a port is **context-dependent**:
+
+- **Executable bash contexts** (fenced ```bash blocks, and any quoted
+  `"${...}/` path that will be pasted into a shell) rewrite
+  `${CLAUDE_PLUGIN_ROOT}` to the **canonical defaulted expansion** for
+  that port:
+  ```
+  ${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/<harness>}
+  ```
+  This resolves with zero setup because `install.sh <harness>` lays the
+  pack at exactly that path; `WISE_PLUGIN_ROOT` is an optional override.
+- **Prose / Read references** rewrite to the short `${WISE_PLUGIN_ROOT}`
+  form, and the skill carries a one-line shared-file-resolution note (in
+  its Harness adaptation note, or a blockquote under the H1 for
+  full-tier skills) stating the default path.
+
+Two invariants back this up, both enforced (`scripts/validate_repo.py`
++ the CI install smoke `scripts/install_smoke.sh`):
+
+- **The shared root is the intact pack.** `install.sh` copies all five
+  dirs — `references/ agents/ workflows/ scripts/ skills/` — so every
+  `${WISE_PLUGIN_ROOT}/<path>` reference (including cross-skill reads
+  like `skills/wise-commit/commit-routine.md`) resolves there, and the
+  engine's `__file__`-relative discovery finds its bundled workflows
+  and agents.
+- **No bare var in executable contexts.** A bare `${WISE_PLUGIN_ROOT}`
+  in a fenced shell block or quoted path fails validation, as does a
+  defaulted expansion carrying another port's harness name.
+
+### 10.4 Versioning across ports
 
 There is **one version source** —
 `harnesses/claude/wise/.claude-plugin/plugin.json`. Every port manifest

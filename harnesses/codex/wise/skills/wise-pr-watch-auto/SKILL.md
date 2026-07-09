@@ -22,6 +22,8 @@ description: >-
 
 # /wise-pr-watch-auto — autonomous CI watch + fix loop
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex` — where `./install.sh codex` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 `/wise-pr-watch` is a long interactive loop — it escalates test/other

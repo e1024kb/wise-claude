@@ -17,6 +17,7 @@ This skill was authored for Claude Code and adapted for Cursor. Where the steps 
 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
 - **Skill tool (`/wise-*`)** — open and follow the named skill's `SKILL.md` directly.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor`, where `./install.sh cursor` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
 
 
 # /wise — wise copilot
@@ -47,7 +48,7 @@ of remembering exact command names.
 Run once per invocation:
 
 ```bash
-bash "${WISE_PLUGIN_ROOT}/scripts/engine.sh" list-skills
+bash "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor}/scripts/engine.sh" list-skills
 ```
 
 On success, the script emits a JSON document with every skill in

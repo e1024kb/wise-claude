@@ -14,6 +14,8 @@ description: >-
 
 # /wise-pr-request-review-auto — request bot review, autonomously
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor` — where `./install.sh cursor` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 `/wise-pr-add-reviewers` asks the user whether to add human reviewers

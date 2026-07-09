@@ -18,16 +18,20 @@ This skill was authored for Claude Code and adapted for OpenAI Codex CLI. Where 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
 - **Skill tool (`/wise-*`)** — open and follow the named skill's `SKILL.md` directly.
 - **TodoWrite** — keep a visible checklist in your replies instead.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex`, where `./install.sh codex` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
 
 ### Running workflows on Codex
 
-Same execution model as `/wise-workflow-run`: export
-`${WISE_PLUGIN_ROOT}` to this pack, ensure the workflow prerequisites
-(Python 3 + `pyyaml` + `python-ulid`, `git`, `gh`), and map each step
-type to its Codex primitive (subagents where available, else in-context
-role adoption; plain-chat questions for `ask`/`approval`). Resume works
-off Codex because the engine tags runs with a synthetic per-workspace
-session id — no Claude transcript is required.
+Same execution model as `/wise-workflow-run`: resolve
+`${WISE_PLUGIN_ROOT}` per the shared-files bullet above, ensure the
+workflow prerequisites (Python 3 + `pyyaml` + `python-ulid`, `git`,
+`gh`), and map each step type to its Codex primitive (subagents where
+available, else in-context role adoption; plain-chat questions for
+`ask`/`approval`). Resume works off Codex because the engine tags runs
+with a synthetic per-workspace session id — no Claude transcript is
+required. When composing a subagent or step prompt from a workflow's
+`prompts/*.md`, substitute `${WISE_PLUGIN_ROOT}` with its resolved
+value — the executing context is fresh and never saw this note.
 
 
 # /wise-workflow-resume — resume an interrupted run
@@ -115,7 +119,7 @@ On pick, set `run-id` to the chosen `run_id` and continue. On
 ### 3. Inspect the run
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" dump-state \
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" dump-state \
   "$RUNS_ROOT/<run-id>/state.yaml"
 ```
 
@@ -142,7 +146,7 @@ what happened.
 Get the current session and the stored one:
 
 ```bash
-CURRENT=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" current-session-id || true)
+CURRENT=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" current-session-id || true)
 ```
 
 Read `claude_session_id` and `session_label` from the state.yaml you
@@ -156,7 +160,7 @@ Decision tree (no prompts, ever):
 - Otherwise → overwrite the stored session and note it:
 
   ```bash
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" update-run \
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" update-run \
     "$RUNS_ROOT/<run-id>/state.yaml" claude_session_id=$CURRENT
   ```
 
@@ -164,7 +168,7 @@ Decision tree (no prompts, ever):
   whether the original session's `.jsonl` is still on disk:
 
   ```bash
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" session-path "$STORED"
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" session-path "$STORED"
   ```
 
   - Exit 0 (original still on disk):
@@ -185,7 +189,7 @@ the run started. You already have `workflow_name` from the §3
 the definition path:
 
 ```bash
-DEF=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" locate-def "<workflow_name>")
+DEF=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" locate-def "<workflow_name>")
 ```
 
 If the definition is gone, stop with:
@@ -199,7 +203,7 @@ directory if you want to discard it:
 ### 6. Reset in-flight steps
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" reset-running \
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" reset-running \
   "$RUNS_ROOT/<run-id>/state.yaml"
 ```
 

@@ -4,10 +4,13 @@ How completely each `wise` skill ports to each harness. Generated from the
 committed ports; see each `harnesses/<harness>/wise/README.md` for install
 steps and `CONTRIBUTING.md` §10 for the maintenance model.
 
-Legend: **✓ full** — ships as-is (pure prose + git/gh). **~ adapted** — ships
-with a per-harness *Harness adaptation note* mapping Claude-specific tools
-(subagent dispatch, AskUserQuestion, the Skill tool, TodoWrite) to the
-harness's equivalents. **✗ —** — not shipped (Claude Code only).
+Legend: **✓ full** — ships as-is (pure prose + git/gh; on non-Claude ports
+this still means shared-file paths rewritten to `${WISE_PLUGIN_ROOT}` with
+its baked default, plus a one-line shared-file-resolution note). **~
+adapted** — ships with a per-harness *Harness adaptation note* mapping
+Claude-specific tools (subagent dispatch, AskUserQuestion, the Skill tool,
+TodoWrite) to the harness's equivalents. **✗ —** — not shipped (Claude Code
+only).
 
 | Skill | Claude | Codex | Cursor | Hermes |
 |---|:--:|:--:|:--:|:--:|
@@ -20,7 +23,7 @@ harness's equivalents. **✗ —** — not shipped (Claude Code only).
 | `wise-feedback` | ✓ full | ✓ full | ✓ full | ✓ full |
 | `wise-grill` | ✓ full | ~ adapted | ~ adapted | ~ adapted |
 | `wise-implement-plan-auto` | ✓ full | ~ adapted | ~ adapted | ~ adapted |
-| `wise-init` | ✓ full | ✗ — | ✗ — | ✗ — |
+| `wise-init` | ✓ full | ~ adapted | ~ adapted | ~ adapted |
 | `wise-insights-mine` | ✓ full | ✗ — | ✗ — | ✗ — |
 | `wise-insights-refine` | ✓ full | ✗ — | ✗ — | ✗ — |
 | `wise-insights-reset` | ✓ full | ✗ — | ✗ — | ✗ — |
@@ -46,7 +49,6 @@ harness's equivalents. **✗ —** — not shipped (Claude Code only).
 
 ## Claude-only skills — why
 
-- **`wise-init`** — Claude dep-probe wizard; replaced by each port README's Prerequisites.
 - **`wise-insights-mine`** — self-improvement loop needs the SessionEnd hook + Claude transcript format.
 - **`wise-insights-refine`** — operates on the Claude insights store.
 - **`wise-insights-reset`** — operates on the Claude insights store.

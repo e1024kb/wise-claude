@@ -65,6 +65,13 @@ jobs:
         continue-on-error: true
         run: python3 scripts/report_core_drift.py
 
+      # A copy install must yield a fully working port with NO env vars:
+      # the shared root is the complete intact pack (incl. skills/) that
+      # port skills resolve by default, and the discovery dir holds the
+      # skills. See CONTRIBUTING.md §10.
+      - name: Install smoke (copy ports)
+        run: bash scripts/install_smoke.sh cursor hermes
+
       - name: Pytest
         run: python3 -m pytest harnesses/claude/wise/tests -q || [ $? -eq 5 ]
 

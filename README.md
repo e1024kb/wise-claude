@@ -17,7 +17,7 @@ a whole **ticket → merged-PR** pipeline to run unattended.
 
 It's maintained as a harness-neutral **`core/`** plus a hand-maintained
 **port per harness** under `harnesses/<harness>/wise/`, so the same copilot
-installs natively on whichever agent you use. **25 of the 32 skills and all
+installs natively on whichever agent you use. **26 of the 32 skills and all
 four workflows** port to every harness; see the
 [compatibility matrix](docs/compatibility.md).
 
@@ -43,14 +43,17 @@ Each harness also has a **canonical install** (and each port's
 | Harness | Canonical install |
 |---|---|
 | **Claude Code** | `/plugin marketplace add e1024kb/wise-claude` then `/plugin install wise@wise-claude` |
-| **OpenAI Codex CLI** | `codex plugin marketplace add e1024kb/wise-claude` then `codex plugin install wise` (catalog: `.agents/plugins/marketplace.json`) |
-| **Cursor** | copy skills into `~/.cursor/skills/` (or a project `.agents/skills/`) — or `./install.sh cursor` |
-| **Hermes Agent** | copy skills into `~/.hermes/skills/` — or `./install.sh hermes` |
+| **OpenAI Codex CLI** | `./install.sh codex` — uses `codex plugin marketplace add` + `codex plugin install wise` when the CLI is present (catalog: `.agents/plugins/marketplace.json`) |
+| **Cursor** | `./install.sh cursor` (skills → `~/.cursor/skills/`; per-project: `--project <dir>`) |
+| **Hermes Agent** | `./install.sh hermes` (skills → `~/.hermes/skills/`) |
 
-**Non-Claude ports** set a `WISE_PLUGIN_ROOT` env var so skills and
-workflows resolve their shared files (the installer prints the `export`
-line). On Claude Code, run `/wise-init` once to probe dependencies and
-`/wise` to print the full command catalog.
+On the non-Claude ports the installer lays the whole pack at a **stable
+shared root** (`~/.local/share/wise/harness/<harness>`) that skills and
+workflows resolve **by default — no env vars needed**; export
+`WISE_PLUGIN_ROOT` only to override it. Copying the skills alone is not a
+working install — the port READMEs show the exact two-step manual
+alternative. On every harness, run the `wise-init` skill once to probe
+dependencies, and `/wise` to print the full command catalog.
 
 ## What you get
 
@@ -103,8 +106,8 @@ engine, the `/wise` dispatcher, and the skill-authoring guides.
   Nous Research Hermes Agent.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
 - **Python 3** (with `pyyaml` + `python-ulid`) for the workflow engine.
-- On Claude Code, `/wise-init` probes these and walks you through anything
-  missing; the other ports document prerequisites in their READMEs.
+- The `wise-init` skill (all harnesses) probes these and walks you through
+  anything missing; each port README also lists its prerequisites.
 
 ## Repository layout
 
@@ -156,9 +159,11 @@ path.
   Cursor / Hermes: the skills copied into `~/.cursor/skills` /
   `~/.hermes/skills`), then start a fresh session.
 - **A skill or workflow can't find its shared files** (non-Claude ports) —
-  `WISE_PLUGIN_ROOT` is unset; export it to the pack's install directory
-  (the installer prints the line).
-- **PR / workflow steps fail on auth** — on Claude, run `/wise-init`;
+  the shared root is missing: run `./install.sh <harness>` (it lays the
+  whole pack at `~/.local/share/wise/harness/<harness>`, the path skills
+  resolve by default), or export `WISE_PLUGIN_ROOT` to wherever you put
+  the pack.
+- **PR / workflow steps fail on auth** — run the `wise-init` skill;
   everywhere, make sure `gh auth status` is green and an `origin` remote
   exists.
 - **`/wise` can't classify a request** — type the `/wise-` prefix to browse
