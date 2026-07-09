@@ -39,6 +39,13 @@ Folder form wins on same-root collision.
   Per-workspace. Each step execution gets its own ULID and log file
   at `logs/<step-id>.<step-run-ulid>.log`.
 
+> **On non-Claude harnesses** (Codex / Cursor / Hermes): `${CLAUDE_PLUGIN_ROOT}`
+> is exported as `${WISE_PLUGIN_ROOT}` (the pack's install dir), and user
+> definitions resolve under `WISE_DATA_DIR` — both default to
+> `~/.local/share/wise`. The engine reads these neutral vars with a fallback,
+> so the paths above are the Claude spelling of a harness-neutral scheme; see
+> [`docs/compatibility.md`](../compatibility.md) and each port's README.
+
 If a user definition has the same name as a bundled one, the user
 version wins at run time. `/wise-workflow-list` flags this as a
 shadow.
@@ -156,6 +163,15 @@ steps:
 ```
 
 ## Step types
+
+> **Cross-harness note.** The step types below are harness-neutral, but the
+> primitive each maps to varies: on Claude Code and Hermes a `prompt` step's
+> role/team runs as parallel `Task`/native subagents; on Cursor there is no
+> subagent primitive, so the conductor adopts the role in-context and runs
+> teams sequentially; on Codex it uses subagents where available. `ask` /
+> `approval` become plain-chat questions off Claude. Each port's
+> `/wise-workflow-run` carries the full mapping in its execution note; see
+> [`docs/compatibility.md`](../compatibility.md).
 
 | Type | Success when | Failure when | Captured output |
 |---|---|---|---|
@@ -459,9 +475,11 @@ steps:
       Review the proposed change for …
 ```
 
-The roster agents are real Claude Code plugin subagents — after install
-they appear in `/agents` and are directly invocable as
-`subagent_type: wise:<name>`. See
+The roster agents are real Claude Code plugin subagents (the Claude port) —
+after install they appear in `/agents` and are directly invocable as
+`subagent_type: wise:<name>`. Other ports vendor the neutral role cards
+from `core/agents/` and map them to their own subagent primitive (or adopt
+the role in-context where there is none). See
 [`harnesses/claude/wise/AGENTS.md`](../../harnesses/claude/wise/AGENTS.md) for the full
 list, each role's default effort, and how `auto` chooses.
 
@@ -489,13 +507,18 @@ pre-flight, the conductor:
 1. Allocates the run's ULID.
 2. Creates `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` and writes a stub
    `state.yaml` with `status: initializing`.
-3. Infers the current Claude Code session UUID by picking the
-   most-recently-modified `.jsonl` in
-   `~/.claude/projects/<cwd-slug>/` and records it as
-   `claude_session_id:` in state.yaml. (No env var surfaces the
-   UUID into a skill's shell; the newest-jsonl heuristic is
-   reliable because your own session is being appended to as the
-   workflow runs.)
+3. Resolves the current session id and records it as
+   `claude_session_id:` in state.yaml, in this order: the harness's
+   exported id (`$CLAUDE_CODE_SESSION_ID` on Claude Code,
+   `$WISE_SESSION_ID` on any harness) → else, on Claude, the
+   most-recently-modified `.jsonl` in `~/.claude/projects/<cwd-slug>/`
+   (reliable because your own session is being appended to as the
+   workflow runs) → else a **synthetic per-workspace id**
+   (`local-<cwd-slug>`). The synthetic fallback is what non-Claude
+   harnesses use: it needs no transcript, so runs are still tagged and
+   `/resume`-able off Claude. (The `claude_session_id:` key name is
+   kept for state-file compatibility; on other harnesses it holds the
+   neutral id.)
 4. Derives a human-readable label of the form
    `<run-ulid>_<first-7-hyphen-tokens-of-workflow-name>` and
    records it as `session_label:`.
@@ -525,6 +548,14 @@ can identify the previous host session by label rather than UUID.
 Legacy runs (started before this feature) have no
 `claude_session_id` field; resume treats that as "no stored session"
 and proceeds without any notice.
+
+The three `workflows.py` session subcommands degrade cleanly off Claude:
+`current-session-id` returns the resolved id (synthetic when there is no
+transcript, never empty), `session-path` exits 2 when no `.jsonl` exists
+(the "no transcript" signal — always the case off Claude), and
+`find-runs-by-session` matches on whatever id was stored. So the conflict
+check and `/resume` work on every harness; only transcript-derived niceties
+(a real UUID, the transcript path) are Claude-specific.
 
 ## Pre-flight prompts
 

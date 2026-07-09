@@ -46,6 +46,13 @@ that has retired auto-falls-back to its alias with a notice. See
 
 ## Adding or editing a role
 
-Edit the canonical file under `harnesses/claude/wise/agents/<name>.md` and update the
-table in [`harnesses/claude/wise/AGENTS.md`](./harnesses/claude/wise/AGENTS.md). Full procedure:
-[`CONTRIBUTING.md` §9.10](./CONTRIBUTING.md).
+Edit the **canonical neutral card** at `core/agents/<name>.md` first (name +
+description + persona prose, no harness-specific frontmatter), then propagate
+to each port: the Claude card `harnesses/claude/wise/agents/<name>.md` adds
+the `tools` / `model` / `effort` / `color` frontmatter Claude Code needs,
+while the other ports vendor the neutral card verbatim (see
+[`core/core-map.yaml`](./core/core-map.yaml) and
+[`CONTRIBUTING.md` §10](./CONTRIBUTING.md#10-cross-harness-ports--core-sync)).
+Update the table in
+[`harnesses/claude/wise/AGENTS.md`](./harnesses/claude/wise/AGENTS.md). Full
+procedure: [`CONTRIBUTING.md` §9.10](./CONTRIBUTING.md#910-the-agent-roster).

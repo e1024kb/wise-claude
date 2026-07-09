@@ -254,6 +254,27 @@ Workflow definitions are YAML, not skills — `/wise-workflow-create`
 doesn't delegate to `skill-creator`. See
 [`workflows.md`](./workflows.md) for the workflow author guide.
 
+## Porting a new skill to the other harnesses
+
+A skill authored under `harnesses/claude/wise/skills/` reaches **only**
+Claude Code — it does **not** appear on Codex / Cursor / Hermes
+automatically. To make it available there, decide the skill's tier and
+port it by hand (the repo maintains per-harness folders, not a build step):
+
+- **Full** — pure prose + `git` / `gh`, no Claude-only tools. Vendor it to
+  each port with frontmatter reduced to `name` + `description` and paths
+  rewritten `${CLAUDE_PLUGIN_ROOT}` → `${WISE_PLUGIN_ROOT}`.
+- **Adapted** — uses `Task` / `AskUserQuestion` / the `Skill` tool /
+  `TodoWrite`. Same as full, plus a *Harness adaptation note* at the top
+  mapping those tools to the harness's equivalents.
+- **Claude-only** — depends on the SessionEnd hook, Claude transcripts, or
+  `skill-creator`. Leave it out of the ports and record why.
+
+Record the tier in [`docs/compatibility.md`](../compatibility.md) and
+follow the sync model in
+[`CONTRIBUTING.md` §10](../../CONTRIBUTING.md#10-cross-harness-ports--core-sync).
+Any shared reference the skill reads belongs in `core/references/` first.
+
 ## Full procedure
 
 See [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
