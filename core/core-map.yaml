@@ -1,0 +1,61 @@
+# core-map.yaml — maps every canonical core/ asset to its vendored
+# counterpart(s) in each harness folder. Read by
+# scripts/report_core_drift.py (non-blocking CI report) and by humans
+# following the sync checklist in CONTRIBUTING.md.
+#
+# modes:
+#   verbatim — the vendored copy must stay byte-identical to core/;
+#              the drift report diffs it and flags any divergence.
+#   adapted  — the vendored copy intentionally diverges (harness-specific
+#              frontmatter, path rewrites, adaptation preambles); the
+#              drift report lists it as "manually verify" instead of diffing.
+#
+# Paths are repo-root-relative. A trailing slash means "map the whole
+# directory recursively" (every file under core/<dir> must exist under
+# the vendored dir for verbatim mode).
+#
+# Harness folders for codex / cursor / hermes are added by their own
+# port PRs; extend the vendored lists here in the same commit.
+
+version: 1
+
+mappings:
+  - core: references/
+    vendored:
+      - harness: claude
+        path: harnesses/claude/wise/references/
+        mode: verbatim
+
+  - core: workflows/
+    vendored:
+      - harness: claude
+        path: harnesses/claude/wise/workflows/
+        mode: verbatim
+        # Workflow READMEs carry location-dependent relative links (to
+        # docs/wise/…), so they legitimately differ per port; the
+        # workflow.yaml + prompts/ are the verbatim contract.
+        exclude: ["**/README.md"]
+
+  - core: scripts/workflows.py
+    vendored:
+      - harness: claude
+        path: harnesses/claude/wise/scripts/workflows.py
+        mode: verbatim
+
+  - core: scripts/engine.py
+    vendored:
+      - harness: claude
+        path: harnesses/claude/wise/scripts/engine.py
+        mode: verbatim
+
+  - core: scripts/engine.sh
+    vendored:
+      - harness: claude
+        path: harnesses/claude/wise/scripts/engine.sh
+        mode: verbatim
+
+  - core: agents/
+    vendored:
+      - harness: claude
+        path: harnesses/claude/wise/agents/
+        mode: adapted   # Claude roster adds tools/model/effort/color frontmatter

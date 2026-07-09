@@ -1,0 +1,307 @@
+version: 1
+name: ticket-auto
+description: >-
+  Autonomous ticket → PR pipeline. For each ticket given, the wise SDLC
+  roster plans it (architect), implements it (software-engineer) in an
+  isolated git worktree, converges it through a reviewer↔fixer loop
+  (code-reviewer ⇄ software-engineer), commits, pushes, opens a PR,
+  requests review, and watches + fixes CI until the PR is green — end to
+  end, with no user prompts. One worktree + branch + PR per ticket; a PR
+  is merged once all its checks pass — and its worktree + local branch
+  are then cleaned up so the base repo stays clean — otherwise it is left
+  open for a human (worktree kept for inspection).
+author: e1024kb
+
+project-selection: current
+
+# Default prompt steps to the wise SDLC agent roster. Most of this
+# workflow's real work (plan / implement / review / fix) happens inside
+# the `process-tickets` interactive fragment, which now dispatches each
+# phase to a concrete roster role brought in FRESH per phase:
+#   - plan      → wise:architect (opus, high)
+#   - implement → wise:software-engineer (sonnet, high)
+#   - review    → wise:code-reviewer (opus, high) — REVIEWS only
+#   - fix       → wise:software-engineer (sonnet, high) — applies the
+#                 reviewer's findings; the two cycle until the reviewer is
+#                 satisfied (cap 10, config_prompt-overridable; on non-
+#                 convergence it pushes anyway and flags the ticket)
+#   - watch+fix → wise:software-engineer (sonnet)
+# At the step level `report` → wise:technical-writer; `assemble-team`
+# stays on general-purpose (a plain run-start declaration of the roster
+# team + config binding). Model tiering: opus for the planning + review
+# brains, sonnet for the hands-on engineering + bookkeeping steps.
+agents: auto
+
+# ticket-auto is fully autonomous: it never asks the user for consent,
+# permission, or a decision. Every choice the interactive ticket-plan
+# flow delegates to the user is made here by the Lead
+# Architect agent instead.
+#   control-mode: synchronous — no approval gates, no ask steps.
+#   worktree: current — NOT `new`. Pre-flight `new` would give ONE
+#     worktree for the whole run; this workflow needs one worktree PER
+#     ticket, so the orchestrator creates them itself with
+#     `git worktree add`. Pinning `current` keeps {{project.path}}
+#     pointing at the real repo, the correct base for those.
+#   rename_session: skip — an unattended run has nobody to read a
+#     friendlier /resume label.
+# There are NO `ask`, `approval`, or `interactive`-gate prompts that
+# pause for a human — `process-tickets` is `type: interactive` only
+# because it must run in the conductor (full Bash/Task access for the
+# per-ticket loop), not because it asks anything.
+preflight:
+  control-mode:   synchronous
+  worktree:       current
+  rename_session: skip
+
+inputs:
+  - name: ticket_ids
+    prompt: "Which tickets? Comma-separated list of URLs or ids (e.g. PROJ-1, PROJ-2, https://linear.app/acme/issue/ENG-9). When passing positionally on the command line, use NO spaces between items (PROJ-1,PROJ-2)."
+  # Free-form operator guidance, threaded to the wise:architect (plan
+  # phase) as standing config for the whole run. As the LAST declared
+  # input it absorbs the remainder of the command line, so it can be a
+  # full sentence:
+  #   /wise-workflow-run ticket-auto PROJ-1 prefer the design-system lib; never touch infra/*; cap CI fixes at 4
+  # Optional — omit it and the run uses its max-value defaults. The
+  # prompt does NOT switch the run to asking the user anything: the
+  # architect predicts the answers to any question it implies and
+  # keeps the max-value rule. It can also override tuning knobs (e.g.
+  # the CI-fix cap and the review-cycle cap, both default 10).
+  - name: config_prompt
+    prompt: "Optional free-form guidance to tune this run — special skills/libraries to prefer, guidelines, guardrails, files to avoid, knob overrides (e.g. 'cap CI fixes at 4'). Blank = none."
+    optional: true
+
+steps:
+  - id: assemble-team
+    type: prompt
+    prompt: |
+      This is a run-start declaration step for an AUTONOMOUS ticket → PR
+      run. State the wise SDLC roster team that will carry every ticket in
+      later phases, and record the standing operator guidance.
+
+      For reference, the work is done in **later phases** by the roster —
+      each role brought in **fresh per phase** (the per-ticket
+      orchestrator's context-budget rule keeps no agent resident across
+      tickets). This step only names them; it does no work itself:
+
+        • Plan      → `wise:architect` — the team lead and sole decision-
+          maker. Owns every decision the interactive ticket-plan flow would
+          ask a human for: ticket ambiguity, the technical approach, the
+          plan's scope and task breakdown, how to fix a failing check,
+          whether a bot review comment should be applied. Pragmatic,
+          decisive, writes the rationale down. On any performance / depth /
+          thoroughness dial it takes the MAXIMUM-value option — this is an
+          autonomous run; never settle for a middle default a human might
+          have picked.
+        • Implement → `wise:software-engineer` — polyglot senior engineers
+          doing the hands-on work (its per-task executors run in parallel).
+        • Review    → `wise:code-reviewer` — the independent gate that
+          judges the branch; it never fixes its own findings.
+        • Fix       → `wise:software-engineer` — applies the reviewer's
+          findings and the CI / bot-comment fixes.
+
+      Standing operator guidance for this run (may be empty):
+
+        {{config_prompt}}
+
+      Every phase treats that guidance as binding configuration — preferred
+      skills / libraries, coding guidelines, guardrails, files to stay out
+      of, and any explicit knob override (e.g. the CI-fix cap or the
+      review-cycle cap). It never turns the run into a Q&A: where the
+      guidance implies an answer the run would otherwise ask for, the
+      architect predicts that answer and proceeds (taking the max-value
+      default for whatever it leaves open). Later steps receive this same
+      `config_prompt` and apply it in their own context.
+
+      Reply with a one-line confirmation naming the roster team and noting
+      whether `config_prompt` is set.
+
+      Do NOT plan, investigate, audit the codebase, or dispatch / spawn any other agent (no Task tool). Reply with the one-line confirmation and nothing else.
+    agent: off                  # plain setup/confirmation step — no persona needed
+    model: sonnet
+    depends_on: []
+
+  - id: split-tickets
+    type: prompt
+    prompt: |
+      Parse the input `{{ticket_ids}}` into a clean list of ticket
+      references: split on commas, trim each entry, drop empties.
+
+      If the list is empty, stop and surface the error — there is
+      nothing to process.
+
+      Your response's FINAL line MUST be exactly, on its own line
+      (join the tickets with semicolons, no spaces):
+
+        TICKETS: count=<n> list=<ticket1;ticket2;...>
+    until: 'TICKETS: count=(\d+) list=(\S.*)'
+    max_iterations: 2
+    outputs: [ticket_count, ticket_list]
+    model: sonnet
+    depends_on: [assemble-team]
+
+  - id: preflight-checks
+    type: bash
+    command: |
+      set -e
+      cd "{{project.path}}"
+
+      # An autonomous multi-worktree run must start from a clean base.
+      if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "ERROR: base repo at $(pwd) has uncommitted changes." >&2
+        echo "Stash or commit them, then re-run /wise-workflow-run ticket-auto." >&2
+        exit 1
+      fi
+
+      gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
+      git remote get-url origin >/dev/null 2>&1 || { echo "ERROR: no 'origin' remote." >&2; exit 1; }
+      echo "PREFLIGHT: ok"
+    cwd: "{{project.path}}"
+    success:
+      exit_code: 0
+      stdout_matches: "PREFLIGHT: ok"
+    timeout: 30
+    depends_on: [split-tickets]
+
+  - id: ensure-access
+    type: prompt
+    prompt: |
+      Gate the run on TRACKER ACCESS before any ticket is planned. This
+      autonomous pipeline must fetch each ticket's REAL content from its
+      tracker — it must NEVER invent, infer, or scrape ticket content
+      from the codebase or the bare id when the tracker is unreachable.
+      So verify access up front and halt the whole run if any required
+      tracker cannot be reached.
+
+      For each ref in `{{ticket_list}}` (semicolon-separated), identify
+      its tracker from the URL host / id shape:
+        • *.atlassian.net/browse/, jira.*   → Jira
+        • linear.app/*/issue/               → Linear
+        • github.com/*/issues/              → GitHub Issues
+        • gitlab.com/*/-/issues/            → GitLab Issues
+        • app.asana.com/*                   → Asana
+        • *.monday.com / trello.com/c/ / *.shortcut.com / *.notion.so
+          / dev.azure.com/*/_workitems/     → Monday / Trello / Shortcut / Notion / Azure Boards
+      WebSearch an unknown host to classify it; for a bare ambiguous id
+      predict the most likely tracker (never ask the user). Collect the
+      DISTINCT trackers the run needs.
+
+      For each distinct tracker, probe for a channel that ACTUALLY
+      RETURNS the ticket — not merely one that exists:
+        • a tracker MCP (a one-time permission prompt on first use is
+          expected);
+        • a CLI (`command -v gh`, `command -v glab`, …);
+        • for a PUBLIC ticket URL, `WebFetch`.
+      A channel that returns a login page, 401/403, or empty body does
+      NOT count as access.
+
+      - If EVERY distinct tracker has a working channel → reply
+        `ACCESS: ok`.
+      - If ANY tracker has NO working channel → this run cannot proceed.
+        Do NOT fall back to guessing ticket content. For each unreachable
+        tracker, state: the tracker name, the tickets that need it, and
+        the concrete fix — WebSearch `"<tracker> Claude Code MCP server"`
+        and `"<tracker> CLI"` and print the install + authenticate
+        options (mark them as unverified suggestions), or note that a
+        private ticket URL must be made public-fetchable. Tell the
+        operator to fix tracker access and re-run
+        `/wise-workflow-run ticket-auto`. Then reply `ACCESS: blocked`.
+
+      FINAL line MUST be exactly `ACCESS: ok` (every tracker reachable)
+      or `ACCESS: blocked` (one or more unreachable — the per-tracker
+      fixes you printed above tell the operator what to do). Emit the
+      verdict token ONLY as that final standalone line — never as a
+      mid-sentence mention earlier in the message. The next step
+      (`gate-access`) halts the run before any worktree / branch / plan
+      / PR exists when this is `blocked`.
+    until: '^ACCESS: (ok|blocked)$'
+    max_iterations: 1            # single-shot — re-running re-probes MCP/CLI (and re-prompts permissions); a missing verdict fails this step, skipping gate-access + process-tickets (all-success) so the run still halts — fail-closed
+    outputs: [access_status]
+    model: sonnet
+    depends_on: [preflight-checks]
+
+  - id: gate-access
+    type: bash
+    command: |
+      # Hard stop for the autonomous run when ensure-access found any
+      # tracker unreachable. The detailed per-tracker fix instructions
+      # are in the ensure-access output above; this gate is the explicit
+      # halt so a `blocked` outcome can never fall through to ticket
+      # processing (capturing the verdict as an output + halting here
+      # surfaces the reason in-chat, rather than burying it in a failed
+      # prompt step's log).
+      if [ "{{access_status}}" = "ok" ]; then
+        echo "ACCESS-GATE: ok"
+      else
+        echo "ERROR: tracker access is blocked — one or more tickets' trackers are unreachable." >&2
+        echo "See the ensure-access output above for each tracker and how to fix it (install + authenticate its MCP/CLI, or make the ticket URL public-fetchable)." >&2
+        echo "Fix tracker access, then re-run /wise-workflow-run ticket-auto." >&2
+        exit 1
+      fi
+    success:
+      exit_code: 0
+      stdout_matches: "ACCESS-GATE: ok"
+    timeout: 15
+    depends_on: [ensure-access]
+
+  - id: process-tickets
+    type: interactive
+    prompt: |
+      Read {{workflow.dir}}/prompts/process-tickets.md and follow it
+      exactly. It is the per-ticket orchestrator: for each ticket it
+      creates an isolated worktree and drives plan → implement → push
+      → PR → request-review → watch+fix, fully autonomously.
+
+      Runtime context:
+        ticket_list:   {{ticket_list}}
+        ticket_count:  {{ticket_count}}
+        config_prompt: {{config_prompt}}
+        project.path:  {{project.path}}
+        project.name:  {{project.name}}
+        project.kind:  {{project.kind}}
+        run.dir:       {{run.dir}}
+        workflow.dir:  {{workflow.dir}}
+
+      `config_prompt` is the operator's standing guidance (may be
+      empty) — pass it down to every per-ticket phase, and resolve the
+      CI-fix cap (`max_fix_attempts`, default 10) from it when it names
+      an override.
+
+      Process tickets sequentially; one failing ticket never aborts
+      the run. A fully green PR is merged by the watch step; any PR
+      that is not fully green is left open for a human.
+
+      Your response's FINAL line MUST match:
+
+        TICKETS-DONE: processed=<N> merged=<M> open=<O> failed=<F>
+    until: 'TICKETS-DONE: processed=(\d+) merged=(\d+) open=(\d+) failed=(\d+)'
+    outputs: [tickets_processed, tickets_merged, tickets_open, tickets_failed]
+    depends_on: [gate-access]
+
+  - id: report
+    type: prompt
+    prompt: |
+      Give the (absent) operator an end-of-run report. Use the
+      per-ticket results table `process-tickets` printed. For each
+      ticket list: the ticket ref, the branch, the worktree path, the
+      PR url, and the verdict (merged / all-green / partial /
+      exhausted / human-intervention / failed).
+
+      Then a summary line: {{tickets_processed}} processed —
+      {{tickets_merged}} merged, {{tickets_open}} open,
+      {{tickets_failed}} failed.
+
+      Call out explicitly which PRs were merged and which were left
+      open for a human (anything not fully green); for each open PR
+      say why. For any ticket failed with
+      `reason=plan-insufficient-context`, point at its ledger's
+      `blueprint` path — the `BLUEPRINT-<ref>.md` holds the targeted
+      per-person questions the operator must get answered before
+      re-running that ticket. Merged tickets had their worktree + local branch
+      auto-removed (their work is on the remote) — note that. For each
+      ticket left OPEN or FAILED that still has a worktree, list its
+      `git worktree remove <path>` command so the operator can clean up
+      after inspecting. If every ticket merged, state the base repo is
+      clean — no worktrees remain.
+    agent: technical-writer
+    model: sonnet
+    depends_on: [process-tickets]

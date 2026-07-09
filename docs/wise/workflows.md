@@ -63,7 +63,7 @@ step DAG) → Steps (table) → Inputs → Outputs → Examples →
 Related. The `/wise-workflow-create` wizard generates a scaffolded
 README automatically; when hand-authoring, copy the shape from
 any of the bundled workflows' READMEs
-(`plugins/wise/workflows/*/README.md`).
+(`harnesses/claude/wise/workflows/*/README.md`).
 
 Steps reference them via the `{{workflow.dir}}` template variable,
 which expands to the absolute path of the folder:
@@ -198,7 +198,7 @@ drop-in replacement for `prompt`.
 **addressable background teammate** (`Agent(team_name, name,
 run_in_background: true)`) instead of a blocking `Task`, so the
 conductor stays free to watch it. A leader loop — the routine in
-`plugins/wise/references/supervise-loop.md` — polls the worker's
+`harnesses/claude/wise/references/supervise-loop.md` — polls the worker's
 heartbeat and nudges it if it hangs mid-turn or goes idle without
 finishing, escalating (`TaskStop` → respawn → fail the slot) only
 if nudging fails. Use it for a single long step where a silent hang
@@ -317,8 +317,8 @@ the step-level `when:` field with a trivial comparison:
 
 `wise` ships an **SDLC agent roster** — a set of role subagents
 (`wise:architect`, `wise:software-engineer`, `wise:security-engineer`,
-`wise:code-reviewer`, …) under `plugins/wise/agents/`, catalogued in
-[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md). A `prompt`
+`wise:code-reviewer`, …) under `harnesses/claude/wise/agents/`, catalogued in
+[`harnesses/claude/wise/AGENTS.md`](../../harnesses/claude/wise/AGENTS.md). A `prompt`
 step can be dispatched to one of them instead of the generic
 `general-purpose` subagent, and can pin a model and a reasoning effort.
 
@@ -462,7 +462,7 @@ steps:
 The roster agents are real Claude Code plugin subagents — after install
 they appear in `/agents` and are directly invocable as
 `subagent_type: wise:<name>`. See
-[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md) for the full
+[`harnesses/claude/wise/AGENTS.md`](../../harnesses/claude/wise/AGENTS.md) for the full
 list, each role's default effort, and how `auto` chooses.
 
 ## Project selection

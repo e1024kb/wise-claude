@@ -12,7 +12,7 @@
       "name": "wise",
       "description": "A Claude Code copilot — flat slash commands, a workflow engine, and shared scripts for everyday git / PR / ticket-planning / skill-authoring tasks. The /wise command is a natural-language helper that classifies requests against the catalog of registered /wise-* commands.",
       "category": "productivity",
-      "source": "./plugins/wise",
+      "source": "./harnesses/claude/wise",
       "homepage": "https://github.com/e1024kb/wise-claude"
     }
   ]

@@ -1,0 +1,15 @@
+{
+  "description": "wise self-improvement: on SessionEnd, ingest the just-finished session transcript into the local insights ledger (no LLM, no network, never blocks exit). See harnesses/claude/wise/CLAUDE.md and CONTRIBUTING.md §2 (Hooks).",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-ingest.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -31,7 +31,7 @@ don't want.
 ## Standalone slash-command skills
 
 This is the default shape for every new action. The directory name
-is the slash command — a skill in `plugins/wise/skills/wise-workflow-run/`
+is the slash command — a skill in `harnesses/claude/wise/skills/wise-workflow-run/`
 invokes as `/wise-workflow-run`.
 
 ### Frontmatter template
@@ -133,7 +133,7 @@ contract lives in the skill body's Arguments section.
 A standalone action skill typically has this shape:
 
 ```
-plugins/wise/skills/wise-my-action/
+harnesses/claude/wise/skills/wise-my-action/
 └── SKILL.md       # frontmatter + procedure
 ```
 
@@ -151,7 +151,7 @@ convention:
   do (write outside its scope, call other action skills, spawn
   subagents for trivial work).
 
-See any existing standalone skill under `plugins/wise/skills/` for a
+See any existing standalone skill under `harnesses/claude/wise/skills/` for a
 canonical example (`wise-commit-message` is small and focused;
 `wise-workflow-run` is large and illustrates the conductor pattern).
 
@@ -198,12 +198,12 @@ there's nothing to execute — Claude reads the content and uses it
 to inform whatever work is actually happening in the main
 conversation.
 
-See `plugins/wise/skills/wise-estimation/SKILL.md` for a compact
+See `harnesses/claude/wise/skills/wise-estimation/SKILL.md` for a compact
 reference skill (the Fibonacci story-point scale).
 
 ## `/wise-skills-create <skill-name>`
 
-Scaffolds a new skill under `plugins/wise/skills/<skill-name>/`. By
+Scaffolds a new skill under `harnesses/claude/wise/skills/<skill-name>/`. By
 convention wise skills are prefixed `wise-`.
 
 The wizard asks for the skill shape (standalone vs reference), the
@@ -225,7 +225,7 @@ plugin is reloaded.
 ## `/wise-skills-edit <skill-name>`
 
 Opens an existing skill for modification through the same wizard.
-Locates the skill under `plugins/wise/skills/`.
+Locates the skill under `harnesses/claude/wise/skills/`.
 
 Refuses to edit the `wise` helper itself — the helper's shape is
 load-bearing for the whole plugin; use a code editor for its

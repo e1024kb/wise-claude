@@ -7,18 +7,18 @@ file, not a loadable agent registry.
 ## Working in this repo
 
 - This is a Claude Code plugin marketplace; the plugin lives in
-  `plugins/wise/`. Contributor procedures, conventions, and the workflow-engine
+  `harnesses/claude/wise/`. Contributor procedures, conventions, and the workflow-engine
   reference are in [`CONTRIBUTING.md`](./CONTRIBUTING.md) and
   [`docs/wise/`](./docs/wise/). Read those before changing the plugin.
 - Validate before committing: `python3 -m py_compile
-  plugins/wise/scripts/workflows.py`, `python3 -m json.tool` the JSON manifests,
+  harnesses/claude/wise/scripts/workflows.py`, `python3 -m json.tool` the JSON manifests,
   and `bash -n` the shell scripts. There is no build step.
 
 ## The wise SDLC agent roster
 
 `wise` ships 13 SDLC role agents under
-[`plugins/wise/agents/`](./plugins/wise/agents/), one markdown file per role,
-catalogued in [`plugins/wise/AGENTS.md`](./plugins/wise/AGENTS.md). They are
+[`harnesses/claude/wise/agents/`](./harnesses/claude/wise/agents/), one markdown file per role,
+catalogued in [`harnesses/claude/wise/AGENTS.md`](./harnesses/claude/wise/AGENTS.md). They are
 real Claude Code plugin subagents — auto-discovered when the plugin is
 installed; invoke a role as `subagent_type: wise:<name>` (e.g.
 `wise:architect`). Frontmatter: `name`, `description`, `tools`, `model: inherit`,
@@ -46,6 +46,6 @@ that has retired auto-falls-back to its alias with a notice. See
 
 ## Adding or editing a role
 
-Edit the canonical file under `plugins/wise/agents/<name>.md` and update the
-table in [`plugins/wise/AGENTS.md`](./plugins/wise/AGENTS.md). Full procedure:
+Edit the canonical file under `harnesses/claude/wise/agents/<name>.md` and update the
+table in [`harnesses/claude/wise/AGENTS.md`](./harnesses/claude/wise/AGENTS.md). Full procedure:
 [`CONTRIBUTING.md` §9.10](./CONTRIBUTING.md).
