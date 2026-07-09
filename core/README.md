@@ -25,7 +25,7 @@ core/
 
 `scripts/build_ports.py` renders every port from here. Some outputs are
 byte-copies (the engine, the neutral agent cards on ports whose profile
-adds no agent frontmatter — codex, cursor, hermes); others are
+adds no agent frontmatter — codex, cursor, hermes, pi); others are
 transformed (the Claude roster gains `tools` / `model` / `effort` /
 `color` frontmatter from `profiles/claude.yaml`, the opencode cards gain
 `mode: subagent` from `profiles/opencode.yaml`; port skills

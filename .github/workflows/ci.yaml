@@ -36,6 +36,7 @@ jobs:
         run: |
           python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
           python3 -m json.tool harnesses/claude/wise/.claude-plugin/plugin.json > /dev/null
+          python3 -m json.tool package.json > /dev/null
 
       - name: Bash scripts parse
         run: |

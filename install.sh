@@ -12,7 +12,7 @@
 # Usage:
 #   ./install.sh <harness> [--user|--project <dir>] [--force] [--uninstall]
 #
-#   <harness>   claude | codex | cursor | hermes | opencode
+#   <harness>   claude | codex | cursor | hermes | opencode | pi
 #   --user      (default) install for the current user
 #   --project <dir>  install into a project's skills dir instead
 #   --force     overwrite an existing differing install
@@ -34,7 +34,7 @@ UNINSTALL=0
 die() { echo "install.sh: $*" >&2; exit 1; }
 
 # ---- arg parse -------------------------------------------------------------
-[ $# -ge 1 ] || die "usage: ./install.sh <claude|codex|cursor|hermes|opencode> [--user|--project <dir>] [--force] [--uninstall]"
+[ $# -ge 1 ] || die "usage: ./install.sh <claude|codex|cursor|hermes|opencode|pi> [--user|--project <dir>] [--force] [--uninstall]"
 HARNESS="$1"; shift
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,8 +48,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HARNESS" in
-  claude|codex|cursor|hermes|opencode) ;;
-  *) die "unknown harness '$HARNESS' (expected claude|codex|cursor|hermes|opencode)" ;;
+  claude|codex|cursor|hermes|opencode|pi) ;;
+  *) die "unknown harness '$HARNESS' (expected claude|codex|cursor|hermes|opencode|pi)" ;;
 esac
 
 PACK="$REPO_ROOT/harnesses/$HARNESS/wise"
@@ -71,6 +71,9 @@ skills_target() {
     codex)    echo "$HOME/.agents/skills" ;;
     cursor)   echo "$HOME/.cursor/skills" ;;
     hermes)   echo "$HOME/.hermes/skills" ;;
+    # PI_CODING_AGENT_DIR replaces the whole ~/.pi/agent config dir when
+    # set (pi config.ts getAgentDir); skills live directly under it.
+    pi)       echo "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills" ;;
     opencode) echo "${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}/skills" ;;
     claude)   echo "" ;;  # claude uses the plugin marketplace, not a copy
   esac
@@ -191,7 +194,7 @@ if [ "$HARNESS" = "codex" ] && [ "$SCOPE" = "user" ] && command -v codex >/dev/n
   echo "codex plugin install unavailable; falling back to a plain skills copy."
 fi
 
-# ---- copy install (codex fallback, cursor, hermes, opencode) ---------------
+# ---- copy install (codex fallback, cursor, hermes, opencode, pi) -----------
 mkdir -p "$TARGET"
 
 # 1) whole pack → shared root (the default WISE_PLUGIN_ROOT)

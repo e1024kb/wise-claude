@@ -285,7 +285,8 @@ def check_doc_references(errors: list[str]) -> None:
 
 def check_ports(errors: list[str], parse_frontmatter) -> None:
     """Structural checks for each non-Claude harness port under
-    harnesses/<harness>/wise/ (codex, cursor, hermes):
+    harnesses/<harness>/wise/ (auto-discovered by glob — codex, cursor,
+    hermes, opencode, pi today):
 
     - every skill's frontmatter `name:` matches its directory;
     - no literal ${CLAUDE_PLUGIN_ROOT}/${CLAUDE_PLUGIN_DATA} survives in a
@@ -303,7 +304,9 @@ def check_ports(errors: list[str], parse_frontmatter) -> None:
       resolves to a real file in the port — valid because install.sh
       lays the whole intact pack, skills included, at the shared root;
     - any manifest (.codex-plugin/plugin.json) parses and its version
-      matches the single source (the Claude plugin.json).
+      matches the single source (the Claude plugin.json); the root
+      package.json (the Pi package manifest), when present, must match
+      it too.
     """
     harnesses_dir = REPO_ROOT / "harnesses"
     if not harnesses_dir.is_dir():
@@ -407,6 +410,23 @@ def check_ports(errors: list[str], parse_frontmatter) -> None:
                         f"{rel}: version {v!r} != single source "
                         f"{claude_version!r} (harnesses/claude/wise/.claude-plugin/plugin.json)"
                     )
+
+    # root package.json (the Pi package manifest) parses + version
+    # matches the single source, when the file exists
+    pkg_manifest = REPO_ROOT / "package.json"
+    if pkg_manifest.is_file():
+        rel = pkg_manifest.relative_to(REPO_ROOT)
+        try:
+            data = json.loads(pkg_manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{rel}: invalid JSON ({exc})")
+        else:
+            v = data.get("version")
+            if claude_version is not None and v != claude_version:
+                errors.append(
+                    f"{rel}: version {v!r} != single source "
+                    f"{claude_version!r} (harnesses/claude/wise/.claude-plugin/plugin.json)"
+                )
 
 
 def _claude_plugin_version() -> str | None:
