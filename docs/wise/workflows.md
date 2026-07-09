@@ -39,7 +39,7 @@ Folder form wins on same-root collision.
   Per-workspace. Each step execution gets its own ULID and log file
   at `logs/<step-id>.<step-run-ulid>.log`.
 
-> **On non-Claude harnesses** (Codex / Cursor / Hermes / opencode): `${CLAUDE_PLUGIN_ROOT}`
+> **On non-Claude harnesses** (Codex / Cursor / Hermes / opencode / Pi): `${CLAUDE_PLUGIN_ROOT}`
 > becomes `${WISE_PLUGIN_ROOT}`, which **defaults** to the pack's install
 > dir `~/.local/share/wise/harness/<harness>` (baked into the port skills —
 > no export needed; set `WISE_PLUGIN_ROOT` only to override). User
@@ -169,7 +169,7 @@ steps:
 > primitive each maps to varies: on Claude Code, Hermes, and opencode a
 > `prompt` step's role/team runs as parallel `Task`/native subagents (on
 > opencode the roster is also registered as `wise-<role>` agent cards in
-> `~/.config/opencode/agents/`); on Cursor there is no
+> `~/.config/opencode/agents/`); on Cursor and Pi there is no
 > subagent primitive, so the conductor adopts the role in-context and runs
 > teams sequentially; on Codex it uses subagents where available. `ask` /
 > `approval` become plain-chat questions off Claude. Each port's

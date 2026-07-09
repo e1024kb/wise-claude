@@ -34,7 +34,7 @@ wise-claude/
 │       ├── overlays/             # per-skill find/replace hunks
 │       └── static/               # byte-copied per-port files (README, manifests)
 └── harnesses/
-    └── <harness>/wise/            # one port per harness (claude, codex, cursor, hermes, opencode)
+    └── <harness>/wise/            # one port per harness (claude, codex, cursor, hermes, opencode, pi)
         ├── .claude-plugin/plugin.json   # (claude) manifest — the single version source
         ├── CLAUDE.md · README.md · AGENTS.md
         ├── .mcp.json             # bundled MCP servers (currently empty)
@@ -999,7 +999,7 @@ everywhere except the `-auto` implement phase).
 
 Since **v3.0.0** the repo ships the `wise` plugin to more than one agent
 harness. The Claude Code plugin lives at `harnesses/claude/wise/`; other
-ports (Codex, Cursor, Hermes, opencode) live under `harnesses/<harness>/wise/`.
+ports (Codex, Cursor, Hermes, opencode, Pi) live under `harnesses/<harness>/wise/`.
 All port content — plus the Claude port's `references/`, `agents/`,
 `workflows/`, and `scripts/` — is **generated** by
 `scripts/build_ports.py` from three hand-maintained sources and stays
@@ -1107,8 +1107,11 @@ check enforces it. A change under `harnesses/` or `core/` must bump
 that file (§8). The Codex port's manifest is generated from the static
 input `core/ports/static/codex/.codex-plugin/plugin.json`, whose
 `version` field is a `0.0.0` placeholder — the generator injects the
-Claude `plugin.json` version on render. A version bump edits **only**
-the Claude `plugin.json`, then regenerates with
+Claude `plugin.json` version on render. The root `package.json` (the
+Pi package manifest behind `pi install git:…`) also carries the
+version and must be bumped to match — the version-parity check covers
+it. A version bump edits the Claude `plugin.json` and the root
+`package.json`, then regenerates with
 `python3 scripts/build_ports.py`.
 
 ---

@@ -6,7 +6,7 @@ This skill was authored for Claude Code and adapted for OpenAI Codex CLI. Where 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
 - **Skill tool (`/wise-*`)** — open and follow the named skill's `SKILL.md` directly.
 - **TodoWrite** — keep a visible checklist in your replies instead.
-- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex`, where `./install.sh codex` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex`, where `./install.sh codex` puts this pack; export `WISE_PLUGIN_ROOT` only to override.{{shared_files_extra}}
 
 ### Running workflows on Codex
 

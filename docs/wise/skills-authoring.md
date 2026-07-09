@@ -258,10 +258,10 @@ doesn't delegate to `skill-creator`. See
 
 A skill authored under `harnesses/claude/wise/skills/` reaches **only**
 Claude Code — it does **not** appear on Codex / Cursor / Hermes /
-opencode until you tell the port generator about it. The port skill
+opencode / Pi until you tell the port generator about it. The port skill
 trees are **generated** by `scripts/build_ports.py` from the Claude
 skill plus the inputs under `core/ports/` — never hand-edit a generated
-`harnesses/{codex,cursor,hermes,opencode}/wise/skills/` file. To port a new
+`harnesses/{codex,cursor,hermes,opencode,pi}/wise/skills/` file. To port a new
 skill, decide its tier and register it:
 
 - **Full** — pure prose + `git` / `gh`, no Claude-only tools. Add the
@@ -285,7 +285,10 @@ skill, decide its tier and register it:
 
 Then run `python3 scripts/build_ports.py` (or `just build`) and commit
 the generated port skills together with the source change — CI runs
-`build_ports.py --check` and fails on any drift. Record the tier in
+`build_ports.py --check` and fails on any drift. No manifest edit is
+needed for Pi: the root `package.json` `"pi"` key registers the port's
+skills by glob (`harnesses/pi/wise/skills/*`), so a newly generated
+skill is picked up by `pi install` automatically. Record the tier in
 [`docs/compatibility.md`](../compatibility.md); the full procedure is in
 [`CONTRIBUTING.md` §10](../../CONTRIBUTING.md#10-cross-harness-ports--the-port-generator).
 Any shared reference the skill reads belongs in `core/references/` first.

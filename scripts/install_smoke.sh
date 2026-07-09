@@ -14,17 +14,20 @@
 # in-pack copies stay neutral), and the shared-root pack keeps the
 # commands/ dir.
 #
-# Usage: bash scripts/install_smoke.sh [harness ...]   (default: cursor hermes opencode)
+# Usage: bash scripts/install_smoke.sh [harness ...]   (default: cursor hermes opencode pi)
 set -eu
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HARNESSES="${*:-cursor hermes opencode}"
+HARNESSES="${*:-cursor hermes opencode pi}"
 
 fail() { echo "install-smoke: $*" >&2; exit 1; }
 
 for h in $HARNESSES; do
   H="$(mktemp -d)" W="$(mktemp -d)"
-  HOME="$H" WISE_DATA_DIR="$W" "$REPO_ROOT/install.sh" "$h" --user > /dev/null
+  # env -u: a developer's real OPENCODE_CONFIG_DIR / PI_CODING_AGENT_DIR
+  # must not redirect the throwaway install into their live config.
+  env -u OPENCODE_CONFIG_DIR -u PI_CODING_AGENT_DIR \
+    HOME="$H" WISE_DATA_DIR="$W" "$REPO_ROOT/install.sh" "$h" --user > /dev/null
   root="$W/harness/$h"
   for sub in references agents workflows scripts skills; do
     [ -d "$root/$sub" ] || fail "$h: missing $root/$sub"
@@ -38,6 +41,7 @@ for h in $HARNESSES; do
     cursor)   skills_dir="$H/.cursor/skills" ;;
     hermes)   skills_dir="$H/.hermes/skills" ;;
     opencode) skills_dir="$H/.config/opencode/skills" ;;
+    pi)       skills_dir="$H/.pi/agent/skills" ;;
     *) fail "unknown harness '$h'" ;;
   esac
   [ -f "$skills_dir/wise-commit/SKILL.md" ] || fail "$h: discovery dir lacks skills"

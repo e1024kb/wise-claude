@@ -6,7 +6,7 @@ This skill was authored for Claude Code and adapted for Nous Research Hermes Age
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
 - **Skill tool (`/wise-*`)** — open and follow the named skill's `SKILL.md` directly.
 - **TodoWrite** — keep a visible checklist in your replies instead.
-- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes`, where `./install.sh hermes` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes`, where `./install.sh hermes` puts this pack; export `WISE_PLUGIN_ROOT` only to override.{{shared_files_extra}}
 
 When composing a subagent prompt from a workflow's `prompts/*.md`, substitute `${WISE_PLUGIN_ROOT}` with its resolved value — the subagent runs with fresh context and never saw this note.
 

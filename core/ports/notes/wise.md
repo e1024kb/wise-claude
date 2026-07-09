@@ -4,4 +4,4 @@ This skill was authored for Claude Code and adapted for {{harness_name}}. Where 
 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
 - **Skill tool (`/wise-*`)** — open and follow the named skill's `SKILL.md` directly.
-- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/{{harness_id}}`, where `./install.sh {{harness_id}}` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/{{harness_id}}`, where `./install.sh {{harness_id}}` puts this pack; export `WISE_PLUGIN_ROOT` only to override.{{shared_files_extra}}
