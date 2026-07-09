@@ -19,6 +19,8 @@ description: >-
 
 # /wise-commit-push — draft, commit, and push
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor` — where `./install.sh cursor` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 `/wise-commit` closes the local loop — stage, draft, commit. The

@@ -53,7 +53,44 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # repo, so they never exist on disk here) rather than a static asset
 # the skill reads. Documented as "gets wiped on every /plugin install"
 # in wise-init/SKILL.md — a real absence, not a broken doc link.
-RUNTIME_GENERATED_REFS = {".wise-init-registry.yaml"}
+RUNTIME_GENERATED_REFS = {".wise-init-registry.yaml", ".wise-version"}
+
+# Same shape as PLUGIN_ROOT_REF_RE for the neutral variable the
+# non-Claude ports use (matched after canonical defaulted expansions
+# are collapsed to the bare form — see check_ports).
+WISE_ROOT_REF_RE = re.compile(r"\$\{WISE_PLUGIN_ROOT\}/([^\s'\"`)]+)")
+
+
+def _canonical_default_root(harness: str) -> str:
+    """The one blessed defaulted expansion for a port's executable bash
+    contexts: WISE_PLUGIN_ROOT overrides, else the XDG-aware path
+    install.sh copies the pack to."""
+    return (
+        "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-"
+        "$HOME/.local/share}/wise}/harness/" + harness + "}"
+    )
+
+
+def _fenced_shell_blocks(text: str) -> list[str]:
+    """Contents of fenced ```bash / ```sh / ```shell code blocks."""
+    blocks: list[str] = []
+    in_block = False
+    lang = ""
+    buf: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_block:
+                if lang in ("bash", "sh", "shell"):
+                    blocks.append("\n".join(buf))
+                buf = []
+                in_block = False
+            else:
+                in_block = True
+                lang = stripped[3:].strip().lower()
+        elif in_block:
+            buf.append(line)
+    return blocks
 
 
 def _load_workflows_module():
@@ -178,7 +215,7 @@ def _clean_ref(ref: str) -> str | None:
     concrete file paths — those aren't files to check."""
     ref = ref.split(":*", 1)[0]
     ref = ref.rstrip("\\").rstrip(".,;:")
-    if "<" in ref or "${" in ref or ref.endswith("/"):
+    if "<" in ref or "${" in ref or "…" in ref or ref.endswith("/"):
         return None
     return ref
 
@@ -255,6 +292,16 @@ def check_ports(errors: list[str], parse_frontmatter) -> None:
       port's markdown / yaml (those must be rewritten to the neutral
       ${WISE_PLUGIN_ROOT}/${WISE_DATA_DIR}); the vendored engine .py/.sh
       are exempt — they read the env vars in code with fallbacks;
+    - executable bash contexts (fenced shell blocks, and the quoted
+      `"${WISE_PLUGIN_ROOT}/...` form anywhere) carry the canonical
+      defaulted expansion, never the bare variable — a bare var dies in
+      any shell where the user hasn't exported it;
+    - every ${WISE_PLUGIN_ROOT:-...} expansion byte-equals the canonical
+      template for the port's OWN harness name (catches cross-port
+      copy-paste);
+    - every ${WISE_PLUGIN_ROOT}/<path> reference (defaulted or bare)
+      resolves to a real file in the port — valid because install.sh
+      lays the whole intact pack, skills included, at the shared root;
     - any manifest (.codex-plugin/plugin.json) parses and its version
       matches the single source (the Claude plugin.json).
     """
@@ -278,7 +325,10 @@ def check_ports(errors: list[str], parse_frontmatter) -> None:
                     f"{rel}: frontmatter name {name!r} != dir name {dir_name!r}"
                 )
 
-        # no Claude-specific env vars left in port md / yaml
+        canonical = _canonical_default_root(harness)
+        expansion_prefix = "${WISE_PLUGIN_ROOT:-"
+
+        # text-level checks over port md / yaml
         for f in sorted(wise_dir.rglob("*")):
             if f.suffix not in (".md", ".yaml", ".yml") or not f.is_file():
                 continue
@@ -287,11 +337,59 @@ def check_ports(errors: list[str], parse_frontmatter) -> None:
                 text = f.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+
+            # no Claude-specific env vars left
             for var in ("${CLAUDE_PLUGIN_ROOT}", "${CLAUDE_PLUGIN_DATA}"):
                 if var in text:
                     errors.append(
                         f"{rel}: contains {var} — non-Claude ports must use "
                         "${WISE_PLUGIN_ROOT} / ${WISE_DATA_DIR}"
+                    )
+
+            # executable contexts must use the defaulted expansion: the
+            # quoted form is a shell argument by construction, and fenced
+            # shell blocks are pasted into a terminal / bash tool.
+            if '"${WISE_PLUGIN_ROOT}/' in text:
+                errors.append(
+                    f"{rel}: bare \"${{WISE_PLUGIN_ROOT}}/...\" in an executable "
+                    "context — use the defaulted expansion "
+                    f"{canonical!r} so it resolves without an export"
+                )
+            for block in _fenced_shell_blocks(text):
+                if "${WISE_PLUGIN_ROOT}" in block:
+                    errors.append(
+                        f"{rel}: bare ${{WISE_PLUGIN_ROOT}} inside a fenced "
+                        "shell block — use the defaulted expansion "
+                        f"{canonical!r}"
+                    )
+                    break
+
+            # every defaulted expansion must byte-equal the canonical
+            # template for THIS harness (catches cross-port copy-paste)
+            start = 0
+            while True:
+                idx = text.find(expansion_prefix, start)
+                if idx == -1:
+                    break
+                if text[idx : idx + len(canonical)] != canonical:
+                    snippet = text[idx : idx + len(canonical) + 8].splitlines()[0]
+                    errors.append(
+                        f"{rel}: non-canonical WISE_PLUGIN_ROOT expansion "
+                        f"{snippet!r} — expected {canonical!r}"
+                    )
+                start = idx + len(expansion_prefix)
+
+            # every ${WISE_PLUGIN_ROOT}/<path> reference resolves inside
+            # the port (the shared root mirrors the intact pack)
+            collapsed = text.replace(canonical, "${WISE_PLUGIN_ROOT}")
+            for match in WISE_ROOT_REF_RE.finditer(collapsed):
+                ref = _clean_ref(match.group(1))
+                if ref is None or ref in RUNTIME_GENERATED_REFS:
+                    continue
+                if not (wise_dir / ref).is_file():
+                    errors.append(
+                        f"{rel}: ${{WISE_PLUGIN_ROOT}}/{ref} does not resolve "
+                        "to a file in this port"
                     )
 
         # codex plugin manifest parses + version matches the single source

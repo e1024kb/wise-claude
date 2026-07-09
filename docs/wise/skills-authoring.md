@@ -263,10 +263,15 @@ port it by hand (the repo maintains per-harness folders, not a build step):
 
 - **Full** — pure prose + `git` / `gh`, no Claude-only tools. Vendor it to
   each port with frontmatter reduced to `name` + `description` and paths
-  rewritten `${CLAUDE_PLUGIN_ROOT}` → `${WISE_PLUGIN_ROOT}`.
+  rewritten per the context-dependent rule in `CONTRIBUTING.md` §10.3:
+  executable bash contexts get the defaulted
+  `${WISE_PLUGIN_ROOT:-…/harness/<h>}` expansion, prose references get
+  the short `${WISE_PLUGIN_ROOT}` plus a one-line shared-file-resolution
+  note under the H1.
 - **Adapted** — uses `Task` / `AskUserQuestion` / the `Skill` tool /
   `TodoWrite`. Same as full, plus a *Harness adaptation note* at the top
-  mapping those tools to the harness's equivalents.
+  mapping those tools to the harness's equivalents (the resolution line
+  joins that note as a bullet).
 - **Claude-only** — depends on the SessionEnd hook, Claude transcripts, or
   `skill-creator`. Leave it out of the ports and record why.
 

@@ -19,13 +19,14 @@ This skill was authored for Claude Code and adapted for OpenAI Codex CLI. Where 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
 - **Skill tool (`/wise-*`)** — open and follow the named skill's `SKILL.md` directly.
 - **TodoWrite** — keep a visible checklist in your replies instead.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex`, where `./install.sh codex` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
 
 ### Running workflows on Codex
 
-- **`${WISE_PLUGIN_ROOT}`** must be exported to this pack's install
-  directory before you run the engine (see the pack README). The engine
-  (`scripts/workflows.py`) locates itself, but step prompts read shared
-  files via that variable.
+- **`${WISE_PLUGIN_ROOT}`** resolves per the shared-files bullet above
+  (the install default; export only to override — see the pack README).
+  The engine (`scripts/workflows.py`) locates itself, but step prompts
+  read shared files via that variable.
 - **Prerequisites** replace `/wise-init`: Python 3 + `pyyaml` +
   `python-ulid`, `git`, and (for PR steps) an authenticated `gh`. There
   is no `bootstrap-deps.sh` protocol here — install these once.
@@ -45,6 +46,10 @@ This skill was authored for Claude Code and adapted for OpenAI Codex CLI. Where 
     supervision is Claude-only (no `wise-supervise` here).
 - **`model` / `effort`** step fields are advisory on Codex — use your
   harness's model selection; ignore where unsupported.
+
+When composing a subagent or step prompt from a workflow's
+`prompts/*.md`, substitute `${WISE_PLUGIN_ROOT}` with its resolved
+value — the executing context is fresh and never saw this note.
 
 
 # /wise-workflow-run — the conductor
@@ -141,7 +146,7 @@ and continue. On `Abort`, stop cleanly (no state written, no
 ### 3. Locate the workflow definition
 
 ```bash
-DEF=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" locate-def "<workflow-name>")
+DEF=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" locate-def "<workflow-name>")
 ```
 
 Non-zero exit → relay stderr and stop.
@@ -149,7 +154,7 @@ Non-zero exit → relay stderr and stop.
 ### 4. Probe requires (with install-retry loop)
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" probe-requires "$DEF"
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" probe-requires "$DEF"
 ```
 
 Exit 0 (stdout `OK`) → proceed.
@@ -188,8 +193,8 @@ conductor's TodoWrite list and partial step logs are meaningful).
 **5a. Allocate the run ID and run directory:**
 
 ```bash
-RUN_ID=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" new-ulid)
-RUNS_ROOT="$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" runs-root)"
+RUN_ID=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" new-ulid)
+RUNS_ROOT="$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" runs-root)"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 mkdir -p "$RUN_DIR/logs"
 ```
@@ -197,7 +202,7 @@ mkdir -p "$RUN_DIR/logs"
 **5b. Capture the current Claude Code session UUID:**
 
 ```bash
-SESSION_ID=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" current-session-id)
+SESSION_ID=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" current-session-id)
 ```
 
 Exit 2 means no session jsonl was found — rare, usually when running
@@ -209,7 +214,7 @@ back to this session"). Do not abort.
 **5c. Derive the session label:**
 
 ```bash
-SESSION_LABEL=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+SESSION_LABEL=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" \
   session-label "$RUN_ID" "<workflow-name>")
 ```
 
@@ -228,7 +233,7 @@ was abandoned mid-flight stays non-terminal (`running`/`paused`/
 run. Probe:
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" \
   find-runs-by-session "$SESSION_ID"
 ```
 
@@ -270,7 +275,7 @@ Build `CTX` as a JSON object with two keys — `claude_session_id`
 `{"claude_session_id":"<uuid>","session_label":"<label>"}`. Then:
 
 ```bash
-STATE=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+STATE=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" \
   init-state "$DEF" "$RUN_DIR" "$RUN_ID" "$CTX")
 ```
 
@@ -288,7 +293,7 @@ unless something reclaims them. Cap the per-workspace total at **25**
 so history stays bounded:
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" prune-runs
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" prune-runs
 ```
 
 - Non-terminal runs (`initializing` / `running` / `paused` / `failed`)
@@ -316,7 +321,7 @@ control-mode / worktree), read the workflow's `preflight:` block
 corresponding prompt is skipped entirely:
 
 ```bash
-eval "$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+eval "$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" \
   get-preflight "$DEF")"
 ```
 
@@ -364,7 +369,7 @@ then pick "Rename session and continue" below:
 
 On `Abort this run`:
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" update-run \
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" update-run \
   "$STATE" status=cancelled completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 
@@ -426,7 +431,7 @@ inputs:
 Enumerate the workflow's declared inputs:
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" list-inputs "$DEF"
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" list-inputs "$DEF"
 ```
 
 stdout is a JSON array of `{name, prompt, validate?, extract?,
@@ -467,7 +472,7 @@ Then, for each input in order:
    case above):
 
    ```bash
-   CLEAN=$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+   CLEAN=$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" \
      validate-input "<raw-answer>" "<extract-or-empty>" "<validate-or-empty>")
    ```
 
@@ -480,7 +485,7 @@ Then, for each input in order:
    to an interactive fix rather than aborting outright). Cap at 3
    attempts total; after the third, abort the run:
    ```bash
-   python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" update-run \
+   python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" update-run \
      "$STATE" status=cancelled completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
    ```
    and tell the user the input couldn't be validated.
@@ -539,7 +544,7 @@ only tracked files, so untracked artifacts a tree needs to run
 (`.env`, local config) would otherwise be missing:
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" \
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" \
   apply-worktree-include "<project.path>" "$WT_DIR" || true
 ```
 
@@ -554,7 +559,7 @@ Fold the pre-flight answers into `state.yaml` (flipping
 
 ```bash
 CTX='{"control_mode":"<mode>","worktree":<wt-json-or-null>,"project":<project-json-or-null>,"inputs":<inputs-json-or-empty-object>}'
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" start-run "$STATE" "$CTX"
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" start-run "$STATE" "$CTX"
 ```
 
 (`jq` isn't in `allowed-tools`; construct the JSON yourself as a
@@ -613,7 +618,7 @@ Concretely:
 **9a. Ask what's next.**
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" next-wave "$DEF" "$STATE"
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" next-wave "$DEF" "$STATE"
 ```
 
 Parse the JSON:
@@ -701,7 +706,7 @@ Code's tool-use docs). Per step type:
 dispatching a `type: prompt` step, resolve its roster binding in one call:
 
 ```
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" resolve-team "$DEF" "<step.id>"
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" resolve-team "$DEF" "<step.id>"
 ```
 → JSON `{mode, lead, members:[{role, lead, model, effort, reason, fell_back,
 next_fallback}], errors}`. These fields apply to `prompt` steps **only** —
@@ -722,7 +727,7 @@ Branch on `mode`:
 - **`mode: off`** → one `general-purpose` subagent.
 - **`mode: auto`** → pick the best-fit roster role. Cache the roster **once
   per run**: on the first `auto`/policy-auto step, shell
-  `python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" list-agents` once,
+  `python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" list-agents` once,
   hold the JSON (`{name, description, tools, model, effort}`) in working
   memory, reuse it for every later wave/step — never re-shell per wave.
   Match the step's rendered prompt intent against the `description`s AND
@@ -838,7 +843,7 @@ resolved effort → append nothing.
                + [if member.effort] "\n\nReason at <EFFORT> effort — <gloss>."
                + [if def.until]  "\n\nEnd your last line with a value that matches /<until>/."
                + "\n\nHeartbeat: as your FIRST action each turn and after each significant tool call, run:\n"
-               + "python3 \"${WISE_PLUGIN_ROOT}/scripts/workflows.py\" worker-heartbeat \"<run.dir>\" \"<step.id>-w1\" \"<phase>\" \"<step.id>\""
+               + "python3 \"${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py\" worker-heartbeat \"<run.dir>\" \"<step.id>-w1\" \"<phase>\" \"<step.id>\""
      })
      ```
   3. Arm the supervisor Monitor (`supervise-loop §3`) over the single worker name
@@ -1006,9 +1011,9 @@ resolved effort → append nothing.
   Record the answer and mark the step completed (both shapes):
 
   ```bash
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" record-output \
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" record-output \
     "$STATE" "<def.output>" "<answer>"
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" update-step \
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" update-step \
     "$STATE" "<step.id>" status=completed completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   ```
 
@@ -1116,7 +1121,7 @@ bookkeeping (tool calls). Structure:
       per-file permission dialog on first write:
 
       ```bash
-      python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" write-log \
+      python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/codex}/scripts/workflows.py" write-log \
         "$RUN_DIR" "<step.id>" "<step-run-ulid>" <<'WISE_LOG_EOF'
       <the full step output — subagent final message / bash stdout+stderr / etc.>
       WISE_LOG_EOF

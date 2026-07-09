@@ -14,6 +14,8 @@ description: >-
 
 # /wise-pr-add-reviewers — attach reviewers to the current branch's PR
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes` — where `./install.sh hermes` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 Most PRs end up requesting Copilot code review plus 0–N individuals

@@ -11,35 +11,58 @@ This folder is **hand-maintained** and vendors its shared assets
 
 ## Install
 
-Cursor discovers Agent Skills under `.cursor/skills/` and `.agents/skills/`
-(project) or `~/.cursor/skills/` and `~/.agents/skills/` (user). Copy the
-skills into one of those:
-
 ```
-cp -R harnesses/cursor/wise/skills/* ~/.cursor/skills/     # user-wide
-# or, per project:
-cp -R harnesses/cursor/wise/skills/* <project>/.agents/skills/
+git clone https://github.com/e1024kb/wise-claude && cd wise-claude
+./install.sh cursor        # or: just install cursor
 ```
 
-…or use the repo's universal installer: `./install.sh cursor` (or
-`just install cursor`).
+The installer does two things, and a working install needs both:
 
-Cursor also reads legacy `.claude/skills/` and `.codex/skills/` paths
-directly — but install **one** copy only to avoid duplicate skills in the
-`/` menu.
+1. copies the skills into `~/.cursor/skills/` (Cursor's user-wide
+   discovery dir);
+2. lays the **whole intact pack** (`references/`, `agents/`,
+   `workflows/`, `scripts/`, `skills/`) at
+   `~/.local/share/wise/harness/cursor` — the shared root every skill
+   resolves by default when it reads shared files or invokes the
+   workflow engine.
+
+It finishes with a read-only dependency probe; run the `wise-init` skill
+inside Cursor to finish any missing setup.
+
+Cursor also reads project `.cursor/skills/` / `.agents/skills/` and
+legacy `.claude/skills/` / `.codex/skills/` paths — install **one** copy
+only to avoid duplicate skills in the `/` menu (per-project:
+`./install.sh cursor --project <dir>`).
+
+### Manual install
+
+The same two steps by hand:
+
+```
+cp -R harnesses/cursor/wise/skills/* ~/.cursor/skills/
+mkdir -p ~/.local/share/wise/harness/cursor
+cp -R harnesses/cursor/wise/references harnesses/cursor/wise/agents \
+      harnesses/cursor/wise/workflows harnesses/cursor/wise/scripts \
+      harnesses/cursor/wise/skills ~/.local/share/wise/harness/cursor/
+```
+
+Skipping the second command leaves only the four self-contained skills
+(`wise-estimation`, `wise-feedback`, `wise-prd-architect`,
+`wise-trd-architect`) working — everything else reads shared files or
+the workflow engine from the shared root.
 
 ## Prerequisites
 
 - **git** and, for the PR skills, the authenticated **`gh` CLI**.
 - For the **workflow engine** (`/wise-workflow-*`): **Python 3** with
   `pyyaml` and `python-ulid`
-  (`pip install pyyaml python-ulid typing_extensions`).
-- **`WISE_PLUGIN_ROOT`** — skills and workflows reference shared files as
-  `${WISE_PLUGIN_ROOT}/references/…` etc. (the harness-neutral equivalent
-  of Claude's `CLAUDE_PLUGIN_ROOT`). Export it to wherever you copied this
-  pack, e.g. `export WISE_PLUGIN_ROOT="$HOME/.cursor/skills/.wise"` if you
-  keep the shared dirs alongside the skills. The universal installer sets
-  this for you. Persistent state defaults to `~/.local/share/wise`
+  (`pip install pyyaml python-ulid typing_extensions`). The `wise-init`
+  skill probes and guides all of this.
+- **`WISE_PLUGIN_ROOT` is optional.** Skills resolve shared files from
+  `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor`
+  by default — exactly where the installer puts the pack. Export
+  `WISE_PLUGIN_ROOT` only to point them somewhere else. Persistent state
+  (workflow runs, registries) defaults to `~/.local/share/wise`
   (override with `WISE_DATA_DIR`).
 
 ## What works here
@@ -49,19 +72,22 @@ The full matrix (with per-skill reasons) is in
 
 - **Full (11)** — pure prose + `git`/`gh`: the commit trio, the PR
   create/reviewer skills, `wise-estimation`, `wise-feedback`, and the
-  PRD/TRD authors.
-- **Adapted (14)** — the same logic with a **Harness adaptation note**
-  mapping Claude-specific tools to Cursor equivalents. `disable-model-
+  PRD/TRD authors. (Beyond the four self-contained ones, these read
+  shared `references/` — the shared-root default covers that.)
+- **Adapted (15)** — the same logic with a **Harness adaptation note**
+  mapping Claude-specific tools to Cursor equivalents, including
+  `wise-init` (the guided dependency-setup wizard). `disable-model-
   invocation` is preserved on the `/wise` helper (a Cursor-native
   frontmatter field), so Cursor never auto-invokes it.
-- **Claude-only (7, not shipped)** — `wise-supervise`, the three
-  `wise-insights-*` skills, `wise-skills-create` / `wise-skills-edit`,
-  and `wise-init`.
+- **Claude-only (6, not shipped)** — `wise-supervise`, the three
+  `wise-insights-*` skills, and `wise-skills-create` / `wise-skills-edit`.
 
 ## Workflows
 
-The workflow engine (`scripts/workflows.py`) runs unchanged. Because
-Cursor has no first-class subagent primitive, the conductor
-(`/wise-workflow-run`) runs `prompt` steps by adopting the role
-in-context and team steps **sequentially** — the result matches Claude,
-the wall-clock is longer. See the conductor skill's execution note.
+The workflow engine (`scripts/workflows.py`) runs unchanged and
+self-locates its bundled workflows and agent roster — no environment
+variables required after `./install.sh cursor`. Because Cursor has no
+first-class subagent primitive, the conductor (`/wise-workflow-run`)
+runs `prompt` steps by adopting the role in-context and team steps
+**sequentially** — the result matches Claude, the wall-clock is longer.
+See the conductor skill's execution note.

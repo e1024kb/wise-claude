@@ -41,7 +41,7 @@ Every supervised worker writes a heartbeat as the **first action of every
 turn** and **after each significant tool call**, by shelling:
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" worker-heartbeat \
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" worker-heartbeat \
   "<run.dir>" "<worker-name>" "<phase>" "<task-id>"
 ```
 
@@ -58,7 +58,7 @@ useless as a per-worker signal. Per-worker files also avoid write contention.
 At the start of a supervised wave, read the thresholds in one shell call:
 
 ```bash
-python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" supervise-config
+python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" supervise-config
 ```
 → `{"stale_secs":180,"poll_secs":30,"max_nudges":2,"max_respawns":1}` (each
 overridable via `WISE_WORKER_STALE_SECS` / `_POLL_SECS` / `_MAX_NUDGES` /
@@ -80,7 +80,7 @@ Monitor({
   command:
     'RUN_DIR="<run.dir>"; EXP="<worker-1,worker-2,…>"; POLL=<poll_secs>; \
      while true; do \
-       python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" stale-workers "$RUN_DIR" "$EXP" 2>&1 \
+       python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" stale-workers "$RUN_DIR" "$EXP" 2>&1 \
          || echo "SUPERVISOR-ERROR: stale-workers probe failed"; \
        sleep "$POLL"; \
      done'
@@ -128,7 +128,7 @@ message: |
   <age>s with no heartbeat. Reply in ONE line:
     PROGRESS: <what you just did>  /  BLOCKED: <what you need>  /  DONE: <result>
   Then continue. Write your heartbeat each step:
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" worker-heartbeat "<run.dir>" "<name>" "<phase>" "<task-id>"
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" worker-heartbeat "<run.dir>" "<name>" "<phase>" "<task-id>"
 ```
 
 **Directive re-nudge (nudge 2):**

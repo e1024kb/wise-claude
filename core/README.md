@@ -21,8 +21,10 @@ core/
 Each harness port vendors from here. Some copies are **verbatim** (the
 engine, the neutral agent cards on non-Claude ports); others are
 **adapted** (the Claude roster adds frontmatter; the non-Claude ports
-rewrite `${CLAUDE_PLUGIN_ROOT}` → `${WISE_PLUGIN_ROOT}` and drop skill
-frontmatter). `core-map.yaml` records which is which.
+rewrite `${CLAUDE_PLUGIN_ROOT}` per the context-dependent rule in
+`CONTRIBUTING.md` §10.3 — the defaulted `${WISE_PLUGIN_ROOT:-…}`
+expansion in bash contexts, the short `${WISE_PLUGIN_ROOT}` in prose —
+and drop skill frontmatter). `core-map.yaml` records which is which.
 
 ## The editing rule
 

@@ -13,6 +13,8 @@ description: >-
 
 # /wise-workflow-status — list runs or dump one
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes` — where `./install.sh hermes` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 Workflow runs leave per-run state at
@@ -42,14 +44,14 @@ single tool call):
 
 - **`run-id` absent** (list every run):
   ```bash
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" list-runs "$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/null)" 2>/dev/null || true
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" list-runs "$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" runs-root 2>/dev/null)" 2>/dev/null || true
   ```
 - **`run-id` present** — validate the ULID shape FIRST (26-char
   Crockford base-32); reject with
   `Not a ULID: <value>. Expected 26-character Crockford base-32 string.`
   Then:
   ```bash
-  python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" dump-state "$(python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/null)/<run-id>/state.yaml" 2>/dev/null || true
+  python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" dump-state "$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" runs-root 2>/dev/null)/<run-id>/state.yaml" 2>/dev/null || true
   ```
 
 ### 2. Interpret

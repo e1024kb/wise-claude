@@ -17,6 +17,7 @@ description: >-
 This skill was authored for Claude Code and adapted for Nous Research Hermes Agent. Where the steps below reference Claude-specific tools, substitute:
 
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes`, where `./install.sh hermes` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
 
 
 # /wise-workflow-create — wizard for a new workflow
@@ -65,12 +66,12 @@ probe only when the registry is missing, stale, or Python itself
 isn't installed yet:
 
 ```bash
-STATUS="$(python3 "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true)"
+STATUS="$(python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/init-registry.py" check 2>/dev/null || true)"
 case "$STATUS" in
   INIT:ok) : ;;
   *)
     echo "Tip: run /wise-init to cache dep probe results and speed up future runs." >&2
-    bash "${WISE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
+    bash "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/bootstrap-deps.sh"
     ;;
 esac
 ```
@@ -175,7 +176,8 @@ workflow = {
 ### 3.2. Agents policy (optional)
 
 `wise` ships an SDLC agent roster (`wise:architect`, `wise:software-engineer`,
-`wise:code-reviewer`, … — see `${WISE_PLUGIN_ROOT}/AGENTS.md`). A
+`wise:code-reviewer`, … — see the role cards under
+`${WISE_PLUGIN_ROOT}/agents/`). A
 workflow's `prompt` steps can be dispatched to a roster agent instead of
 the generic `general-purpose` subagent. The workflow-level `agents:`
 policy sets the default for every `prompt` step that doesn't pin its own
@@ -340,7 +342,7 @@ extend per type:
       step follows the workflow-level `agents:` policy (§3.2).
     - `Auto-select a role` — store `step["agent"] = "auto"`.
     - `Force a specific role` — list the roster (run
-      `python3 "${WISE_PLUGIN_ROOT}/scripts/workflows.py" list-agents`
+      `python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/hermes}/scripts/workflows.py" list-agents`
       and offer the `name`s) and store the picked role as
       `step["agent"]`.
     - `Build a team (multiple roles)` — the step is worked by several

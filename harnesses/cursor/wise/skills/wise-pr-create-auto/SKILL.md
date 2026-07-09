@@ -13,6 +13,8 @@ description: >-
 
 # /wise-pr-create-auto — create or refresh a PR, autonomously
 
+> **Shared-file resolution:** `${WISE_PLUGIN_ROOT}` defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor` — where `./install.sh cursor` puts this pack. Export `WISE_PLUGIN_ROOT` only to override.
+
 ## Why this skill exists
 
 `/wise-pr-create` is interactive — it asks the user to pick the base

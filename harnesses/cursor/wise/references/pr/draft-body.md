@@ -78,7 +78,7 @@ if [ -d "$DIR" ]; then
 fi
 
 # Final fallback: the bundled template shipped with the plugin.
-echo "${WISE_PLUGIN_ROOT}/references/pr/templates/pr-template.md"
+echo "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor}/references/pr/templates/pr-template.md"
 ```
 
 Record which template won — include its path in a visible note at

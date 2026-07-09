@@ -3,10 +3,11 @@
 #
 # Pure copier / marketplace-command wrapper — it never transforms files
 # (the per-harness ports under harnesses/<harness>/wise/ are the
-# committed, hand-maintained source of truth). It copies a port's shared
-# assets (references/agents/workflows/scripts) to a stable
-# WISE_PLUGIN_ROOT location and its skills into the harness's skill
-# discovery directory.
+# committed, hand-maintained source of truth). It copies the whole port
+# pack (references/agents/workflows/scripts/skills) to a stable shared
+# root — the path port skills resolve by default, overridable via
+# WISE_PLUGIN_ROOT — and additionally copies the skills into the
+# harness's skill discovery directory.
 #
 # Usage:
 #   ./install.sh <harness> [--user|--project <dir>] [--force] [--uninstall]
@@ -21,7 +22,7 @@
 set -eu
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-WISE_HOME="${WISE_DATA_DIR:-$HOME/.local/share/wise}"
+WISE_HOME="${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}"
 SHARED_ROOT_BASE="$WISE_HOME/harness"   # WISE_PLUGIN_ROOT lives under here
 
 HARNESS=""
@@ -54,6 +55,11 @@ esac
 PACK="$REPO_ROOT/harnesses/$HARNESS/wise"
 [ -d "$PACK" ] || die "port not found: $PACK"
 
+plugin_version() {
+  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
+    "$REPO_ROOT/harnesses/claude/wise/.claude-plugin/plugin.json" | head -1
+}
+
 # ---- skill discovery dir per harness/scope ---------------------------------
 skills_target() {
   if [ "$SCOPE" = "project" ]; then
@@ -70,6 +76,27 @@ skills_target() {
 }
 
 SHARED_ROOT="$SHARED_ROOT_BASE/$HARNESS"
+
+# Lay the complete intact pack at the shared root. Port skills resolve
+# this path by default (WISE_PLUGIN_ROOT only overrides it), so the pack
+# must stay whole: skills/ included — cross-skill reads like
+# skills/wise-commit/commit-routine.md resolve against it.
+lay_shared_root() {
+  mkdir -p "$SHARED_ROOT"
+  # Reinstall invalidates the cached dependency probe (mirrors the Claude
+  # port, where /plugin install wipes the plugin dir and the registry
+  # with it).
+  rm -f "$SHARED_ROOT/.wise-init-registry.yaml"
+  for sub in references agents workflows scripts skills; do
+    [ -d "$PACK/$sub" ] || continue
+    if [ -e "$SHARED_ROOT/$sub" ] && [ "$FORCE" = "0" ]; then
+      die "$SHARED_ROOT/$sub exists (use --force to overwrite)"
+    fi
+    rm -rf "$SHARED_ROOT/$sub"
+    cp -R "$PACK/$sub" "$SHARED_ROOT/$sub"
+  done
+  plugin_version > "$SHARED_ROOT/.wise-version"
+}
 
 # ---- claude: marketplace flow ----------------------------------------------
 if [ "$HARNESS" = "claude" ]; then
@@ -108,26 +135,25 @@ fi
 if [ "$HARNESS" = "codex" ] && [ "$SCOPE" = "user" ] && command -v codex >/dev/null 2>&1; then
   if codex plugin marketplace add "$REPO_ROOT" >/dev/null 2>&1 \
      && codex plugin install wise >/dev/null 2>&1; then
+    # The marketplace install lands in a versioned cache dir, so the pack
+    # still gets laid at the stable shared root the skills default to.
+    lay_shared_root
     echo "Installed the Codex plugin via 'codex plugin marketplace add'."
-    echo "If a step can't find shared files, export:"
-    echo "  export WISE_PLUGIN_ROOT=<the installed plugin dir>"
+    echo "Shared assets → $SHARED_ROOT (skills resolve this automatically;"
+    echo "export WISE_PLUGIN_ROOT only to override)."
+    bash "$PACK/scripts/bootstrap-deps.sh" --probe || true
+    echo "If anything above is missing, run the wise-init skill in your"
+    echo "harness to finish dependency setup."
     exit 0
   fi
   echo "codex plugin install unavailable; falling back to a plain skills copy."
 fi
 
 # ---- copy install (codex fallback, cursor, hermes) -------------------------
-mkdir -p "$TARGET" "$SHARED_ROOT"
+mkdir -p "$TARGET"
 
-# 1) shared assets → WISE_PLUGIN_ROOT
-for sub in references agents workflows scripts; do
-  [ -d "$PACK/$sub" ] || continue
-  if [ -e "$SHARED_ROOT/$sub" ] && [ "$FORCE" = "0" ]; then
-    die "$SHARED_ROOT/$sub exists (use --force to overwrite)"
-  fi
-  rm -rf "$SHARED_ROOT/$sub"
-  cp -R "$PACK/$sub" "$SHARED_ROOT/$sub"
-done
+# 1) whole pack → shared root (the default WISE_PLUGIN_ROOT)
+lay_shared_root
 
 # 2) skills → discovery dir (each as a top-level <skill>/ dir)
 for d in "$PACK"/skills/*/; do
@@ -142,13 +168,18 @@ done
 echo "Installed $(ls "$PACK"/skills | wc -l | tr -d ' ') wise skills → $TARGET"
 echo "Shared assets → $SHARED_ROOT"
 echo
-echo "Add this to your shell profile so skills/workflows resolve shared files:"
-echo "  export WISE_PLUGIN_ROOT=\"$SHARED_ROOT\""
+echo "Skills resolve $SHARED_ROOT automatically (it is their baked-in"
+echo "default); export WISE_PLUGIN_ROOT only to override it."
 echo
 echo "Prerequisites: git, gh (authenticated) for PR skills; python3 + pyyaml +"
 echo "python-ulid for the workflow engine. Persistent state: $WISE_HOME"
 echo "(override with WISE_DATA_DIR)."
 echo
+bash "$PACK/scripts/bootstrap-deps.sh" --probe || true
+echo
+echo "If anything above is missing, run the wise-init skill in your harness"
+echo "to finish dependency setup."
+echo
 echo "Note: this port excludes wise-supervise, the wise-insights-* skills,"
-echo "wise-skills-create/edit, and wise-init (Claude Code only). See"
+echo "and wise-skills-create/edit (Claude Code only). See"
 echo "docs/compatibility.md for the full matrix."

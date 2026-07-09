@@ -21,14 +21,18 @@ drift:
 #   just install codex
 #   just install cursor
 #   just install hermes
-#   just install cursor project=./my-repo
+#   just install cursor project ./my-repo
 install harness scope="user" project=".":
-    ./install.sh {{harness}} --{{scope}} --project {{project}}
+    ./install.sh {{harness}} {{ if scope == "project" { "--project " + project } else { "--user" } }}
 
 # Uninstall a harness port (removes exactly what install added).
 uninstall harness scope="user" project=".":
-    ./install.sh {{harness}} --{{scope}} --project {{project}} --uninstall
+    ./install.sh {{harness}} {{ if scope == "project" { "--project " + project } else { "--user" } }} --uninstall
+
+# Copy-install smoke test into throwaway HOME/data dirs.
+smoke:
+    bash scripts/install_smoke.sh
 
 # Everything CI runs, locally.
-check: validate drift test
+check: validate drift test smoke
     @echo "all checks passed"

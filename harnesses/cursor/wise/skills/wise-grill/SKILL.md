@@ -24,6 +24,7 @@ This skill was authored for Claude Code and adapted for Cursor. Where the steps 
 
 - **Task / subagent dispatch (`subagent_type: wise:<role>`)** — spawn a subagent with the role card at `${WISE_PLUGIN_ROOT}/agents/<role>.md` if this harness supports subagents; otherwise adopt that role yourself and perform the steps sequentially.
 - **AskUserQuestion** — ask the user the same question in plain chat and wait for their reply.
+- **Shared files (`${WISE_PLUGIN_ROOT}`)** — defaults to `${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/cursor`, where `./install.sh cursor` puts this pack; export `WISE_PLUGIN_ROOT` only to override.
 
 
 # /wise-grill — understand an underspecified subject, then plan it, answer it, or grill the right people
