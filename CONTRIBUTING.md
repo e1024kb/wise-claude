@@ -28,9 +28,13 @@ wise-claude/
 │   ├── agents/                   # SDLC role cards (neutral form)
 │   ├── workflows/                # bundled workflow definitions
 │   ├── scripts/                  # engine.*, workflows.py (the harness-neutral engine)
-│   └── core-map.yaml             # maps each core asset → its vendored copy per harness
+│   └── ports/                    # port-generator inputs (hand-maintained)
+│       ├── profiles/             # one <harness>.yaml per port
+│       ├── notes/                # harness-adaptation note templates
+│       ├── overlays/             # per-skill find/replace hunks
+│       └── static/               # byte-copied per-port files (README, manifests)
 └── harnesses/
-    └── <harness>/wise/            # one hand-maintained port per harness (claude, codex, cursor, hermes)
+    └── <harness>/wise/            # one port per harness (claude, codex, cursor, hermes)
         ├── .claude-plugin/plugin.json   # (claude) manifest — the single version source
         ├── CLAUDE.md · README.md · AGENTS.md
         ├── .mcp.json             # bundled MCP servers (currently empty)
@@ -45,10 +49,13 @@ wise-claude/
 
 Since **v3.0.0** the repo is organized by harness. `core/` is the
 canonical, harness-neutral source of truth; each
-`harnesses/<harness>/wise/` folder is a hand-maintained, independently
-installable **port** that vendors from `core/`. The Claude Code plugin
-moved here from the old `plugins/wise/` — see the README migration note.
-Edit `core/` first, then propagate into the affected ports (§10).
+`harnesses/<harness>/wise/` folder is an independently installable
+**port**. Port content is generated from `core/`, the Claude port's
+skills, and `core/ports/` by `scripts/build_ports.py`; the generated
+output stays committed and CI enforces it with
+`build_ports.py --check`. The Claude Code plugin moved here from the
+old `plugins/wise/` — see the README migration note. Edit the sources,
+then regenerate (§10).
 
 (This marketplace currently hosts a single plugin, `wise` — the PRD/TRD
 authors are skills *inside* it (`wise-prd-architect`, `wise-trd-architect`),
@@ -561,8 +568,8 @@ python3 -m py_compile harnesses/claude/wise/scripts/*.py core/scripts/*.py
 # No stale /wise:* name references (after a rename):
 grep -Rn "/wise:old-name" harnesses/ core/ docs/ README.md CONTRIBUTING.md || echo "clean"
 
-# Core ↔ port drift (advisory; always exits 0):
-python3 scripts/report_core_drift.py
+# Generated port content matches a fresh render (exit 1 on drift):
+python3 scripts/build_ports.py --check
 ```
 
 ### 6.3 Skill smoke tests
@@ -800,18 +807,21 @@ Breaking any of these is a major-version event (CLI contract change) — see
 3. Teach the `wise-workflow-run` SKILL body how to dispatch the new
    type — which tool to invoke, how to collect, how to score success.
 4. Add a step of the new type to the `example-workflow` bundled
-   workflow (`harnesses/claude/wise/workflows/example-workflow/workflow.yaml`)
-   so the type is exercised in smoke tests.
+   workflow (`core/workflows/example-workflow/workflow.yaml`, then
+   regenerate with `python3 scripts/build_ports.py`) so the type is
+   exercised in smoke tests.
 5. Bump the plugin's `version` per [§8](#8-versioning). New step types are a minor bump.
 
 ### 9.6 Adding or editing a bundled workflow
 
 **For ADDING a workflow:**
 
-1. Create `harnesses/claude/wise/workflows/<name>/workflow.yaml` — the folder
-   form is the default for all new bundled workflows. Sibling
-   `templates/` and `prompts/` directories are optional and
-   addressable from steps via `{{workflow.dir}}`.
+1. Create `core/workflows/<name>/workflow.yaml` — the folder form is
+   the default for all new bundled workflows. Sibling `templates/` and
+   `prompts/` directories are optional and addressable from steps via
+   `{{workflow.dir}}`. The per-port copies under
+   `harnesses/*/wise/workflows/` are generated — run
+   `python3 scripts/build_ports.py` after editing.
 2. **Ship a `README.md` alongside `workflow.yaml`.** Every
    bundled workflow has one, following the consistent shape the
    existing workflows use: title + summary → When to use → When
@@ -911,22 +921,27 @@ Code plugin subagents — auto-discovered on install, invocable as
 
 **To add or edit a role:**
 
-1. Add/edit `harnesses/claude/wise/agents/<role>.md`. Match the shape of the
-   existing files: frontmatter limited to `name` (= filename stem),
-   `description` (concrete enough to drive `agent: auto` routing),
-   `tools` (scoped to the role), `model: inherit`, `effort` (the role's
-   default reasoning level), `color`. Plugin subagents **ignore**
-   `hooks` / `mcpServers` / `permissionMode` — never add them. Then the
-   role's system prompt as the body.
-2. Add/update the role's row in `harnesses/claude/wise/AGENTS.md` AND the repo-root
+1. Add/edit the neutral card `core/agents/<role>.md` (frontmatter
+   limited to `name` (= filename stem) and `description` — concrete
+   enough to drive `agent: auto` routing — then the role's system
+   prompt as the body), and add/update the role's entry in
+   `core/ports/profiles/claude.yaml` (the `tools` / `model: inherit` /
+   `effort` / `color` frontmatter lines the generator adds to the
+   Claude card). Plugin subagents **ignore** `hooks` / `mcpServers` /
+   `permissionMode` — never add them.
+2. Regenerate: `python3 scripts/build_ports.py`. The
+   `harnesses/*/wise/agents/<role>.md` copies are generated — never
+   hand-edit them.
+3. Add/update the role's row in `harnesses/claude/wise/AGENTS.md` AND the repo-root
    `AGENTS.md` table — the "When `auto` picks it" cell is the routing hint
    the conductor reads.
-3. Verify it parses: `python3 harnesses/claude/wise/scripts/workflows.py
+4. Verify it parses: `python3 harnesses/claude/wise/scripts/workflows.py
    list-agents` should list it with the right `model` / `effort`.
-4. Minor version bump (new roles are additive).
+5. Minor version bump (new roles are additive).
 
-`harnesses/claude/wise/agents/*.md` is the single canonical source; the repo-root
-`AGENTS.md` and `harnesses/claude/wise/AGENTS.md` are *project-instructions* docs
+`core/agents/*.md` (plus the Claude profile's frontmatter map) is the
+canonical source; the repo-root `AGENTS.md` and
+`harnesses/claude/wise/AGENTS.md` are *project-instructions* docs
 (not loadable registries) whose roster tables mirror it — keep them in
 sync the same way workflow READMEs track their YAML.
 
@@ -980,49 +995,80 @@ everywhere except the `-auto` implement phase).
 
 ---
 
-## 10. Cross-harness ports & core sync
+## 10. Cross-harness ports & the port generator
 
 Since **v3.0.0** the repo ships the `wise` plugin to more than one agent
 harness. The Claude Code plugin lives at `harnesses/claude/wise/`; other
-ports (Codex, Cursor, Hermes) live under `harnesses/<harness>/wise/` and
-are added by their own PRs. `core/` holds the canonical, harness-neutral
-source; every port **vendors** a copy of the core assets it needs.
+ports (Codex, Cursor, Hermes) live under `harnesses/<harness>/wise/`.
+All port content — plus the Claude port's `references/`, `agents/`,
+`workflows/`, and `scripts/` — is **generated** by
+`scripts/build_ports.py` from three hand-maintained sources and stays
+committed in the repo.
 
 ### 10.1 The editing rule
 
-- **Edit `core/` first** for anything harness-neutral: a shared
-  `references/*.md` routine, a `workflows/<name>/workflow.yaml` or its
-  `prompts/`, the engine `scripts/workflows.py`, or a neutral agent role
-  card in `agents/`.
-- **Propagate by hand** into each affected `harnesses/<harness>/wise/`
-  port. Ports are hand-maintained on purpose — a change may need
-  harness-specific adaptation (frontmatter, path rewrites, adaptation
-  preambles), so there is no automatic build step.
-- **Run the drift report** to see what diverged:
+- **Sources of truth** (edit these, never a generated file):
+  - `core/` — anything harness-neutral: a shared `references/*.md`
+    routine, a `workflows/<name>/workflow.yaml` or its `prompts/`, the
+    engine `scripts/workflows.py`, a neutral agent role card in
+    `agents/`.
+  - `harnesses/claude/wise/skills/` — the canonical skills. Port skills
+    are derived from these.
+  - `core/ports/` — the generator inputs (§10.2): per-harness profiles,
+    note templates, overlays, and static files.
+- **Regenerate** after any source edit:
+
   ```bash
-  python3 scripts/report_core_drift.py   # or: just drift
+  python3 scripts/build_ports.py   # or: just build
   ```
-  It reads `core/core-map.yaml`, byte-compares every `mode: verbatim`
-  mapping against its vendored copy, and lists `mode: adapted` mappings
-  as "manually verify". It is **advisory and always exits 0** — drift is
-  a prompt to review, never a merge gate. A port that legitimately
-  differs is marked `mode: adapted` (or a specific file is added to that
-  mapping's `exclude:` list) in `core-map.yaml`.
 
-### 10.2 core-map.yaml
+  It rewrites all generated content in place (and deletes stray files
+  in fully-generated roots). Commit the regenerated files together with
+  the source change.
+- **CI enforces sync** with:
 
-`core/core-map.yaml` is the registry of what-vendors-what. Each mapping
-names a `core:` asset (path relative to `core/`) and one or more
-`vendored:` entries (`harness`, repo-root-relative `path`, `mode`, and
-an optional `exclude:` list of fnmatch patterns for per-port files that
-legitimately differ). When you add a port or a new vendored asset,
-extend `core-map.yaml` in the same commit so the drift report stays
-meaningful.
+  ```bash
+  python3 scripts/build_ports.py --check   # or: just build-check
+  ```
+
+  It renders to a temp dir, diffs against the committed tree, prints
+  any `differs` / `missing` / `stray` paths, and exits non-zero on
+  drift. A red check means either you forgot to regenerate or you
+  hand-edited a generated file.
+
+### 10.2 Generator inputs — `core/ports/`
+
+`core/ports/` holds everything the generator needs beyond `core/` and
+the Claude skills:
+
+- **`profiles/<harness>.yaml`** — one per port (including `claude`).
+  Declares the harness id/name, which skills ship at which tier (full /
+  adapted / excluded), the skill-frontmatter keep-list, and — for the
+  Claude profile — the `tools` / `model` / `effort` / `color`
+  frontmatter lines added to each agent card.
+- **`notes/`** — the harness-adaptation note templates injected into
+  ported skills. `notes/<skill>.md` is the shared template
+  (`{{harness_name}}` / `{{harness_id}}` placeholders);
+  `notes/<skill>.<harness>.md` overrides it for skills whose adaptation
+  genuinely diverges per harness (e.g. the `wise-workflow-run` /
+  `-resume` conductor sections). `notes/_preamble.md` is the blockquote
+  template used for full-tier skills.
+- **`overlays/<harness>/<skill>.md`** — targeted find/replace hunks
+  (`<<<<<<< find` / `=======` / `>>>>>>>`) for prose that must diverge
+  per port beyond what the standard pipeline produces. Hunks are
+  anchored on post-rewrite text and must match exactly once — the
+  generator hard-errors otherwise.
+- **`static/<harness>/`** — files byte-copied into the port as-is: the
+  port README, the Codex plugin manifest, etc.
+
+When you add a port or change what a port ships, edit these inputs and
+regenerate — there is no separate registry to keep in sync.
 
 ### 10.3 Port path convention — the baked default root
 
-Port skills never depend on an exported env var. The rewrite rule when
-vendoring a Claude asset into a port is **context-dependent**:
+Port skills never depend on an exported env var. The rewrite rule the
+generator applies when deriving a port skill from its Claude source is
+**context-dependent**:
 
 - **Executable bash contexts** (fenced ```bash blocks, and any quoted
   `"${...}/` path that will be pasted into a shell) rewrite
@@ -1055,9 +1101,14 @@ Two invariants back this up, both enforced (`scripts/validate_repo.py`
 
 There is **one version source** —
 `harnesses/claude/wise/.claude-plugin/plugin.json`. Every port manifest
-and marketplace catalog carries the same version, kept in sync by hand;
-CI's version-match check enforces it. A change under `harnesses/` or
-`core/` must bump that file (§8).
+and marketplace catalog carries the same version; CI's version-match
+check enforces it. A change under `harnesses/` or `core/` must bump
+that file (§8). The Codex port's manifest is generated from the static
+input `core/ports/static/codex/.codex-plugin/plugin.json`, whose
+`version` field is a `0.0.0` placeholder — the generator injects the
+Claude `plugin.json` version on render. A version bump edits **only**
+the Claude `plugin.json`, then regenerates with
+`python3 scripts/build_ports.py`.
 
 ---
 

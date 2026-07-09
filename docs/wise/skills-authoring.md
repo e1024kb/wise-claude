@@ -257,27 +257,37 @@ doesn't delegate to `skill-creator`. See
 ## Porting a new skill to the other harnesses
 
 A skill authored under `harnesses/claude/wise/skills/` reaches **only**
-Claude Code — it does **not** appear on Codex / Cursor / Hermes
-automatically. To make it available there, decide the skill's tier and
-port it by hand (the repo maintains per-harness folders, not a build step):
+Claude Code — it does **not** appear on Codex / Cursor / Hermes until
+you tell the port generator about it. The port skill trees are
+**generated** by `scripts/build_ports.py` from the Claude skill plus
+the inputs under `core/ports/` — never hand-edit a generated
+`harnesses/{codex,cursor,hermes}/wise/skills/` file. To port a new
+skill, decide its tier and register it:
 
-- **Full** — pure prose + `git` / `gh`, no Claude-only tools. Vendor it to
-  each port with frontmatter reduced to `name` + `description` and paths
-  rewritten per the context-dependent rule in `CONTRIBUTING.md` §10.3:
-  executable bash contexts get the defaulted
-  `${WISE_PLUGIN_ROOT:-…/harness/<h>}` expansion, prose references get
-  the short `${WISE_PLUGIN_ROOT}` plus a one-line shared-file-resolution
-  note under the H1.
+- **Full** — pure prose + `git` / `gh`, no Claude-only tools. Add the
+  skill to the full-tier list in each `core/ports/profiles/<harness>.yaml`.
+  The generator reduces the frontmatter to the profile's keep-list,
+  rewrites paths per the context-dependent rule in `CONTRIBUTING.md`
+  §10.3 (executable bash contexts get the defaulted
+  `${WISE_PLUGIN_ROOT:-…/harness/<h>}` expansion, prose references the
+  short `${WISE_PLUGIN_ROOT}`), and injects the shared-file-resolution
+  blockquote under the H1 from `core/ports/notes/_preamble.md`.
 - **Adapted** — uses `Task` / `AskUserQuestion` / the `Skill` tool /
-  `TodoWrite`. Same as full, plus a *Harness adaptation note* at the top
-  mapping those tools to the harness's equivalents (the resolution line
-  joins that note as a bullet).
+  `TodoWrite`. Add it to the adapted-tier list instead, and write a
+  *Harness adaptation note* template at `core/ports/notes/<skill>.md`
+  (with `{{harness_name}}` / `{{harness_id}}` placeholders; a
+  `notes/<skill>.<harness>.md` override wins when one harness genuinely
+  diverges). For prose that must differ per port beyond the standard
+  pipeline, add find/replace hunks at
+  `core/ports/overlays/<harness>/<skill>.md`.
 - **Claude-only** — depends on the SessionEnd hook, Claude transcripts, or
-  `skill-creator`. Leave it out of the ports and record why.
+  `skill-creator`. Exclude it from the port profiles and record why.
 
-Record the tier in [`docs/compatibility.md`](../compatibility.md) and
-follow the sync model in
-[`CONTRIBUTING.md` §10](../../CONTRIBUTING.md#10-cross-harness-ports--core-sync).
+Then run `python3 scripts/build_ports.py` (or `just build`) and commit
+the generated port skills together with the source change — CI runs
+`build_ports.py --check` and fails on any drift. Record the tier in
+[`docs/compatibility.md`](../compatibility.md); the full procedure is in
+[`CONTRIBUTING.md` §10](../../CONTRIBUTING.md#10-cross-harness-ports--the-port-generator).
 Any shared reference the skill reads belongs in `core/references/` first.
 
 ## Full procedure
