@@ -20,6 +20,11 @@ build:
 build-check:
     python3 scripts/build_ports.py --check
 
+# Enable the repo's git hooks (pre-commit auto-regenerates the ports).
+hooks:
+    git config core.hooksPath .githooks
+    @echo "hooks enabled: commits now auto-run build_ports.py"
+
 # Install a harness port. Examples:
 #   just install claude
 #   just install codex

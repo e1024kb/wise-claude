@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Regenerate the harness ports before every commit so generated output
+# can never drift from its sources (CONTRIBUTING §10.1).
+#
+# Enable once per clone:  just hooks
+# Bypass for one commit:  git commit --no-verify
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+
+if ! python3 -c "import yaml" 2>/dev/null; then
+  echo "pre-commit: python3 + pyyaml required to regenerate ports" >&2
+  echo "pre-commit: pip install pyyaml, or bypass with --no-verify" >&2
+  exit 1
+fi
+
+python3 scripts/build_ports.py > /dev/null
+
+# Stage exactly the generator-owned paths (the .gitattributes
+# linguist-generated set), so regenerated files ride along with the
+# source edit that caused them.
+git add \
+  harnesses/codex harnesses/cursor harnesses/hermes \
+  harnesses/opencode harnesses/pi \
+  harnesses/claude/wise/references \
+  harnesses/claude/wise/workflows \
+  harnesses/claude/wise/agents \
+  harnesses/claude/wise/scripts/engine.py \
+  harnesses/claude/wise/scripts/engine.sh \
+  harnesses/claude/wise/scripts/workflows.py

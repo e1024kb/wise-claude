@@ -1,0 +1,15 @@
+# Generator-owned trees (rendered by scripts/build_ports.py from core/,
+# the Claude port's skills, and core/ports/ — see CONTRIBUTING §10).
+# linguist-generated collapses them in GitHub PR diffs and drops them
+# from language stats; CI's `build_ports.py --check` keeps them honest.
+harnesses/codex/** linguist-generated
+harnesses/cursor/** linguist-generated
+harnesses/hermes/** linguist-generated
+harnesses/opencode/** linguist-generated
+harnesses/pi/** linguist-generated
+harnesses/claude/wise/references/** linguist-generated
+harnesses/claude/wise/workflows/** linguist-generated
+harnesses/claude/wise/agents/** linguist-generated
+harnesses/claude/wise/scripts/engine.py linguist-generated
+harnesses/claude/wise/scripts/engine.sh linguist-generated
+harnesses/claude/wise/scripts/workflows.py linguist-generated

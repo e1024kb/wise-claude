@@ -55,7 +55,10 @@ old `plugins/wise/` in v3.0.0 — see the README migration note).
   Edit these — never a generated file.
 - **Everything else under `harnesses/` is generated and committed.**
   After editing a source, run `python3 scripts/build_ports.py` (or
-  `just build`) to regenerate the ports in place.
+  `just build`) to regenerate the ports in place — or run `just hooks`
+  once to enable the pre-commit hook that regenerates automatically.
+  Generated paths are marked `linguist-generated` in `.gitattributes`
+  (collapsed in GitHub PR diffs).
 - **CI enforces sync**: `python3 scripts/build_ports.py --check` (or
   `just build-check`) renders to a temp dir and fails on any diff
   between the committed tree and a fresh render.
