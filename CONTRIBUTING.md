@@ -1025,6 +1025,12 @@ committed in the repo.
   It rewrites all generated content in place (and deletes stray files
   in fully-generated roots). Commit the regenerated files together with
   the source change.
+- **Or let git do it**: run `just hooks` once per clone to enable the
+  repo's `.githooks/pre-commit`, which regenerates the ports and stages
+  the generator-owned paths on every commit (bypass a single commit
+  with `git commit --no-verify`). The same paths are marked
+  `linguist-generated` in `.gitattributes`, so GitHub collapses them in
+  PR diffs and excludes them from language stats.
 - **CI enforces sync** with:
 
   ```bash
