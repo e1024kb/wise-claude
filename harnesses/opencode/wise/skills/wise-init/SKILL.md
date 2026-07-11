@@ -3,11 +3,11 @@ name: wise-init
 description: >-
   First-time setup wizard — walk the user through installing wise's system
   deps (Python 3 + pyyaml/ulid/typing_extensions, Node ≥22, gh CLI + `gh
-  auth login`) and cache the probe results so workflow runs skip the live
-  check. Idempotent — re-running only prompts for gaps. Invoked as
-  `/wise-init`. Use when the user says "init wise", "set up wise",
-  "install wise deps", "first-time setup", "run the setup wizard", or
-  types `/wise-init`.
+  auth login`, markitdown for file-to-markdown extraction) and cache the
+  probe results so workflow runs skip the live check. Idempotent —
+  re-running only prompts for gaps. Invoked as `/wise-init`. Use when the
+  user says "init wise", "set up wise", "install wise deps", "first-time
+  setup", "run the setup wizard", or types `/wise-init`.
 ---
 
 ## Harness adaptation note
@@ -56,9 +56,10 @@ it under 4 lines:
 
 ```
 First-time setup. I'll walk you through the system deps wise needs —
-Python 3, Node ≥22, and the gh CLI (with auth). Re-runs are safe:
-I skip what's already installed. After this I cache the probe
-results so future workflow runs skip the live check.
+Python 3, Node ≥22, the gh CLI (with auth), and markitdown (file →
+markdown text extraction). Re-runs are safe: I skip what's already
+installed. After this I cache the probe results so future workflow
+runs skip the live check.
 ```
 
 ### 2. Python (and its pip modules)
@@ -235,9 +236,79 @@ Record:
 }
 ```
 
-### 5. Write the registry
+### 5. markitdown (file → markdown extraction)
 
-Compose a JSON object from the three result blobs above plus the
+The [`markitdown`](https://github.com/microsoft/markitdown) CLI powers
+the `wise-markitdown` reference skill — text extraction from PDF /
+DOCX / XLSX / PPTX / images / audio / EPUB / ZIP / … to markdown.
+Optional in the sense that no workflow engine step needs it, but the
+extraction skill degrades to one-shot `uvx` runs without it, so the
+wizard installs it properly here.
+
+**5a. Probe.**
+
+```bash
+bash "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/opencode}/scripts/init.sh" probe-markitdown
+```
+
+Bare keys `STATUS`, `BINARY`, `VERSION`, `UV` → `MD_STATUS`,
+`MD_BINARY`, `MD_VERSION`, `MD_UV`. `UV` reports whether the `uv`
+installer is reachable (directly or via mise) — it is emitted even
+when markitdown itself is already installed.
+
+**5b. Handle the result.**
+
+- **`MD_STATUS=ok`:** print `markitdown <ver> ✓ at <binary>` and move
+  to §6. (The probe can't tell a bare `markitdown` install from a
+  `markitdown[all]` one — if conversions later fail with
+  `MissingDependencyException`, the fix is
+  `uv tool install --force 'markitdown[all]'`; the `wise-markitdown`
+  skill documents this.)
+
+- **`MD_STATUS=missing` and `MD_UV=ok`:** `AskUserQuestion`:
+  - Question: `markitdown (file → markdown text extraction: PDF, DOCX, XLSX, PPTX, images, audio, …) isn't installed. Install it now via uv?`
+  - Header: `markitdown`
+  - Options:
+    - `Install (recommended)` — description: `Run: uv tool install 'markitdown[all]' — a user-space tool install, no sudo, no system Python touched.`
+    - `Skip` — description: `Continue without it. The wise-markitdown skill will fall back to one-shot uvx runs (re-downloads on a cold cache).`
+  - multiSelect: false
+
+  On `Install`: run
+
+  ```bash
+  uv tool install 'markitdown[all]'
+  ```
+
+  (when `uv` is only reachable through mise, run
+  `mise exec uv -- uv tool install 'markitdown[all]'` instead).
+  This IS run by the wizard — like the pip-module installs in §2b,
+  it's a user-space install with no sudo and no system packages.
+  Re-probe via §5a; on success print the ✓ line. If the install
+  fails, surface the error and record `missing` — never retry blind.
+
+- **`MD_STATUS=missing` and `MD_UV=missing`:** `uv` itself is absent,
+  so there's nothing for the wizard to run. `AskUserQuestion`:
+  - Question: `markitdown needs the uv installer, which isn't installed either. Install uv first?`
+  - Header: `uv missing`
+  - Options:
+    - `Install uv via mise (recommended)` — description: `Run in your terminal: brew install mise && mise use -g uv@latest — then I re-probe and install markitdown.`
+    - `Skip` — description: `Continue without markitdown. Re-run /wise-init after installing uv.`
+  - multiSelect: false
+
+  Like the §2b/§3 system installers, installing `uv`/`mise` is the
+  user's move — print the command, pause with the same
+  `Done — re-probe` / `Abort` follow-up, then resume the
+  `MD_UV=ok` branch above. On `Skip`, record `missing` and move on.
+
+**5c. Record.**
+
+```json
+{"status": "ok" | "missing", "binary": "...", "version": "..."}
+```
+
+### 6. Write the registry
+
+Compose a JSON object from the four result blobs above plus the
 pack version:
 
 ```json
@@ -246,9 +317,10 @@ pack version:
   "plugin_version": "<contents of the .wise-version file, or empty>",
   "completed_at": "<utc ISO8601, see below>",
   "deps": {
-    "python": { ... from §2c ... },
-    "node":   { ... from §3 ... },
-    "gh":     { ... from §4 ... }
+    "python":     { ... from §2c ... },
+    "node":       { ... from §3 ... },
+    "gh":         { ... from §4 ... },
+    "markitdown": { ... from §5c ... }
   }
 }
 ```
@@ -276,7 +348,7 @@ python3 "${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/shar
 The script prints the registry path on stdout — capture that for
 the summary.
 
-### 6. Summary
+### 7. Summary
 
 Print a one-block report:
 
@@ -286,6 +358,7 @@ Print a one-block report:
   Python 3.12.5       ✓
   Node 22.20.0        ✓
   gh 2.54.0 (auth: your-username) ✓
+  markitdown 0.1.3    ✓
 
 Registry cached at:
   ${WISE_PLUGIN_ROOT}/.wise-init-registry.yaml
@@ -302,11 +375,15 @@ claim success for something the user skipped.
 
 ## Guardrails
 
-- **Never run an installer for the user.** The wizard shows the
-  commands, the user pastes them in their own terminal. We can't
-  `brew install` from inside a skill (and wouldn't want to — it
-  prompts for sudo in some environments and changes the user's
-  `$PATH`). Our job is guidance + re-probe.
+- **Never run a system installer for the user.** The wizard shows
+  the commands, the user pastes them in their own terminal. We can't
+  `brew install` / `mise use -g` from inside a skill (and wouldn't
+  want to — it prompts for sudo in some environments and changes the
+  user's `$PATH`). Our job is guidance + re-probe. The two sanctioned
+  exceptions are user-space package installs into an ALREADY-present
+  toolchain — `pip install --user` (§2b) and
+  `uv tool install` (§5b) — no sudo, no PATH mutation, and only
+  after an explicit AskUserQuestion confirm.
 - **Never run `gh auth login` for the user.** It opens a browser
   and requires a device code; the user has to be the one driving.
   Pause with `Done — re-probe` and check `GH_AUTHENTICATED` after.

@@ -15,8 +15,8 @@ natural-language classifier, not a dispatcher.
 `wise` ships a workflow engine, shared scripts, and every action skill
 (`/wise-init`, `/wise-workflow-*`, `/wise-skills-*`, `/wise-pr-*`,
 `/wise-commit-*`, `/wise-insights-*`, `/wise-feedback`) plus the
-`wise-estimation` reference skill and the `/wise` natural-language
-helper. The `/wise-insights-*` trio is a local self-improvement loop
+`wise-estimation` and `wise-markitdown` reference skills and the
+`/wise` natural-language helper. The `/wise-insights-*` trio is a local self-improvement loop
 that learns reusable skills from your own session history — see
 [`docs/wise/insights.md`](../../../docs/wise/insights.md). Turning a
 tracker ticket into a plan — or autonomously all the way into a PR —
@@ -258,7 +258,8 @@ the longer rationale):
   Frontmatter carries an `argument-hint:`; the skill body self-parses
   `$ARGUMENTS` as a raw string.
 - **Reference / guidance skills** — auto-triggered by the user's
-  prose (e.g. `wise-estimation` firing on "story points"). Not
+  prose (e.g. `wise-estimation` firing on "story points", or
+  `wise-markitdown` firing on "extract the text from this PDF"). Not
   user-invocable; Claude consults them when the `description:` matches.
 
 Two of the auto-triggered skills are full document-authoring
@@ -329,6 +330,7 @@ of the following mechanisms, and update the table below.
 | Python 3 + PyYAML + python-ulid + typing_extensions | CLI / runtime — workflow engine's YAML + state store | `harnesses/claude/wise/scripts/init.sh` + `harnesses/claude/wise/scripts/bootstrap-deps.sh` (probes); registry cached by `/wise-init` at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` | every workflow engine skill (`wise-workflow-run`, `wise-workflow-list`, …) |
 | Node ≥22 | CLI / runtime — npx-driven MCP servers | `harnesses/claude/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | MCP servers launched via npx |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `harnesses/claude/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
+| [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `harnesses/claude/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |
 
 `wise` declares no plugin `dependencies`. The `ticket-plan` /
 `ticket-auto` workflows work with any task tracker, so instead of

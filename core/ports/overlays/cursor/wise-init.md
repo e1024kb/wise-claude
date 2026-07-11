@@ -52,11 +52,11 @@ Bare keys `STATUS`, `BINARY`, `VERSION`, `MAJOR` → `NODE_STATUS`,
 >>>>>>>
 
 <<<<<<<
-Compose a JSON object from the three result blobs above plus the
+Compose a JSON object from the four result blobs above plus the
 plugin version:
 
 =======
-Compose a JSON object from the three result blobs above plus the
+Compose a JSON object from the four result blobs above plus the
 pack version:
 
 >>>>>>>

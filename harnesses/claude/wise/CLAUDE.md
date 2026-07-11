@@ -24,8 +24,8 @@ port; the cross-harness sync model is in the root `CONTRIBUTING.md` §10.
 marketplace: a workflow engine, shared scripts, and a set of
 tech-neutral action skills (`/wise-init`, `/wise-workflow-*`,
 `/wise-skills-*`, `/wise-pr-*`, `/wise-commit-*`) plus the
-`wise-estimation` reference skill and the `/wise` natural-language
-helper.
+`wise-estimation` and `wise-markitdown` reference skills and the
+`/wise` natural-language helper.
 
 Every user-facing skill is a **flat, autocomplete-visible slash
 command**. No dispatcher-style routing: typing `/wise-` fans out in
@@ -39,7 +39,8 @@ it through `AskUserQuestion`.
 Current actions (all standalone):
 
 - `/wise-init` — first-time dep-install wizard; walks the user through
-  Python + Node + gh, caches results for the workflow engine fast-path.
+  Python + Node + gh + markitdown, caches results for the workflow
+  engine fast-path.
 - `/wise-skills-create` — scaffold a new action skill via `skill-creator`.
 - `/wise-skills-edit` — modify an existing action skill via `skill-creator`.
 - `/wise-workflow-list` — list bundled + user workflow definitions.
@@ -205,6 +206,7 @@ harnesses/claude/wise/
     │   └── commit-routine.md        # shared draft + commit (+ optional push) procedure
     ├── wise-commit-push/SKILL.md    # draft + commit + push; reads wise-commit/commit-routine.md
     ├── wise-estimation/SKILL.md     # reference skill (Fibonacci SP scale)
+    ├── wise-markitdown/SKILL.md     # reference skill (file → markdown text extraction via markitdown)
     ├── wise-pr-create/SKILL.md      # create or refresh a PR
     ├── wise-pr-add-reviewers/SKILL.md  # attach Copilot + extras
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
