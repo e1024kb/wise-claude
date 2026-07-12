@@ -65,9 +65,19 @@ Rule of thumb: when the source is more than a few pages, write to a
 file with `-o` and `Read` selectively instead of dumping the whole
 conversion into context.
 
-If `markitdown` is not on PATH, fall back to a one-shot run without
-installing anything (brackets escaped, not quoted — the narrow
-`Bash(uvx markitdown:*)` permission matches on this exact prefix):
+If `markitdown` is not on PATH, it may still be installed — `uv tool
+install` drops binaries into the uv tool bin dir (`~/.local/bin` by
+default), which is often not on PATH. Try that first:
+
+```bash
+"$(uv tool dir --bin 2>/dev/null)/markitdown" path/to/file.pdf -o /tmp/out.md
+```
+
+(and suggest the user add that dir to PATH — `uv tool update-shell` —
+so the plain `markitdown` form works next time). Only when that misses
+too, fall back to a one-shot run without installing anything (brackets
+escaped, not quoted — the narrow `Bash(uvx markitdown:*)` permission
+matches on this exact prefix):
 
 ```bash
 uvx markitdown\[all\] path/to/file.pdf -o /tmp/out.md
