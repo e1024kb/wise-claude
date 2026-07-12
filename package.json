@@ -1,8 +1,10 @@
 {
   "name": "wise-claude",
-  "version": "3.7.1",
+  "version": "3.8.0",
   "private": true,
   "pi": {
-    "skills": ["harnesses/pi/wise/skills/*"]
+    "skills": [
+      "harnesses/pi/wise/skills/*"
+    ]
   }
 }

@@ -33,6 +33,13 @@
 #         AUTHENTICATED=true|false       (when STATUS=ok)
 #         LOGIN=<gh login>|              (when AUTHENTICATED=true)
 #
+#   probe-markitdown
+#       Emits:
+#         STATUS=ok|missing
+#         BINARY=<absolute path>         (when STATUS=ok)
+#         VERSION=<x.y.z>                (when STATUS=ok)
+#         UV=ok|missing                  (always — the installer probe)
+#
 # Output is intentionally shell-sourceable — the `/wise-init` wizard
 # reads these lines straight into variables.
 #
@@ -186,20 +193,100 @@ probe_gh() {
   fi
 }
 
+# ---- markitdown -----------------------------------------------------------
+
+find_uv() {
+  if command -v mise >/dev/null 2>&1; then
+    local mise_uv
+    mise_uv="$(mise which uv 2>/dev/null || true)"
+    if [[ -n "$mise_uv" && -x "$mise_uv" ]]; then
+      echo "$mise_uv"
+      return 0
+    fi
+  fi
+  if command -v uv >/dev/null 2>&1; then
+    command -v uv
+    return 0
+  fi
+  return 1
+}
+
+find_markitdown() {
+  if command -v mise >/dev/null 2>&1; then
+    local mise_md
+    mise_md="$(mise which markitdown 2>/dev/null || true)"
+    if [[ -n "$mise_md" && -x "$mise_md" ]]; then
+      echo "$mise_md"
+      return 0
+    fi
+  fi
+  if command -v markitdown >/dev/null 2>&1; then
+    command -v markitdown
+    return 0
+  fi
+  # `uv tool install` drops binaries into the uv tool bin dir
+  # (~/.local/bin by default), which is frequently NOT on PATH — a
+  # just-installed markitdown would otherwise re-probe as missing.
+  local uv uv_bin
+  uv="$(find_uv || true)"
+  if [[ -n "$uv" ]]; then
+    uv_bin="$("$uv" tool dir --bin 2>/dev/null || true)"
+    if [[ -n "$uv_bin" && -x "$uv_bin/markitdown" ]]; then
+      echo "$uv_bin/markitdown"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+probe_markitdown() {
+  # UV is emitted unconditionally: it's the installer the wizard uses
+  # (`uv tool install 'markitdown[all]'`), so the wizard needs to know
+  # whether that path is open even when markitdown itself is present.
+  local uv_status="missing"
+  if [[ -n "$(find_uv || true)" ]]; then
+    uv_status="ok"
+  fi
+  local md
+  md="$(find_markitdown || true)"
+  if [[ -z "$md" ]]; then
+    echo "STATUS=missing"
+    echo "UV=$uv_status"
+    return 0
+  fi
+  # "markitdown --version" prints "markitdown 0.1.3" — last token.
+  # A binary that can't answer --version is broken (half-finished
+  # install, missing interpreter) — report missing so the wizard
+  # offers the reinstall instead of caching a dud as healthy.
+  local ver
+  ver="$("$md" --version 2>/dev/null | awk 'NR==1{print $NF}' || true)"
+  if [[ -z "$ver" ]]; then
+    echo "STATUS=missing"
+    echo "UV=$uv_status"
+    return 0
+  fi
+  echo "STATUS=ok"
+  echo "BINARY=$md"
+  echo "VERSION=$ver"
+  echo "UV=$uv_status"
+}
+
 # ---- dispatch -------------------------------------------------------------
 
 case "${1:-}" in
-  probe-python) probe_python ;;
-  probe-node)   probe_node ;;
-  probe-gh)     probe_gh ;;
+  probe-python)     probe_python ;;
+  probe-node)       probe_node ;;
+  probe-gh)         probe_gh ;;
+  probe-markitdown) probe_markitdown ;;
   *)
     cat <<'USAGE' >&2
 Usage: init.sh <subcommand>
 
 Subcommands:
-  probe-python    Probe for python3 + the pip modules wise needs.
-  probe-node      Probe for node (>= 22 required).
-  probe-gh        Probe for the gh CLI + its auth state.
+  probe-python      Probe for python3 + the pip modules wise needs.
+  probe-node        Probe for node (>= 22 required).
+  probe-gh          Probe for the gh CLI + its auth state.
+  probe-markitdown  Probe for the markitdown converter + uv installer.
 
 Output format: KEY=VALUE lines. Callers can `source` the output
 after prefixing with their namespace.
