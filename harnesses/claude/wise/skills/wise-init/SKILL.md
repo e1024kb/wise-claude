@@ -278,6 +278,9 @@ when markitdown itself is already installed.
   `mise exec uv -- uv tool install 'markitdown[all]'` instead).
   This IS run by the wizard — like the pip-module installs in §2b,
   it's a user-space install with no sudo and no system packages.
+  Unpinned on purpose: wise tracks the latest release for every CLI
+  dep (gh, node, the pip modules) — markitdown follows the same
+  policy.
   Re-probe via §5a; on success print the ✓ line. If the install
   fails, surface the error and record `missing` — never retry blind.
 

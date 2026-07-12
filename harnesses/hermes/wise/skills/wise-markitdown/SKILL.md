@@ -66,11 +66,16 @@ file with `-o` and `Read` selectively instead of dumping the whole
 conversion into context.
 
 If `markitdown` is not on PATH, fall back to a one-shot run without
-installing anything:
+installing anything (brackets escaped, not quoted — the narrow
+`Bash(uvx markitdown:*)` permission matches on this exact prefix):
 
 ```bash
-uvx 'markitdown[all]' path/to/file.pdf -o /tmp/out.md
+uvx markitdown\[all\] path/to/file.pdf -o /tmp/out.md
 ```
+
+Both the fallback and the `/wise-init` install intentionally track the
+latest markitdown release — same unpinned policy as every other wise
+CLI dep (gh, node, the pip modules).
 
 If `uvx` is missing too, tell the user to run `/wise-init` — its
 markitdown step installs the tool persistently (uv via mise) — and

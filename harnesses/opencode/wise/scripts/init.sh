@@ -255,8 +255,16 @@ probe_markitdown() {
     return 0
   fi
   # "markitdown --version" prints "markitdown 0.1.3" — last token.
+  # A binary that can't answer --version is broken (half-finished
+  # install, missing interpreter) — report missing so the wizard
+  # offers the reinstall instead of caching a dud as healthy.
   local ver
   ver="$("$md" --version 2>/dev/null | awk 'NR==1{print $NF}' || true)"
+  if [[ -z "$ver" ]]; then
+    echo "STATUS=missing"
+    echo "UV=$uv_status"
+    return 0
+  fi
   echo "STATUS=ok"
   echo "BINARY=$md"
   echo "VERSION=$ver"
