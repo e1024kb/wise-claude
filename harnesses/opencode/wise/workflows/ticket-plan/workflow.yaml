@@ -16,10 +16,12 @@ project-selection: current
 #                       software-engineer + qa-engineer, conductor-synthesized
 #   - refine-plan     → architect
 # Model tiering: opus for the heavy planning brain (build-plan's architect
-# lead + refine-plan), sonnet for every other step. The tracker-fetch /
-# git / presentation steps carry no `agent:`; the conductor's tool-aware
-# auto-selection keeps them on general-purpose because they need
-# tracker-MCP / git tools no scoped role carries.
+# lead + refine-plan) and the load-bearing evidence steps (analyze-design's
+# design spec + research-context's grill Context Dossier — everything
+# downstream plans off what these two surface), sonnet for every other
+# step. The tracker-fetch / git / presentation steps carry no `agent:`;
+# the conductor's tool-aware auto-selection keeps them on general-purpose
+# because they need tracker-MCP / git tools no scoped role carries.
 agents: auto
 
 # ticket-plan investigates a ticket with a parallel research wave
@@ -169,7 +171,7 @@ steps:
       If `fetch-ticket` classified the ticket as `backend`, or there
       were no design links, reply with exactly `NO-DESIGN`.
     agent: ux-designer
-    model: sonnet
+    model: opus
     effort: high
     depends_on: [fetch-ticket]
 
@@ -222,7 +224,7 @@ steps:
       `mkdir -p "{{run.dir}}/research"`, then `Write` the full dossier
       to `{{run.dir}}/research/dossier.md`, AND return it as your
       response too.
-    model: sonnet
+    model: opus
     effort: high
     depends_on: [fetch-ticket]
 
