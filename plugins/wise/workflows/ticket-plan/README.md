@@ -140,12 +140,12 @@ until `setup`).
 | `analyze-related` | `prompt` | Fetches linked / parent tickets + reference docs. Emits `NO-RELATED` when empty. |
 | `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and returns the Context Dossier (incl. the People map and sources-unavailable list) — persisted to `<run-dir>/research/dossier.md` so the isolated `gap-analysis` subagent can read it. Runs on `opus`, `effort: high` (the dossier is the evidence base every later step plans off). |
 | `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. Dispatched to a **team** — `wise:software-engineer` (lead) + `wise:architect` — on `sonnet`, `effort: high`. |
-| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `sonnet`, `effort: high`. |
+| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `opus`, `effort: xhigh` (the READY / GAPS judgement is a planning call). |
 | `resolve-gaps` | `ask` | `when: readiness == 'gaps'` — free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. |
-| `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the four analyses + gap scorecard, folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead, `opus`) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer` on `sonnet`, conductor-synthesized, `effort: high`. |
+| `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the four analyses + gap scorecard, folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer`, the whole panel on `opus`, conductor-synthesized, `effort: xhigh`. |
 | `present-plan` | `prompt` | Informational — surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
 | `review-comments` | `ask` | Free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. |
-| `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. Dispatched to `wise:architect` on `opus`, `effort: high`. |
+| `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. Dispatched to `wise:architect` on `opus`, `effort: xhigh`. |
 | `setup` | `interactive` | One composite questionnaire — ticket-ref confirm + branch (omitted when current branch already equals the target) + base + session rename — then acts (create/switch the branch, named exactly the ticket ref per `branch-naming.md`; print the `/rename` command). |
 | `ask-implement` | `ask` | Binary opt-in: start implementing the plan now, or skip to save it for later. Records `implement_choice`. |
 | `implement` | `interactive` | `when: implement_choice == 'yes'` — runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. |
@@ -165,10 +165,12 @@ steps pin roster roles and **teams**:
   — whose drafts the conductor synthesizes into the plan.
 - `refine-plan` → `wise:architect`.
 
-**Model tiering:** `opus` for the heavy planning brain (`build-plan`'s
-architect lead + `refine-plan`) and the load-bearing evidence steps
-(`analyze-design` + `research-context` — everything downstream plans
-off what these two surface); `sonnet` for every other step. The
+**Model tiering** (`opus` = the latest Opus, Opus 5): every
+plan-authoring step — `gap-analysis`, `build-plan` (the whole team),
+`refine-plan` — runs on `opus` at `effort: xhigh`; the load-bearing
+evidence steps (`analyze-design` + `research-context` — everything
+downstream plans off what these two surface) run on `opus` at
+`effort: high`; `sonnet` for every other step. The
 tracker-fetch and git steps (`detect-context`, `fetch-ticket`,
 `analyze-related`, `research-context` — the sweep needs whatever
 tracker / wiki / chat MCP tools the session has) and the presentation

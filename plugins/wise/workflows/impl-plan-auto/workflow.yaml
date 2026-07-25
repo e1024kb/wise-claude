@@ -21,18 +21,20 @@ project-selection: current
 # workflow's real work (re-plan / implement / review / fix) happens inside
 # the `process-plans` interactive fragment, which dispatches each phase to
 # a concrete roster role brought in FRESH per phase:
-#   - re-plan   → wise:architect (opus, high)
-#   - implement → wise:software-engineer (sonnet, high)
+#   - re-plan   → wise:architect (opus, xhigh)
+#   - implement → wise:software-engineer (opus, high)
 #   - review    → wise:code-reviewer (opus, high) — REVIEWS only
-#   - fix       → wise:software-engineer (sonnet, high) — applies the
+#   - fix       → wise:software-engineer (opus, high) — applies the
 #                 reviewer's findings; the two cycle until the reviewer is
 #                 satisfied (cap 10, config_prompt-overridable; on non-
 #                 convergence it pushes anyway and flags the plan)
 #   - watch+fix → wise:software-engineer (sonnet)
 # At the step level `report` → wise:technical-writer; `assemble-team`
 # stays a plain run-start declaration of the roster team + config binding.
-# Model tiering: opus for the planning + review brains, sonnet for the
-# hands-on engineering + bookkeeping steps.
+# Model tiering (opus = the latest Opus, Opus 5): opus at xhigh for
+# planning, opus at high for the hands-on engineering (implement / fix /
+# executors) and review brains; sonnet for the bookkeeping / orchestration
+# steps.
 #
 # This workflow is the full-pipeline wrapper around the `wise-revise` →
 # implement story. The `/wise-implement-plan-auto` SKILL (note: a skill,
