@@ -55,7 +55,9 @@ codebase-context excerpt, `worktree`, `project.kind`, and — when non-empty —
 the `config_prompt` guidance (preferred skills / libraries, conventions,
 guardrails, files to avoid) appended to the shared spec. Each executor has
 **fresh context** — it sees only its task plus the shared spec, never the other
-tasks' transcripts.
+tasks' transcripts. Every executor is dispatched with `model: opus` and told to
+reason at **high** effort — implementation runs on Opus, whichever dispatch
+mode below is used.
 
 How they're dispatched depends on `SUPERVISE`:
 

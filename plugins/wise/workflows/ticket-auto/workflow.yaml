@@ -18,18 +18,20 @@ project-selection: current
 # workflow's real work (plan / implement / review / fix) happens inside
 # the `process-tickets` interactive fragment, which now dispatches each
 # phase to a concrete roster role brought in FRESH per phase:
-#   - plan      → wise:architect (opus, high)
-#   - implement → wise:software-engineer (sonnet, high)
+#   - plan      → wise:architect (opus, xhigh)
+#   - implement → wise:software-engineer (opus, high)
 #   - review    → wise:code-reviewer (opus, high) — REVIEWS only
-#   - fix       → wise:software-engineer (sonnet, high) — applies the
+#   - fix       → wise:software-engineer (opus, high) — applies the
 #                 reviewer's findings; the two cycle until the reviewer is
 #                 satisfied (cap 10, config_prompt-overridable; on non-
 #                 convergence it pushes anyway and flags the ticket)
 #   - watch+fix → wise:software-engineer (sonnet)
 # At the step level `report` → wise:technical-writer; `assemble-team`
 # stays on general-purpose (a plain run-start declaration of the roster
-# team + config binding). Model tiering: opus for the planning + review
-# brains, sonnet for the hands-on engineering + bookkeeping steps.
+# team + config binding). Model tiering (opus = the latest Opus, Opus 5):
+# opus at xhigh for planning, opus at high for the hands-on engineering
+# (implement / fix / executors) and review brains; sonnet for the
+# watch+fix CI conductor and the bookkeeping / orchestration steps.
 agents: auto
 
 # ticket-auto is fully autonomous: it never asks the user for consent,

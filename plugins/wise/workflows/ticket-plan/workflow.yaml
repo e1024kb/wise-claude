@@ -15,12 +15,13 @@ project-selection: current
 #   - build-plan      → TEAM: architect (lead, opus) + product-manager +
 #                       software-engineer + qa-engineer, conductor-synthesized
 #   - refine-plan     → architect
-# Model tiering: opus for the heavy planning brain (build-plan's architect
-# lead + refine-plan) and the load-bearing evidence steps (analyze-design's
-# design spec + research-context's grill Context Dossier — everything
-# downstream plans off what these two surface), sonnet for every other
-# step. The tracker-fetch / git / presentation steps carry no `agent:`;
-# the conductor's tool-aware auto-selection keeps them on general-purpose
+# Model tiering (opus = the latest Opus, Opus 5): every plan-authoring
+# step — gap-analysis, build-plan (whole team), refine-plan — runs on
+# opus at `effort: xhigh`; the load-bearing evidence steps
+# (analyze-design's design spec + research-context's grill Context
+# Dossier) run on opus at `effort: high`; sonnet for every other step.
+# The tracker-fetch / git / presentation steps carry no `agent:`; the
+# conductor's tool-aware auto-selection keeps them on general-purpose
 # because they need tracker-MCP / git tools no scoped role carries.
 agents: auto
 
@@ -257,8 +258,8 @@ steps:
     until: 'GRILL: verdict=(ready|gaps) questions=(\d+)'
     outputs: [readiness, open_questions]
     agent: architect
-    model: sonnet
-    effort: high
+    model: opus
+    effort: xhigh
     depends_on:
       - analyze-design
       - analyze-related
@@ -392,8 +393,8 @@ steps:
       - role: product-manager    # scope / requirement clarifications
       - role: software-engineer  # reuse vs extend vs build-new, grounded in the audit
       - role: qa-engineer        # testing scope
-    model: sonnet                # shared default for the non-lead members
-    effort: high
+    model: opus                  # shared default — the whole panel plans on Opus
+    effort: xhigh                # planning runs at xhigh
     depends_on: [gap-analysis, resolve-gaps]
     trigger-rule: none-failed-min-one-success  # runs whether or not the
       # conditional resolve-gaps fired (skipped counts as done), but a
@@ -446,7 +447,7 @@ steps:
       changed. One revision pass only.
     agent: architect
     model: opus
-    effort: high
+    effort: xhigh
     depends_on: [review-comments]
 
   - id: setup

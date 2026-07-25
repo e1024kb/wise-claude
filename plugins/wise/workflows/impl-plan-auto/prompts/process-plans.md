@@ -256,7 +256,7 @@ Choose the entry phase (live state wins; consult the ledger only to break ties):
 ### 2. Re-plan from the file
 
 Dispatch a `Task` subagent — `subagent_type: wise:architect`,
-`model: opus`, reason at **high** effort (the re-plan is this run's
+`model: opus`, reason at **xhigh** effort (the re-plan is this run's
 autonomous decision spine) — : "Read
 `{{workflow.dir}}/prompts/replan-from-file.md` and follow it." with
 context `seed_plan=$SEED_PLAN`, `worktree=$WT`, `plan_path=$PLAN_PATH`,
@@ -270,7 +270,7 @@ On success, checkpoint `last_phase=planned`. On failure → append
 ### 3. Implement
 
 Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
-`model: sonnet`, reason at **high** effort — : "Read
+`model: opus`, reason at **high** effort — : "Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md`
 and follow it." with `plan_path=$PLAN_PATH`, `worktree=$WT`,
 `project.kind=<plan_type>`, `config_prompt={{config_prompt}}`, and
@@ -309,7 +309,7 @@ may override it). Set `CYCLE=0`. Loop:
    - `verdict=clean` → the branch passes the gate. Checkpoint `last_phase=reviewed`,
      **leave the loop**, go to §5.
 2. **Fix.** `verdict=issues`: dispatch a `Task` subagent — `subagent_type:
-   wise:software-engineer`, `model: sonnet`, reason at **high** effort — :
+   wise:software-engineer`, `model: opus`, reason at **high** effort — :
    "Apply EXACTLY the review findings written in `<findings_file>` to the branch
    in `$WT`, nothing more. Make the concrete fix for each; respect the plan's
    deliberate decisions and the `config_prompt` guardrails; do not redesign or
