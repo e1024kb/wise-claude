@@ -33,8 +33,8 @@ project-selection: current
 # stays a plain run-start declaration of the roster team + config binding.
 # Model tiering (opus = the latest Opus, Opus 5): opus at xhigh for
 # planning, opus at high for the hands-on engineering (implement / fix /
-# executors) and review brains; sonnet for the bookkeeping / orchestration
-# steps.
+# executors) and review brains; sonnet for the watch+fix CI conductor and
+# the bookkeeping / orchestration steps.
 #
 # This workflow is the full-pipeline wrapper around the `wise-revise` →
 # implement story. The `/wise-implement-plan-auto` SKILL (note: a skill,

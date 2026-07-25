@@ -128,6 +128,7 @@ below; at the step level `report` → `wise:technical-writer`. Model
 tiering (`opus` = the latest Opus, Opus 5): `opus` at `xhigh` for the
 re-planning brain, `opus` at `high` for the hands-on engineering
 (implement / fix / executors) + review brains, `sonnet` for the
+watch+fix CI conductor and the
 hands-on engineering and bookkeeping steps. See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
@@ -140,8 +141,8 @@ prompts verbatim, so the two workflows stay one implementation.
 | Phase | Fragment | Role · model | Notes |
 |---|---|---|---|
 | Re-plan | `prompts/replan-from-file.md` | `wise:architect` · opus · xhigh | seeds from the provided plan, re-verifies + refreshes against current HEAD |
-| Implement | `ticket-auto/prompts/implement-plan.md` | `wise:software-engineer` · opus | phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit |
-| Review ↔ fix | `ticket-auto/prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus ⇄ `wise:software-engineer` · opus | high-depth review gate (judges only) + an independent fixer, cycling before push |
+| Implement | `ticket-auto/prompts/implement-plan.md` | `wise:software-engineer` · opus · high | phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit |
+| Review ↔ fix | `ticket-auto/prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus · high ⇄ `wise:software-engineer` · opus · high | high-depth review gate (judges only) + an independent fixer, cycling before push |
 | Push | `wise-commit/commit-routine.md` | (inline) | `/wise-commit-push` |
 | Create PR | `ticket-auto/prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
 | Request review | `ticket-auto/prompts/request-review-auto.md` | (inline) | `/wise-pr-add-reviewers` |

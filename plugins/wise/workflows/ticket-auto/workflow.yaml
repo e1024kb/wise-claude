@@ -31,7 +31,7 @@ project-selection: current
 # team + config binding). Model tiering (opus = the latest Opus, Opus 5):
 # opus at xhigh for planning, opus at high for the hands-on engineering
 # (implement / fix / executors) and review brains; sonnet for the
-# bookkeeping / orchestration steps.
+# watch+fix CI conductor and the bookkeeping / orchestration steps.
 agents: auto
 
 # ticket-auto is fully autonomous: it never asks the user for consent,
