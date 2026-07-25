@@ -2,7 +2,7 @@
 
 This document is the single source of truth for **how** to contribute to the
 `wise` plugin in this marketplace. The READMEs describe *what* the plugins do;
-[`harnesses/claude/wise/CLAUDE.md`](./harnesses/claude/wise/CLAUDE.md) records per-plugin
+[`plugins/wise/CLAUDE.md`](./plugins/wise/CLAUDE.md) records per-plugin
 invariants in a short form suitable for AI agents; this file holds the full
 procedures.
 
@@ -16,54 +16,42 @@ avoid" lists have been written from real mistakes.
 ```
 wise-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Claude Code marketplace index → harnesses/claude/wise
-├── .agents/plugins/
-│   └── marketplace.json          # Codex marketplace index → harnesses/codex/wise (added by the Codex port)
+│   └── marketplace.json          # Claude Code marketplace index → plugins/wise
 ├── CONTRIBUTING.md               # this file
 ├── README.md                     # marketplace-level user docs
 ├── docs/
 │   └── wise/                      # wise plugin architecture docs
-├── core/                          # canonical harness-neutral source (NOT installable itself)
-│   ├── references/               # shared prose routines
-│   ├── agents/                   # SDLC role cards (neutral form)
-│   ├── workflows/                # bundled workflow definitions
-│   ├── scripts/                  # engine.*, workflows.py (the harness-neutral engine)
-│   └── ports/                    # port-generator inputs (hand-maintained)
-│       ├── profiles/             # one <harness>.yaml per port
-│       ├── notes/                # harness-adaptation note templates
-│       ├── overlays/             # per-skill find/replace hunks
-│       └── static/               # byte-copied per-port files (README, manifests)
-└── harnesses/
-    └── <harness>/wise/            # one port per harness (claude, codex, cursor, hermes, opencode, pi)
-        ├── .claude-plugin/plugin.json   # (claude) manifest — the single version source
+├── justfile                       # task runner: validate / test / check
+├── scripts/
+│   └── validate_repo.py          # structural validation (run by CI)
+└── plugins/
+    └── wise/                      # THE plugin — canonical, hand-edited source
+        ├── .claude-plugin/plugin.json   # manifest — the single version source
         ├── CLAUDE.md · README.md · AGENTS.md
         ├── .mcp.json             # bundled MCP servers (currently empty)
-        ├── agents/               # SDLC role roster (harness-specific frontmatter)
-        ├── scripts/              # vendored engine + bootstrap-deps.sh, init*
-        ├── hooks/                # (claude only) the SessionEnd insights hook
-        ├── workflows/            # vendored workflow definitions
+        ├── agents/               # SDLC role roster (plugin subagents)
+        ├── references/           # shared prose routines
+        ├── scripts/              # engine.*, workflows.py, bootstrap-deps.sh, init*
+        ├── hooks/                # the SessionEnd insights hook
+        ├── workflows/            # bundled workflow definitions
+        ├── tests/                # engine test suite (pytest)
         └── skills/
             ├── wise/SKILL.md     # the natural-language helper
             └── wise-<name>/SKILL.md  # every action skill is a flat /wise-<name> slash command
 ```
 
-Since **v3.0.0** the repo is organized by harness. `core/` is the
-canonical, harness-neutral source of truth; each
-`harnesses/<harness>/wise/` folder is an independently installable
-**port**. Port content is generated from `core/`, the Claude port's
-skills, and `core/ports/` by `scripts/build_ports.py`; the generated
-output stays committed and CI enforces it with
-`build_ports.py --check`. The Claude Code plugin moved here from the
-old `plugins/wise/` — see the README migration note. Edit the sources,
-then regenerate (§10).
+Since **v4.0.0** the repo targets Claude Code only. `plugins/wise/` is
+the canonical, hand-edited source of truth — there is no generation
+step and no generated files. Edit the plugin directly and commit what
+you edited.
 
 (This marketplace currently hosts a single plugin, `wise` — the PRD/TRD
 authors are skills *inside* it (`wise-prd-architect`, `wise-trd-architect`),
 not separate plugins. The marketplace-wide conventions in §2–§3 are written
 to apply to any plugin added here.)
 
-A port is self-contained under `harnesses/<harness>/wise/`. Nothing above
-that path should be plugin-specific except the shared `core/` source.
+The plugin is self-contained under `plugins/wise/`. Nothing above that
+path should be plugin-specific.
 
 `wise` is a **standalone plugin**: it owns the workflow engine, shared
 scripts, and the natural-language `/wise` helper. Every user-facing action
@@ -128,10 +116,10 @@ narrow, well-defined remit that is not reused for any other skill.
 new action skill.* User-invocable, shown in the slash menu as
 `/wise:<skill-name>` with a bare `/<skill-name>` alias when
 unambiguous. The directory name on disk equals the slash command:
-`harnesses/claude/wise/skills/wise-workflow-run/SKILL.md` is invoked as
+`plugins/wise/skills/wise-workflow-run/SKILL.md` is invoked as
 `/wise-workflow-run` (bare) or `/wise:wise-workflow-run` (canonical).
 
-- Lives at `harnesses/claude/wise/skills/<skill-name>/SKILL.md`. The
+- Lives at `plugins/wise/skills/<skill-name>/SKILL.md`. The
   directory name matches the frontmatter `name:` field verbatim
   and doubles as the slash command.
 - Frontmatter keys: `name:`, `description:`, `argument-hint:`,
@@ -158,7 +146,7 @@ consult when the user's prose matches the description (e.g.
 `wise-estimation` firing on "estimate this ticket"), *not* an action
 the user invokes by name.
 
-- Lives at `harnesses/claude/wise/skills/<skill-name>/SKILL.md`, same
+- Lives at `plugins/wise/skills/<skill-name>/SKILL.md`, same
   layout as standalone skills.
 - Frontmatter keys: `name:`, `description:`, `allowed-tools:`. No
   `argument-hint:` — the absence of that key is what distinguishes
@@ -196,7 +184,7 @@ third category with a narrow, specific job:
   catalog-emit.
 - There is exactly one `disable-model-invocation: true` skill in the
   plugin, and it is this helper.
-- See `harnesses/claude/wise/skills/wise/SKILL.md` for the reference
+- See `plugins/wise/skills/wise/SKILL.md` for the reference
   implementation.
 
 **Why this design.** The v2 flat-commands + helper split solves the
@@ -263,7 +251,7 @@ When adding a skill with a new external dependency:
 1. Pick the right mechanism above.
 2. Add the entry to the plugin's file (`.mcp.json`, or `plugin.json`'s
    `dependencies:`).
-3. Update the **Bundled tooling** table in `harnesses/claude/wise/README.md`
+3. Update the **Bundled tooling** table in `plugins/wise/README.md`
    with one row: dependency name, kind, registered-in path, and the
    skill(s) that use it.
 4. If the dependency has a notable first-run cost (large download,
@@ -354,13 +342,13 @@ no ingest-style justification for them here.
 ## 4. Adding an action to a plugin
 
 Adding a new `/wise-<action>` slash command is a single-step
-operation: create one new skill directory under `harnesses/claude/wise/skills/`.
+operation: create one new skill directory under `plugins/wise/skills/`.
 No registration, no dispatcher code change, no `scripts/engine.py`
 edit. The `/wise` natural-language helper discovers the new skill on
 its next catalog emit via `scripts/engine.py list-skills`.
 
 The directory name IS the slash command. A skill at
-`harnesses/claude/wise/skills/wise-workflow-run/SKILL.md` with frontmatter
+`plugins/wise/skills/wise-workflow-run/SKILL.md` with frontmatter
 `name: wise-workflow-run` is invoked as `/wise-workflow-run` (bare
 alias) or `/wise:wise-workflow-run` (canonical namespaced). There is
 no translation layer.
@@ -368,7 +356,7 @@ no translation layer.
 **Preferred path: the scaffold wizard.** Don't hand-author frontmatter.
 Run `/wise-skills-create <skill-name> [<description>]` from a clone of
 the marketplace. The wizard scaffolds the skill into
-`harnesses/claude/wise/skills/<skill-name>/SKILL.md`, then delegates to Claude
+`plugins/wise/skills/<skill-name>/SKILL.md`, then delegates to Claude
 Code's `skill-creator`, which asks whether the skill is a standalone
 action or a reference/guidance skill and writes the file.
 
@@ -386,7 +374,7 @@ The frontmatter is small, the body self-parses `$ARGUMENTS`, and
 the skill is immediately visible in the Claude Code slash menu —
 no hidden-action intermediate shape.
 
-1. Create `harnesses/claude/wise/skills/<skill-name>/SKILL.md`. The
+1. Create `plugins/wise/skills/<skill-name>/SKILL.md`. The
    directory name equals the frontmatter `name:` field and doubles
    as the slash command — pick the name carefully, rename commits
    are breaking.
@@ -469,7 +457,7 @@ no hidden-action intermediate shape.
    (subsequent sentences are operational / trigger hints for the
    LLM), so write the description with that in mind.
 
-5. Update the Commands table in `harnesses/claude/wise/README.md` so humans
+5. Update the Commands table in `plugins/wise/README.md` so humans
    reading the repo see the new slash command (the auto-discovery
    helps at runtime but is not a substitute for docs).
 
@@ -557,20 +545,30 @@ Before opening a PR:
 ```bash
 # JSON manifests parse
 python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
-python3 -m json.tool harnesses/claude/wise/.claude-plugin/plugin.json > /dev/null
+python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
 
 # Bash scripts parse
-bash -n harnesses/claude/wise/scripts/*.sh
+bash -n plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh
 
 # Python scripts compile
-python3 -m py_compile harnesses/claude/wise/scripts/*.py core/scripts/*.py
+python3 -m py_compile plugins/wise/scripts/*.py scripts/*.py
 
 # No stale /wise:* name references (after a rename):
-grep -Rn "/wise:old-name" harnesses/ core/ docs/ README.md CONTRIBUTING.md || echo "clean"
+grep -Rn "/wise:old-name" plugins/ docs/ README.md CONTRIBUTING.md || echo "clean"
 
-# Generated port content matches a fresh render (exit 1 on drift):
-python3 scripts/build_ports.py --check
+# Structural validation of the repo + plugin:
+python3 scripts/validate_repo.py
+
+# Engine test suite:
+python3 -m pytest plugins/wise/tests -q
 ```
+
+Or run everything at once with `just check` (= `just validate` +
+`just test`). CI runs the same steps, plus non-blocking `shellcheck`
+and `ruff` passes and a version-bump check: any non-doc change under
+`plugins/wise/` must bump `plugins/wise/.claude-plugin/plugin.json` in
+the same PR (doc-only `.md` files at the plugin root are excluded) —
+see [§8](#8-versioning).
 
 ### 6.3 Skill smoke tests
 
@@ -604,7 +602,7 @@ Conventional-commit style with plugin scope:
 - `chore(wise): bump to 2.x.y` (patch-only, docs tweak)
 - `docs: clarify backup policy in CONTRIBUTING.md`
 
-Scope is the plugin name (`wise`) for anything inside `harnesses/claude/wise/`, or
+Scope is the plugin name (`wise`) for anything inside `plugins/wise/`, or
 `marketplace` / `docs` / `chore` for cross-cutting changes.
 
 Keep commits focused. If a change has an incidental README tweak, fold it
@@ -656,7 +654,7 @@ subsystem.
 ### 9.1 Moving parts
 
 ```
-harnesses/claude/wise/
+plugins/wise/
 ├── AGENTS.md                     # catalog of the agent roster
 ├── agents/                       # plugin-level SDLC role roster (wise:<name>)
 │   └── <role>.md                 # one subagent per file; consumed by `workflows.py list-agents`
@@ -807,21 +805,18 @@ Breaking any of these is a major-version event (CLI contract change) — see
 3. Teach the `wise-workflow-run` SKILL body how to dispatch the new
    type — which tool to invoke, how to collect, how to score success.
 4. Add a step of the new type to the `example-workflow` bundled
-   workflow (`core/workflows/example-workflow/workflow.yaml`, then
-   regenerate with `python3 scripts/build_ports.py`) so the type is
-   exercised in smoke tests.
+   workflow (`plugins/wise/workflows/example-workflow/workflow.yaml`)
+   so the type is exercised in smoke tests.
 5. Bump the plugin's `version` per [§8](#8-versioning). New step types are a minor bump.
 
 ### 9.6 Adding or editing a bundled workflow
 
 **For ADDING a workflow:**
 
-1. Create `core/workflows/<name>/workflow.yaml` — the folder form is
-   the default for all new bundled workflows. Sibling `templates/` and
-   `prompts/` directories are optional and addressable from steps via
-   `{{workflow.dir}}`. The per-port copies under
-   `harnesses/*/wise/workflows/` are generated — run
-   `python3 scripts/build_ports.py` after editing.
+1. Create `plugins/wise/workflows/<name>/workflow.yaml` — the folder
+   form is the default for all new bundled workflows. Sibling
+   `templates/` and `prompts/` directories are optional and
+   addressable from steps via `{{workflow.dir}}`.
 2. **Ship a `README.md` alongside `workflow.yaml`.** Every
    bundled workflow has one, following the consistent shape the
    existing workflows use: title + summary → When to use → When
@@ -830,8 +825,8 @@ Breaking any of these is a major-version event (CLI contract change) — see
    `/wise-workflow-create` wizard generates a scaffolded README
    automatically; for hand-authored workflows, copy the shape from
    one of the existing bundled workflow READMEs
-   (`harnesses/claude/wise/workflows/*/README.md`). Link the new workflow
-   from the "Bundled workflows" table in `harnesses/claude/wise/README.md`
+   (`plugins/wise/workflows/*/README.md`). Link the new workflow
+   from the "Bundled workflows" table in `plugins/wise/README.md`
    in the same PR.
 
 **For EDITING an existing workflow** (changing `workflow.yaml`
@@ -839,7 +834,7 @@ or any `prompts/*.md`): also update the workflow's `README.md` in the
 same PR. The Flow mermaid, Steps table, Inputs/Outputs tables, and
 Related-links section must reflect the new shape. A stale README is
 worse than none — readers trust it. The invariant is codified in
-[`harnesses/claude/wise/CLAUDE.md`](./harnesses/claude/wise/CLAUDE.md)'s Invariants
+[`plugins/wise/CLAUDE.md`](./plugins/wise/CLAUDE.md)'s Invariants
 section.
 
 After either: verify with `python3 scripts/workflows.py locate-def
@@ -850,20 +845,20 @@ take a minor version bump.
 
 ```bash
 # 1. Syntax + compile
-bash -n harnesses/claude/wise/scripts/bootstrap-deps.sh
-python3 -m py_compile harnesses/claude/wise/scripts/workflows.py
-python3 -m json.tool harnesses/claude/wise/.claude-plugin/plugin.json > /dev/null
+bash -n plugins/wise/scripts/bootstrap-deps.sh
+python3 -m py_compile plugins/wise/scripts/workflows.py
+python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
 
 # 2. Bootstrap (installs deps if missing)
-bash harnesses/claude/wise/scripts/bootstrap-deps.sh
+bash plugins/wise/scripts/bootstrap-deps.sh
 
 # 3. Drive the script directly (no Claude Code needed).
 # `locate-def` abstracts over both layouts (folder form
 # `<name>/workflow.yaml` and legacy flat `<name>.yaml`), so always
 # feed its output into `probe-requires` rather than hard-coding a path.
-python3 harnesses/claude/wise/scripts/workflows.py new-ulid
-DEF="$(python3 harnesses/claude/wise/scripts/workflows.py locate-def example-workflow)"
-python3 harnesses/claude/wise/scripts/workflows.py probe-requires "$DEF"
+python3 plugins/wise/scripts/workflows.py new-ulid
+DEF="$(python3 plugins/wise/scripts/workflows.py locate-def example-workflow)"
+python3 plugins/wise/scripts/workflows.py probe-requires "$DEF"
 
 # 4. End-to-end via Claude Code
 /plugin uninstall wise --keep-data
@@ -879,18 +874,18 @@ worth caching up-front (rare — most new deps belong either in
 `.mcp.json` or `plugin.json`'s `dependencies:` array), the
 three-step procedure is:
 
-1. **Add a probe to `harnesses/claude/wise/scripts/init.sh`.** New subcommand
+1. **Add a probe to `plugins/wise/scripts/init.sh`.** New subcommand
    `probe-<name>` following the `probe-python` / `probe-node` /
    `probe-gh` pattern. Must emit `STATUS=ok|missing`, `BINARY=`,
    `VERSION=`, plus any dep-specific fields. No Python dependency in
    this script — it runs before Python is confirmed.
-2. **Update `harnesses/claude/wise/skills/wise-init/SKILL.md`** to walk the
+2. **Update `plugins/wise/skills/wise-init/SKILL.md`** to walk the
    user through the new dep in its usual order. Include installer
    options with concrete commands to paste; don't run installers
    from the wizard.
 3. **If the new dep is hard-required by the workflow engine**, add it
    to `REQUIRED_DEPS_FAST_PATH` in
-   `harnesses/claude/wise/scripts/init-registry.py`. If it's only needed by
+   `plugins/wise/scripts/init-registry.py`. If it's only needed by
    specific skills or workflow steps, skip this.
 
 Bump the plugin's `version` (minor — new runtime requirement is a
@@ -913,37 +908,31 @@ Listed so proposals land in the right version:
 
 ### 9.10 The agent roster
 
-`harnesses/claude/wise/agents/*.md` is a plugin-level roster of SDLC role
-subagents (catalogued in `harnesses/claude/wise/AGENTS.md`). They are real Claude
+`plugins/wise/agents/*.md` is a plugin-level roster of SDLC role
+subagents (catalogued in `plugins/wise/AGENTS.md`). They are real Claude
 Code plugin subagents — auto-discovered on install, invocable as
 `subagent_type: wise:<name>` — that the workflow engine dispatches
 `prompt` steps to.
 
 **To add or edit a role:**
 
-1. Add/edit the neutral card `core/agents/<role>.md` (frontmatter
-   limited to `name` (= filename stem) and `description` — concrete
-   enough to drive `agent: auto` routing — then the role's system
-   prompt as the body), and add/update the role's entry in
-   `core/ports/profiles/claude.yaml` (the `tools` / `model: inherit` /
-   `effort` / `color` frontmatter lines the generator adds to the
-   Claude card). Plugin subagents **ignore** `hooks` / `mcpServers` /
-   `permissionMode` — never add them.
-2. Regenerate: `python3 scripts/build_ports.py`. The
-   `harnesses/*/wise/agents/<role>.md` copies are generated — never
-   hand-edit them.
-3. Add/update the role's row in `harnesses/claude/wise/AGENTS.md` AND the repo-root
+1. Add/edit the card `plugins/wise/agents/<role>.md` — frontmatter is
+   `name` (= filename stem), `description` (concrete enough to drive
+   `agent: auto` routing), `tools`, `model: inherit`, `effort`, and
+   `color`, then the role's system prompt as the body. Plugin
+   subagents **ignore** `hooks` / `mcpServers` / `permissionMode` —
+   never add them.
+2. Add/update the role's row in `plugins/wise/AGENTS.md` AND the repo-root
    `AGENTS.md` table — the "When `auto` picks it" cell is the routing hint
    the conductor reads.
-4. Verify it parses: `python3 harnesses/claude/wise/scripts/workflows.py
+3. Verify it parses: `python3 plugins/wise/scripts/workflows.py
    list-agents` should list it with the right `model` / `effort`.
-5. Minor version bump (new roles are additive).
+4. Minor version bump (new roles are additive).
 
-`core/agents/*.md` (plus the Claude profile's frontmatter map) is the
-canonical source; the repo-root `AGENTS.md` and
-`harnesses/claude/wise/AGENTS.md` are *project-instructions* docs
-(not loadable registries) whose roster tables mirror it — keep them in
-sync the same way workflow READMEs track their YAML.
+`plugins/wise/agents/*.md` is the canonical source; the repo-root
+`AGENTS.md` and `plugins/wise/AGENTS.md` are *project-instructions*
+docs (not loadable registries) whose roster tables mirror it — keep
+them in sync the same way workflow READMEs track their YAML.
 
 The `agent:` / `model:` / `effort:` step fields and the `agents:` workflow
 policy that bind to this roster are documented in
@@ -959,7 +948,7 @@ idle-but-unfinished worker, nudges it, and escalates if it stays stuck. It is
 the automation of the manual "ping all your subagents, are you on track?" nudge.
 
 The single source of truth for the routine is
-`harnesses/claude/wise/references/supervise-loop.md`. It is consumed by:
+`plugins/wise/references/supervise-loop.md`. It is consumed by:
 
 - the `type: supervised-prompt` step (dispatched in `wise-workflow-run` §9d) —
   a `prompt` step run as one watched background worker instead of a blocking
@@ -995,133 +984,6 @@ everywhere except the `-auto` implement phase).
 
 ---
 
-## 10. Cross-harness ports & the port generator
-
-Since **v3.0.0** the repo ships the `wise` plugin to more than one agent
-harness. The Claude Code plugin lives at `harnesses/claude/wise/`; other
-ports (Codex, Cursor, Hermes, opencode, Pi) live under `harnesses/<harness>/wise/`.
-All port content — plus the Claude port's `references/`, `agents/`,
-`workflows/`, and `scripts/` — is **generated** by
-`scripts/build_ports.py` from three hand-maintained sources and stays
-committed in the repo.
-
-### 10.1 The editing rule
-
-- **Sources of truth** (edit these, never a generated file):
-  - `core/` — anything harness-neutral: a shared `references/*.md`
-    routine, a `workflows/<name>/workflow.yaml` or its `prompts/`, the
-    engine `scripts/workflows.py`, a neutral agent role card in
-    `agents/`.
-  - `harnesses/claude/wise/skills/` — the canonical skills. Port skills
-    are derived from these.
-  - `core/ports/` — the generator inputs (§10.2): per-harness profiles,
-    note templates, overlays, and static files.
-- **Regenerate** after any source edit:
-
-  ```bash
-  python3 scripts/build_ports.py   # or: just build
-  ```
-
-  It rewrites all generated content in place (and deletes stray files
-  in fully-generated roots). Commit the regenerated files together with
-  the source change.
-- **Or let git do it**: run `just hooks` once per clone to enable the
-  repo's `.githooks/pre-commit`, which regenerates the ports and stages
-  the generator-owned paths on every commit (bypass a single commit
-  with `git commit --no-verify`). The same paths are marked
-  `linguist-generated` in `.gitattributes`, so GitHub collapses them in
-  PR diffs and excludes them from language stats.
-- **CI enforces sync** with:
-
-  ```bash
-  python3 scripts/build_ports.py --check   # or: just build-check
-  ```
-
-  It renders to a temp dir, diffs against the committed tree, prints
-  any `differs` / `missing` / `stray` paths, and exits non-zero on
-  drift. A red check means either you forgot to regenerate or you
-  hand-edited a generated file.
-
-### 10.2 Generator inputs — `core/ports/`
-
-`core/ports/` holds everything the generator needs beyond `core/` and
-the Claude skills:
-
-- **`profiles/<harness>.yaml`** — one per port (including `claude`).
-  Declares the harness id/name, which skills ship at which tier (full /
-  adapted / excluded), the skill-frontmatter keep-list, and — for
-  profiles that declare an `agent_frontmatter` mapping — the extra
-  frontmatter lines added to each agent card (Claude's `tools` /
-  `model` / `effort` / `color`; opencode's `mode: subagent`).
-- **`notes/`** — the harness-adaptation note templates injected into
-  ported skills. `notes/<skill>.md` is the shared template
-  (`{{harness_name}}` / `{{harness_id}}` placeholders);
-  `notes/<skill>.<harness>.md` overrides it for skills whose adaptation
-  genuinely diverges per harness (e.g. the `wise-workflow-run` /
-  `-resume` conductor sections). `notes/_preamble.md` is the blockquote
-  template used for full-tier skills.
-- **`overlays/<harness>/<skill>.md`** — targeted find/replace hunks
-  (`<<<<<<< find` / `=======` / `>>>>>>>`) for prose that must diverge
-  per port beyond what the standard pipeline produces. Hunks are
-  anchored on post-rewrite text and must match exactly once — the
-  generator hard-errors otherwise.
-- **`static/<harness>/`** — files byte-copied into the port as-is: the
-  port README, the Codex plugin manifest, etc.
-
-When you add a port or change what a port ships, edit these inputs and
-regenerate — there is no separate registry to keep in sync.
-
-### 10.3 Port path convention — the baked default root
-
-Port skills never depend on an exported env var. The rewrite rule the
-generator applies when deriving a port skill from its Claude source is
-**context-dependent**:
-
-- **Executable bash contexts** (fenced ```bash blocks, and any quoted
-  `"${...}/` path that will be pasted into a shell) rewrite
-  `${CLAUDE_PLUGIN_ROOT}` to the **canonical defaulted expansion** for
-  that port:
-  ```
-  ${WISE_PLUGIN_ROOT:-${WISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/wise}/harness/<harness>}
-  ```
-  This resolves with zero setup because `install.sh <harness>` lays the
-  pack at exactly that path; `WISE_PLUGIN_ROOT` is an optional override.
-- **Prose / Read references** rewrite to the short `${WISE_PLUGIN_ROOT}`
-  form, and the skill carries a one-line shared-file-resolution note (in
-  its Harness adaptation note, or a blockquote under the H1 for
-  full-tier skills) stating the default path.
-
-Two invariants back this up, both enforced (`scripts/validate_repo.py`
-+ the CI install smoke `scripts/install_smoke.sh`):
-
-- **The shared root is the intact pack.** `install.sh` copies all five
-  dirs — `references/ agents/ workflows/ scripts/ skills/` — so every
-  `${WISE_PLUGIN_ROOT}/<path>` reference (including cross-skill reads
-  like `skills/wise-commit/commit-routine.md`) resolves there, and the
-  engine's `__file__`-relative discovery finds its bundled workflows
-  and agents.
-- **No bare var in executable contexts.** A bare `${WISE_PLUGIN_ROOT}`
-  in a fenced shell block or quoted path fails validation, as does a
-  defaulted expansion carrying another port's harness name.
-
-### 10.4 Versioning across ports
-
-There is **one version source** —
-`harnesses/claude/wise/.claude-plugin/plugin.json`. Every port manifest
-and marketplace catalog carries the same version; CI's version-match
-check enforces it. A change under `harnesses/` or `core/` must bump
-that file (§8). The Codex port's manifest is generated from the static
-input `core/ports/static/codex/.codex-plugin/plugin.json`, whose
-`version` field is a `0.0.0` placeholder — the generator injects the
-Claude `plugin.json` version on render. The root `package.json` (the
-Pi package manifest behind `pi install git:…`) also carries the
-version and must be bumped to match — the version-parity check covers
-it. A version bump edits the Claude `plugin.json` and the root
-`package.json`, then regenerates with
-`python3 scripts/build_ports.py`.
-
----
-
 ## Things to avoid (cumulative, learned from real mistakes)
 
 - Adding a `SessionStart` hook to "run something automatically on every
@@ -1129,7 +991,7 @@ it. A version bump edits the Claude `plugin.json` and the root
   "why did Claude do that?" reports.
 - Storing plugin state anywhere other than `${CLAUDE_PLUGIN_DATA}` (or
   the two documented exceptions — the init registry and per-workspace
-  workflow run state). The rationale is in `harnesses/claude/wise/CLAUDE.md` —
+  workflow run state). The rationale is in `plugins/wise/CLAUDE.md` —
   read it before proposing a change here.
 - Letting a `/wise:*` skill invoke another `/wise:*` skill directly.
   Skills are user-facing entry points. Extract shared logic into
