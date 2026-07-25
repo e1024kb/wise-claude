@@ -1,10 +1,5 @@
 # wise insights — the self-improvement loop
 
-> **Claude Code only.** The insights loop depends on the SessionEnd hook and
-> Claude Code's on-disk session transcripts, so it is not shipped to the
-> Codex / Cursor / Hermes / opencode / Pi ports — see the
-> [compatibility matrix](../compatibility.md).
-
 The **insights** subsystem lets `wise` learn from how you actually use Claude
 Code. Claude Code already records every session as JSONL on disk; insights mines
 that history for **recurring task patterns**, and — once a pattern recurs across
@@ -299,7 +294,7 @@ real state — point them at throwaway dirs:
 ```bash
 export XDG_DATA_HOME=/tmp/wise-sbx WISE_SKILLS_DIR=/tmp/wise-sbx-skills
 mkdir -p /tmp/wise-sbx-skills
-cd harnesses/claude/wise
+cd plugins/wise
 
 python3 scripts/insights.py mine --since 30d --json     # mine real transcripts, ledger → /tmp
 python3 scripts/insights.py list-skills --json          # fixture skills only

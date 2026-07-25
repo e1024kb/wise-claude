@@ -39,14 +39,6 @@ Folder form wins on same-root collision.
   Per-workspace. Each step execution gets its own ULID and log file
   at `logs/<step-id>.<step-run-ulid>.log`.
 
-> **On non-Claude harnesses** (Codex / Cursor / Hermes / opencode / Pi): `${CLAUDE_PLUGIN_ROOT}`
-> becomes `${WISE_PLUGIN_ROOT}`, which **defaults** to the pack's install
-> dir `~/.local/share/wise/harness/<harness>` (baked into the port skills —
-> no export needed; set `WISE_PLUGIN_ROOT` only to override). User
-> definitions resolve under `WISE_DATA_DIR`, default `~/.local/share/wise`.
-> The paths above are the Claude spelling of a harness-neutral scheme; see
-> [`docs/compatibility.md`](../compatibility.md) and each port's README.
-
 If a user definition has the same name as a bundled one, the user
 version wins at run time. `/wise-workflow-list` flags this as a
 shadow.
@@ -71,7 +63,7 @@ step DAG) → Steps (table) → Inputs → Outputs → Examples →
 Related. The `/wise-workflow-create` wizard generates a scaffolded
 README automatically; when hand-authoring, copy the shape from
 any of the bundled workflows' READMEs
-(`harnesses/claude/wise/workflows/*/README.md`).
+(`plugins/wise/workflows/*/README.md`).
 
 Steps reference them via the `{{workflow.dir}}` template variable,
 which expands to the absolute path of the folder:
@@ -165,17 +157,6 @@ steps:
 
 ## Step types
 
-> **Cross-harness note.** The step types below are harness-neutral, but the
-> primitive each maps to varies: on Claude Code, Hermes, and opencode a
-> `prompt` step's role/team runs as parallel `Task`/native subagents (on
-> opencode the roster is also registered as `wise-<role>` agent cards in
-> `~/.config/opencode/agents/`); on Cursor and Pi there is no
-> subagent primitive, so the conductor adopts the role in-context and runs
-> teams sequentially; on Codex it uses subagents where available. `ask` /
-> `approval` become plain-chat questions off Claude. Each port's
-> `/wise-workflow-run` carries the full mapping in its execution note; see
-> [`docs/compatibility.md`](../compatibility.md).
-
 | Type | Success when | Failure when | Captured output |
 |---|---|---|---|
 | `skill` | The `Skill` tool call returns without raising. | `Skill` errors or the invoked skill emits a fatal line. | Last message of the skill's reply. |
@@ -217,7 +198,7 @@ drop-in replacement for `prompt`.
 **addressable background teammate** (`Agent(team_name, name,
 run_in_background: true)`) instead of a blocking `Task`, so the
 conductor stays free to watch it. A leader loop — the routine in
-`harnesses/claude/wise/references/supervise-loop.md` — polls the worker's
+`plugins/wise/references/supervise-loop.md` — polls the worker's
 heartbeat and nudges it if it hangs mid-turn or goes idle without
 finishing, escalating (`TaskStop` → respawn → fail the slot) only
 if nudging fails. Use it for a single long step where a silent hang
@@ -336,8 +317,8 @@ the step-level `when:` field with a trivial comparison:
 
 `wise` ships an **SDLC agent roster** — a set of role subagents
 (`wise:architect`, `wise:software-engineer`, `wise:security-engineer`,
-`wise:code-reviewer`, …) under `harnesses/claude/wise/agents/`, catalogued in
-[`harnesses/claude/wise/AGENTS.md`](../../harnesses/claude/wise/AGENTS.md). A `prompt`
+`wise:code-reviewer`, …) under `plugins/wise/agents/`, catalogued in
+[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md). A `prompt`
 step can be dispatched to one of them instead of the generic
 `general-purpose` subagent, and can pin a model and a reasoning effort.
 
@@ -478,12 +459,10 @@ steps:
       Review the proposed change for …
 ```
 
-The roster agents are real Claude Code plugin subagents (the Claude port) —
-after install they appear in `/agents` and are directly invocable as
-`subagent_type: wise:<name>`. Other ports vendor the neutral role cards
-from `core/agents/` and map them to their own subagent primitive (or adopt
-the role in-context where there is none). See
-[`harnesses/claude/wise/AGENTS.md`](../../harnesses/claude/wise/AGENTS.md) for the full
+The roster agents are real Claude Code plugin subagents — after install
+they appear in `/agents` and are directly invocable as
+`subagent_type: wise:<name>`. See
+[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md) for the full
 list, each role's default effort, and how `auto` chooses.
 
 ## Project selection
@@ -511,17 +490,12 @@ pre-flight, the conductor:
 2. Creates `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` and writes a stub
    `state.yaml` with `status: initializing`.
 3. Resolves the current session id and records it as
-   `claude_session_id:` in state.yaml, in this order: the harness's
-   exported id (`$CLAUDE_CODE_SESSION_ID` on Claude Code,
-   `$WISE_SESSION_ID` on any harness) → else, on Claude, the
-   most-recently-modified `.jsonl` in `~/.claude/projects/<cwd-slug>/`
-   (reliable because your own session is being appended to as the
-   workflow runs) → else a **synthetic per-workspace id**
-   (`local-<cwd-slug>`). The synthetic fallback is what non-Claude
-   harnesses use: it needs no transcript, so runs are still tagged and
-   `/resume`-able off Claude. (The `claude_session_id:` key name is
-   kept for state-file compatibility; on other harnesses it holds the
-   neutral id.)
+   `claude_session_id:` in state.yaml, in this order: the exported
+   `$CLAUDE_CODE_SESSION_ID` → else the most-recently-modified
+   `.jsonl` in `~/.claude/projects/<cwd-slug>/` (reliable because
+   your own session is being appended to as the workflow runs) →
+   else a **synthetic per-workspace id** (`local-<cwd-slug>`), so a
+   run is still tagged even when no transcript exists.
 4. Derives a human-readable label of the form
    `<run-ulid>_<first-7-hyphen-tokens-of-workflow-name>` and
    records it as `session_label:`.
@@ -552,13 +526,12 @@ Legacy runs (started before this feature) have no
 `claude_session_id` field; resume treats that as "no stored session"
 and proceeds without any notice.
 
-The three `workflows.py` session subcommands degrade cleanly off Claude:
-`current-session-id` returns the resolved id (synthetic when there is no
-transcript, never empty), `session-path` exits 2 when no `.jsonl` exists
-(the "no transcript" signal — always the case off Claude), and
-`find-runs-by-session` matches on whatever id was stored. So the conflict
-check and `/resume` work on every harness; only transcript-derived niceties
-(a real UUID, the transcript path) are Claude-specific.
+The three `workflows.py` session subcommands degrade cleanly when no
+transcript exists: `current-session-id` returns the resolved id
+(synthetic when there is no transcript, never empty), `session-path`
+exits 2 when no `.jsonl` exists (the "no transcript" signal), and
+`find-runs-by-session` matches on whatever id was stored — so the
+conflict check and `/resume` still work.
 
 ## Pre-flight prompts
 

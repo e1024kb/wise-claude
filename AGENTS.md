@@ -7,18 +7,22 @@ file, not a loadable agent registry.
 ## Working in this repo
 
 - This is a Claude Code plugin marketplace; the plugin lives in
-  `harnesses/claude/wise/`. Contributor procedures, conventions, and the workflow-engine
+  `plugins/wise/`. Contributor procedures, conventions, and the workflow-engine
   reference are in [`CONTRIBUTING.md`](./CONTRIBUTING.md) and
   [`docs/wise/`](./docs/wise/). Read those before changing the plugin.
-- Validate before committing: `python3 -m py_compile
-  harnesses/claude/wise/scripts/workflows.py`, `python3 -m json.tool` the JSON manifests,
-  and `bash -n` the shell scripts. There is no build step.
+- The plugin is hand-edited directly — there is no build step and nothing in
+  the repo is generated.
+- Validate before committing: `just check` (runs
+  `python3 scripts/validate_repo.py` and
+  `python3 -m pytest plugins/wise/tests -q`); `python3 -m py_compile
+  plugins/wise/scripts/workflows.py`, `python3 -m json.tool` the JSON manifests,
+  and `bash -n` the shell scripts also catch syntax slips.
 
 ## The wise SDLC agent roster
 
 `wise` ships 13 SDLC role agents under
-[`harnesses/claude/wise/agents/`](./harnesses/claude/wise/agents/), one markdown file per role,
-catalogued in [`harnesses/claude/wise/AGENTS.md`](./harnesses/claude/wise/AGENTS.md). They are
+[`plugins/wise/agents/`](./plugins/wise/agents/), one markdown file per role,
+catalogued in [`plugins/wise/AGENTS.md`](./plugins/wise/AGENTS.md). They are
 real Claude Code plugin subagents — auto-discovered when the plugin is
 installed; invoke a role as `subagent_type: wise:<name>` (e.g.
 `wise:architect`). Frontmatter: `name`, `description`, `tools`, `model: inherit`,
@@ -46,13 +50,7 @@ that has retired auto-falls-back to its alias with a notice. See
 
 ## Adding or editing a role
 
-Edit the **canonical neutral card** at `core/agents/<name>.md` first (name +
-description + persona prose, no harness-specific frontmatter). Every port's
-copy is **generated** from it by `python3 scripts/build_ports.py`: the Claude
-card gets its `tools` / `model` / `effort` / `color` frontmatter from
-`core/ports/profiles/claude.yaml`, the other ports take the neutral card
-verbatim. Never hand-edit `harnesses/*/wise/agents/` (see
-[`CONTRIBUTING.md` §10](./CONTRIBUTING.md#10-cross-harness-ports--the-port-generator)).
-Update the table in
-[`harnesses/claude/wise/AGENTS.md`](./harnesses/claude/wise/AGENTS.md). Full
+Edit the card at `plugins/wise/agents/<name>.md` directly (frontmatter +
+persona prose), then update the table in
+[`plugins/wise/AGENTS.md`](./plugins/wise/AGENTS.md). Full
 procedure: [`CONTRIBUTING.md` §9.10](./CONTRIBUTING.md#910-the-agent-roster).

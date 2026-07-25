@@ -31,7 +31,7 @@ don't want.
 ## Standalone slash-command skills
 
 This is the default shape for every new action. The directory name
-is the slash command — a skill in `harnesses/claude/wise/skills/wise-workflow-run/`
+is the slash command — a skill in `plugins/wise/skills/wise-workflow-run/`
 invokes as `/wise-workflow-run`.
 
 ### Frontmatter template
@@ -133,7 +133,7 @@ contract lives in the skill body's Arguments section.
 A standalone action skill typically has this shape:
 
 ```
-harnesses/claude/wise/skills/wise-my-action/
+plugins/wise/skills/wise-my-action/
 └── SKILL.md       # frontmatter + procedure
 ```
 
@@ -151,7 +151,7 @@ convention:
   do (write outside its scope, call other action skills, spawn
   subagents for trivial work).
 
-See any existing standalone skill under `harnesses/claude/wise/skills/` for a
+See any existing standalone skill under `plugins/wise/skills/` for a
 canonical example (`wise-commit-message` is small and focused;
 `wise-workflow-run` is large and illustrates the conductor pattern).
 
@@ -198,12 +198,12 @@ there's nothing to execute — Claude reads the content and uses it
 to inform whatever work is actually happening in the main
 conversation.
 
-See `harnesses/claude/wise/skills/wise-estimation/SKILL.md` for a compact
+See `plugins/wise/skills/wise-estimation/SKILL.md` for a compact
 reference skill (the Fibonacci story-point scale).
 
 ## `/wise-skills-create <skill-name>`
 
-Scaffolds a new skill under `harnesses/claude/wise/skills/<skill-name>/`. By
+Scaffolds a new skill under `plugins/wise/skills/<skill-name>/`. By
 convention wise skills are prefixed `wise-`.
 
 The wizard asks for the skill shape (standalone vs reference), the
@@ -225,7 +225,7 @@ plugin is reloaded.
 ## `/wise-skills-edit <skill-name>`
 
 Opens an existing skill for modification through the same wizard.
-Locates the skill under `harnesses/claude/wise/skills/`.
+Locates the skill under `plugins/wise/skills/`.
 
 Refuses to edit the `wise` helper itself — the helper's shape is
 load-bearing for the whole plugin; use a code editor for its
@@ -253,45 +253,6 @@ wrapper means:
 Workflow definitions are YAML, not skills — `/wise-workflow-create`
 doesn't delegate to `skill-creator`. See
 [`workflows.md`](./workflows.md) for the workflow author guide.
-
-## Porting a new skill to the other harnesses
-
-A skill authored under `harnesses/claude/wise/skills/` reaches **only**
-Claude Code — it does **not** appear on Codex / Cursor / Hermes /
-opencode / Pi until you tell the port generator about it. The port skill
-trees are **generated** by `scripts/build_ports.py` from the Claude
-skill plus the inputs under `core/ports/` — never hand-edit a generated
-`harnesses/{codex,cursor,hermes,opencode,pi}/wise/skills/` file. To port a new
-skill, decide its tier and register it:
-
-- **Full** — pure prose + `git` / `gh`, no Claude-only tools. Add the
-  skill to the full-tier list in each `core/ports/profiles/<harness>.yaml`.
-  The generator reduces the frontmatter to the profile's keep-list,
-  rewrites paths per the context-dependent rule in `CONTRIBUTING.md`
-  §10.3 (executable bash contexts get the defaulted
-  `${WISE_PLUGIN_ROOT:-…/harness/<h>}` expansion, prose references the
-  short `${WISE_PLUGIN_ROOT}`), and injects the shared-file-resolution
-  blockquote under the H1 from `core/ports/notes/_preamble.md`.
-- **Adapted** — uses `Task` / `AskUserQuestion` / the `Skill` tool /
-  `TodoWrite`. Add it to the adapted-tier list instead, and write a
-  *Harness adaptation note* template at `core/ports/notes/<skill>.md`
-  (with `{{harness_name}}` / `{{harness_id}}` placeholders; a
-  `notes/<skill>.<harness>.md` override wins when one harness genuinely
-  diverges). For prose that must differ per port beyond the standard
-  pipeline, add find/replace hunks at
-  `core/ports/overlays/<harness>/<skill>.md`.
-- **Claude-only** — depends on the SessionEnd hook, Claude transcripts, or
-  `skill-creator`. Exclude it from the port profiles and record why.
-
-Then run `python3 scripts/build_ports.py` (or `just build`) and commit
-the generated port skills together with the source change — CI runs
-`build_ports.py --check` and fails on any drift. No manifest edit is
-needed for Pi: the root `package.json` `"pi"` key registers the port's
-skills by glob (`harnesses/pi/wise/skills/*`), so a newly generated
-skill is picked up by `pi install` automatically. Record the tier in
-[`docs/compatibility.md`](../compatibility.md); the full procedure is in
-[`CONTRIBUTING.md` §10](../../CONTRIBUTING.md#10-cross-harness-ports--the-port-generator).
-Any shared reference the skill reads belongs in `core/references/` first.
 
 ## Full procedure
 

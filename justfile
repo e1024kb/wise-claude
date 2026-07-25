@@ -4,46 +4,14 @@
 # Default: validate + test.
 default: validate test
 
-# Structural validation of the repo + every harness port.
+# Structural validation of the repo + plugin.
 validate:
     python3 scripts/validate_repo.py
 
-# Run the Claude port's engine test suite.
+# Run the engine test suite.
 test:
-    python3 -m pytest harnesses/claude/wise/tests -q
-
-# Regenerate all generated port content in place (from core/ + Claude skills + core/ports/).
-build:
-    python3 scripts/build_ports.py
-
-# Verify committed generated content matches a fresh render (exits non-zero on drift).
-build-check:
-    python3 scripts/build_ports.py --check
-
-# Enable the repo's git hooks (pre-commit auto-regenerates the ports).
-hooks:
-    git config core.hooksPath .githooks
-    @echo "hooks enabled: commits now auto-run build_ports.py"
-
-# Install a harness port. Examples:
-#   just install claude
-#   just install codex
-#   just install cursor
-#   just install hermes
-#   just install opencode
-#   just install pi
-#   just install cursor project ./my-repo
-install harness scope="user" project=".":
-    ./install.sh {{harness}} {{ if scope == "project" { "--project " + project } else { "--user" } }}
-
-# Uninstall a harness port (removes exactly what install added).
-uninstall harness scope="user" project=".":
-    ./install.sh {{harness}} {{ if scope == "project" { "--project " + project } else { "--user" } }} --uninstall
-
-# Copy-install smoke test into throwaway HOME/data dirs.
-smoke:
-    bash scripts/install_smoke.sh
+    python3 -m pytest plugins/wise/tests -q
 
 # Everything CI runs, locally.
-check: validate build-check test smoke
+check: validate test
     @echo "all checks passed"
