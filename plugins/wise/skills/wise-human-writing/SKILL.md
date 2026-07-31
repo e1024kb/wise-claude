@@ -104,7 +104,9 @@ When technical detail is warranted, keep it earning its place:
 concise, precise, in a list or table, with a link (PR, commit, run,
 dashboard) for anyone who wants the full depth — never inline dumps
 of code, stack traces, or config. A couple of purposeful links beat
-ten exhaustive ones.
+ten exhaustive ones — and every link is clickable and labeled, in
+the target tool's native syntax (see the links rule under the
+formatting matrix).
 
 ### 3. Anti-slop checklist
 
@@ -176,6 +178,22 @@ Slack, `##` headings in Jira. Match the target:
 
 When the target tool is unknown, write plain flat text with bullets —
 it degrades gracefully everywhere.
+
+**Links are always clickable, labeled, and native.** A bare pasted URL
+(`https://github.com/org/repo/pull/123`) is a formatting bug: several
+tools don't auto-link it, and even when they do, the raw address tells
+the reader nothing. Every link gets descriptive text ("the PR", "the
+incident timeline", "PROJ-123") in the target tool's own link syntax:
+
+- Jira wiki markup — `[the PR|https://…]`
+- Markdown (GitHub / GitLab / Linear) — `[the PR](https://…)`
+- Slack mrkdwn — `<https://…|the PR>`
+- Confluence / Notion / Google Docs — a real hyperlink via the API's
+  link field, never a URL pasted as plain text
+
+Never use "click here" / "link" as the text, and never show the raw
+URL as its own label unless the URL itself is the information (a
+webhook endpoint someone must copy).
 
 ### 7. Audience dial
 
