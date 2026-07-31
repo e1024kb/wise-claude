@@ -23,8 +23,9 @@ with `just check`.
 marketplace: a workflow engine, shared scripts, and a set of
 tech-neutral action skills (`/wise-init`, `/wise-workflow-*`,
 `/wise-skills-*`, `/wise-pr-*`, `/wise-commit-*`) plus the
-`wise-estimation`, `wise-markitdown`, and `wise-human-writing`
-reference skills and the
+`wise-estimation` and `wise-markitdown` reference skills, the
+`wise-human-writing` hybrid skill (auto-consulted reference +
+`/wise-human-writing` rewrite command), and the
 `/wise` natural-language helper.
 
 Every user-facing skill is a **flat, autocomplete-visible slash

@@ -169,7 +169,7 @@ Slack, `##` headings in Jira. Match the target:
 
 | Surface | Markup | Tables | Collapsible | Notes |
 |---|---|---|---|---|
-| Jira | Wiki markup / ADF | Yes | No `<details>` | `{code}` blocks, `h2.` headings, `[link|url]` |
+| Jira | Wiki markup / ADF | Yes | No `<details>` | `{code}` blocks, `h2.` headings, Jira link syntax |
 | GitHub / GitLab / Linear | Markdown | Yes | `<details>` works | Standard GFM |
 | Slack | mrkdwn | **No** — bullet lines instead | No | No headings; `*bold*` single-asterisk; keep it flat |
 | Confluence / Notion / Google Docs | Rich text via their APIs | Yes | Varies | Headings + bullets fine; keep hierarchy flat (two levels) |

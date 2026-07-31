@@ -9,8 +9,9 @@ natural-language classifier, not a dispatcher.
 `wise` ships a workflow engine, shared scripts, and every action skill
 (`/wise-init`, `/wise-workflow-*`, `/wise-skills-*`, `/wise-pr-*`,
 `/wise-commit-*`, `/wise-insights-*`, `/wise-feedback`) plus the
-`wise-estimation`, `wise-markitdown`, and `wise-human-writing`
-reference skills and the
+`wise-estimation` and `wise-markitdown` reference skills, the
+`wise-human-writing` hybrid skill (auto-consulted reference +
+`/wise-human-writing` rewrite command), and the
 `/wise` natural-language helper. The `/wise-insights-*` trio is a local self-improvement loop
 that learns reusable skills from your own session history — see
 [`docs/wise/insights.md`](../../docs/wise/insights.md). Turning a
