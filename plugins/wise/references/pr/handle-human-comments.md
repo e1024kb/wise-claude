@@ -201,7 +201,9 @@ Per-option recording:
 
 - `Fix (Claude patches)` → append `{ item, letter: F }` to
   `decisions[]`.
-- `Reply on GitHub` → draft the reply body inline:
+- `Reply on GitHub` → draft the reply body inline (reply prose
+  follows `${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` —
+  substance first, business-level language, no boilerplate):
   - Print the comment body excerpt + a `Proposed reply:` block
     in chat.
   - `AskUserQuestion`:

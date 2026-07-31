@@ -198,7 +198,9 @@ Then form an **independent** judgement and land exactly one outcome:
   is wrong, not applicable, or already handled elsewhere. No code
   change. Append the thread id to `DISMISS_THREAD_IDS` and store a
   short reasoned reply (one or two factual sentences — no apology, no
-  boilerplate) in `DISMISS_REPLIES` keyed by thread id; §7 posts it
+  boilerplate; wording per
+  `${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md`) in
+  `DISMISS_REPLIES` keyed by thread id; §7 posts it
   before resolving the thread.
 - **`Blocked` (cannot confidently resolve).** Claude disagrees with
   the bot but is not certain, OR the only fix it sees is risky, broad,

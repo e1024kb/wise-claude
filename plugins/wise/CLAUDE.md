@@ -23,7 +23,8 @@ with `just check`.
 marketplace: a workflow engine, shared scripts, and a set of
 tech-neutral action skills (`/wise-init`, `/wise-workflow-*`,
 `/wise-skills-*`, `/wise-pr-*`, `/wise-commit-*`) plus the
-`wise-estimation` and `wise-markitdown` reference skills and the
+`wise-estimation`, `wise-markitdown`, and `wise-human-writing`
+reference skills and the
 `/wise` natural-language helper.
 
 Every user-facing skill is a **flat, autocomplete-visible slash
@@ -206,6 +207,7 @@ plugins/wise/
     ├── wise-commit-push/SKILL.md    # draft + commit + push; reads wise-commit/commit-routine.md
     ├── wise-estimation/SKILL.md     # reference skill (Fibonacci SP scale)
     ├── wise-markitdown/SKILL.md     # reference skill (file → markdown text extraction via markitdown)
+    ├── wise-human-writing/SKILL.md  # hybrid: human-first rules for all outbound tracker/PR/doc/chat writing + /wise-human-writing rewrite
     ├── wise-pr-create/SKILL.md      # create or refresh a PR
     ├── wise-pr-add-reviewers/SKILL.md  # attach Copilot + extras
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green

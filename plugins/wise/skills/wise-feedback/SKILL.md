@@ -224,7 +224,9 @@ speculation, write `None provided.` rather than padding.
 
 Produce this exact shape (Markdown). The trailing `Environment` and
 `Session signal` subsections carry the tech context the triager
-needs; never attach the full transcript.
+needs; never attach the full transcript. Prose sections follow the
+human-first writing rules in
+`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md`.
 
 ```markdown
 ## Summary
