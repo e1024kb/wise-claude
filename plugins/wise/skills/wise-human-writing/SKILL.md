@@ -179,6 +179,23 @@ Slack, `##` headings in Jira. Match the target:
 When the target tool is unknown, write plain flat text with bullets —
 it degrades gracefully everywhere.
 
+**Links must be clickable.** A bare URL pasted as plain text often
+renders dead — Jira and Slack in particular won't always auto-link
+it, and a raw 90-character URL is unreadable even when they do.
+Always emit the target surface's link syntax with a short human
+label:
+
+- GitHub / GitLab / Linear (Markdown): `[the fix PR](https://…)`
+- Jira wiki markup: `[the fix PR|https://…]`
+- Slack mrkdwn: `<https://…|the fix PR>`
+- Doc systems: use the API's rich-text link construct; if none is
+  available, put the bare URL on its own line — never glued
+  mid-sentence to punctuation, which breaks auto-linking.
+
+The label says what's behind the link ("the fix PR", "run #123",
+"the design doc") — never "click here", never the naked URL as its
+own text.
+
 **Links are always clickable, labeled, and native.** A bare pasted URL
 (`https://github.com/org/repo/pull/123`) is a formatting bug: several
 tools don't auto-link it, and even when they do, the raw address tells
