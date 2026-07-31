@@ -110,6 +110,16 @@ share one root decision, **propose 2–3 approaches with trade-offs and
 a recommendation** as a single question — an approach choice absorbs
 many small decisions at once.
 
+Question prose is written for the addressee, not for the log — it
+follows the human-first writing rules in
+`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` (these
+questions routinely get pasted into tracker comments and Slack).
+One deliberate exception to that skill's context-first ordering:
+a decision question **leads with the recommended answer** (rule 1
+below) — for a question, the recommendation *is* the conclusion,
+and leading with it is what keeps the question closed and
+answerable; the `Context:` line follows it.
+
 For each surviving question:
 
 1. **Lead with the recommended answer.** Closed beats open: *"We plan

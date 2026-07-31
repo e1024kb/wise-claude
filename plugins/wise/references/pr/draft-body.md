@@ -109,6 +109,11 @@ heading present in the template, generate a populated version:
   bumps, breaking changes. Write "no rollout considerations" if
   truly none.
 
+Prose in every section follows the human-first writing rules in
+`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` —
+concept-level language over identifier dumps, context → reasoning →
+conclusion, no ASCII diagrams, links instead of inline depth.
+
 Preserve section headings verbatim (the user may have custom
 headings their team reviews for). Do NOT invent new sections if
 the template doesn't have them. Do NOT drop sections whose content
