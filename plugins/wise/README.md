@@ -10,8 +10,9 @@ natural-language classifier, not a dispatcher.
 (`/wise-init`, `/wise-workflow-*`, `/wise-skills-*`, `/wise-pr-*`,
 `/wise-commit-*`, `/wise-insights-*`, `/wise-feedback`) plus the
 `wise-estimation` and `wise-markitdown` reference skills, the
-`wise-human-writing` hybrid skill (auto-consulted reference +
-`/wise-human-writing` rewrite command), and the
+`wise-human-writing` and `wise-tickets` hybrid skills (auto-consulted
+references + `/wise-human-writing` rewrite and `/wise-tickets`
+restructure commands), and the
 `/wise` natural-language helper. The `/wise-insights-*` trio is a local self-improvement loop
 that learns reusable skills from your own session history — see
 [`docs/wise/insights.md`](../../docs/wise/insights.md). Turning a
@@ -258,13 +259,26 @@ the longer rationale):
   `wise-markitdown` firing on "extract the text from this PDF"). Not
   user-invocable; Claude consults them when the `description:` matches.
 
-One skill is a hybrid of the two shapes: **`wise-human-writing`** is
-the standing style contract for every outbound human-facing message —
-ticket descriptions and comments in any tracker, PR/MR comments on any
-code host, doc pages, chat messages. It auto-triggers whenever such
-content is being drafted, and is also invocable as
-`/wise-human-writing [<draft>]` to rewrite ("de-slop") an existing
-draft without posting it.
+Two skills are hybrids of the two shapes:
+
+- **`wise-human-writing`** is the standing style contract for every
+  outbound human-facing message: ticket descriptions and comments in
+  any tracker, PR/MR comments on any code host, doc pages, chat
+  messages. It auto-triggers whenever such content is being drafted,
+  and is also invocable as `/wise-human-writing [<draft>]` to rewrite
+  ("de-slop") an existing draft without posting it.
+- **`wise-tickets`** is the standing structure contract for every
+  ticket created, edited, or broken down in any issue tracker:
+  canonical sections (Summary, Goal, Scope with out-of-scope,
+  Acceptance criteria, References, Labels, Estimate), per-repo/service
+  breakdown with sensible aggregation, and estimates linked to
+  `wise-estimation`. It auto-triggers on ticket work - reading and
+  writing tickets through whatever tracker tooling the session has -
+  and is also invocable as `/wise-tickets [<ticket-ref or draft>]` to
+  restructure an oversized ticket (applied back to the tracker only on
+  request). It composes with
+  `wise-human-writing`: that skill governs voice and markup,
+  `wise-tickets` governs ticket structure and scoping.
 
 Two of the auto-triggered skills are full document-authoring
 workflows rather than short reference docs:
