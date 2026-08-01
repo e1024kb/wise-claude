@@ -15,15 +15,14 @@ description: >-
   the wise-estimation scale. Also invocable as
   `/wise-tickets [<ticket-ref or draft>]` (bare alias) or
   `/wise:wise-tickets` (canonical) to restructure an existing oversized
-  ticket or draft without posting it anywhere. Use when creating or
+  ticket or draft - and, when asked, apply the result back to the
+  tracker. Use when creating or
   updating a ticket or issue, breaking an epic into tickets, writing a
   Jira / Linear / GitHub issue, or when the user says "create a
   ticket", "file an issue", "break this down into tickets", "this
   ticket is too big", "make this a proper ticket", or types
   `/wise-tickets`.
 argument-hint: "[<ticket-ref or draft>]"
-allowed-tools:
-  - Read
 ---
 
 # wise-tickets - tickets that read like tickets, not plans
@@ -55,14 +54,20 @@ the scope discipline, and how large work becomes several tickets.
 
 1. **Standing reference (the main mode).** Consult these rules
    automatically whenever creating, editing, updating, or splitting a
-   ticket in any tracker or tracker-like system, whichever MCP
-   server, CLI (`jira`, `linear`, `gh issue`), or API performs the
-   write.
+   ticket in any tracker or tracker-like system. The skill does the
+   full job, reads and writes included: use whatever tracker tooling
+   the session has - an MCP server (Jira, Linear, Asana, …), a CLI
+   (`jira`, `linear`, `gh issue`, `glab issue`), or a raw API - to
+   fetch, create, and update the tickets it shapes. When no tracker
+   tooling is reachable, say so and hand back the drafted content
+   instead of guessing at a write path.
 2. **Slash restructure** - `/wise-tickets [<ticket-ref or draft>]`.
    The user points at an existing ticket (a key, a URL, a pasted
    draft, a file) and gets back a version restructured into the
-   canonical shape below. This form **never posts anywhere** - it
-   returns text and stops.
+   canonical shape below. By default this returns text and stops;
+   when the user asks to apply it ("update the ticket", "apply
+   this"), write the restructured version back to the tracker with
+   the same tooling.
 
 ## Arguments (slash form only)
 
@@ -70,7 +75,7 @@ Parse `$ARGUMENTS` as one free-form value:
 
 | Input | Behaviour |
 |---|---|
-| A ticket key or URL (`PROJ-123`, a Linear/GitHub issue link) | Fetch it with whatever read access the session already has; restructure; return the rewrite. If no read access exists, say so and ask for the text. |
+| A ticket key or URL (`PROJ-123`, a Linear/GitHub issue link) | Fetch it with the session's tracker tooling; restructure; return the rewrite. Apply it back to the ticket when the user asks. If no tracker access exists, say so and ask for the text. |
 | Draft text inline | Restructure it per the rules below; return the result. |
 | A file path | `Read` the file, restructure its content, return the result. Do not modify the file. |
 | _(empty)_ | If a ticket is currently being drafted in the conversation, apply the rules to it. Otherwise summarize the canonical shape in three lines and ask what to restructure. |
@@ -213,12 +218,19 @@ same discipline - concise, scoped, linked, testable done-state.
 
 ## Guardrails
 
-- **This skill never creates, posts, or submits anything by itself.**
-  It shapes ticket content. The write is done by whatever flow or
-  tool was already doing it, subject to its own confirmation rules.
-- **The slash form is read-only.** It may `Read` a file or fetch a
-  ticket the user points at; it never edits files and never writes to
-  a tracker.
+- **Show before you write.** Creating or updating a ticket in an
+  external tracker is an outward-facing action: present the drafted
+  ticket (or the split) and get the user's go-ahead before
+  submitting, unless the user already explicitly asked for the write
+  in this request ("create the tickets", "update PROJ-123") or an
+  autonomous flow that owns the confirmation invoked this skill.
+- **Writes go through the session's tracker tooling.** MCP server,
+  CLI, or API - whatever is connected. Never invent an endpoint; if
+  no tooling is reachable, return the drafted content and say what's
+  missing.
+- **The slash form defaults to returning text.** It fetches and
+  restructures; it writes back only when the user asks it to apply
+  the result. It never modifies local files it was pointed at.
 - **Accuracy outranks brevity.** Never drop a real constraint,
   dependency, or known risk to make the ticket shorter - compress the
   prose, not the truth.

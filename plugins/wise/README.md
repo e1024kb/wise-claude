@@ -272,9 +272,11 @@ Two skills are hybrids of the two shapes:
   canonical sections (Summary, Goal, Scope with out-of-scope,
   Acceptance criteria, References, Labels, Estimate), per-repo/service
   breakdown with sensible aggregation, and estimates linked to
-  `wise-estimation`. It auto-triggers on ticket work, and is also
-  invocable as `/wise-tickets [<ticket-ref or draft>]` to restructure
-  an oversized ticket without posting it. It composes with
+  `wise-estimation`. It auto-triggers on ticket work - reading and
+  writing tickets through whatever tracker tooling the session has -
+  and is also invocable as `/wise-tickets [<ticket-ref or draft>]` to
+  restructure an oversized ticket (applied back to the tracker only on
+  request). It composes with
   `wise-human-writing`: that skill governs voice and markup,
   `wise-tickets` governs ticket structure and scoping.
 
