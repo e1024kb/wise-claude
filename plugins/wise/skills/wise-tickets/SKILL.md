@@ -160,7 +160,10 @@ When the work is too big for one ticket:
 - **Aggregate; don't atomize.** Tickets in the 2-5 SP range are the
   sweet spot. Ten 0.5 SP tickets are tracker noise - fold mechanical
   siblings together. The unit is "a coherent chunk one person ships",
-  not "one commit".
+  not "one commit". (Distinct from `wise-estimation`'s "sub-tasks
+  ≤ 3 SP" decomposition rule: that governs sub-tasks *inside* one
+  ticket during planning; this section governs whole tickets when
+  splitting an epic.)
 - **Fold prerequisite schema work into one ticket.** Protobuf
   messages, API contracts, shared types, migrations - the
   contract-first work that several tickets depend on - becomes a
@@ -217,6 +220,12 @@ same discipline - concise, scoped, linked, testable done-state.
 
 ## Guardrails
 
+- **Frontmatter deliberately omits `allowed-tools`.** The tracker
+  toolset is open-ended - any tracker MCP server, CLI, or API the
+  session has - so the tool names cannot be enumerated in a
+  restriction list; the skill inherits the session's tools instead
+  (CONTRIBUTING sanctions "narrow set or omit"). Don't "fix" this
+  back to a narrow list.
 - **Show before you write.** Creating or updating a ticket in an
   external tracker is an outward-facing action: present the drafted
   ticket (or the split) and get the user's go-ahead before
