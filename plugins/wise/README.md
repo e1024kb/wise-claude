@@ -262,13 +262,13 @@ the longer rationale):
 Two skills are hybrids of the two shapes:
 
 - **`wise-human-writing`** is the standing style contract for every
-  outbound human-facing message — ticket descriptions and comments in
+  outbound human-facing message: ticket descriptions and comments in
   any tracker, PR/MR comments on any code host, doc pages, chat
   messages. It auto-triggers whenever such content is being drafted,
   and is also invocable as `/wise-human-writing [<draft>]` to rewrite
   ("de-slop") an existing draft without posting it.
 - **`wise-tickets`** is the standing structure contract for every
-  ticket created, edited, or broken down in any issue tracker —
+  ticket created, edited, or broken down in any issue tracker:
   canonical sections (Summary, Goal, Scope with out-of-scope,
   Acceptance criteria, References, Labels, Estimate), per-repo/service
   breakdown with sensible aggregation, and estimates linked to

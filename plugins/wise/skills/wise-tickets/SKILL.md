@@ -2,25 +2,22 @@
 name: wise-tickets
 description: >-
   Ticket-writing rules for EVERY ticket composed on the user's behalf
-  in ANY issue tracker (Jira, Linear, GitHub Issues, GitLab, Asana,
-  YouTrack, Monday, …) and any tracker-like system (BetterStack
-  incidents, design-system task boards, …). ALWAYS consult this skill
-  before creating, editing, updating, adjusting, splitting, or breaking
-  down a ticket, an epic, or a backlog item, whichever MCP server, CLI,
-  or API is in play: a ticket is concise and human-readable, never an
-  implementation plan; it follows the canonical section shape (Summary,
-  Goal, Scope with explicit out-of-scope, Acceptance criteria,
-  References, Labels, Estimate); large work is broken down per
-  repository/service with sensible aggregation, and estimates defer to
-  the wise-estimation scale. Also invocable as
-  `/wise-tickets [<ticket-ref or draft>]` (bare alias) or
-  `/wise:wise-tickets` (canonical) to restructure an existing oversized
-  ticket or draft - and, when asked, apply the result back to the
-  tracker. Use when creating or
-  updating a ticket or issue, breaking an epic into tickets, writing a
-  Jira / Linear / GitHub issue, or when the user says "create a
-  ticket", "file an issue", "break this down into tickets", "this
-  ticket is too big", "make this a proper ticket", or types
+  in ANY issue tracker (Jira, Linear, GitHub Issues, GitLab, Asana, …)
+  or tracker-like system (incidents, design boards).
+  ALWAYS consult this skill before creating, editing, updating,
+  splitting, or breaking down a ticket or epic, whichever MCP server,
+  CLI, or API is in play: a ticket is concise
+  and human-readable, never an implementation plan; it follows the
+  canonical sections (Summary, Goal, Scope, Acceptance criteria,
+  References, Labels, Estimate); large work
+  splits per repository/service with sensible aggregation; estimates
+  defer to the wise-estimation scale. Also invocable as
+  `/wise-tickets [<ticket-ref or draft>]` (canonical
+  `/wise:wise-tickets`) to restructure an oversized ticket
+  or draft and, when asked, apply it back to the tracker. Use when
+  creating or updating a ticket or issue, breaking an epic into
+  tickets, or when the user says "create a ticket", "file an issue",
+  "break this down into tickets", "this ticket is too big", or types
   `/wise-tickets`.
 argument-hint: "[<ticket-ref or draft>]"
 ---
@@ -145,10 +142,12 @@ A trivial ticket may merge sections, never skip their content.
   0.5 → 13). Anything landing above 8 SP is a signal to split or to
   spike, not an estimate - see that skill's "research ticket" rule.
 - **Capacity, for breakdowns:** one developer sustains roughly
-  **5-8 SP per week**. When breaking a large body of work into
-  tickets, aim each resulting ticket at or under that weekly
-  throughput - a ticket one person finishes inside a week. This is a
-  sizing target for the split, not a deadline commitment.
+  **5-8 SP per week** of throughput. When breaking a large body of
+  work into tickets, target each resulting ticket at **5 SP or
+  less** - the scale's ~1 week row - so one person ships it inside a
+  week. This is wise-tickets' own split-sizing heuristic, not part
+  of `wise-estimation` (which deliberately stays out of velocity
+  planning); a sizing target, never a deadline commitment.
 
 ## Breakdown rules
 
