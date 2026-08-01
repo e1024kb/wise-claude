@@ -24,8 +24,9 @@ marketplace: a workflow engine, shared scripts, and a set of
 tech-neutral action skills (`/wise-init`, `/wise-workflow-*`,
 `/wise-skills-*`, `/wise-pr-*`, `/wise-commit-*`) plus the
 `wise-estimation` and `wise-markitdown` reference skills, the
-`wise-human-writing` hybrid skill (auto-consulted reference +
-`/wise-human-writing` rewrite command), and the
+`wise-human-writing` and `wise-tickets` hybrid skills (auto-consulted
+references + `/wise-human-writing` rewrite and `/wise-tickets`
+restructure commands), and the
 `/wise` natural-language helper.
 
 Every user-facing skill is a **flat, autocomplete-visible slash
@@ -209,6 +210,7 @@ plugins/wise/
     ├── wise-estimation/SKILL.md     # reference skill (Fibonacci SP scale)
     ├── wise-markitdown/SKILL.md     # reference skill (file → markdown text extraction via markitdown)
     ├── wise-human-writing/SKILL.md  # hybrid: human-first rules for all outbound tracker/PR/doc/chat writing + /wise-human-writing rewrite
+    ├── wise-tickets/SKILL.md        # hybrid: ticket structure/scoping/breakdown rules for any tracker + /wise-tickets restructure
     ├── wise-pr-create/SKILL.md      # create or refresh a PR
     ├── wise-pr-add-reviewers/SKILL.md  # attach Copilot + extras
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
