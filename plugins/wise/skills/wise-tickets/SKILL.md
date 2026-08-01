@@ -3,7 +3,7 @@ name: wise-tickets
 description: >-
   Ticket-writing rules for EVERY ticket composed on the user's behalf
   in ANY issue tracker (Jira, Linear, GitHub Issues, GitLab, Asana, …)
-  or tracker-like system (incidents, design boards).
+  or tracker-like system.
   ALWAYS consult this skill before creating, editing, updating,
   splitting, or breaking down a ticket or epic, whichever MCP server,
   CLI, or API is in play: a ticket is concise
