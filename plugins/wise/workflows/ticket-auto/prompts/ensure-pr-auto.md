@@ -33,6 +33,9 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/pr/draft-body.md`
 and follow it with: `current_branch`, `pr_exists`, `pr_base` (the
 detected base or `NONE`), `project.path`. It writes the drafted body
 to a temp file and returns its path — capture it as `pr_body_path`.
+Its §5 mandates reading
+`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` first —
+the body follows those human-first rules; do not skip that read.
 If `draft-body` fails, stop and report; nothing downstream proceeds.
 
 ### 3. Branch on pr_exists

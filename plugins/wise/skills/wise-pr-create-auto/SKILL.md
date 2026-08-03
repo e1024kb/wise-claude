@@ -48,7 +48,9 @@ Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/ensure-pr-auto.md`
 and follow it end to end with `current_branch` and `project.path`.
 The fragment detects PR state, drafts the body (via
 `references/pr/draft-body.md`), and creates or refreshes the
-PR with the repo default branch as base.
+PR with the repo default branch as base. The drafting step mandates
+reading `${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` —
+the body follows those human-first rules; do not skip that read.
 
 ### 3. Relay the result
 
@@ -64,3 +66,6 @@ as the next step.
 - Never invoke another wise action skill.
 - Refuse to create a PR from a protected branch (`main` / `master` /
   `release*`) that has no PR — stop with a clear message.
+- Never draft the body freehand — the `wise-human-writing` read that
+  `draft-body.md` §5 mandates is part of the procedure, not optional
+  polish.

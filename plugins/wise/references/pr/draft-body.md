@@ -87,6 +87,27 @@ whether their project override was picked up.
 
 ### 5. Fill the template
 
+Before writing a single section, Read
+`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` (the Read
+tool — do not fill from memory) and apply its rules to every section
+of the body. The non-negotiables, echoed here because a PR body is
+the highest-traffic outbound surface this plugin writes:
+
+- Structure each section context → reasoning → conclusion; business
+  altitude over identifier dumps.
+- No achievement openers ("Successfully implemented…"), no restating
+  the ticket back at the reader.
+- No file-by-file change enumeration — the diff tab already exists;
+  say what changed *conceptually*.
+- No long dashes anywhere in the body — no em dash (—), no en dash
+  (–). Use a simple dash (-), comma, or colon.
+- No ASCII diagrams; short numbered steps instead.
+- Links labeled and clickable in GitHub markdown (`[the ticket](url)`),
+  never bare URLs mid-sentence.
+- Identifiers, commands, and precise internals go in a collapsible
+  `<details><summary>Technical notes</summary>…</details>` block at
+  the bottom when they're worth keeping at all.
+
 Read the selected template via the Read tool. For each section
 heading present in the template, generate a populated version:
 
@@ -108,11 +129,6 @@ heading present in the template, generate a populated version:
 - **Risk & rollout** — flag feature flags, data migrations, dep
   bumps, breaking changes. Write "no rollout considerations" if
   truly none.
-
-Prose in every section follows the human-first writing rules in
-`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` —
-concept-level language over identifier dumps, context → reasoning →
-conclusion, no ASCII diagrams, links instead of inline depth.
 
 Preserve section headings verbatim (the user may have custom
 headings their team reviews for). Do NOT invent new sections if
@@ -158,6 +174,9 @@ as the `pr_body_path` output. `ensure-pr` reads it.
 ## Guardrails
 
 - Never invent a Jira key.
+- Never skip the `wise-human-writing` read in §5 — a body drafted
+  without it is the exact AI-slop failure mode this step exists to
+  prevent.
 - Never modify the repo or the template file. This step is
   strictly read-only against the working tree.
 - Never write anywhere outside `/tmp`. The body file is transient

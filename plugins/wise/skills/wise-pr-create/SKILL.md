@@ -135,6 +135,12 @@ Follow its procedure with the context you collected:
 - `pr_base = <base or NONE>`
 - `project.path = <PROJECT_PATH>`
 
+The fragment's §5 mandates reading
+`${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md` before
+filling the template — the drafted body follows those human-first
+rules (context → reasoning → conclusion, no file-by-file enumeration,
+no long dashes). Do not skip that read.
+
 At the end of the draft-body procedure you'll have a path to a
 temp file holding the drafted PR body. Remember it as `BODY_PATH`.
 
@@ -202,3 +208,6 @@ Watch pipelines + comments with:
   `HEAD`.
 - Never invent a Jira key or retarget an existing PR without the
   user asking. Both fragments enforce this; don't work around it.
+- Never draft the body freehand — the `wise-human-writing` read that
+  `draft-body.md` §5 mandates is part of the procedure, not optional
+  polish.
