@@ -15,9 +15,12 @@ project-selection: current
 #   - build-plan      → TEAM: architect (lead, opus) + product-manager +
 #                       software-engineer + qa-engineer, conductor-synthesized
 #   - refine-plan     → architect
-# Model tiering (opus = the latest Opus, Opus 5): every plan-authoring
-# step — gap-analysis, build-plan (whole team), refine-plan — runs on
-# opus at `effort: xhigh`; the load-bearing evidence steps
+# Model tiering (opus = the latest Opus, Opus 5): the solo
+# plan-authoring steps — gap-analysis, refine-plan — run on opus at
+# `effort: xhigh`; build-plan (the whole team) runs on opus at
+# `effort: high` — the four-role panel already buys the depth, so
+# per-member xhigh would only add latency/cost, not signal; the
+# load-bearing evidence steps
 # (analyze-design's design spec + research-context's grill Context
 # Dossier) run on opus at `effort: high`; sonnet for every other step.
 # The tracker-fetch / git / presentation steps carry no `agent:`; the
@@ -394,7 +397,7 @@ steps:
       - role: software-engineer  # reuse vs extend vs build-new, grounded in the audit
       - role: qa-engineer        # testing scope
     model: opus                  # shared default — the whole panel plans on Opus
-    effort: xhigh                # planning runs at xhigh
+    effort: high                 # team-of-four already adds depth; high is enough
     depends_on: [gap-analysis, resolve-gaps]
     trigger-rule: none-failed-min-one-success  # runs whether or not the
       # conditional resolve-gaps fired (skipped counts as done), but a
