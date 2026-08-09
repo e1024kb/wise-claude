@@ -171,6 +171,10 @@ def test_get_step_select_full_shape(workflows_module, tmp_path, capsys):
     ({"optional": [{"id": "x", "steps": "b"}]}, "step-select-steps-not-list"),
     ({"optional": [{"id": "a"}],
       "presets": [{"id": "p", "skip": "a"}]}, "preset-skip-not-list"),
+    # duplicate preset ids get their own marker, distinct from bad-slug
+    ({"optional": [{"id": "a"}],
+      "presets": [{"id": "p", "skip": []}, {"id": "p", "skip": []}]},
+     "duplicate-step-select-preset"),
 ])
 def test_get_step_select_invalid(workflows_module, tmp_path, capsys, block, marker):
     path = _write_def(workflows_module, tmp_path, {"step-select": block})

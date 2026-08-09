@@ -884,7 +884,7 @@ def cmd_get_step_select(def_path: str) -> int:
             return 2
         pid = str(p.get("id") or "")
         if not _claim_slug(pid, seen_p, "step-select-preset-id",
-                           "step-select-preset-id"):
+                           "duplicate-step-select-preset"):
             return 2
         skip = p.get("skip") or []
         if not isinstance(skip, list):
