@@ -342,7 +342,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" update-run \
 
 ### 6. Pre-flight prompts
 
-Up to two `AskUserQuestion`s in sequence (or batched — your call;
+The two base-control questions below (plus, when the workflow opts
+in, the §6b2 tuning and §6b3 step-selection flows — those are
+multi-question flows, not single prompts). For the base controls: up
+to two `AskUserQuestion`s in sequence (or batched — your call;
 batching is fine since answers are independent). Each is skipped
 when the workflow's `preflight:` block pinned the answer in §5g.
 Pinned answers are logged (`Pre-flight pin: control-mode=wave-sync
@@ -813,7 +816,7 @@ from state rather than trusting conversation memory), and this step's
 id is in that group's `steps:` list, append the user's choice to the
 call:
 
-```
+```bash
 python3 .../workflows.py resolve-team "$DEF" "<step.id>" --model <m> --effort <e>
 ```
 

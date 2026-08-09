@@ -181,7 +181,7 @@ inputs:
         description: "No branch is created or switched."
       - value: ask
         label: "Ask me at setup"
-        description: "The composite setup questionnaire (ticket ref confirm, branch, base, session rename) fires mid-run as before."
+        description: "The composite setup questionnaire (branch, base, session rename) fires mid-run as before."
   - name: implement_mode
     prompt: "Implement the plan after setup?"
     default: plan-only
@@ -638,15 +638,28 @@ steps:
       Call this `target_branch`. Read the current branch
       (`{{current_branch}}`).
 
-      Resolve each piece from its mode:
+      The ticket ref is IMMUTABLE here: the plan file, its heading, and
+      target_branch all derive from `{{ticket_ref}}`, so setup never
+      offers to change it. If the extracted ref is wrong, stop the run
+      with a clear message — the fix is a fresh run from ticket fetch,
+      not a rename at setup.
+
+      Resolve each piece from its mode. Any branch switch or creation
+      FIRST refuses a dirty tree (`git diff --quiet && git diff
+      --cached --quiet` in `{{project.path}}`; if dirty, tell the user
+      to stash/commit and `/wise-workflow-resume <run-ulid>`, then
+      stop) — carrying uncommitted changes across a checkout is never
+      acceptable, existing branch or new:
 
       • Branch — `auto`: if the current branch already equals
         target_branch, nothing to do; else if target_branch exists,
-        `git checkout <target_branch>`; else refuse a dirty tree first
-        (`git diff --quiet && git diff --cached --quiet` in
-        `{{project.path}}`; if dirty, tell the user to stash/commit and
-        `/wise-workflow-resume <run-ulid>`, then stop), then create it
-        off the repo's default branch: `git checkout -b <target_branch>`.
+        dirty-check then `git checkout <target_branch>`; else
+        dirty-check, resolve the repo's default branch
+        (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling
+        back to `gh repo view --json defaultBranchRef`), and create the
+        branch FROM it — `git checkout -b <target_branch>
+        origin/<default>` — never from whatever branch happens to be
+        checked out.
         `current`: do nothing — stay on `{{current_branch}}`.
         `ask`: include the branch questions in the composite
         questionnaire below.
@@ -656,24 +669,22 @@ steps:
       Composite `AskUserQuestion` (ONE call — fires only when at least
       one piece is on `ask`; with none, this step asks NOTHING and acts
       silently). Include only the applicable questions:
-        1. Ticket (branch_mode=ask only): "Extracted `{{ticket_ref}}` —
-           use this, or provide a different ref?" Default =
-           `{{ticket_ref}}`.
-        2. Branch (branch_mode=ask, and ONLY if `{{current_branch}}` !=
+        1. Branch (branch_mode=ask, and ONLY if `{{current_branch}}` !=
            target_branch): options `Create <target_branch>` / `Switch to
            existing <target_branch>` (offer only if that branch already
            exists) / `Stay on {{current_branch}}` / Other. When the
            current branch already equals target_branch, OMIT this
            question — you're already on the right branch.
-        3. Base branch (ONLY when question 2 is shown): which base to
+        2. Base branch (ONLY when question 1 is shown): which base to
            branch off if creating — the repo's default branch first,
            then recent `release*` branches, then Other.
-        4. Session (ONLY when the questionnaire fires at all): "Rename
+        3. Session (ONLY when the questionnaire fires at all): "Rename
            this Claude Code session to `{{ticket_ref}}_ticket-plan` for
            /resume's picker?" options `Rename and continue` / `Provide
            my own label` / `Skip`.
       Then act on the answers exactly as the modes above describe
-      (dirty-tree refusal included; the branch name MUST equal
+      (dirty-tree refusal before every checkout; a `Create` uses the
+      chosen base as the start point; the branch name MUST equal
       target_branch exactly). When the questionnaire did NOT fire,
       don't ask about the session either — just print the
       `/rename {{ticket_ref}}_ticket-plan` command as a suggestion the

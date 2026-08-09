@@ -600,11 +600,13 @@ conflict check and `/resume` still work.
 ## Pre-flight prompts
 
 After session tagging, BEFORE the run flips to `status: running`,
-the conductor asks up to three questions — rename_session,
-control-mode, worktree. Each can be **pinned by the workflow
-definition** via the top-level `preflight:` block, in which case the
-corresponding AskUserQuestion is skipped and the pinned answer is
-logged.
+the conductor runs the pre-flight: up to three base-control questions
+— rename_session, control-mode, worktree — plus, for workflows that
+opt in, the tuning and stage-selection flows (multi-question, see
+below) and any declared inputs. Each base control can be **pinned by
+the workflow definition** via the top-level `preflight:` block, in
+which case the corresponding AskUserQuestion is skipped and the
+pinned answer is logged.
 
 ### The three keys
 

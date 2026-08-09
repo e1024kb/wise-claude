@@ -141,6 +141,9 @@ def test_next_wave_all_terminal_is_completed(workflows_module, tmp_path, capsys)
         ("mode != 'fast'", "fast", False),
         # a non-matching (unparseable) `when:` expression is treated TRUE.
         ("this is not a valid expr @@@", "anything", True),
+        # valid syntax + trailing text must be unparseable-truthy too —
+        # fullmatch, not a silent evaluation of the parseable prefix.
+        ("mode == 'fast' && other == 'x'", "slow", True),
     ],
 )
 def test_next_wave_when_semantics(

@@ -117,6 +117,8 @@ def test_get_tuning_emits_step_defaults(workflows_module, tmp_path, capsys):
     # steps and default are exclusive modes — both at once is undefined
     ({"id": "g", "steps": ["a"], "default": "opus / high"},
      "tuning-group-steps-and-default"),
+    # a scalar `steps:` would iterate characters — must be a list
+    ({"id": "g", "steps": "a"}, "tuning-steps-not-list"),
 ])
 def test_get_tuning_invalid(workflows_module, tmp_path, capsys, group, marker):
     path = _write_def(workflows_module, tmp_path, {"tuning": {"groups": [group]}})
@@ -165,6 +167,10 @@ def test_get_step_select_full_shape(workflows_module, tmp_path, capsys):
     ({"optional": [{"id": "a"}, {"id": "a"}]}, "duplicate-step-select-id"),
     ({"optional": [{"id": "a"}],
       "presets": [{"id": "p", "skip": ["nope"]}]}, "preset-unknown-optional"),
+    # scalar list-fields would iterate characters — must be lists
+    ({"optional": [{"id": "x", "steps": "b"}]}, "step-select-steps-not-list"),
+    ({"optional": [{"id": "a"}],
+      "presets": [{"id": "p", "skip": "a"}]}, "preset-skip-not-list"),
 ])
 def test_get_step_select_invalid(workflows_module, tmp_path, capsys, block, marker):
     path = _write_def(workflows_module, tmp_path, {"step-select": block})
@@ -233,6 +239,15 @@ def test_list_inputs_malformed_option_rejected(workflows_module, tmp_path, capsy
     ]})
     assert workflows_module.cmd_list_inputs(path) == 2
     assert "INVALID:input-option" in capsys.readouterr().err
+
+
+def test_list_inputs_scalar_options_rejected(workflows_module, tmp_path, capsys):
+    """`options: fast` must not become options f/a/s/t."""
+    path = _write_def(workflows_module, tmp_path, {"inputs": [
+        {"name": "mode", "prompt": "?", "options": "fast"},
+    ]})
+    assert workflows_module.cmd_list_inputs(path) == 2
+    assert "INVALID:input-options-not-list" in capsys.readouterr().err
 
 
 # ---- resolve-team overrides -------------------------------------------------

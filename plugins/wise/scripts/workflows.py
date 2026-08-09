@@ -779,6 +779,10 @@ def cmd_get_tuning(def_path: str) -> int:
             return 2
         entry: dict = {"id": gid, "label": str(g.get("label") or gid)}
         step_ids = g.get("steps") or []
+        if not isinstance(step_ids, list):
+            # A scalar here would "work" by iterating characters — reject.
+            print(f"INVALID:tuning-steps-not-list:{gid}", file=sys.stderr)
+            return 2
         bound: list[dict] = []
         for sid in step_ids:
             sdef = step_defs.get(sid)
@@ -856,7 +860,11 @@ def cmd_get_step_select(def_path: str) -> int:
         oid = str(entry.get("id") or "")
         if not _claim_slug(oid, seen, "step-select-id", "duplicate-step-select-id"):
             return 2
-        steps = entry.get("steps") or ([oid] if oid in step_defs else [])
+        raw_entry_steps = entry.get("steps")
+        if raw_entry_steps is not None and not isinstance(raw_entry_steps, list):
+            print(f"INVALID:step-select-steps-not-list:{oid}", file=sys.stderr)
+            return 2
+        steps = raw_entry_steps or ([oid] if oid in step_defs else [])
         if not steps:
             print(f"INVALID:step-select-no-steps:{oid}", file=sys.stderr)
             return 2
@@ -879,6 +887,9 @@ def cmd_get_step_select(def_path: str) -> int:
                            "step-select-preset-id"):
             return 2
         skip = p.get("skip") or []
+        if not isinstance(skip, list):
+            print(f"INVALID:preset-skip-not-list:{pid}", file=sys.stderr)
+            return 2
         for oid in skip:
             if oid not in seen:
                 print(f"INVALID:preset-unknown-optional:{pid}:{oid}", file=sys.stderr)
@@ -942,6 +953,10 @@ def cmd_list_inputs(def_path: str) -> int:
         if entry.get("optional") is True:
             item["optional"] = True
         raw_opts = entry.get("options")
+        if raw_opts is not None and not isinstance(raw_opts, list):
+            # A scalar would iterate characters into one option each — reject.
+            print(f"INVALID:input-options-not-list:{name}", file=sys.stderr)
+            return 2
         if raw_opts:
             opts = []
             for o in raw_opts:
@@ -1151,8 +1166,10 @@ def cmd_next_wave(def_path: str, state_path: str) -> int:
         when_ok = True
         conditions = when if isinstance(when, list) else ([when] if when else [])
         for cond in conditions:
-            m = re.match(r"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(==|!=)\s*'([^']*)'\s*",
-                         str(cond))
+            # fullmatch, not match — `x == 'a' && y == 'b'` must fall to the
+            # unparseable path, not silently evaluate its parseable prefix.
+            m = re.fullmatch(r"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(==|!=)\s*'([^']*)'\s*",
+                             str(cond))
             if m:
                 var, op, lit = m.group(1), m.group(2), m.group(3)
                 val = (state.get("outputs") or {}).get(var)
