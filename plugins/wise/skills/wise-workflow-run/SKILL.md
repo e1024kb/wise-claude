@@ -287,16 +287,21 @@ eval "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
   get-preflight "$DEF")"
 ```
 
-This sets three shell variables:
+This sets five shell variables:
 
 - `CONTROL_MODE`   — `prompt` (default; ask §6a) | `wave-sync` | `synchronous` | `auto-advance`
 - `WORKTREE`       — `prompt` (default; ask §6b) | `current` | `new`
 - `RENAME_SESSION` — `prompt` (default; ask §5h) | `skip`
+- `TUNING`         — `skip` (default) | `prompt` (ask §6b2)
+- `STEP_SELECT`    — `skip` (default) | `prompt` (ask §6b3)
 
 Missing keys (or a missing `preflight:` block entirely) resolve to
-`prompt` — every pre-flight question runs, matching pre-0.42
-behaviour. Invalid values emit a `WARN:` line on stderr and fall
-back to `prompt` so the workflow still runs.
+each key's default — `prompt` for the three original questions
+(matching pre-0.42 behaviour), `skip` for the two opt-in
+questionaries, so a workflow only gets a tuning / step-selection
+prompt by declaring it. Invalid values emit a `WARN:` line on
+stderr and fall back to the key's default so the workflow still
+runs.
 
 **5h. Prompt the user to rename the session (skip if pinned):**
 
@@ -376,6 +381,121 @@ Prompt:
 Store both answers for step 8; they go into `state.yaml` via
 `start-run` and persist across resume.
 
+**6b2. Model/effort tuning questionary (only if `TUNING=prompt`):**
+
+Fetch the workflow's tuning groups:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-tuning "$DEF"
+```
+
+→ JSON `{groups: [{id, label, steps: [{id, model, effort}], default?}]}`.
+Exit 2 (an `INVALID:` authoring error) or an empty `groups` list →
+log a `WARN:` line and skip this subsection; a broken tuning block
+never blocks the run.
+
+The flow is **two-level** so the common case stays one click:
+
+1. **Level 1 — profile.** One `AskUserQuestion`:
+   - Question: `Model/effort profile for this run?`
+   - Header: `Tuning`
+   - Options:
+     - `Defaults (as tuned) (Recommended)` — `Run every step group on
+       the workflow's declared model/effort defaults:` + one line per
+       group rendered from the JSON it already carries: the `default`
+       string for an advisory group, else the per-step pins (collapse
+       when uniform — `opus/high`; list the outliers when mixed —
+       `opus/high (codebase-audit: sonnet/high)`).
+     - `Economy` — `Run every tunable group on sonnet at high effort —
+       cheaper and faster, less planning depth.`
+     - `Custom` — `Pick model + effort per step group in a follow-up
+       question.`
+2. **Level 2 — per group (only on `Custom`).** One composite
+   `AskUserQuestion` call, one question per group (workflows keep
+   these ≤4 by design). Per question:
+   - Question: `Model/effort for: <group.label>?`
+   - Header: the group id (truncated to 12 chars)
+   - Options: `Keep default (<current model/effort summary>)` /
+     `Opus · high` / `Sonnet · high` / `Sonnet · low`. `Other`
+     accepts a free-text `<model> <effort>` pair — resolve it through
+     `resolve-model "<model>" "<effort>"` BEFORE recording, so a
+     typo'd model or unsupported effort is caught (and clamped) here
+     rather than flowing into dispatch as binding config.
+
+Resolve each group to either `default` or a concrete
+`<model> / <effort>` pair, then persist the choices into run state —
+one `record-output` per group plus the summary, **chained in a single
+Bash invocation** (each call rewrites state.yaml; N separate tool
+calls would be N round-trips for one logical mutation). The run stub
+exists since §4, so `record-output` works; outputs survive resume and
+render into `{{…}}` templates:
+
+```bash
+python3 .../workflows.py record-output "$STATE" tuning_<group.id> "<default | model / effort>" \
+  && python3 .../workflows.py record-output "$STATE" tuning_<group2.id> "…" \
+  && python3 .../workflows.py record-output "$STATE" tuning_summary "<one line: '<id>: <choice>; …' or 'all defaults'>"
+```
+
+The per-group `tuning_<id>` outputs are the machine channel (dispatch
+overrides, `{{tuning_<id>}}` templates); `tuning_summary` is
+display-only.
+
+Log the result (`Pre-flight tuning: authoring=sonnet/high, rest
+default.`). When `TUNING=skip`, record nothing — templates that
+reference `{{tuning_summary}}` render as a raw placeholder and the
+workflow's prompts treat that as "defaults stand". How the choice is
+applied at dispatch is §9's job (the `resolve-team --model/--effort`
+override for step-bound groups; the `{{tuning_<id>}}` /
+`{{tuning_summary}}` outputs for advisory groups with no `steps:`).
+
+**6b3. Step-selection questionary (only if `STEP_SELECT=prompt`):**
+
+Fetch the workflow's optional stages + presets:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-step-select "$DEF"
+```
+
+→ JSON `{optional: [{id, label, steps, ask-group?}], presets: [{id,
+label, description?, skip}]}`. Exit 2 or an empty `optional` list →
+`WARN:` and skip this subsection.
+
+1. **Level 1 — preset.** One `AskUserQuestion`:
+   - Question: `Which stages should this run include?`
+   - Header: `Stages`
+   - Options: `Full — run everything (Recommended)` first, then one
+     option per declared preset (its `description`, plus the skipped
+     stage labels), then `Custom` — `Pick the optional stages to skip
+     in a follow-up question.`
+2. **Level 2 — per stage (only on `Custom`).** One composite
+   `AskUserQuestion` call with `multiSelect: true` questions — one
+   question per distinct `ask-group` (entries without one share a
+   question, chunked ≤4 options), listing that group's stages:
+   - Question: `<ask-group>: which optional stages should be SKIPPED?
+     (select none to run them all)`
+   - Options: one per stage — label = `entry.label`, description
+     names the step ids it covers.
+
+Resolve the final set of deselected stage ids, then **pre-mark every
+covered step as skipped** in run state so the scheduler never
+launches them (the workflow's `trigger-rule`s — typically
+`none-failed` on the consolidation steps — are authored to flow past
+user-skipped dependencies):
+
+```bash
+python3 .../workflows.py update-step "$STATE" <step-id-1> status=skipped \
+  && python3 .../workflows.py update-step "$STATE" <step-id-2> status=skipped \
+  && python3 .../workflows.py record-output "$STATE" skipped_stages "<comma-joined stage ids, or 'none'>"
+```
+
+(One chained Bash invocation for all the marks — not one tool call
+per step.)
+
+Log it (`Pre-flight step-select: preset=standard — skipping
+deep-dive (research-context).`). The pre-marked statuses live in
+`state.yaml`, so a resumed run keeps the selection with no extra
+bookkeeping. When `STEP_SELECT=skip`, every step runs as authored.
+
 ### 6c. Collect workflow inputs
 
 Some workflows declare an `inputs:` section (top-level in the YAML)
@@ -397,8 +517,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" list-inputs "$DEF"
 ```
 
 stdout is a JSON array of `{name, prompt, validate?, extract?,
-optional?}`. If the array is empty, skip this section entirely and
-continue to [§7](#7-resolve-the-project).
+optional?, options?, default?}`. If the array is empty, skip this
+section entirely and continue to [§7](#7-resolve-the-project).
 
 **First, split the positional remainder.** Map `ARG_REST` (from §2)
 onto the declared inputs in order: each input consumes one
@@ -422,11 +542,23 @@ Then, for each input in order:
    - **Absent and required** → `AskUserQuestion`:
      - Question: the input's `prompt` text.
      - Header: the input's `name` (truncated to 12 chars).
-     - Options: `Other` only — the user types the value via free text.
-       (Declaring only `Other` satisfies AskUserQuestion's minimum of
-       two options by including the implicit "Other" affordance; if
-       the harness rejects single-option calls, add a trailing
-       `Cancel run` option and abort cleanly when picked.)
+     - **Free-text input** (no `options` declared) → Options: `Other`
+       only — the user types the value via free text. (Declaring only
+       `Other` satisfies AskUserQuestion's minimum of two options by
+       including the implicit "Other" affordance; if the harness
+       rejects single-option calls, add a trailing `Cancel run` option
+       and abort cleanly when picked.)
+     - **Choice input** (`options` declared) → one option per entry:
+       label = the entry's `label` (or its `value`), description = the
+       entry's `description`. List the `default` value's option first.
+       The recorded answer is the chosen option's **`value`** (not its
+       label); `Other` free text is allowed and goes through the same
+       validation as any typed value.
+     - **Batching:** a RUN of consecutive choice inputs is asked as
+       ONE composite `AskUserQuestion` call (up to 4 questions per
+       call; overflow continues in a next call) — that is the
+       "configure everything up front" questionary UX. Free-text
+       inputs stay one-per-call as before.
 
 2. Validate + extract via the engine — empty strings for regexes
    the input didn't declare (run this for positionally-supplied and
@@ -540,7 +672,9 @@ Read the definition's `steps` list. `TodoWrite` one todo per step:
 
 Summary hint per type: skill → the skill name; prompt → first 40
 chars of the prompt; bash → first 40 chars of the command; approval
-→ "awaiting approval"; ask → `ask: <def.output>`.
+→ "awaiting approval"; ask → `ask: <def.output>`. A step §6b3
+pre-marked `skipped` gets its todo created as `cancelled` (suffix
+the subject with `— deselected at pre-flight`).
 
 Tell the user: `Run <RUN_ID> started. state.yaml: <path>.`
 
@@ -670,6 +804,28 @@ dispatching a `type: prompt` step, resolve its roster binding in one call:
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" resolve-team "$DEF" "<step.id>"
 ```
+
+**Tuning override (only when the run recorded one).** If the workflow
+declares a `tuning:` block and the run's state carries a
+`tuning_<group.id>` output that is not `default` (recorded by §6b2 —
+on resume, re-shell `get-tuning "$DEF"` once and read the outputs
+from state rather than trusting conversation memory), and this step's
+id is in that group's `steps:` list, append the user's choice to the
+call:
+
+```
+python3 .../workflows.py resolve-team "$DEF" "<step.id>" --model <m> --effort <e>
+```
+
+The override wins over the step's AND every team member's pinned
+model/effort (the engine notes `run tuning override` in each member's
+`reason` — surface it on the 9e line like any other reason). Groups
+with no `steps:` binding (advisory groups) are not applied here —
+their choice reaches the workflow through the `{{tuning_<id>}}` /
+`{{tuning_summary}}` template outputs instead. For a step that
+resolves through `resolve-model` (mode `off` / `auto` / policy
+fallback), apply the same override by passing `<m>` / `<e>` as the
+`resolve-model` arguments in place of the step's own pins.
 → JSON `{mode, lead, members:[{role, lead, model, effort, reason, fell_back,
 next_fallback}], errors}`. These fields apply to `prompt` steps **only** —
 `interactive` steps run inline in this conductor (your own model) and `skill`

@@ -177,6 +177,7 @@ TRIGGER_RULES = {
     "all-success",
     "one-success",
     "all-done",
+    "none-failed",
     "none-failed-min-one-success",
 }
 
@@ -643,33 +644,42 @@ def cmd_runs_root() -> int:
 
 # ---------- get-preflight ---------------------------------------------------
 
-# Valid values for each preflight key. `prompt` is the default — the
-# conductor asks the user via AskUserQuestion. Any other listed value
-# pins the answer and skips the prompt entirely.
+# Valid values + default for each preflight key. For the three original
+# keys `prompt` is the default — the conductor asks the user via
+# AskUserQuestion; any other listed value pins the answer and skips the
+# prompt entirely. The opt-in questionaries (`tuning`, `step-select`)
+# default to `skip` instead, so workflows authored before this schema
+# addition never gain a surprise prompt — a workflow enables them
+# explicitly with `tuning: prompt` / `step-select: prompt`.
 PREFLIGHT_KEYS = {
-    "control-mode":   {"prompt", "wave-sync", "synchronous", "auto-advance"},
-    "worktree":       {"prompt", "current", "new"},
-    "rename_session": {"prompt", "skip"},
+    "control-mode":   ({"prompt", "wave-sync", "synchronous", "auto-advance"}, "prompt"),
+    "worktree":       ({"prompt", "current", "new"}, "prompt"),
+    "rename_session": ({"prompt", "skip"}, "prompt"),
+    "tuning":         ({"prompt", "skip"}, "skip"),
+    "step-select":    ({"prompt", "skip"}, "skip"),
 }
 
 
 def cmd_get_preflight(def_path: str) -> int:
     """Emit the workflow's preflight pin map as KEY=VALUE lines.
 
-    Always emits all three keys so the conductor can `source` the
+    Always emits every known key so the conductor can `source` the
     output without branching on presence:
 
         CONTROL_MODE=<prompt|wave-sync|synchronous|auto-advance>
         WORKTREE=<prompt|current|new>
         RENAME_SESSION=<prompt|skip>
+        TUNING=<prompt|skip>
+        STEP_SELECT=<prompt|skip>
 
-    Missing keys (or a missing `preflight:` block entirely) default to
-    `prompt` — current behaviour, zero risk for workflows authored
-    before this schema addition.
+    Missing keys (or a missing `preflight:` block entirely) fall back to
+    each key's default — `prompt` for the three original prompts,
+    `skip` for the opt-in questionaries — so workflows authored before
+    a schema addition keep their existing behaviour.
 
-    Unknown values (typos, wrong enum) default to `prompt` with a
-    warning on stderr so the workflow still runs interactively rather
-    than failing.
+    Unknown values (typos, wrong enum) fall back to the key's default
+    with a warning on stderr so the workflow still runs rather than
+    failing.
     """
     data = load_yaml(Path(def_path))
     block = data.get("preflight") or {}
@@ -677,15 +687,15 @@ def cmd_get_preflight(def_path: str) -> int:
         print(f"INVALID:preflight-block:expected-mapping", file=sys.stderr)
         block = {}
     out = {}
-    for key, allowed in PREFLIGHT_KEYS.items():
-        value = block.get(key) or "prompt"
+    for key, (allowed, default) in PREFLIGHT_KEYS.items():
+        value = block.get(key) or default
         if value not in allowed:
             print(
                 f"WARN:preflight.{key}={value!r} not in {sorted(allowed)}; "
-                f"falling back to 'prompt'",
+                f"falling back to {default!r}",
                 file=sys.stderr,
             )
-            value = "prompt"
+            value = default
         out[key] = value
     # Emit as KEY=VALUE (uppercase, hyphens → underscores) so the
     # conductor can eval/source the output.
@@ -695,16 +705,216 @@ def cmd_get_preflight(def_path: str) -> int:
     return 0
 
 
+# ---------- get-tuning / get-step-select ------------------------------------
+
+# Like STEP_ID_RE but WITHOUT underscores — deliberate: tuning-group ids
+# become `tuning_<id>` output names, where an underscore in the id would
+# blur the prefix boundary. Keep the two regexes' divergence intentional.
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def _claim_slug(value: str, seen: set, bad_marker: str, dup_marker: str) -> bool:
+    """Validate + claim a schema id: slug-shaped and unique within `seen`.
+
+    On failure prints the `INVALID:` line (with the caller's marker) and
+    returns False — the shared shape for every id check in the tuning /
+    step-select schema parsers.
+    """
+    if not _SLUG_RE.match(value):
+        print(f"INVALID:{bad_marker}:{value!r}", file=sys.stderr)
+        return False
+    if value in seen:
+        print(f"INVALID:{dup_marker}:{value}", file=sys.stderr)
+        return False
+    seen.add(value)
+    return True
+
+
+def cmd_get_tuning(def_path: str) -> int:
+    """Emit the workflow's `tuning:` block as JSON for the conductor.
+
+    Schema (top-level in the definition):
+
+        tuning:
+          groups:
+            - id: authoring                # slug, unique
+              label: "Plan authoring"      # shown in the questionary
+              steps: [gap-analysis, ...]   # prompt-step ids the override binds to
+            - id: plan
+              label: "Plan phase"
+              default: "opus / xhigh"      # advisory group (no steps): display-only
+                                           # default; the workflow consumes the
+                                           # user's choice via {{tuning_<id>}} /
+                                           # {{tuning_summary}} outputs instead
+
+    Output: `{"groups": [{id, label, steps: [{id, model, effort}], default?}]}`
+    where each bound step carries its declared `model:` (or `inherit`) and
+    `effort:` (or null) so the conductor can render "Keep default (…)" options.
+    Empty `{"groups": []}` when the workflow declares no tuning block.
+    Structural errors (bad id, unknown step, non-prompt step, no steps AND no
+    default, steps AND default together — the two are exclusive modes) exit 2
+    with an `INVALID:` line on stderr — a half-parsed tuning questionary is
+    worse than a loud authoring failure.
+    """
+    data = load_yaml(Path(def_path))
+    block = data.get("tuning") or {}
+    if not isinstance(block, dict):
+        print("INVALID:tuning-block:expected-mapping", file=sys.stderr)
+        return 2
+    raw_steps = data.get("steps") or []
+    err = _validate_step_defs(raw_steps, def_path)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
+    groups = block.get("groups") or []
+    step_defs = {s["id"]: s for s in raw_steps}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for g in groups:
+        if not isinstance(g, dict):
+            print("INVALID:tuning-group:expected-mapping", file=sys.stderr)
+            return 2
+        gid = str(g.get("id") or "")
+        if not _claim_slug(gid, seen, "tuning-group-id", "duplicate-tuning-group"):
+            return 2
+        entry: dict = {"id": gid, "label": str(g.get("label") or gid)}
+        step_ids = g.get("steps") or []
+        bound: list[dict] = []
+        for sid in step_ids:
+            sdef = step_defs.get(sid)
+            if sdef is None:
+                print(f"INVALID:tuning-unknown-step:{gid}:{sid}", file=sys.stderr)
+                return 2
+            if sdef.get("type") != "prompt":
+                print(f"INVALID:tuning-non-prompt-step:{gid}:{sid}", file=sys.stderr)
+                return 2
+            eff = sdef.get("effort")
+            bound.append({
+                "id": sid,
+                "model": str(sdef.get("model") or "inherit"),
+                "effort": str(eff) if eff else None,
+            })
+        entry["steps"] = bound
+        if g.get("default"):
+            if bound:
+                print(f"INVALID:tuning-group-steps-and-default:{gid}",
+                      file=sys.stderr)
+                return 2
+            entry["default"] = str(g["default"])
+        if not bound and "default" not in entry:
+            print(f"INVALID:tuning-group-empty:{gid}", file=sys.stderr)
+            return 2
+        out.append(entry)
+    print(json.dumps({"groups": out}, indent=2))
+    return 0
+
+
+def cmd_get_step_select(def_path: str) -> int:
+    """Emit the workflow's `step-select:` block as JSON for the conductor.
+
+    Schema (top-level in the definition):
+
+        step-select:
+          optional:
+            - id: deep-dive                     # slug, unique
+              label: "Deep-dive context sweep"  # shown in the questionary
+              steps: [research-context]         # step ids skipped together;
+                                                # defaults to [<id>] when the
+                                                # entry id IS a step id
+              ask-group: "Research"             # optional — one multiSelect
+                                                # question per ask-group (keeps
+                                                # each under the 4-option cap)
+          presets:
+            - id: standard
+              label: "Standard"
+              description: "Skip the deep-dive sweep"
+              skip: [deep-dive]                 # ⊆ optional entry ids
+
+    Output: `{"optional": [{id, label, steps, ask-group?}], "presets": [...]}`.
+    The conductor renders presets first (plus an implicit "Full — run
+    everything" and "Custom"), then — on Custom — one multiSelect per
+    ask-group listing stages to SKIP. Structural errors exit 2 with an
+    `INVALID:` line on stderr.
+    """
+    data = load_yaml(Path(def_path))
+    block = data.get("step-select") or {}
+    if not isinstance(block, dict):
+        print("INVALID:step-select-block:expected-mapping", file=sys.stderr)
+        return 2
+    raw_steps = data.get("steps") or []
+    err = _validate_step_defs(raw_steps, def_path)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
+    step_defs = {s["id"] for s in raw_steps}
+    optional_out: list[dict] = []
+    seen: set[str] = set()
+    for entry in block.get("optional") or []:
+        if not isinstance(entry, dict):
+            print("INVALID:step-select-optional:expected-mapping", file=sys.stderr)
+            return 2
+        oid = str(entry.get("id") or "")
+        if not _claim_slug(oid, seen, "step-select-id", "duplicate-step-select-id"):
+            return 2
+        steps = entry.get("steps") or ([oid] if oid in step_defs else [])
+        if not steps:
+            print(f"INVALID:step-select-no-steps:{oid}", file=sys.stderr)
+            return 2
+        for sid in steps:
+            if sid not in step_defs:
+                print(f"INVALID:step-select-unknown-step:{oid}:{sid}", file=sys.stderr)
+                return 2
+        item = {"id": oid, "label": str(entry.get("label") or oid), "steps": steps}
+        if entry.get("ask-group"):
+            item["ask-group"] = str(entry["ask-group"])
+        optional_out.append(item)
+    presets_out: list[dict] = []
+    seen_p: set[str] = set()
+    for p in block.get("presets") or []:
+        if not isinstance(p, dict):
+            print("INVALID:step-select-preset:expected-mapping", file=sys.stderr)
+            return 2
+        pid = str(p.get("id") or "")
+        if not _claim_slug(pid, seen_p, "step-select-preset-id",
+                           "step-select-preset-id"):
+            return 2
+        skip = p.get("skip") or []
+        for oid in skip:
+            if oid not in seen:
+                print(f"INVALID:preset-unknown-optional:{pid}:{oid}", file=sys.stderr)
+                return 2
+        item = {"id": pid, "label": str(p.get("label") or pid), "skip": skip}
+        if p.get("description"):
+            item["description"] = str(p["description"])
+        presets_out.append(item)
+    print(json.dumps({"optional": optional_out, "presets": presets_out}, indent=2))
+    return 0
+
+
 # ---------- list-inputs / validate-input -----------------------------------
 
 def cmd_list_inputs(def_path: str) -> int:
     """Emit the workflow's declared `inputs:` as JSON.
 
-    Each item is `{name, prompt, validate?, extract?, optional?}`.
-    Empty list if the workflow declares none. Used by workflow-run's
-    pre-flight to know which questions to ask before the DAG launches.
-    `optional: true` lets the conductor skip the prompt when no value
-    was supplied positionally (the input defaults to empty).
+    Each item is `{name, prompt, validate?, extract?, optional?,
+    options?, default?}`. Empty list if the workflow declares none. Used
+    by workflow-run's pre-flight to know which questions to ask before
+    the DAG launches. `optional: true` lets the conductor skip the
+    prompt when no value was supplied positionally (the input defaults
+    to empty).
+
+    `options:` turns the input into a CHOICE input: a list of
+    `{value, label?, description?}` (a bare string is shorthand for
+    `{value}`). The conductor renders these as AskUserQuestion options
+    (batching consecutive choice inputs into one composite call)
+    instead of a free-text prompt; `default:` names the option value to
+    list first / apply when the run must proceed without an answer.
+    When no explicit `validate:` is declared, one is DERIVED from the
+    option values (`^(a|b|c)$`) so positionally-supplied answers are
+    membership-checked by the same `validate-input` machinery as typed
+    ones — authors never hand-maintain a regex that mirrors the list.
+    An explicit `validate:` wins (an intentional loosening, e.g. to
+    admit free-text Other values).
     """
     data = load_yaml(Path(def_path))
     inputs = data.get("inputs") or []
@@ -731,6 +941,33 @@ def cmd_list_inputs(def_path: str) -> int:
             item["extract"] = entry["extract"]
         if entry.get("optional") is True:
             item["optional"] = True
+        raw_opts = entry.get("options")
+        if raw_opts:
+            opts = []
+            for o in raw_opts:
+                if isinstance(o, str):
+                    opts.append({"value": o})
+                elif isinstance(o, dict) and o.get("value"):
+                    norm = {"value": str(o["value"])}
+                    if o.get("label"):
+                        norm["label"] = str(o["label"])
+                    if o.get("description"):
+                        norm["description"] = str(o["description"])
+                    opts.append(norm)
+                else:
+                    print(f"INVALID:input-option:{name}:{o!r}", file=sys.stderr)
+                    return 2
+            item["options"] = opts
+            default = entry.get("default")
+            if default is not None:
+                if str(default) not in {o["value"] for o in opts}:
+                    print(f"INVALID:input-default:{name}:{default!r}",
+                          file=sys.stderr)
+                    return 2
+                item["default"] = str(default)
+            if "validate" not in item:
+                item["validate"] = "^(" + "|".join(
+                    re.escape(o["value"]) for o in opts) + ")$"
         normalised.append(item)
     print(json.dumps(normalised))
     return 0
@@ -805,6 +1042,15 @@ def _trigger_rule_satisfied(rule: str, deps: list[dict]) -> tuple[bool, bool]:
             return False, True
         return False, False
     if rule == "all-done":
+        if len(terminal) == len(statuses):
+            return True, False
+        return False, False
+    if rule == "none-failed":
+        # Like none-failed-min-one-success but tolerates ALL deps being
+        # skipped (e.g. user-deselected stages) — the step still runs.
+        # Any failed dep propagates the skip; otherwise wait for terminal.
+        if failed:
+            return False, True
         if len(terminal) == len(statuses):
             return True, False
         return False, False
@@ -894,15 +1140,31 @@ def cmd_next_wave(def_path: str, state_path: str) -> int:
         ok, should_skip = _trigger_rule_satisfied(rule, dep_steps)
 
         # Evaluate `when:` — supports trivial forms only: `name == 'literal'`
-        # or `name != 'literal'`. Anything else is treated as truthy.
+        # or `name != 'literal'`. A LIST of such conditions is AND-ed (all
+        # must hold) — the shape for a step gated on both a captured output
+        # and a pre-flight mode choice, e.g.
+        #   when:
+        #     - "readiness == 'gaps'"
+        #     - "gap_mode == 'ask'"
+        # Anything unparseable is treated as truthy.
         when = sdef.get("when")
         when_ok = True
-        if when:
-            m = re.match(r"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(==|!=)\s*'([^']*)'\s*", when)
+        conditions = when if isinstance(when, list) else ([when] if when else [])
+        for cond in conditions:
+            m = re.match(r"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(==|!=)\s*'([^']*)'\s*",
+                         str(cond))
             if m:
                 var, op, lit = m.group(1), m.group(2), m.group(3)
                 val = (state.get("outputs") or {}).get(var)
-                when_ok = (val == lit) if op == "==" else (val != lit)
+                if not ((val == lit) if op == "==" else (val != lit)):
+                    when_ok = False
+                    break
+            else:
+                # Unparseable condition stays truthy (never blocks a step
+                # on a typo) but is surfaced — a silent drop-out of the
+                # conjunction would mis-gate exactly the steps that decide
+                # whether an autonomous run pauses.
+                print(f"WARN:when-unparseable:{sid}:{cond!r}", file=sys.stderr)
 
         if should_skip or (ok and not when_ok):
             skipped_ids.append(sid)
@@ -1322,12 +1584,21 @@ def _normalize_member(item) -> dict:
     return {"role": "", "lead": False, "model": "", "effort": ""}
 
 
-def cmd_resolve_team(def_path: str, step_id: str) -> int:
+def cmd_resolve_team(def_path: str, step_id: str,
+                     model_override: str = "", effort_override: str = "") -> int:
     """Resolve a prompt step's `agent:` into a normalized, model-resolved team.
 
     Reads the step's `agent:` / `model:` / `effort:` from the definition and
     emits JSON:
       `{mode, lead, members:[{role,lead,model,effort,reason,fell_back,next_fallback}], errors}`
+
+    `model_override` / `effort_override` (the `--model` / `--effort` CLI
+    flags) carry a run-level tuning choice made by the user at pre-flight.
+    A non-empty override wins over BOTH the member-level and step-level
+    pins — the user asked for the whole step (team included) on that
+    tier — and still goes through `_resolve_model_dict`, so retired-id
+    substitution and the effort clamp apply to the override too. The
+    substitution is surfaced via each member's `reason`.
 
     `mode` ∈ {`unset`, `off`, `auto`, `single`, `team`}:
     - `unset`  — no `agent:`; the conductor applies the workflow `agents:` policy.
@@ -1390,11 +1661,16 @@ def cmd_resolve_team(def_path: str, step_id: str) -> int:
                 errors.append(f"multiple leads ({lead}, {role}); only one allowed")
             else:
                 lead = role
-        rm = _resolve_model_dict(m["model"] or step_model, m["effort"] or step_effort)
+        pin_model = model_override or m["model"] or step_model
+        pin_effort = effort_override or m["effort"] or step_effort
+        rm = _resolve_model_dict(pin_model, pin_effort)
+        reason = rm["reason"]
+        if model_override or effort_override:
+            reason = f"run tuning override; {reason}" if reason else "run tuning override"
         out_members.append({
             "role": role, "lead": m["lead"],
             "model": rm["model"], "effort": rm["effort"],
-            "reason": rm["reason"], "fell_back": rm["fell_back"],
+            "reason": reason, "fell_back": rm["fell_back"],
             "next_fallback": rm["next_fallback"],
         })
 
@@ -1813,6 +2089,8 @@ def main() -> int:
 
     sub.add_parser("runs-root")
     p = sub.add_parser("get-preflight"); p.add_argument("def_path")
+    p = sub.add_parser("get-tuning"); p.add_argument("def_path")
+    p = sub.add_parser("get-step-select"); p.add_argument("def_path")
     p = sub.add_parser("write-log")
     p.add_argument("run_dir")
     p.add_argument("step_id")
@@ -1867,6 +2145,8 @@ def main() -> int:
 
     p = sub.add_parser("resolve-team")
     p.add_argument("def_path"); p.add_argument("step_id")
+    p.add_argument("--model", default="", dest="model_override")
+    p.add_argument("--effort", default="", dest="effort_override")
 
     sub.add_parser("list-resumable-runs")
     sub.add_parser("prune-runs")
@@ -1884,6 +2164,8 @@ def main() -> int:
         "start-run": lambda: cmd_start_run(args.state_path, args.ctx_json),
         "runs-root": lambda: cmd_runs_root(),
         "get-preflight": lambda: cmd_get_preflight(args.def_path),
+        "get-tuning": lambda: cmd_get_tuning(args.def_path),
+        "get-step-select": lambda: cmd_get_step_select(args.def_path),
         "write-log": lambda: cmd_write_log(args.run_dir, args.step_id, args.step_run_id),
         "list-inputs": lambda: cmd_list_inputs(args.def_path),
         "validate-input": lambda: cmd_validate_input(args.raw, args.extract, args.validate),
@@ -1905,7 +2187,9 @@ def main() -> int:
         "list-defs": lambda: cmd_list_defs(),
         "list-agents": lambda: cmd_list_agents(),
         "resolve-model": lambda: cmd_resolve_model(args.pinned, args.effort),
-        "resolve-team": lambda: cmd_resolve_team(args.def_path, args.step_id),
+        "resolve-team": lambda: cmd_resolve_team(
+            args.def_path, args.step_id,
+            args.model_override, args.effort_override),
         "list-resumable-runs": lambda: cmd_list_resumable_runs(),
         "prune-runs": lambda: cmd_prune_runs(),
         "apply-worktree-include": lambda: cmd_apply_worktree_include(
