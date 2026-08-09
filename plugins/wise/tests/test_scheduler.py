@@ -37,10 +37,28 @@ def _deps(*statuses):
         ("none-failed-min-one-success", ("completed", "failed"), (False, True)),
         ("none-failed-min-one-success", ("skipped", "cancelled"), (False, False)),
         ("none-failed-min-one-success", ("completed", "running"), (False, False)),
+        # none-failed: all terminal + zero failed — runnable even when ALL
+        # deps are skipped (user-deselected stages); a failed dep still
+        # propagates the skip, even before the rest finish.
+        ("none-failed", ("completed", "completed"), (True, False)),
+        ("none-failed", ("completed", "skipped"), (True, False)),
+        ("none-failed", ("skipped", "skipped"), (True, False)),
+        ("none-failed", ("skipped", "cancelled"), (True, False)),
+        ("none-failed", ("completed", "failed"), (False, True)),
+        ("none-failed", ("failed", "running"), (False, True)),
+        ("none-failed", ("completed", "running"), (False, False)),
+        ("none-failed", ("completed", "pending"), (False, False)),
     ],
 )
 def test_trigger_rule_truth_table(workflows_module, rule, statuses, expected):
     assert workflows_module._trigger_rule_satisfied(rule, _deps(*statuses)) == expected
+
+
+def test_trigger_rules_registry_names_every_rule(workflows_module):
+    assert workflows_module.TRIGGER_RULES == {
+        "all-success", "one-success", "all-done",
+        "none-failed", "none-failed-min-one-success",
+    }
 
 
 def test_trigger_rule_empty_deps_always_runnable(workflows_module):
@@ -123,6 +141,9 @@ def test_next_wave_all_terminal_is_completed(workflows_module, tmp_path, capsys)
         ("mode != 'fast'", "fast", False),
         # a non-matching (unparseable) `when:` expression is treated TRUE.
         ("this is not a valid expr @@@", "anything", True),
+        # valid syntax + trailing text must be unparseable-truthy too —
+        # fullmatch, not a silent evaluation of the parseable prefix.
+        ("mode == 'fast' && other == 'x'", "slow", True),
     ],
 )
 def test_next_wave_when_semantics(
@@ -144,6 +165,51 @@ def test_next_wave_when_semantics(
     if should_run:
         assert ran_ids == ["a"]
         assert result["to_skip"] == []
+    else:
+        assert ran_ids == []
+        assert result["to_skip"] == ["a"]
+
+
+@pytest.mark.parametrize(
+    "when_list, outputs, should_run",
+    [
+        # AND semantics: all conditions must hold.
+        (["readiness == 'gaps'", "gap_mode == 'ask'"],
+         {"readiness": "gaps", "gap_mode": "ask"}, True),
+        (["readiness == 'gaps'", "gap_mode == 'ask'"],
+         {"readiness": "gaps", "gap_mode": "defaults"}, False),
+        (["readiness == 'gaps'", "gap_mode == 'ask'"],
+         {"readiness": "ready", "gap_mode": "ask"}, False),
+        # first condition guards the second's unset-var != '' trap:
+        # review_mode never 'ask' → skip even though comments is unset
+        # (None != '' would otherwise evaluate TRUE).
+        (["review_mode == 'ask'", "user_comments != ''"],
+         {"review_mode": "auto"}, False),
+        (["review_mode == 'ask'", "user_comments != ''"],
+         {"review_mode": "ask", "user_comments": "tweak X"}, True),
+        # an unparseable member of the list is treated TRUE (ignored).
+        (["mode == 'fast'", "not a valid expr @@@"],
+         {"mode": "fast"}, True),
+    ],
+)
+def test_next_wave_when_list_is_anded(
+    workflows_module, tmp_path, capsys, when_list, outputs, should_run
+):
+    def_path = tmp_path / "workflow.yaml"
+    state_path = tmp_path / "state.yaml"
+    _write_def(workflows_module, def_path, [
+        {"id": "a", "type": "bash", "when": when_list},
+    ])
+    _write_state(
+        workflows_module, state_path,
+        [{"id": "a", "status": "pending"}],
+        outputs=outputs,
+    )
+    rc, result = _run_next_wave(workflows_module, capsys, def_path, state_path)
+    assert rc == 0
+    ran_ids = [s["id"] for s in result["runnable"]]
+    if should_run:
+        assert ran_ids == ["a"]
     else:
         assert ran_ids == []
         assert result["to_skip"] == ["a"]

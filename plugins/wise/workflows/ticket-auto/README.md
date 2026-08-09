@@ -16,7 +16,9 @@ CodeRabbit), watches + fixes CI, then waits for both bots to review the
 head — bypassing CodeRabbit when it is out of credits and
 retrying-then-giving-up on a rate limit, while a requested Copilot
 review is awaited strictly — and resolves every review comment — end to
-end, with **no user prompts**. One worktree + branch + PR per ticket. When a PR's checks
+end, with **no prompts after launch** (pre-flight asks one optional
+model/effort tuning questionary before autonomy starts). One worktree
++ branch + PR per ticket. When a PR's checks
 all pass, both review bots have finished, and every comment is
 fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved — including one
@@ -91,13 +93,20 @@ access). Every heavy sub-task is delegated to a `Task` subagent to
 keep the step's context bounded.
 
 `control-mode` is pinned `synchronous`, `worktree` `current`,
-`rename_session` `skip` — the only pre-flight input is the ticket list
-(required) and an optional free-form `config_prompt`. There are no
-`ask` / `approval` steps, and no tuning questions: every quality /
-depth dial takes its maximum-value default (e.g. the review gate runs
-at **high** effort — five reviewer lenses + a confidence pass). The
-review↔fix cycle cap and the CI-fix cap both default to 10 (each
-overridable from `config_prompt`).
+`rename_session` `skip` — pre-flight collects the ticket list
+(required), an optional free-form `config_prompt`, and one
+**model/effort tuning questionary** (`tuning: prompt`): a single
+profile question — `Defaults` (opus/xhigh plan, opus/high
+implement+fix and review, sonnet watch), `Economy` (sonnet at high
+everywhere), or `Custom` per phase group (plan / implement / review /
+watch). The groups are advisory (the phases dispatch inside
+`process-tickets`, not at the step level), so the choices reach the
+orchestrator as per-group `tuning_<group>` outputs, which every phase
+treats as binding. After launch there are no `ask` / `approval` steps and no
+further questions: every quality / depth dial takes its maximum-value
+default (e.g. the review gate runs at **high** effort — five reviewer
+lenses + a confidence pass). The review↔fix cycle cap and the CI-fix
+cap both default to 10 (each overridable from `config_prompt`).
 
 ## Steps
 
@@ -121,7 +130,10 @@ tiering (`opus` = the latest Opus, Opus 5): `opus` at `xhigh` for the
 planning brain, `opus` at `high` for the hands-on engineering
 (implement / fix / executors) + review brains, `sonnet` for the
 watch+fix CI conductor and the
-hands-on engineering and bookkeeping steps. See
+hands-on engineering and bookkeeping steps. These are the defaults —
+the pre-flight tuning questionary can override them per phase group
+(the choices reach `process-tickets` as per-group `tuning_<group>`
+outputs). See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Per-ticket pipeline (inside `process-tickets`)
@@ -224,14 +236,16 @@ reason=stability-capped`) and leaves the green PR open for a human.
 
 ```
 /wise-workflow-run ticket-auto
-# Bare: prompts only for the ticket list (config_prompt is optional and skipped).
+# Bare: pre-flight asks the model/effort profile (one click for
+# Defaults) and the ticket list (config_prompt is optional and skipped).
 
 /wise-workflow-run ticket-auto PROJ-1,PROJ-2
-# Two tickets, no prompts. Comma-separated, NO spaces. Max-value defaults.
+# Two tickets. Comma-separated, NO spaces. Max-value defaults; the only
+# question is the pre-flight tuning profile, then fully unattended.
 
 /wise-workflow-run ticket-auto ENG-42 prefer the design-system lib; never touch infra/*; cap CI fixes at 4
 # One ticket + free-form config_prompt (everything after the first token).
-# Steers the Lead Architect's decisions; still no questions asked.
+# Steers the Lead Architect's decisions; no questions after launch.
 ```
 
 ## Notes

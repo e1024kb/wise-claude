@@ -6,7 +6,9 @@ description: >-
   isolated git worktree, converges it through a reviewer↔fixer loop
   (code-reviewer ⇄ software-engineer), commits, pushes, opens a PR,
   requests review, and watches + fixes CI until the PR is green — end to
-  end, with no user prompts. One worktree + branch + PR per ticket; a PR
+  end, with no prompts after launch (pre-flight asks one optional
+  model/effort tuning questionary before autonomy starts). One
+  worktree + branch + PR per ticket; a PR
   is merged once all its checks pass — and its worktree + local branch
   are then cleaned up so the base repo stays clean — otherwise it is left
   open for a human (worktree kept for inspection).
@@ -34,10 +36,14 @@ project-selection: current
 # watch+fix CI conductor and the bookkeeping / orchestration steps.
 agents: auto
 
-# ticket-auto is fully autonomous: it never asks the user for consent,
-# permission, or a decision. Every choice the interactive ticket-plan
-# flow delegates to the user is made here by the Lead
-# Architect agent instead.
+# ticket-auto is fully autonomous AFTER LAUNCH: once the DAG starts it
+# never asks the user for consent, permission, or a decision. Every
+# choice the interactive ticket-plan flow delegates to the user is made
+# here by the Lead Architect agent instead. The ONE user touchpoint is
+# the pre-flight tuning questionary (`tuning: prompt` below) — it runs
+# in the main TUI before autonomy starts, letting the operator confirm
+# or override the per-phase model/effort defaults; its answers land in
+# run state as per-group `tuning_<group>` outputs and bind every phase.
 #   control-mode: synchronous — no approval gates, no ask steps.
 #   worktree: current — NOT `new`. Pre-flight `new` would give ONE
 #     worktree for the whole run; this workflow needs one worktree PER
@@ -54,6 +60,30 @@ preflight:
   control-mode:   synchronous
   worktree:       current
   rename_session: skip
+  tuning:         prompt
+
+# Model/effort tuning groups for the pre-flight questionary. These are
+# ADVISORY groups (no `steps:` binding): the real per-phase dispatch
+# happens inside the `process-tickets` interactive fragment, not at the
+# step level, so each group carries a display `default:` and the user's
+# choices reach the orchestrator via the per-group `{{tuning_<group>}}`
+# outputs the conductor records after the questionary (the
+# `{{tuning_summary}}` output is the display-only roll-up). The phases
+# treat a named override as binding configuration.
+tuning:
+  groups:
+    - id: plan
+      label: "Plan phase (architect — the run's decision-maker)"
+      default: "opus / xhigh"
+    - id: implement
+      label: "Implement + fix phases (software-engineer executors)"
+      default: "opus / high"
+    - id: review
+      label: "Review phase (code-reviewer gate)"
+      default: "opus / high"
+    - id: watch
+      label: "CI watch + fix conductor"
+      default: "sonnet"
 
 inputs:
   - name: ticket_ids
@@ -104,6 +134,12 @@ steps:
       Standing operator guidance for this run (may be empty):
 
         {{config_prompt}}
+
+      Pre-flight model/effort tuning for this run (empty / `all
+      defaults` / a raw un-rendered placeholder = the defaults above
+      stand):
+
+        {{tuning_summary}}
 
       Every phase treats that guidance as binding configuration — preferred
       skills / libraries, coding guidelines, guardrails, files to stay out
@@ -254,19 +290,32 @@ steps:
       → PR → request-review → watch+fix, fully autonomously.
 
       Runtime context:
-        ticket_list:   {{ticket_list}}
-        ticket_count:  {{ticket_count}}
-        config_prompt: {{config_prompt}}
-        project.path:  {{project.path}}
-        project.name:  {{project.name}}
-        project.kind:  {{project.kind}}
-        run.dir:       {{run.dir}}
-        workflow.dir:  {{workflow.dir}}
+        ticket_list:      {{ticket_list}}
+        ticket_count:     {{ticket_count}}
+        config_prompt:    {{config_prompt}}
+        tuning.plan:      {{tuning_plan}}
+        tuning.implement: {{tuning_implement}}
+        tuning.review:    {{tuning_review}}
+        tuning.watch:     {{tuning_watch}}
+        project.path:     {{project.path}}
+        project.name:     {{project.name}}
+        project.kind:     {{project.kind}}
+        run.dir:          {{run.dir}}
+        workflow.dir:     {{workflow.dir}}
 
       `config_prompt` is the operator's standing guidance (may be
       empty) — pass it down to every per-ticket phase, and resolve the
       CI-fix cap (`max_fix_attempts`, default 10) from it when it names
       an override.
+
+      The `tuning.*` values are the operator's pre-flight model/effort
+      choice per phase group, one structured value each (recorded by
+      the conductor's tuning questionary). A value of the form
+      `<model> / <effort>` (e.g. `sonnet / high`) is BINDING — dispatch
+      that phase's Task subagents with that model and effort directive
+      instead of the fragment's defaults. A value of `default`, an
+      empty value, or a raw un-rendered placeholder in double curly
+      braces → use the fragment's defaults for that phase unchanged.
 
       Process tickets sequentially; one failing ticket never aborts
       the run. A fully green PR is merged by the watch step; any PR

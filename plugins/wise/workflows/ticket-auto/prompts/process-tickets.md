@@ -17,12 +17,23 @@ worktree — fully autonomously, no prompts.
   per-ticket phase below so the guidance reaches the actual work; never
   prompt the user about anything it implies — predict the answer and
   proceed, taking the max-value option for anything it leaves open.
+- `tuning.plan` / `tuning.implement` / `tuning.review` / `tuning.watch`
+  — the operator's pre-flight model/effort choice per phase group, one
+  structured value each (recorded by the conductor's tuning
+  questionary). A value of the form `<model> / <effort>` (e.g.
+  `sonnet / high`) is BINDING: dispatch that phase's `Task` subagents
+  with that `model:` and effort directive instead of the defaults
+  written at each phase below. A value of `default`, empty, or a raw
+  un-rendered `{{…}}` placeholder → the written defaults stand for
+  that phase.
 - `project.path` — absolute path to the base repo.
 - `project.name`, `project.kind`, `run.dir`, `workflow.dir` — run context.
 
 Resolve the CI-fix cap once, up front: `MAX_FIX_ATTEMPTS` = the value
 `config_prompt` names if it specifies one (e.g. "cap CI fixes at 4"),
-else the default **10**. Pass it to the watch phase (§8).
+else the default **10**. Pass it to the watch phase (§8). Resolve the
+per-phase model/effort table from `tuning` in the same breath, so every
+phase dispatch below reads from one resolved table.
 
 ## Context-budget rule (read first)
 

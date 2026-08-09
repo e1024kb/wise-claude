@@ -20,9 +20,13 @@ lets you answer inline (or pause the run and take them to your team);
 otherwise — **autonomously, no question-by-question wizard** — it
 consolidates the findings and makes every scope / approach / component
 / design / testing decision, writes a `PLAN-<ref>.md` into the run
-directory, and **presents the consolidated decision + plan for you to
-review and comment**. Only after the plan is settled does it ask the
-git / session **setup** choices, as one composite questionnaire.
+directory, presents it, sets up the branch, and (optionally)
+implements it. **Every decision is collected up front**,
+ticket-auto-style: pre-flight asks the model/effort profile, the stage
+preset, and four flow modes (gap handling / plan review / branch /
+implement) — with the default modes the run is **fully autonomous
+after launch**, and each mode keeps an `ask` value that restores the
+old mid-run prompt for exactly that decision.
 
 ## When to use
 
@@ -70,59 +74,92 @@ flowchart TD
     D --> G
     RCx --> G
     E --> G
-    G -->|gaps| RG[resolve-gaps<br/>ask → gap_answers]
-    G -->|ready| B
+    G -->|gaps + gap_mode=ask| RG[resolve-gaps<br/>ask → gap_answers]
+    G -->|else| B
     RG --> B[build-plan<br/>prompt TEAM — consolidate + DECIDE + write PLAN-&lt;ref&gt;.md → plan_path]
     B --> P[present-plan<br/>prompt — show path + summary + decisions + testing + validation]
-    P --> RC[review-comments<br/>ask → user_comments]
+    P -->|review_mode=ask| RC[review-comments<br/>ask → user_comments]
+    P -->|review_mode=auto| S
     RC -->|comments| RF[refine-plan<br/>prompt — fold comments, rewrite plan]
     RC -->|accept| S
-    RF --> S[setup<br/>interactive — composite questionnaire: ticket / branch / base / session, then act]
-    S --> AI[ask-implement<br/>ask → implement_choice]
-    AI -->|yes| IM[implement<br/>interactive — run implement-plan.md: parallel executors, one commit/task]
-    AI -->|skip| FN
+    RF --> S[setup<br/>interactive — act on branch_mode / implement_mode; ask ONLY the pieces left on 'ask' → implement_choice]
+    S -->|implement=yes| IM[implement<br/>interactive — run implement-plan.md: parallel executors, one commit/task]
+    S -->|implement=no| FN
     IM --> FN[finalize<br/>prompt — summary + next-step, branched on implement_choice]
 ```
 
-No setup questions fire before the plan: the `gap-analysis` gate
-either passes the evidence straight through (READY) or surfaces its
-targeted questions once via `resolve-gaps` (GAPS — answer inline, or
-interrupt and `/wise-workflow-resume` after asking your team; anything
-left open proceeds on the stated default, recorded as an assumption).
-Decisions are then made autonomously in `build-plan`, presented in
-`present-plan`, optionally adjusted via `review-comments` →
-`refine-plan`, and only then does the single `setup` questionnaire
-collect ticket / branch / base / session choices. `build-plan` depends
-on `gap-analysis` + `resolve-gaps` with
-`trigger-rule: none-failed-min-one-success` (a when-skipped
-`resolve-gaps` doesn't block it, but a failed / skip-propagated
-`gap-analysis` does — the plan is never built from a missing
-investigation); `setup` depends on `review-comments` + `refine-plan`
+No questions fire mid-run unless a flow mode asked for them: with
+`gap_mode=defaults` the `gap-analysis` gate records its open questions
+in the blueprint and proceeds on their stated defaults (each becomes a
+`default-accepted` assumption in the plan); with `gap_mode=ask` the
+`resolve-gaps` prompt fires once (answer inline, or interrupt and
+`/wise-workflow-resume` after asking your team). Decisions are made
+autonomously in `build-plan` and presented in `present-plan`; with
+`review_mode=ask` the run pauses for your comments (`review-comments`
+→ one `refine-plan` pass), with `auto` it flows straight to `setup`,
+which acts on `branch_mode` / `implement_mode` and only asks about
+the pieces left on `ask`. `build-plan` depends
+directly on the four evidence steps plus `gap-analysis` +
+`resolve-gaps` with `trigger-rule: none-failed` (a skipped dep — a
+when-skipped `resolve-gaps`, or any stage deselected at pre-flight —
+never blocks it; a *failed* dep still does — the plan is never built
+over a crashed investigation); `gap-analysis` uses the same rule for
+the same reason; `setup` depends on `review-comments` + `refine-plan`
 with `trigger-rule: all-done`, so it runs whether or not `refine-plan`
 fired.
 
-After setup, `ask-implement` offers a yes/no opt-in to implement the
-plan right now. On **yes**, the conditional `implement` step runs the
-shared `implement-plan.md` procedure in-session — dispatching each task
-wave's tasks to parallel executor subagents and landing one atomic
-commit per task (nothing is pushed). On **skip**, `implement` is
-bypassed and the plan is left for later. `finalize` depends on both
-`ask-implement` and `implement` with `trigger-rule: all-done`, so it
-closes the run either way, branching its message on the choice.
+The implement decision comes out of `setup` as `implement_choice`,
+resolved from the pre-flight `implement_mode` (`now` / `plan-only`)
+or from the setup questionnaire when the mode was `ask`. On **yes**,
+the conditional `implement` step runs the shared `implement-plan.md`
+procedure in-session — dispatching each task wave's tasks to parallel
+executor subagents and landing one atomic commit per task (nothing is
+pushed). Otherwise `implement` is bypassed and the plan is left for
+later. `finalize` depends on `setup` + `implement` with
+`trigger-rule: all-done`, so it closes the run either way, branching
+its message on the choice.
 
 The pre-flight `control-mode` is pinned to `auto-advance`: the
 workflow runs wave-to-wave on its own, with **no between-wave
-"continue?" menu**, and stops only for its own in-step questions
-(`ensure-access`, `resolve-gaps`, `review-comments`, `setup`,
-`ask-implement`). This
-DAG is mostly one step per wave, so wave-sync's between-wave menu
-would interrupt after nearly every step; auto-advance keeps the
-in-step prompts while dropping that menu. (synchronous mode is the
-wrong choice — it would auto-skip those prompts.)
+"continue?" menu**, and stops only where a question is still armed —
+`ensure-access` when no tracker access exists, plus whichever of
+`resolve-gaps` / `review-comments` / the `setup` questionnaire a flow
+mode left on `ask`. With the default modes nothing stops after
+launch. This DAG is mostly one step per wave, so wave-sync's
+between-wave menu would interrupt after nearly every step;
+auto-advance keeps the in-step prompts while dropping that menu.
+(synchronous mode is the wrong choice — it would auto-skip
+`ensure-access`'s fallback prompt and any mode left on `ask`.)
 
 The pre-flight `rename_session` prompt is pinned to `skip` — at
 pre-flight all we have is the run ULID; the rename is folded into the
 `setup` questionnaire once the ticket ref is known.
+
+All configuration happens at pre-flight, before the DAG launches:
+
+- **Model/effort tuning** (`tuning: prompt`) — one profile question
+  (`Defaults` / `Economy` — sonnet at high everywhere / `Custom`);
+  Custom opens one question per group. Two tunable groups: **evidence
+  & research** (`analyze-design`, `research-context`,
+  `codebase-audit`) and **plan authoring** (`gap-analysis`,
+  `build-plan`, `refine-plan`). An override binds at dispatch
+  (`resolve-team --model/--effort`) and wins over step- and
+  team-member pins.
+- **Stage selection** (`step-select: prompt`) — one preset question:
+  **Full** (everything), **Standard** (skip the deep-dive context
+  sweep), **Minimal** (fetch + codebase audit + plan only — no
+  research wave, no gap analysis), or **Custom** (multiSelect over
+  the four optional research stages: design analysis, related tickets
+  & docs, deep-dive sweep, gap analysis). Deselected stages are
+  pre-marked `skipped` in run state; the `none-failed` trigger-rules
+  above keep the DAG flowing past them.
+- **Flow modes** (choice inputs, asked as one composite questionary) —
+  `gap_mode` (**proceed on defaults** / pause and ask), `review_mode`
+  (**accept as-is** / pause for review), `branch_mode` (**ticket
+  branch automatically** / stay on current / ask at setup), and
+  `implement_mode` (**plan only** / implement right away / ask after
+  setup). The bolded defaults make the run autonomous after launch;
+  any mode set to `ask` restores exactly that mid-run prompt.
 
 The four analysis steps share `depends_on: [fetch-ticket]`, so they
 run as one parallel wave — typically the longest wave of the run — on
@@ -141,13 +178,12 @@ until `setup`).
 | `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and returns the Context Dossier (incl. the People map and sources-unavailable list) — persisted to `<run-dir>/research/dossier.md` so the isolated `gap-analysis` subagent can read it. Runs on `opus`, `effort: high` (the dossier is the evidence base every later step plans off). |
 | `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. Dispatched to a **team** — `wise:software-engineer` (lead) + `wise:architect` — on `sonnet`, `effort: high`. |
 | `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `opus`, `effort: xhigh` (the READY / GAPS judgement is a planning call). |
-| `resolve-gaps` | `ask` | `when: readiness == 'gaps'` — free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. |
+| `resolve-gaps` | `ask` | `when: [readiness == 'gaps', gap_mode == 'ask']` — free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. With `gap_mode=defaults` this never fires. |
 | `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the four analyses + gap scorecard, folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer`, the whole panel on `opus`, conductor-synthesized, `effort: high`. |
 | `present-plan` | `prompt` | Informational — surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
-| `review-comments` | `ask` | Free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. |
-| `refine-plan` | `prompt` | `when: user_comments != ''` — folds the comments in and overwrites the plan once. Dispatched to `wise:architect` on `opus`, `effort: xhigh`. |
-| `setup` | `interactive` | One composite questionnaire — ticket-ref confirm + branch (omitted when current branch already equals the target) + base + session rename — then acts (create/switch the branch, named exactly the ticket ref per `branch-naming.md`; print the `/rename` command). |
-| `ask-implement` | `ask` | Binary opt-in: start implementing the plan now, or skip to save it for later. Records `implement_choice`. |
+| `review-comments` | `ask` | `when: review_mode == 'ask'` — free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. With `review_mode=auto` the plan is accepted as presented. |
+| `refine-plan` | `prompt` | `when: [review_mode == 'ask', user_comments != '']` — folds the comments in and overwrites the plan once. Dispatched to `wise:architect` on `opus`, `effort: xhigh`. |
+| `setup` | `interactive` | Acts on the pre-flight `branch_mode` / `implement_mode`: creates the ticket branch off the repo's default branch or switches to it automatically (`auto`, dirty-tree refused before any checkout), stays put (`current`), or asks the composite questionnaire (branch + base + session rename) for the pieces left on `ask`. The ticket ref is immutable at this point — a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. Emits `work_branch` + `session_renamed` + `implement_choice`. |
 | `implement` | `interactive` | `when: implement_choice == 'yes'` — runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. |
 | `finalize` | `prompt` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-code-review-auto` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
 
@@ -180,7 +216,9 @@ steps (`present-plan`,
 `finalize`) carry no `agent:` and stay on `general-purpose` via the
 conductor's tool-aware auto-selection — they need tracker-MCP / git
 tools no scoped role carries — but still run on their pinned model
-(`opus` for `research-context`, `sonnet` for the rest). See
+(`opus` for `research-context`, `sonnet` for the rest). These are the
+defaults — the pre-flight tuning questionary can override them per
+group (see Flow above). See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Inputs
@@ -188,6 +226,15 @@ tools no scoped role carries — but still run on their pinned model
 | Name | Required | Description |
 |---|---|---|
 | `ticket_id` | yes | A ticket URL (`https://acme.atlassian.net/browse/PROJ-1`, `https://linear.app/acme/issue/ENG-45`, …) or a bare id (`PROJ-123`, `ENG-45`, `#678`). `detect-context` resolves the tracker and the bare ref from it. |
+| `gap_mode` | yes (choice) | `defaults` (default — open gap questions proceed on their stated defaults, recorded as assumptions) / `ask` (pause at `resolve-gaps`). |
+| `review_mode` | yes (choice) | `auto` (default — accept the plan as presented) / `ask` (pause at `review-comments` for one refine pass). |
+| `branch_mode` | yes (choice) | `auto` (default — create/switch the ticket branch off the repo's default branch, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
+| `implement_mode` | yes (choice) | `plan-only` (default — stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
+
+The four mode inputs render as one composite pre-flight questionary
+(consecutive choice inputs are batched); each also accepts its value
+positionally, e.g. `/wise-workflow-run ticket-plan PROJ-1 defaults
+auto auto now`.
 
 ## Outputs
 
@@ -199,9 +246,9 @@ tools no scoped role carries — but still run on their pinned model
 | `readiness` / `open_questions` | `gap-analysis` | `ready` or `gaps` + the open-question count; `gaps` gates the `resolve-gaps` ask. |
 | `gap_answers` | `resolve-gaps` | The user's inline answers (may be empty); folded into `build-plan` as CLEAR evidence, with unanswered questions proceeding on their defaults. |
 | `plan_path` | `build-plan` | Absolute path to `PLAN-<ref>.md` in the run directory; surfaced in `present-plan` / `finalize` and consumable by `/wise-implement-plan-auto`. |
-| `user_comments` | `review-comments` | Drives `refine-plan` when non-empty. |
+| `user_comments` | `review-comments` | Drives `refine-plan` when non-empty (only when `review_mode=ask`). |
 | `work_branch` / `session_renamed` | `setup` | The branch the run ended on, and whether the session was renamed. |
-| `implement_choice` | `ask-implement` | `yes` when the user opted to implement now; gates the `implement` step and branches `finalize`. |
+| `implement_choice` | `setup` | `yes` / `no`, resolved from `implement_mode` (or the setup questionnaire when that mode was `ask`); gates the `implement` step and branches `finalize`. |
 | `impl_waves` / `impl_tasks` / `impl_done` / `impl_failed` | `implement` | Implementation tallies (set only when `implement` ran). |
 
 The plan file lives at `<run-dir>/plans/PLAN-<ref>.md` (beside
@@ -214,8 +261,17 @@ record. `/wise-workflow-status <run-ulid>` shows `plan_path`.
 
 ```
 /wise-workflow-run ticket-plan
-# Prompts for the ticket URL or id at pre-flight; no other questions
-# until the plan is ready to review.
+# Pre-flight asks everything up front: model/effort profile, stage
+# preset, the ticket URL or id, and the four flow modes (one composite
+# questionary). With the default modes the run is fully autonomous
+# after launch — plan written, ticket branch created, run ends after
+# setup with the implement pointers.
+
+/wise-workflow-run ticket-plan PROJ-123
+# Same, ticket supplied positionally. Pick "Pause for my review" at
+# the review question to keep the old comment-and-refine pause, or
+# "Implement right away" to go ticket → plan → implemented branch in
+# one unattended run.
 ```
 
 ## Related

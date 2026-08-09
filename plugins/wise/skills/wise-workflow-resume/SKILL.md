@@ -242,7 +242,15 @@ Run the same algorithm against the existing `state.yaml`:
   summary.
 
 Refer to `wise-workflow-run/SKILL.md` for the exact step dispatch rules
-and the full turn-continuity note.
+and the full turn-continuity note. Two pre-flight artifacts carry over
+from the original run with no extra bookkeeping: steps the user
+deselected at step-select are already `skipped` in `state.yaml`
+(`reset-running` never touches terminal steps), and model/effort
+tuning choices live in `state.outputs` as `tuning_<group>` /
+`tuning_summary` — apply them at dispatch exactly as
+`wise-workflow-run` §10's tuning-override rule describes (re-shell
+`get-tuning "$DEF"` once; read the choices from state, not from
+conversation memory).
 
 ## Stuck-run takeover
 

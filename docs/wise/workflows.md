@@ -105,6 +105,29 @@ preflight:                       # optional — pin pre-flight answers (see belo
   control-mode:   wave-sync      # prompt (default) | wave-sync | synchronous | auto-advance
   worktree:       prompt         # prompt (default) | current | new
   rename_session: prompt         # prompt (default) | skip
+  tuning:         skip           # skip (default) | prompt — opt-in model/effort questionary
+  step-select:    skip           # skip (default) | prompt — opt-in stage-selection questionary
+
+tuning:                          # optional — groups for the tuning questionary (see below)
+  groups:
+    - id: authoring              # slug, unique
+      label: "Plan authoring"    # shown in the questionary
+      steps: [decide-release-kind]  # prompt-step ids the override binds to
+    - id: plan                   # an ADVISORY group: no steps binding —
+      label: "Plan phase"        #   the choice reaches the workflow via the
+      default: "opus / xhigh"    #   {{tuning_plan}} / {{tuning_summary}} outputs
+
+step-select:                     # optional — stages for the step-select questionary (see below)
+  optional:
+    - id: lint-stage
+      label: "Lint pass"
+      steps: [lint]              # step ids skipped together; defaults to [<id>]
+      ask-group: "Quality"       # one multiSelect question per ask-group
+  presets:
+    - id: quick
+      label: "Quick"
+      description: "Skip the lint pass"
+      skip: [lint-stage]         # ⊆ optional entry ids
 
 steps:
   - id: list-workflows           # unique per workflow; [a-z0-9-]
@@ -251,12 +274,46 @@ shape:
 Downstream steps gate with `when:` — `when: "user_comments != ''"`
 for free-text (truthy = user provided something), or
 `when: "watch_choice == 'yes'"` for binary (exact-match the
-confirm value).
+confirm value). `when:` also accepts a **list** of such conditions,
+AND-ed — the shape for a step gated on both a captured output and a
+pre-flight mode choice:
+
+```yaml
+when:
+  - "readiness == 'gaps'"
+  - "gap_mode == 'ask'"
+```
+
+Order the guarding condition first: `x != ''` on an output that was
+never recorded evaluates TRUE (unset ≠ empty string), so pair it with
+the mode condition that decides whether the recording step ran at all.
 
 Picking the binary shape for yes/no questions matters for UX:
 `Provide input` + free-text forces the user to type `yes` by
 hand, which is slow and error-prone. Use binary whenever the
 answer is enum-like.
+
+### Choice inputs — front-loading run decisions
+
+An `inputs:` entry may declare `options:` (list of
+`{value, label?, description?}`; bare string = `{value}`) plus an
+optional `default:` naming one of the values. The conductor then
+renders it as an AskUserQuestion choice (default listed first,
+recorded answer = the option **value**) instead of a free-text
+prompt, and batches consecutive choice inputs into one composite
+call. Membership validation is derived automatically: when no
+explicit `validate:` is declared, `list-inputs` emits one built from
+the option values, so positionally-supplied answers get checked by
+the same machinery with nothing to hand-maintain (an explicit
+`validate:` overrides it, e.g. to admit free-text values).
+
+This is how a workflow front-loads its mid-run decisions into the
+pre-flight questionary: declare each decision as a choice input with
+an autonomous default and an `ask` escape value, then gate the old
+mid-run `ask` step on `<name> == 'ask'` (compound `when:` above).
+`ticket-plan`'s `gap_mode` / `review_mode` / `branch_mode` /
+`implement_mode` are the reference case — with the defaults selected
+the run is fully autonomous after launch.
 
 ### `trigger-rule` — what makes a dependent runnable
 
@@ -266,7 +323,14 @@ a step becomes runnable once its `depends_on` entries are terminal:
 - `all-success` (default) — every dep `completed`.
 - `one-success` — ≥1 dep `completed`; others may be `failed` or `skipped`.
 - `all-done` — every dep terminal (completed/failed/skipped).
-- `none-failed-min-one-success` — every dep terminal, none failed, ≥1 completed.
+- `none-failed` — every dep terminal, none failed — runs even when ALL
+  deps are skipped. The rule for consolidation steps downstream of
+  user-deselectable stages (step-select): deselecting evidence must not
+  skip-propagate into the step that summarises whatever evidence
+  remains, but a *failed* dep still propagates the skip.
+- `none-failed-min-one-success` — every dep terminal, none failed, ≥1
+  completed. Beware: if every dep ends `skipped` this rule never fires
+  and the run dead-ends — behind step-select prefer `none-failed`.
 
 ### Surfacing step output to chat
 
@@ -536,11 +600,13 @@ conflict check and `/resume` still work.
 ## Pre-flight prompts
 
 After session tagging, BEFORE the run flips to `status: running`,
-the conductor asks up to three questions — rename_session,
-control-mode, worktree. Each can be **pinned by the workflow
-definition** via the top-level `preflight:` block, in which case the
-corresponding AskUserQuestion is skipped and the pinned answer is
-logged.
+the conductor runs the pre-flight: up to three base-control questions
+— rename_session, control-mode, worktree — plus, for workflows that
+opt in, the tuning and stage-selection flows (multi-question, see
+below) and any declared inputs. Each base control can be **pinned by
+the workflow definition** via the top-level `preflight:` block, in
+which case the corresponding AskUserQuestion is skipped and the
+pinned answer is logged.
 
 ### The three keys
 
@@ -598,6 +664,38 @@ logged.
    Pin `current` for read-only workflows (status checks, reports).
    Pin `new` for workflows that make destructive-ish edits and the
    user should always be able to throw the tree away.
+
+### The two opt-in questionaries
+
+Two more pre-flight questions exist, but inverted: they default to
+`skip` and only run when the workflow opts in with `prompt`. Both run
+in the main TUI *before* the DAG launches, so even a
+`control-mode: synchronous` workflow (e.g. `ticket-auto`) can offer
+them without breaking its no-prompts-after-launch contract. Both
+persist their answers in `state.yaml`, so resume keeps them.
+
+4. **Model/effort tuning (`preflight.tuning`)** — reads the top-level
+   `tuning:` block (`get-tuning`). Two-level UX: one profile question
+   (`Defaults` / `Economy` — sonnet at high for every group / `Custom`),
+   and on Custom one follow-up question per group. Choices are recorded
+   as `tuning_<group-id>` outputs plus a human-readable
+   `tuning_summary`. A group **with** a `steps:` list is applied at
+   dispatch — the conductor passes
+   `resolve-team --model <m> --effort <e>`, which overrides the step's
+   and every team member's pins (still going through retired-id
+   substitution and the effort clamp). A group **without** `steps:` is
+   advisory: the workflow consumes the choice itself via the
+   `{{tuning_<id>}}` / `{{tuning_summary}}` templates (how `ticket-auto`
+   binds its per-phase models inside `process-tickets`).
+
+5. **Stage selection (`preflight.step-select`)** — reads the top-level
+   `step-select:` block (`get-step-select`). One preset question
+   (`Full` / declared presets / `Custom`), and on Custom one
+   multiSelect question per `ask-group` listing stages to skip.
+   Deselected stages have their steps **pre-marked `skipped` in run
+   state** before the first wave; downstream consolidation steps must
+   use `trigger-rule: none-failed` so user-skipped dependencies don't
+   skip-propagate through the DAG (see the trigger-rule list above).
 
 ### Why pin
 
