@@ -229,7 +229,7 @@ Three mechanisms by dependency kind:
 - **Another plugin** → the plugin's
   `.claude-plugin/plugin.json` `"dependencies": [...]` array. Claude
   Code (v2.1.110+) auto-installs listed plugins transitively.
-  `wise` declares `figma` and `atlassian` from
+  `wise` declares `code-simplifier` from
   `claude-plugins-official` with the `marketplace:` field set; the
   marketplace's `allowCrossMarketplaceDependenciesOn` key permits
   the cross-marketplace resolution. See
@@ -267,13 +267,14 @@ actually work on first use.
 
 ### 2.3 Cross-marketplace dependencies
 
-`wise` depends on the `figma` and `atlassian` plugins, which live in
-the separate `claude-plugins-official` marketplace. Two things make
-that resolve:
+`wise` depends on the `code-simplifier` plugin (it ships the
+`code-simplifier` agent the per-commit simplify pass dispatches),
+which lives in the separate `claude-plugins-official` marketplace.
+Two things make that resolve:
 
 1. Each entry in `wise`'s `plugin.json` `dependencies:` array carries
-   a `marketplace:` field — `{ "name": "figma", "marketplace":
-   "claude-plugins-official" }`.
+   a `marketplace:` field — `{ "name": "code-simplifier",
+   "marketplace": "claude-plugins-official" }`.
 2. The repo's `.claude-plugin/marketplace.json` declares
    `"allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"]`.
    Without that allow-list entry, Claude Code refuses to resolve a

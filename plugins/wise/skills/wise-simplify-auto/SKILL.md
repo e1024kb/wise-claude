@@ -55,7 +55,10 @@ Run the simplify pass per
 `code-simplifier` agent (a `Task` subagent) over the working tree's
 recently-modified code. Surface its summary verbatim. On a simplify
 failure, follow that reference's failure policy and stop with
-`SIMPLIFY: failed reason="<one-line>"`.
+`SIMPLIFY: failed reason="<one-line>"`. If the agent is unavailable in
+this session (dispatch rejected), there is nothing to degrade to — the
+pass *is* the skill — so stop with
+`SIMPLIFY: failed reason="code-simplifier agent unavailable — enable the code-simplifier plugin"`.
 
 ### 2. Commit the result
 
