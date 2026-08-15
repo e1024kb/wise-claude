@@ -94,8 +94,10 @@ subagents all return, the orchestrator processes each `done` task
    `${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md`, scoped to that
    task's `files` (pass them as the explicit scope), so the cleanup
    lands in this task's commit and does not bleed into a sibling
-   task's. On a simplify error, mark the task `failed` and continue —
-   do not abort the wave. If the `code-simplifier` agent is
+   task's. On a simplify error, mark the task `failed`, do **not**
+   stage, validate, or commit that task's files (the pass-failure
+   policy forbids staging after a broken run), and continue with the
+   next task — do not abort the wave. If the `code-simplifier` agent is
    **unavailable** (dispatch rejected — the reference's
    dispatch-failure class), skip the pass for this task AND every
    later task in the run (don't re-probe), note it once, and continue
