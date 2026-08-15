@@ -462,7 +462,9 @@ one-liners below are the rule, not the argument for it.
   - Plugin-to-plugin deps, when fixed and known, go in
     `.claude-plugin/plugin.json`'s `dependencies: [...]` array (the
     marketplace's `allowCrossMarketplaceDependenciesOn` permits a
-    cross-marketplace entry). `wise` currently declares none.
+    cross-marketplace entry). `wise` declares one:
+    `code-simplifier@claude-plugins-official` (ships the
+    `code-simplifier` agent the per-commit simplify pass dispatches).
   - MCP server deps go in `.mcp.json` (currently empty). MCP tool ids
     are derived from the plugin name, so moving an MCP between plugins
     is a breaking rename.

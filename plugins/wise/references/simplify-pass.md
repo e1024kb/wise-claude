@@ -57,10 +57,50 @@ touched more.
 
 ## On failure
 
-If the `Task` errors, or the pass leaves the working tree in a state
-`git status` (or a syntax check) reports as broken (e.g. an invalid
-JS/TS source file), treat it as a **hard failure**: do **not** retry, do
-**not** stage what was already changed, do **not** invent a recovery.
+Two failure classes, with opposite policies. What separates them is
+whether the agent ever ran: a dispatch that never launched cannot have
+touched the working tree, so degrading is safe; a pass that ran and
+broke may have left half-applied edits, so nothing gets salvaged.
+
+### Agent unavailable (dispatch failure) — degrade, don't abort
+
+The `code-simplifier` agent ships with a separate plugin
+(`code-simplifier@claude-plugins-official`). wise declares it as a
+plugin dependency, so fresh installs get it transitively — but a
+session can still lack it (older Claude Code without transitive
+install, dependency uninstalled, unresolved marketplace). That is a
+normal environment, not a corrupted one. If
+the `Task` dispatch itself is rejected because the agent type is
+unknown / not available (try the plugin-qualified
+`code-simplifier:code-simplifier` once before concluding this), the
+agent never ran and the working tree is untouched.
+
+Do **not** treat this as a pass failure. Surface one line —
+`simplify skipped: code-simplifier agent unavailable (enable the
+code-simplifier plugin to restore the per-commit cleanup)` — and let
+the **caller** apply its own mapping:
+
+- **The commit routine** continues as if the caller had passed
+  `SIMPLIFY=no`: proceed to staging and commit the raw change. A
+  missing cleanup pass must never block a commit.
+- **The implement phase** skips the pass for that task (and, having
+  learned the agent is absent, for the rest of the run — don't
+  re-probe per task) and continues to the task's commit. The task is
+  **not** marked failed.
+- **`/wise-simplify-auto`** stops — the pass *is* the skill, so there
+  is nothing to degrade to. It emits
+  `SIMPLIFY: failed reason="code-simplifier agent unavailable — enable the code-simplifier plugin"`.
+
+Never substitute another mechanism (no `Skill({ skill: "simplify" })`,
+no inline self-simplify) — the name-resolution distrust above stands.
+
+### Pass failure (the agent ran and errored) — hard failure
+
+If the dispatched agent errors mid-flight, or the pass leaves the
+working tree in a state `git status` (or a syntax check) reports as
+broken (e.g. an invalid JS/TS source file), treat it as a **hard
+failure**: do **not** retry, do **not** stage what was already changed,
+do **not** invent a recovery.
 
 Surface a one-line `simplify errored: <summary>` and let the **caller**
 map it to its own abort contract — the commit routine stops with

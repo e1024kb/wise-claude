@@ -349,12 +349,16 @@ of the following mechanisms, and update the table below.
 | Node ≥22 | CLI / runtime — npx-driven MCP servers | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | MCP servers launched via npx |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 | [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `plugins/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |
+| `code-simplifier` plugin (`claude-plugins-official`) — ships the `code-simplifier` agent | Plugin-to-plugin — `plugin.json` `dependencies:` (cross-marketplace, permitted by the marketplace's `allowCrossMarketplaceDependenciesOn`) | `plugins/wise/.claude-plugin/plugin.json` | the per-commit simplify pass (`references/simplify-pass.md`): the commit routine (`/wise-commit`, `/wise-commit-push`), the implement phase, `/wise-simplify-auto` |
 
-`wise` declares no plugin `dependencies`. The `ticket-plan` /
+`code-simplifier` is wise's only plugin dependency. The `ticket-plan` /
 `ticket-auto` workflows work with any task tracker, so instead of
 pre-declaring a tracker plugin they detect the tracker at run time,
 probe for a matching MCP / CLI, and web-search + propose install
-options when none is found.
+options when none is found. If the `code-simplifier` agent is absent
+anyway (older Claude Code without transitive install, or manually
+uninstalled), the simplify pass degrades gracefully — commits proceed
+without the cleanup; only `/wise-simplify-auto` refuses.
 
 ### How each dependency kind is bundled
 

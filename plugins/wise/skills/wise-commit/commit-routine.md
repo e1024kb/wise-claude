@@ -70,8 +70,15 @@ Otherwise, before staging, run the per-commit cleanup per
 swept into this commit by §3's `git add -A`. Surface its summary
 verbatim and continue; the summary is mid-flight diagnostics, not a stop point.
 
-On a simplify failure, follow that reference's failure policy and stop
-with:
+If the `code-simplifier` agent is **unavailable in this session**
+(the `Task` dispatch is rejected — agent type unknown), follow that
+reference's dispatch-failure policy: surface the one-line
+`simplify skipped: …` note and **continue to §3 as if `SIMPLIFY=no`**.
+The working tree is untouched; a missing cleanup pass never blocks a
+commit.
+
+On a simplify **pass** failure (the agent ran and errored, or left the
+tree broken), follow that reference's failure policy and stop with:
 
 ```
 COMMIT: failed reason="simplify errored: <one-line summary>"
@@ -312,10 +319,12 @@ COMMIT: failed reason="git push rejected (non-fast-forward)"
 - Never append an AI attribution trailer to the subject.
 - Never retry on commit or push failure — surface the error and
   stop.
-- Simplify failure aborts the commit (§2). Same no-retry / no-bypass
-  policy as the `git commit` and `git push` steps; callers that want
-  to skip the simplify pass entirely pass `SIMPLIFY=no` at the routine
-  boundary.
+- Simplify **pass** failure aborts the commit (§2). Same no-retry /
+  no-bypass policy as the `git commit` and `git push` steps; callers
+  that want to skip the simplify pass entirely pass `SIMPLIFY=no` at
+  the routine boundary. An **unavailable** `code-simplifier` agent is
+  not a pass failure — §2 degrades to `SIMPLIFY=no` and the commit
+  proceeds.
 - Simplify never re-validates inside the routine. The pre-commit hook
   in §7 is the final guard for whatever the simplify pass edits; a
   longer validation chain (typecheck / lint / format) is an orchestrator
