@@ -64,12 +64,12 @@ broke may have left half-applied edits, so nothing gets salvaged.
 
 ### Agent unavailable (dispatch failure) — degrade, don't abort
 
-The `code-simplifier` agent ships with a separate plugin
-(`code-simplifier@claude-plugins-official`). wise declares it as a
-plugin dependency, so fresh installs get it transitively — but a
-session can still lack it (older Claude Code without transitive
-install, dependency uninstalled, unresolved marketplace). That is a
-normal environment, not a corrupted one. If
+The `code-simplifier` agent ships with a separate, optional plugin
+(`code-simplifier@claude-plugins-official`) that users install
+manually — wise deliberately does not declare it as a `plugin.json`
+dependency (that broke desktop-app loading; CONTRIBUTING §2.3), so
+any session can lack it. That is a normal environment, not a
+corrupted one. If
 the `Task` dispatch itself is rejected because the agent type is
 unknown / not available (try the plugin-qualified
 `code-simplifier:code-simplifier` once before concluding this), the

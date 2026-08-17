@@ -146,7 +146,7 @@ workflow-level `agents:` policy.
 
 ```
 plugins/wise/
-├── .claude-plugin/plugin.json      # manifest (declares plugin-level `dependencies:`)
+├── .claude-plugin/plugin.json      # manifest (no `dependencies:` — see CONTRIBUTING §2.3)
 ├── .mcp.json                       # bundled MCP servers (currently empty; see README § Bundled tooling)
 ├── hooks/                          # the ONE sanctioned hook (see CONTRIBUTING §2.4)
 │   ├── hooks.json                  # auto-discovered; registers the SessionEnd hook
@@ -459,12 +459,13 @@ one-liners below are the rule, not the argument for it.
   declaring it so the install is one step; but when the *set* of
   possible tools is open-ended, probe and propose at run time instead.
   Concretely:
-  - Plugin-to-plugin deps, when fixed and known, go in
-    `.claude-plugin/plugin.json`'s `dependencies: [...]` array (the
-    marketplace's `allowCrossMarketplaceDependenciesOn` permits a
-    cross-marketplace entry). `wise` declares one:
-    `code-simplifier@claude-plugins-official` (ships the
-    `code-simplifier` agent the per-commit simplify pass dispatches).
+  - Plugin-to-plugin deps are currently NOT declared in
+    `.claude-plugin/plugin.json`'s `dependencies: [...]` array — a
+    marketplace-qualified entry silently breaks plugin loading in the
+    Claude desktop app (CONTRIBUTING §2.3). Optional plugins (the
+    `code-simplifier` agent the per-commit simplify pass dispatches)
+    are documented in the README's Bundled-tooling table instead, and
+    the consuming skill degrades gracefully when they are absent.
   - MCP server deps go in `.mcp.json` (currently empty). MCP tool ids
     are derived from the plugin name, so moving an MCP between plugins
     is a breaking rename.

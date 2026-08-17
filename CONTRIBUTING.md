@@ -228,12 +228,13 @@ Three mechanisms by dependency kind:
 
 - **Another plugin** → the plugin's
   `.claude-plugin/plugin.json` `"dependencies": [...]` array. Claude
-  Code (v2.1.110+) auto-installs listed plugins transitively.
-  `wise` declares `code-simplifier` from
-  `claude-plugins-official` with the `marketplace:` field set; the
-  marketplace's `allowCrossMarketplaceDependenciesOn` key permits
-  the cross-marketplace resolution. See
-  https://code.claude.com/docs/en/plugin-dependencies.md.
+  Code (v2.1.110+) auto-installs listed plugins transitively. See
+  https://code.claude.com/docs/en/plugin-dependencies.md — **but read
+  §2.3 before declaring one**: a marketplace-qualified dependency
+  breaks plugin loading in the Claude desktop app, so `wise`
+  currently declares none and relies on run-time degradation
+  instead (e.g. the simplify pass degrades when the
+  `code-simplifier` agent is absent).
 - **MCP server** → the plugin's `.mcp.json` (currently empty).
   Claude Code auto-registers any `mcpServers` the plugin declares
   when it loads. **MCP tool ids are derived from the plugin name**
@@ -265,24 +266,35 @@ blob into their Claude Code config to make a skill work, many of them
 won't, and the skill silently under-performs. Bundling makes skills
 actually work on first use.
 
-### 2.3 Cross-marketplace dependencies
+### 2.3 Plugin-to-plugin dependencies are OFF until desktop loading is fixed
 
-`wise` depends on the `code-simplifier` plugin (it ships the
+`wise` uses the `code-simplifier` plugin (it ships the
 `code-simplifier` agent the per-commit simplify pass dispatches),
 which lives in the separate `claude-plugins-official` marketplace.
-Two things make that resolve:
+v4.7.0 declared it as a `plugin.json` dependency —
+`{ "name": "code-simplifier", "marketplace": "claude-plugins-official" }`
+plus the marketplace's `allowCrossMarketplaceDependenciesOn`
+allow-list — and that combination silently removed wise from every
+Claude desktop app session (v4.7.1 reverted it).
 
-1. Each entry in `wise`'s `plugin.json` `dependencies:` array carries
-   a `marketplace:` field — `{ "name": "code-simplifier",
-   "marketplace": "claude-plugins-official" }`.
-2. The repo's `.claude-plugin/marketplace.json` declares
-   `"allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"]`.
-   Without that allow-list entry, Claude Code refuses to resolve a
-   dependency that points at a different marketplace.
+Why: the desktop app passes each installed plugin to its bundled
+Claude Code CLI as a `--plugin-dir` flag. Inline (`--plugin-dir`)
+plugins override the marketplace-installed copies and lose their
+marketplace identity, so `code-simplifier@claude-plugins-official`
+no longer resolves — the loader reports `dependency-unsatisfied`
+("Dependency … is not installed") and drops wise, with no visible
+error. The terminal CLI, which loads plugins through the
+marketplace-install path, is unaffected — which is what made the
+regression easy to miss.
 
-If a future skill needs a plugin from yet another marketplace, add
-that marketplace to the `allowCrossMarketplaceDependenciesOn` array in
-the same PR that adds the dependency.
+Until Claude Code resolves dependencies for inline plugins by name
+(or desktop stops stripping marketplace identity), do NOT add
+entries to `plugin.json` `dependencies:`. Instead, make the
+consuming skill degrade gracefully when the dependency is absent —
+the simplify pass in `references/simplify-pass.md` is the reference
+pattern — and document the optional plugin in the **Bundled
+tooling** table so users know what to install for full
+functionality.
 
 ### 2.4 Hooks
 

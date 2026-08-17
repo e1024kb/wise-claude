@@ -721,7 +721,9 @@ Two layers:
   `"dependencies": [...]`, which Claude Code auto-installs with wise
   (v2.1.110+; see
   https://code.claude.com/docs/en/plugin-dependencies.md).
-  Populated when the *shipped* workflows need a third-party plugin.
+  Currently empty on purpose: a marketplace-qualified dependency
+  breaks wise loading in the Claude desktop app (CONTRIBUTING §2.3),
+  so shipped workflows degrade gracefully instead.
 - **Workflow-level** — each definition's `requires:` list. Probed at
   run start. If anything is missing the conductor prints the exact
   `/plugin install` commands and asks:

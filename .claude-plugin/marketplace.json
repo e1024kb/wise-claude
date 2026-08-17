@@ -6,7 +6,6 @@
     "name": "e1024kb",
     "email": "e1024kb@gmail.com"
   },
-  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "wise",
