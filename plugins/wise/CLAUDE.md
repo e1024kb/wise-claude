@@ -52,6 +52,12 @@ Current actions (all standalone):
 - `/wise-workflow-status` — inspect runs in the current workspace.
 - `/wise-workflow-remove` — delete a user workflow definition.
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
+- `/wise-report` — verified session status report. Recalls claims from
+  context/memory, verifies each against git, `gh` PR/CI state, workflow
+  runs, and files on disk, then emits a compact ref-coded report
+  (F/A/Q/R/L/P) where every line carries an evidence tag or is marked
+  `(unverified)`. `--full` expands detail; `--save` writes a handoff
+  file that survives compaction. Read-only apart from that file.
 - `/wise-insights-mine` — the self-improvement loop (the "harvest"
   pass). Mines the local insights ledger (fed by the SessionEnd hook)
   for recurring task patterns, frequency-gates them, and drafts the
@@ -199,6 +205,7 @@ plugins/wise/
     ├── wise-prd-architect/           # model-invoked PRD authoring (SKILL.md + agents/ + references/)
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
     ├── wise-feedback/SKILL.md       # file a feedback issue
+    ├── wise-report/SKILL.md         # verified session status report (ref-coded, evidence-tagged; --full / --save)
     ├── wise-insights-mine/SKILL.md  # self-improvement loop: mine sessions → draft skills
     ├── wise-insights-refine/SKILL.md # consolidate learned skills: merge overlaps → retire originals
     ├── wise-insights-reset/SKILL.md  # reversible cleanup + rollback (snapshot → clear → restore)
