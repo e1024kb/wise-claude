@@ -52,6 +52,12 @@ Current actions (all standalone):
 - `/wise-workflow-status` — inspect runs in the current workspace.
 - `/wise-workflow-remove` — delete a user workflow definition.
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
+- `/wise-fork` — reorient a forked session. Inherited context becomes
+  read-only background; every in-flight task, plan, and promise from
+  before the fork is dropped (the original session owns them);
+  remembered file state is distrusted (the original session may touch
+  the same tree in parallel) and a fresh git baseline is snapshotted.
+  Optionally starts straight on a new goal passed as the argument.
 - `/wise-report` — verified session status report. Recalls claims from
   context/memory, verifies each against git, `gh` PR/CI state, workflow
   runs, and files on disk, then emits a compact ref-coded report
@@ -205,6 +211,7 @@ plugins/wise/
     ├── wise-prd-architect/           # model-invoked PRD authoring (SKILL.md + agents/ + references/)
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
     ├── wise-feedback/SKILL.md       # file a feedback issue
+    ├── wise-fork/SKILL.md           # reorient a forked session (context = background; pre-fork work dropped)
     ├── wise-report/SKILL.md         # verified session status report (ref-coded, evidence-tagged; --full / --save)
     ├── wise-insights-mine/SKILL.md  # self-improvement loop: mine sessions → draft skills
     ├── wise-insights-refine/SKILL.md # consolidate learned skills: merge overlaps → retire originals
@@ -299,7 +306,7 @@ one-liners below are the rule, not the argument for it.
   The exception for `wise-workflow-run` and `wise-workflow-resume`
   (which compose other skills as workflow steps) is below.
 - **All persistent state lives in `${CLAUDE_PLUGIN_DATA}`.** Never
-  write elsewhere — with TWO narrow exceptions:
+  write elsewhere — with these narrow exceptions:
   (a) the init registry, see below;
   (b) workflow run state, which is per-workspace by design and lives
   under `~/.local/share/wise/runs/<cwd-slug>/` (off-tree, off
@@ -312,7 +319,12 @@ one-liners below are the rule, not the argument for it.
   `/wise-insights-refine` when it merges a skill away; `mine` resurrects
   it if the merged skill is later deleted). `snapshots/` holds
   `/wise-insights-reset` restore points (reversible cleanup); `purge
-  --yes` is the only irreversible wipe. New per-user persistent state
+  --yes` is the only irreversible wipe; and
+  (d) the **report handoff store** under
+  `~/.local/share/wise/reports/<cwd-slug>/` — `/wise-report --save`
+  output, a per-workspace sibling of the runs tree (same slug, same
+  XDG rules), kept off-tree for the same reasons as run state.
+  New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `scripts/workflows.py` — never
   hard-code paths so future relocations are one-function changes.
