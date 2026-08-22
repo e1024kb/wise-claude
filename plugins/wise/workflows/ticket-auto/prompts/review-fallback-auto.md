@@ -54,10 +54,30 @@ gate, so this is the one input worth checking before the panel spins
 up.
 
 That fragment runs `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`
-at **high** effort —
-five parallel read-only reviewer lenses plus the confidence-scoring pass
-— curates the concrete correctness / security / clear-quality findings,
-applies them, and commits.
+at **high** effort — five parallel read-only reviewer lenses plus the
+confidence-scoring pass — curates the concrete correctness / security /
+clear-quality findings, applies them, and commits.
+
+**Check `Task` first.** The panel is five parallel reviewer subagents,
+so it needs the `Task` tool. Not every caller has it: the `ticket-auto`
+/ `impl-plan-auto` watch step runs as `wise:software-engineer`, whose
+tool list is `Read, Write, Edit, Bash, Glob, Grep` — no `Task` — and a
+subagent cannot spawn subagents anyway. Do not report a panel that
+never ran:
+
+- **`Task` available** (the standalone `/wise-pr-watch-auto`, which
+  grants it, or any main-thread caller) — dispatch the panel as
+  `code-review-pass.md` describes. Report `depth=panel`.
+- **`Task` unavailable** — degrade rather than abort. Work the same five
+  lenses **sequentially in this context**, reading the diff and the
+  files each lens needs, then curate and apply exactly as the panel
+  path does. One context sees all five lenses instead of five
+  independent ones, so it catches less; that is a real reduction in
+  depth and it goes on the record. Report `depth=inline`.
+
+Either way the review is genuine and its findings are applied. The
+distinction exists so the verdict never claims a five-agent panel when a
+single context did the work.
 
 Capture its final line:
 
@@ -118,13 +138,15 @@ continue to §4 with the outcome §1/§2 produced, reporting `note=-`.
 Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
-REVIEW-FALLBACK: ran applied=<n> skipped=<m> committed=<yes|no> for=<stuck_bots> note=<comment-url|->
+REVIEW-FALLBACK: ran depth=<panel|inline> applied=<n> skipped=<m> committed=<yes|no> for=<stuck_bots> note=<comment-url|->
 REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<stuck_bots> [unpushed=<sha>]
 ```
 
-- `ran` — the panel reviewed the branch. `committed=yes` means a fix
-  commit was pushed (the caller must re-poll CI); `committed=no` means
-  the branch reviewed clean and nothing moved.
+- `ran` — the branch was reviewed. `depth=panel` means the five-agent
+  panel ran; `depth=inline` means this context worked the five lenses
+  sequentially because the caller has no `Task` tool. `committed=yes`
+  means a fix commit was pushed (the caller must re-poll CI);
+  `committed=no` means the branch reviewed clean and nothing moved.
 - `failed` — the panel aborted or the push was rejected; no substitute
   review is on record, so the caller must NOT treat the stuck bot as
   covered. `unpushed=<sha>` appears only on `reason=push-failed` and

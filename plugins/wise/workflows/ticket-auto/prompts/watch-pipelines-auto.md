@@ -478,10 +478,14 @@ run reports its findings on the `committed=yes` line — accumulating only
 on `committed=no` would report `applied=0` for a fallback that fixed
 things. §8 reports the run-wide total, not the last run's.
 
-That fragment runs the same high-depth panel as
+That fragment runs the same high-depth review as
 `/wise-code-review-auto` (`review-branch-auto.md` with `fixer=self` — 5
-lenses over `origin/<base>..HEAD`), commits what it finds, pushes, and
-posts one audit comment naming the bot it stood in for. Capture its
+lenses over `origin/<BASE>..HEAD`), commits what it finds, pushes, and
+posts one audit comment naming the bot it stood in for. It reports
+`depth=panel` when it could dispatch the five reviewer subagents and
+`depth=inline` when the caller has no `Task` tool and it worked the
+lenses sequentially instead — carry that value onto the §8 verdict so
+the report never implies a panel that did not run. Capture its
 final line:
 
 - `REVIEW-FALLBACK: ran … committed=no …` → `FALLBACK_STATE=ran`. The
@@ -731,7 +735,7 @@ is where they all get swept up.
 Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
-WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout|no-response>] [review-fallback=ran applied=<n>]
+WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout|no-response>] [review-fallback=ran depth=<panel|inline> applied=<n>]
 WATCH-AUTO: all-green url=<pr_url> reason=<why-not-merged> [copilot=stuck reason=<…>] [coderabbit=<bypassed|gave-up> reason=<…>] [review-fallback=<ran|failed> …] [unpushed=<sha>]
 WATCH-AUTO: blocked url=<pr_url> items=<file:line;file:line;...>
 WATCH-AUTO: partial url=<pr_url> accepted=<comma-separated-markers>
@@ -742,8 +746,8 @@ WATCH-AUTO: human-intervention url=<pr_url> [reason=stability-capped|comment-gat
 The bot annotations are additive and independent: append
 `copilot=stuck reason=<…>` when Copilot could not review,
 `coderabbit=<bypassed|gave-up> reason=<…>` when CodeRabbit could not,
-and `review-fallback=<ran|failed>` (with `applied=<n>` on `ran`)
-whenever §4c ran, so the report shows both that a bot was skipped and
+and `review-fallback=<ran|failed>` (with `depth=<panel|inline>` and
+`applied=<n>` on `ran`) whenever §4c ran, so the report shows both that a bot was skipped and
 what reviewed the branch instead.
 
 - `merged` — every check green, every expected bot terminal (Copilot

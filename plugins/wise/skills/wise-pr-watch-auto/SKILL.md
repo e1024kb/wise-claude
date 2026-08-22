@@ -22,7 +22,7 @@ description: >-
   the PR and fix it without asking", "auto-drive CI to green", or types
   `/wise-pr-watch-auto`. For the interactive version use `/wise-pr-watch`.
 argument-hint: "[<max-fix-attempts>]"
-allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
+allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + fix loop
@@ -112,6 +112,9 @@ left open for a human.
   (`all-green reason=sonar-unchecked`) rather than guessing it's clean.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.
+- `Task` is granted for one purpose: §4c's review fallback dispatches
+  the read-only reviewer panel with it when a bot is stuck. Nothing else
+  in the loop spawns subagents.
 - Never invoke another wise action skill (the fragment reads
   `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
   `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly —
