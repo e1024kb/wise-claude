@@ -63,6 +63,8 @@ FALLBACK_RUNS=0                      # §4c local review-fallback runs so far
 FALLBACK_SHA=""                      # head sha the last fallback reviewed
 FALLBACK_STATE=not-needed            # not-needed | ran | failed
 FALLBACK_APPLIED=0                   # findings the fallback applied, all runs
+SONAR_STATE=""                       # ""|clean|absent|blocked-fetch|aborted
+SONAR_SHA=""                         # head sha SONAR_STATE was established against
 COPILOT_STUCK=0                      # latch: Copilot proved it cannot review
 CODERABBIT_STUCK=0                   # latch: CodeRabbit proved it cannot review
 ```
@@ -576,11 +578,13 @@ Capture its verdict into `SONAR_STATE`:
 - `SONAR-AUTO: not-configured` → `SONAR_STATE=absent`: the repo has no
   SonarCloud project at all (no config in the tree, no Sonar check on
   the PR, no Sonar bot footprint). Sonar leaves the merge gate
-  entirely for this run, exactly like an `absent` review bot - no
-  reminder, no postponement, and **skip §5.5 for the rest of this
-  head**: it counts as settled in §6.5's clean-window test rather than
-  being re-fetched every window, and it is re-established by §1's
-  re-entry whenever a push moves the head. As with
+  entirely, exactly like an `absent` review bot - no reminder, no
+  postponement. Record `SONAR_SHA="$HEAD_SHA"` with it, as a **pair**:
+  the verdict covers the head it was established against and no other,
+  the same rule §4c applies to `FALLBACK_SHA`. It still counts as a
+  settled (clean) window in §6.5, but it is NOT latched - §6.5 re-probes
+  it each window, which is cheap and is the only way a Sonar check that
+  registers late is ever noticed. As with
   Copilot's `absent`, this must never be reached by a flaky call: it
   requires positive evidence of absence, which is why §1 of the
   handler demands all three footprints be missing.
@@ -601,8 +605,10 @@ Capture its verdict into `SONAR_STATE`:
   Sonar MCP so the run can verify 0 issues. Continuing with every other
   check/comment; the PR is left open until Sonar is verifiable.` Keep
   working everything else.
-- `SONAR-AUTO: aborted reason=<r>` → record it; treat like a §5 abort
-  for the merge gate (do not merge).
+- `SONAR-AUTO: aborted reason=<r>` → `SONAR_STATE=aborted`; treat like
+  a §5 abort for the merge gate (do not merge). It is re-attempted each
+  §6.5 window like `blocked-fetch`, so a transient abort can still
+  recover instead of burning the stability rounds.
 
 ### 6. Safety cap
 
@@ -622,7 +628,9 @@ consecutive** windows. Enter this whenever every §7 merge condition
 terminal, `BLOCKED` empty, no abort. Those two are deliberately not
 entry conditions, for opposite reasons: Sonar can still resolve itself
 inside a window (step 4 re-fetches it), while a failed fallback cannot,
-so 2b gets an immediate exit instead. Concretely: on entry, if some bot
+so 2b gets an immediate exit instead. (Step 4 re-fetches Sonar every
+window, so both a `blocked-fetch` and an `absent` get a second look
+before the merge.) Concretely: on entry, if some bot
 is still stuck **and** `FALLBACK_STATE=failed` (or its `FALLBACK_SHA` is
 stale), no stability window can change that — skip straight to §8 with
 `WATCH-AUTO: all-green url=<pr_url> reason=review-fallback-failed` and
@@ -658,27 +666,29 @@ Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
      comment (`bot_review_done` / `bot_footprint` against a refreshed
      `HEAD_SHA`),
    - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone pushed),
-   - **Sonar is unverified** - only `SONAR_STATE=blocked-fetch`
-     re-runs §5.5 here (a token / MCP may have appeared). If it
-     returns `handled committed=yes`, that is a real push: handle as a
-     dirty window below. If it still returns `blocked-fetch`, the
-     window is **not clean** - re-surface the §5.5 reminder and keep
-     looping (do not count it toward `CLEAN_STREAK`).
-     `SONAR_STATE=absent` is **settled, not unverified**: do NOT
-     re-run §5.5 for it, or the window can never come up clean and the
-     run stands down at `stability-capped` instead of reaching the §7
-     gate that accepts `absent`. The one exception is a head change -
-     when `git rev-parse HEAD` differs from `STABLE_SHA` the window is
-     already dirty, and §1's re-entry re-runs §5.5 on the new head, so
-     absence is re-established against what is actually about to
-     merge rather than assumed for the rest of the run.
+   - **Sonar** - re-run §5.5 in every window, whatever `SONAR_STATE`
+     holds. It is one cheap probe, and it is the only thing that
+     notices a Sonar check or bot comment landing *on this same head*
+     after the first probe ran - a late footprint is invisible to
+     every other dirty test here, since `bot_footprint` only knows
+     Copilot and CodeRabbit. Read the result:
+     - unchanged `not-configured` (still no Sonar) → `SONAR_STATE=absent`,
+       refresh `SONAR_SHA="$HEAD_SHA"`, and the window is **clean**;
+     - `all-clear` → `SONAR_STATE=clean`, window clean;
+     - `handled committed=yes` → a real push: dirty window, handle below;
+     - `blocked-fetch` or `aborted` → window is **not clean**;
+       re-surface the §5.5 reminder and keep looping (do not count it
+       toward `CLEAN_STREAK`);
+     - a footprint that was absent before and is present now → the
+       earlier `absent` was wrong: it is superseded by whatever §5.5
+       returns, and Sonar is back in the gate.
 5. **Dirty window (non-human)** → `CLEAN_STREAK=0`, re-enter §1 — it
    re-waits §4 on the new `HEAD_SHA` and re-handles §5 + §5.5. A
    committed fix increments `ATTEMPTS` exactly as today; the §6
    stuck-loop catch and `max_fix_attempts` still bound real fix churn.
    After it re-greens, resume this loop at step 1.
 6. **Clean window** (nothing new **and** `SONAR_STATE` is `clean` or
-   `absent`) →
+   `absent`, the latter with `SONAR_SHA == HEAD_SHA`) →
    `CLEAN_STREAK=$((CLEAN_STREAK + 1))`. If
    `CLEAN_STREAK < STABILITY_CLEAN_TARGET`, loop to step 1 for the next
    consecutive window. Otherwise the PR is settled — proceed to §7. A
@@ -717,8 +727,12 @@ the PR — and only when **all** of these hold:
 5. the rolled-up `BLOCKED` set is empty,
 6. no §5 bot invocation emitted `aborted`,
 7. `SONAR_STATE` is `clean` (§5.5 fetched the open issues and drove
-   them to zero) **or** `absent` (§5.5 established this repo has no
-   Sonar project, so Sonar is out of the gate entirely). A
+   them to zero) **or** `absent` **with `SONAR_SHA == HEAD_SHA`**
+   (§5.5 established, against the exact commit about to merge, that
+   this repo has no Sonar project, so Sonar is out of the gate
+   entirely). An `absent` carried over from an earlier head does not
+   merge - same rule as 2b, and for the same reason: a verdict about a
+   previous commit says nothing about this one. Re-run §5.5 instead. A
    `SONAR_STATE=blocked-fetch` does **not** merge - the run
    could not verify Sonar is clean, so the PR is left open with the §5.5
    reminder (do not force a merge on an unverified Sonar state). A §5.5
@@ -757,13 +771,20 @@ is where they all get swept up.
 Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
-WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout|no-response>] [review-fallback=ran depth=<panel|inline> applied=<n>]
-WATCH-AUTO: all-green url=<pr_url> reason=<why-not-merged> [copilot=stuck reason=<…>] [coderabbit=<bypassed|gave-up> reason=<…>] [review-fallback=<ran|failed> …] [unpushed=<sha>]
+WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout|no-response>] [review-fallback=ran depth=<panel|inline> applied=<n>] [sonar=absent]
+WATCH-AUTO: all-green url=<pr_url> reason=<why-not-merged> [copilot=stuck reason=<…>] [coderabbit=<bypassed|gave-up> reason=<…>] [review-fallback=<ran|failed> …] [sonar=absent] [unpushed=<sha>]
 WATCH-AUTO: blocked url=<pr_url> items=<file:line;file:line;...>
 WATCH-AUTO: partial url=<pr_url> accepted=<comma-separated-markers>
 WATCH-AUTO: exhausted url=<pr_url> reason=<lint|tests|other|stuck-loop>
 WATCH-AUTO: human-intervention url=<pr_url> [reason=stability-capped|comment-gate-unreadable]
 ```
+
+Append `sonar=absent` whenever the merge gate was satisfied by an
+`absent` Sonar verdict rather than a verified-clean one. Without it a
+run that merged after driving Sonar to zero and a run that merged after
+dropping Sonar from the gate emit an identical line, so a
+misclassification is invisible after the fact - the same reason a
+skipped bot is annotated.
 
 The bot annotations are additive and independent: append
 `copilot=stuck reason=<…>` when Copilot could not review,

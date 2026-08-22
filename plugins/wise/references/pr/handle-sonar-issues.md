@@ -54,8 +54,13 @@ OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 
 # a) SonarCloud bot comment — parse id=<key> from the issues URL.
+#    EXACT logins only. This key selects WHICH project's verdict gates
+#    the merge, so a substring match on "sonar" would let any commenter
+#    whose login merely contains it (e.g. "sonarfan") point the gate at
+#    a project they own - an empty one returns 0 issues and reads as
+#    clean. Same exact-login standard the bot allowlists use.
 SONAR_KEY="$(gh api "repos/$OWNER_REPO/issues/$PR/comments" \
-  --jq '.[] | select(.user.login | test("sonar"; "i")) | .body' \
+  --jq '.[] | select(.user.login as $l | ["sonarqubecloud[bot]","sonarqubecloud","sonarcloud[bot]","sonarcloud","sonarqube[bot]","sonarqube"] | index($l)) | .body' \
   | grep -oE 'sonarcloud\.io/[^)"]*[?&]id=[^&)"[:space:]]+' \
   | head -1 | sed -E 's/.*[?&]id=([^&)"[:space:]]+).*/\1/')"
 
