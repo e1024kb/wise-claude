@@ -81,7 +81,7 @@ flowchart TD
     A[assemble-team<br/>prompt — declare roster team + bind config] --> B[split-plans<br/>prompt → plan_count, plan_list]
     B --> C[preflight-checks<br/>bash — clean tree, gh auth, origin]
     C --> D[process-plans<br/>interactive — per-plan orchestrator loop]
-    D --> E[report<br/>prompt — per-plan roll-up]
+    D --> E[report<br/>prompt — verified status report, report-pass.md]
 ```
 
 `process-plans` is the engine of the workflow. For each plan it runs an
@@ -117,14 +117,14 @@ cap and the CI-fix cap both default to 10 (each overridable from
 | `split-plans` | `prompt` | Parse `plan_files` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. (Per-plan existence is checked inside `process-plans` — a missing plan fails just that plan.) |
 | `process-plans` | `interactive` | The orchestrator — loops the plan list, running the full re-plan→implement→review↔fix→PR→watch pipeline per plan in its own worktree. |
-| `report` | `prompt` | Per-plan roll-up: source plan, branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); notes merged plans were auto-cleaned and lists worktree-removal commands for any that remain. Dispatched to `wise:technical-writer` on `sonnet`. |
+| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes` — the report also lands in the per-workspace handoff store), verifying the run's claims against `state.yaml`, the per-plan ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-plan roll-up (source plan, branch, worktree path, PR url, verdict, incl. `review=not-converged`) and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
 
 The workflow sets `agents: auto`, but most of its work runs inside the
 `process-plans` fragment, which dispatches each phase to a concrete
 roster role + model — brought in **fresh per phase** so transcripts
 release and the multi-plan run stays within its context budget. The
 per-phase roles and models are in the [pipeline table](#per-plan-pipeline-inside-process-plans)
-below; at the step level `report` → `wise:technical-writer`. Model
+below; at the step level `report` → `wise:qa-engineer`. Model
 tiering (`opus` = the latest Opus, Opus 5): `opus` at `xhigh` for the
 re-planning brain, `opus` at `high` for the hands-on engineering
 (implement / fix / executors) + review brains, `sonnet` for the

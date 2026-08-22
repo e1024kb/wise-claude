@@ -29,7 +29,7 @@ project-selection: current
 #                 satisfied (cap 10, config_prompt-overridable; on non-
 #                 convergence it pushes anyway and flags the plan)
 #   - watch+fix → wise:software-engineer (sonnet)
-# At the step level `report` → wise:technical-writer; `assemble-team`
+# At the step level `report` → wise:qa-engineer; `assemble-team`
 # stays a plain run-start declaration of the roster team + config binding.
 # Model tiering (opus = the latest Opus, Opus 5): opus at xhigh for
 # planning, opus at high for the hands-on engineering (implement / fix /
@@ -216,24 +216,37 @@ steps:
   - id: report
     type: prompt
     prompt: |
-      Give the (absent) operator an end-of-run report. Use the
-      per-plan results table `process-plans` printed. For each plan
-      list: the source plan file, the branch, the worktree path, the
-      PR url, and the verdict (merged / all-green / blocked / partial /
-      exhausted / human-intervention / failed).
+      Give the (absent) operator the end-of-run status report by
+      reading ${CLAUDE_PLUGIN_ROOT}/references/report-pass.md and
+      following it end to end with:
 
-      Then a summary line: {{plans_processed}} processed —
-      {{plans_merged}} merged, {{plans_open}} open,
-      {{plans_failed}} failed.
+        SCOPE = workflow run {{run.id}} (impl-plan-auto)
+        MODE  = full
+        SAVE  = yes
 
-      Call out explicitly which PRs were merged and which were left
-      open for a human (anything not fully green); for each open PR
-      say why. Merged plans had their worktree + local branch
-      auto-removed (their work is on the remote) — note that. For each
-      plan left OPEN or FAILED that still has a worktree, list its
-      `git worktree remove <path>` command so the operator can clean up
-      after inspecting. If every plan merged, state the base repo is
-      clean — no worktrees remain.
-    agent: technical-writer
+      Claim material for the pass's recall step: the per-plan results
+      table `process-plans` printed, and the step outputs —
+      {{plans_processed}} processed, {{plans_merged}} merged,
+      {{plans_open}} open, {{plans_failed}} failed. Primary evidence
+      for the verification sweep: this run's state at
+      {{run.dir}}/state.yaml and the per-plan ledgers under
+      {{run.dir}}/units/, plus the pass's git/gh probes (verify each
+      claimed PR's real state with `gh pr view <number>`).
+
+      Between the pass's template sections and its final line, append
+      a `## Run specifics` addendum:
+      - Per plan: source plan file, branch, worktree path, PR url,
+        and verdict (merged / all-green / blocked / partial /
+        exhausted / human-intervention / failed); for each PR left
+        open for a human, why.
+      - Merged plans had their worktree + local branch auto-removed
+        (their work is on the remote) — note that. For each plan left
+        OPEN or FAILED that still has a worktree, list its
+        `git worktree remove <path>` command. If every plan merged,
+        state the base repo is clean — no worktrees remain.
+
+      Your response's FINAL line MUST be the pass's `REPORT:` line.
+    until: 'REPORT: (ok scope="[^"]*" mode=(brief|full) saved=("[^"]*"|-)|failed reason="[^"]*")'
+    agent: qa-engineer
     model: sonnet
     depends_on: [process-plans]

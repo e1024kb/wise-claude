@@ -193,6 +193,7 @@ plugins/wise/
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
+│   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report + the ticket-auto / impl-plan-auto report steps)
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by supervised-prompt + /wise-supervise
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
 │   ├── grill/                      # the subject-understanding routines (context sweep + gap analysis + blueprint schema) — read by /wise-grill (any subject), ticket-plan, ticket-auto (tickets)
@@ -321,9 +322,11 @@ one-liners below are the rule, not the argument for it.
   `/wise-insights-reset` restore points (reversible cleanup); `purge
   --yes` is the only irreversible wipe; and
   (d) the **report handoff store** under
-  `~/.local/share/wise/reports/<cwd-slug>/` — `/wise-report --save`
-  output, a per-workspace sibling of the runs tree (same slug, same
-  XDG rules), kept off-tree for the same reasons as run state.
+  `~/.local/share/wise/reports/<cwd-slug>/` — output of the report
+  pass (`/wise-report --save` today; any `SAVE=yes` caller of
+  `references/report-pass.md`), a per-workspace sibling of the runs
+  tree (same slug, same XDG rules), kept off-tree for the same
+  reasons as run state.
   New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `scripts/workflows.py` — never
@@ -402,6 +405,10 @@ one-liners below are the rule, not the argument for it.
   quality passes `simplify-pass.md` (read by the commit routine, the
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
   (read by `review-branch-auto.md` and `wise-code-review-auto`), the
+  verified status report `report-pass.md` (read by `/wise-report`
+  and the `ticket-auto` / `impl-plan-auto` end-of-run `report`
+  steps; parameterized by `SCOPE` / `MODE` / `SAVE` so every caller
+  runs the identical routine), the
   watchdog routine `supervise-loop.md` (read by the `supervised-prompt`
   step, the `-auto` implement phase, and `wise-supervise`), the
   `references/grill/` subject-understanding routines

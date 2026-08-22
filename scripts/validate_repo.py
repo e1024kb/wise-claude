@@ -4,7 +4,11 @@
 Cross-checks the invariants this repo relies on contributor discipline
 for today: JSON manifests parse, every bundled workflow.yaml is
 internally consistent (step ids/types/trigger-rules/depends_on), every
-skill's frontmatter `name:` matches its directory, every
+skill's frontmatter is well-formed (`name:` matches its directory,
+`description` non-empty, only known keys, no forbidden v1 fields,
+allowed-tools entries parse), the skill catalog stays in sync with
+the docs that list it (standalone skills ↔ README command-table rows
+and CLAUDE.md mentions, both directions), every
 `${CLAUDE_PLUGIN_ROOT}/<path>` reference in the scanned docs resolves
 to a real file, every `{{workflow.dir}}/prompts/<file>` reference
 inside a workflow's own markdown resolves to a real file (other
@@ -157,15 +161,225 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
                     )
 
 
+# The frontmatter keys wise skills use today, plus the upstream Agent
+# Skills spec keys (`license`, `metadata`) so a legitimate upstream key
+# never hard-fails CI. Extend deliberately when a new key is adopted —
+# an unknown key is an error rather than a warning because a typo of a
+# meaningful key changes behaviour silently: engine.py buckets a skill
+# as standalone-vs-reference on the literal "argument-hint" key, so a
+# misspelling demotes the skill from the /wise catalog with no failure.
+KNOWN_SKILL_KEYS = {
+    "name",
+    "description",
+    "argument-hint",
+    "allowed-tools",
+    "model",
+    "effort",
+    "disable-model-invocation",
+    "license",
+    "metadata",
+}
+
+# v1 dispatcher-routing fields with no meaning in v2, plus
+# `user-invocable` (must not be set at all — the default `true` is the
+# only supported value). See CONTRIBUTING §2.1.
+FORBIDDEN_SKILL_KEYS = {
+    "command",
+    "subcommand",
+    "subcommand-aliases",
+    "arguments",
+    "user-invocable",
+}
+
+# One allowed-tools entry: a bare tool name (`Read`, `Write`) or a
+# parenthesised scoped grant (`Bash(git:*)`,
+# `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*)`). Catches
+# unbalanced parens and stray characters. Well-formedness ONLY — it
+# does not judge grant scope or danger (`Bash(rm -rf ~:*)` is
+# well-formed); the "narrowly scoped" invariant stays a review call.
+ALLOWED_TOOL_ENTRY_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_-]*(\([^()]+\))?$"
+)
+
+
+def _split_allowed_tools(value: str) -> list[str]:
+    """Split a comma-separated allowed-tools string, ignoring commas
+    inside parens so `Bash(gh pr list --json number,title)` stays one
+    entry."""
+    entries: list[str] = []
+    depth = 0
+    current = ""
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            entries.append(current)
+            current = ""
+        else:
+            current += ch
+    entries.append(current)
+    return entries
+
+
 def check_skill_frontmatter(errors: list[str], parse_frontmatter) -> None:
     skills_dir = REPO_ROOT / WISE_PLUGIN_DIR / "skills"
+    for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
+        if not (skill_dir / "SKILL.md").is_file():
+            errors.append(
+                f"{skill_dir.relative_to(REPO_ROOT)}: skill directory has no SKILL.md"
+            )
     for skill_md in sorted(skills_dir.glob("*/SKILL.md")):
         rel = skill_md.relative_to(REPO_ROOT)
         dir_name = skill_md.parent.name
         frontmatter = parse_frontmatter(skill_md)
+
         name = frontmatter.get("name")
         if name != dir_name:
             errors.append(f"{rel}: frontmatter name {name!r} != dir name {dir_name!r}")
+
+        description = frontmatter.get("description")
+        if not isinstance(description, str) or not description.strip():
+            errors.append(f"{rel}: frontmatter 'description' missing or empty")
+
+        # The plugin contract (CLAUDE.md invariants): exactly one skill
+        # sets `disable-model-invocation: true` — the /wise helper.
+        dmi = frontmatter.get("disable-model-invocation")
+        if dir_name == "wise":
+            if dmi is not True:
+                errors.append(
+                    f"{rel}: the wise helper must set "
+                    "'disable-model-invocation: true'"
+                )
+        elif dmi is not None:
+            errors.append(
+                f"{rel}: only skills/wise/SKILL.md may set "
+                "'disable-model-invocation'"
+            )
+
+        for key in frontmatter:
+            if key in FORBIDDEN_SKILL_KEYS:
+                errors.append(
+                    f"{rel}: forbidden frontmatter field {key!r} "
+                    "(CONTRIBUTING §2.1 — must not be set, remove it)"
+                )
+            elif key not in KNOWN_SKILL_KEYS:
+                errors.append(
+                    f"{rel}: unknown frontmatter key {key!r} "
+                    f"(allowed: {', '.join(sorted(KNOWN_SKILL_KEYS))})"
+                )
+
+        allowed_tools = frontmatter.get("allowed-tools")
+        if allowed_tools is not None:
+            # Both shapes are valid: a comma-separated string (the common
+            # form) or a YAML list (wise-estimation, wise-human-writing).
+            entries: list[str] = []
+            if isinstance(allowed_tools, str):
+                entries = _split_allowed_tools(allowed_tools)
+            elif isinstance(allowed_tools, list):
+                for e in allowed_tools:
+                    if isinstance(e, str):
+                        entries.append(e)
+                    else:
+                        errors.append(
+                            f"{rel}: allowed-tools list entry {e!r} is "
+                            f"{type(e).__name__}, not a string (unquoted "
+                            "YAML null/bool?)"
+                        )
+            else:
+                errors.append(
+                    f"{rel}: 'allowed-tools' must be a comma-separated string "
+                    f"or a list, got {type(allowed_tools).__name__}"
+                )
+            for entry in entries:
+                entry = entry.strip()
+                if not entry:
+                    errors.append(
+                        f"{rel}: empty allowed-tools entry "
+                        "(doubled or trailing comma)"
+                    )
+                elif not ALLOWED_TOOL_ENTRY_RE.match(entry):
+                    errors.append(
+                        f"{rel}: malformed allowed-tools entry {entry!r}"
+                    )
+
+
+# Full `/wise-<name>` tokens in backticks, with or without trailing
+# args inside the backticks (`/wise-report --save`) and with the
+# optional canonical `wise:` namespace prefix. Partial prefix mentions
+# like `/wise-` or `/wise-workflow-` (trailing dash) and templated
+# forms like `/wise-<action>` don't match — the name must end in
+# [a-z0-9].
+WISE_CMD_TOKEN_RE = re.compile(
+    r"`/(?:wise:)?(wise-[a-z0-9-]*[a-z0-9])(?:\s[^`]*)?`"
+)
+# A README command-table row's leading invocation token; tolerates
+# bold/link wrapping and the canonical `wise:` prefix.
+README_ROW_RE = re.compile(
+    r"^\|\s*(?:\*\*|\[)?\s*`/(?:wise:)?(wise-[a-z0-9-]*[a-z0-9])"
+)
+
+
+def check_skill_doc_sync(errors: list[str], parse_frontmatter) -> None:
+    """Set-diff skills/*/ against the two docs that catalog them.
+
+    Standalone skills (frontmatter has `argument-hint`; the `/wise`
+    helper excluded — it is documented as the natural-language helper,
+    not a command-table row) must appear as a row in README.md's
+    command table and be mentioned in CLAUDE.md. In reverse, every
+    full `/wise-*` token those docs name must have a backing skill
+    directory — a typo'd or stale row otherwise survives silently.
+    """
+    plugin_root = REPO_ROOT / WISE_PLUGIN_DIR
+    skills_dir = plugin_root / "skills"
+    skill_names = {p.parent.name for p in skills_dir.glob("*/SKILL.md")}
+    standalone = {
+        name
+        for name in skill_names
+        if name != "wise"
+        and "argument-hint" in parse_frontmatter(skills_dir / name / "SKILL.md")
+    }
+
+    readme = plugin_root / "README.md"
+    claude_md = plugin_root / "CLAUDE.md"
+    texts: dict[Path, str] = {}
+    for doc in (readme, claude_md):
+        try:
+            texts[doc] = doc.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{doc.relative_to(REPO_ROOT)}: could not read file ({exc})")
+    if len(texts) < 2:
+        return
+
+    readme_rel = readme.relative_to(REPO_ROOT)
+    claude_rel = claude_md.relative_to(REPO_ROOT)
+    readme_text = texts[readme]
+    claude_text = texts[claude_md]
+
+    readme_rows = {
+        m.group(1)
+        for line in readme_text.splitlines()
+        if (m := README_ROW_RE.match(line))
+    }
+    claude_tokens = set(WISE_CMD_TOKEN_RE.findall(claude_text))
+
+    for name in sorted(standalone - readme_rows):
+        errors.append(
+            f"{readme_rel}: standalone skill {name!r} has no command-table row"
+        )
+    for name in sorted(standalone - claude_tokens):
+        errors.append(
+            f"{claude_rel}: standalone skill {name!r} is not mentioned"
+        )
+    for name in sorted(readme_rows - skill_names):
+        errors.append(
+            f"{readme_rel}: command-table row `/{name}` has no skills/{name}/ directory"
+        )
+    for name in sorted(claude_tokens - skill_names):
+        errors.append(
+            f"{claude_rel}: mentions `/{name}` but skills/{name}/ does not exist"
+        )
 
 
 def _clean_ref(ref: str) -> str | None:
@@ -304,6 +518,7 @@ def main() -> int:
     json_errors: list[str] = []
     workflow_errors: list[str] = []
     skill_errors: list[str] = []
+    doc_sync_errors: list[str] = []
     ref_errors: list[str] = []
     source_errors: list[str] = []
 
@@ -325,6 +540,9 @@ def main() -> int:
         skill_errors.append(
             f"{load_error} (skill frontmatter check skipped — it depends on this module)"
         )
+        doc_sync_errors.append(
+            f"{load_error} (skill doc-sync check skipped — it depends on this module)"
+        )
     else:
         workflows_py = f"{WISE_PLUGIN_DIR}/scripts/workflows.py"
         try:
@@ -339,14 +557,19 @@ def main() -> int:
             skill_errors.append(
                 f"{missing_error} (skill frontmatter check skipped — it depends on this export)"
             )
+            doc_sync_errors.append(
+                f"{missing_error} (skill doc-sync check skipped — it depends on this export)"
+            )
         else:
             check_workflows(workflow_errors, step_types, trigger_rules)
             check_skill_frontmatter(skill_errors, parse_frontmatter)
+            check_skill_doc_sync(doc_sync_errors, parse_frontmatter)
 
     sections = [
         ("json manifests", json_errors),
         ("workflow.yaml files", workflow_errors),
         ("skill frontmatter", skill_errors),
+        ("skill doc sync", doc_sync_errors),
         ("doc cross-references", ref_errors),
         ("marketplace source pins", source_errors),
     ]
