@@ -44,7 +44,8 @@ and follow it end to end with `worktree=<project.path>`, `fixer=self`
 (the panel applies its own bounded fixes and commits them), plus `base`,
 `ticket_ref`, `plan_path`, and `config_prompt` when supplied.
 
-That fragment runs `references/code-review-pass.md` at **high** effort —
+That fragment runs `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`
+at **high** effort —
 five parallel read-only reviewer lenses plus the confidence-scoring pass
 — curates the concrete correctness / security / clear-quality findings,
 applies them, and commits.
@@ -70,7 +71,10 @@ git push
 
 Never `--force`, never `--force-with-lease`, never `--no-verify`. On a
 push failure (non-fast-forward, auth, hook) do NOT retry — skip to §4
-with `failed` and `reason=push-failed`.
+with `failed`, `reason=push-failed`, and `unpushed=$(git rev-parse HEAD)`.
+The panel's fix commit is already in the local branch: report it so the
+caller can surface it, and never `git reset` it away — discarding a
+review commit silently is worse than an unpushed one.
 
 When §1 reported `committed=no`, there is nothing to push — go to §3.
 
@@ -106,7 +110,7 @@ Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
 REVIEW-FALLBACK: ran applied=<n> skipped=<m> committed=<yes|no> for=<stuck_bots> note=<comment-url|->
-REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed> for=<stuck_bots>
+REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed> for=<stuck_bots> [unpushed=<sha>]
 ```
 
 - `ran` — the panel reviewed the branch. `committed=yes` means a fix
@@ -114,7 +118,8 @@ REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed> for=<stuck_bots>
   the branch reviewed clean and nothing moved.
 - `failed` — the panel aborted or the push was rejected; no substitute
   review is on record, so the caller must NOT treat the stuck bot as
-  covered.
+  covered. `unpushed=<sha>` appears only on `reason=push-failed` and
+  names the local commit the push left behind.
 
 ## Guardrails
 
