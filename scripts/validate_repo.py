@@ -243,6 +243,21 @@ def check_skill_frontmatter(errors: list[str], parse_frontmatter) -> None:
         if not isinstance(description, str) or not description.strip():
             errors.append(f"{rel}: frontmatter 'description' missing or empty")
 
+        # The plugin contract (CLAUDE.md invariants): exactly one skill
+        # sets `disable-model-invocation: true` — the /wise helper.
+        dmi = frontmatter.get("disable-model-invocation")
+        if dir_name == "wise":
+            if dmi is not True:
+                errors.append(
+                    f"{rel}: the wise helper must set "
+                    "'disable-model-invocation: true'"
+                )
+        elif dmi is not None:
+            errors.append(
+                f"{rel}: only skills/wise/SKILL.md may set "
+                "'disable-model-invocation'"
+            )
+
         for key in frontmatter:
             if key in FORBIDDEN_SKILL_KEYS:
                 errors.append(

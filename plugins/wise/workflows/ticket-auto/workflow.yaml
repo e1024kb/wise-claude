@@ -365,7 +365,7 @@ steps:
         state the base repo is clean — no worktrees remain.
 
       Your response's FINAL line MUST be the pass's `REPORT:` line.
-    until: 'REPORT: (ok|failed) .+'
+    until: 'REPORT: (ok scope="[^"]*" mode=(brief|full) saved=("[^"]*"|-)|failed reason="[^"]*")'
     agent: qa-engineer
     model: sonnet
     depends_on: [process-tickets]

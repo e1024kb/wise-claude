@@ -189,9 +189,11 @@ root="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/nu
   (`pwd -P` resolves symlinks the same way `workflows.py` does; keep
   the whole path quoted).
 
-`mkdir -p` the dir and write `report-<YYYYMMDD-HHMMSS>.md` (seconds
-included - two saves in one minute must not overwrite each other).
-Then print `Saved: <absolute path>` on its own line. This file is
+`mkdir -p` the dir and write `report-<YYYYMMDD-HHMMSS>.md`. If that
+exact path already exists (two saves within the same second), append
+a numeric suffix before the extension (`report-<ts>-2.md`, `-3`,
+...) - a save must never overwrite an earlier handoff. Then print
+`Saved: <absolute path>` on its own line. This file is
 what §1 reads back as "previous handoff" in a later run. The store
 is the documented state exception (d) in the plugin CLAUDE.md.
 
