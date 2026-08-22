@@ -39,8 +39,11 @@ Run all `gh` / `curl` / `git` commands with `cd <project.path>` first.
 #### 1a. Is Sonar in play for this repo at all? (run this FIRST)
 
 A repo that has no Sonar project must not be gated on a Sonar verdict
-forever. This probe runs **before** key discovery and before any
-fetch - nothing below §1a executes until it says Sonar is present.
+forever. This probe runs **before** key discovery, and its job is to
+decide which question §1b's fetch is answering - not to end the
+procedure. §1b always runs. A footprint here means "verify Sonar is
+clean"; no footprint means "confirm the project really does not exist",
+and only §1b's 404 can confirm that.
 
 This fragment does not inherit the caller's shell, so derive what the
 probes need first:
@@ -247,10 +250,11 @@ Emit `SONAR-AUTO: aborted reason=apply-failed-on=<file:line>`.
 
 ### 4. Fetch-fail — blocked, postpone (do NOT guess clean)
 
-This is the *unverifiable* case, not the *absent* one: §1 already
-established that this repo HAS a Sonar footprint, so a failure here
-means the issues exist but could not be read. Never downgrade it to
-`not-configured`.
+This is the *unverifiable* case, not the *absent* one. Absence is
+established only by §1b's explicit 404 on a repo §1a found no footprint
+for; a fetch that fails for any other reason - auth, network, a guessed
+key, an unreadable probe - proves nothing either way. Never downgrade
+any of those to `not-configured`.
 
 On AUTH-FAIL / FETCH-FAIL, emit
 `SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved|footprint-probe-failed>`. Never write

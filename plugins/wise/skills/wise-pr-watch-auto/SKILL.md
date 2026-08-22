@@ -110,9 +110,11 @@ left open for a human.
   can't be fetched (no token / no MCP), postpone: keep working
   everything else, remind the operator, and leave the PR open
   (`all-green reason=sonar-unchecked`) rather than guessing it's clean.
-  A repo with no Sonar project at all (no config, no Sonar check, no
-  Sonar bot footprint) is not postponed - Sonar leaves the merge gate
-  entirely, the same way an absent review bot does.
+  A repo with no Sonar project at all is not postponed - Sonar leaves
+  the merge gate entirely, the same way an absent review bot does. That
+  needs positive proof, not just a missing footprint: no config, no
+  Sonar check and no Sonar bot activity, AND an issues-search that
+  returns an explicit 404 for the project.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.
 - `Task` is granted for one purpose: §4c's review fallback dispatches

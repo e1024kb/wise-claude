@@ -228,9 +228,13 @@ other check/comment, reminds the operator, and leaves the PR open
 (`all-green reason=sonar-unchecked`) rather than merging on an unverified
 Sonar state. A repo with **no Sonar project at all** is a different case
 and is not postponed: when the handler finds no Sonar config in the
-tree, no Sonar check on the PR and no Sonar bot footprint, it returns
-`not-configured` and Sonar drops out of the merge gate entirely, like an
-`absent` review bot.
+tree, no Sonar check on the PR and no Sonar bot footprint **and** the
+issues-search then returns an explicit 404 confirming no such project
+exists, it returns `not-configured` and Sonar drops out of the merge
+gate entirely, like an `absent` review bot. The 404 is required: a
+missing footprint alone only raises the question, and any other fetch
+outcome (200, auth failure, network error, a guessed key) keeps Sonar
+in the gate.
 
 Reaching green once does not trigger the merge. The phase then holds a
 **post-green stability window** (3 min) and re-checks CI + comments; a
