@@ -14,8 +14,8 @@ independent **review↔fix loop** (`wise:code-reviewer` judges,
 opens a PR, requests the bot reviews (attaches Copilot, triggers
 CodeRabbit), watches + fixes CI, then waits for both bots to review the
 head — bypassing CodeRabbit when it is out of credits and
-retrying-then-giving-up on a rate limit, and degrading a stuck Copilot
-to wise's own review panel rather than parking the PR — and resolves
+retrying-then-giving-up on a rate limit, and degrading **either** stuck
+bot to wise's own review panel rather than parking the PR — and resolves
 every review comment — end to end, with **no prompts after launch**
 (pre-flight asks one optional model/effort tuning questionary before
 autonomy starts). One worktree + branch + PR per ticket. When a PR's
@@ -202,9 +202,11 @@ the bot it stood in for, and lets the run keep going to green and merge.
 The verdict records both halves (`copilot=stuck reason=…`,
 `coderabbit=bypassed|gave-up`, `review-fallback=ran applied=<n>`) so
 `report` flags what actually reviewed the branch. The fallback runs at
-most once per head SHA and twice per watch run; if it fails, the PR is
-left open (`all-green reason=review-fallback-failed`) because nothing
-reviewed the branch. Once a bot has reviewed, every review
+most once per head SHA and three times per watch run (two productive
+runs plus a confirming pass — each run that commits advances the head,
+so the budget has to allow a clean read on the new one); if it fails,
+the PR is left open (`all-green reason=review-fallback-failed`) because
+nothing reviewed the branch. Once a bot has reviewed, every review
 comment is handled via the sub-fragment
 `prompts/handle-bot-reviews-auto.md` — each comment classified by
 severity (minors fixed quickly, major/critical ones via a considered

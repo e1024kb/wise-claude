@@ -35,9 +35,10 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 - `project.path` — absolute path to the repo working tree (a ticket
   worktree, when called from `ticket-auto`).
 - `max_fix_attempts` — cap on commit-producing fix rounds (default 10).
-- `base` — **optional** base branch of the PR. Passed through to §4c's
-  review fallback; when absent the review pass detects the repo's
-  default branch itself.
+- `base` — **optional** override for the PR's base branch. When absent,
+  §4c resolves it from the PR itself and fails closed if it cannot — it
+  never lets the review pass fall back to the repo default, which would
+  review the wrong diff on a `release*` PR.
 - `ticket_ref`, `plan_path` — **optional** ticket context. Passed
   straight through to `handle-bot-reviews-auto.md` so the
   major/critical path can weigh a bot concern against the ticket.
@@ -61,6 +62,7 @@ RUN_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 FALLBACK_RUNS=0                      # §4c local review-fallback runs so far
 FALLBACK_SHA=""                      # head sha the last fallback reviewed
 FALLBACK_STATE=not-needed            # not-needed | ran | failed
+FALLBACK_APPLIED=0                   # findings the fallback applied, all runs
 COPILOT_STUCK=0                      # latch: Copilot proved it cannot review
 CODERABBIT_STUCK=0                   # latch: CodeRabbit proved it cannot review
 ```
@@ -342,15 +344,18 @@ triggered hard.
   reviewer stepping in.
 
   Poll `bot_footprint "coderabbit"` every `BOT_REVIEW_POLL`s up to
-  `BOT_GRACE`s. Got a footprint → installed. Still none after
-  `BOT_GRACE` → **not installed** → `CODERABBIT_STATE=absent`, skip the
-  rest of 4b.
+  `BOT_GRACE`s. Got a footprint → installed, continue below.
 
-  `absent` here means "nothing answered a trigger on a repo that shows
-  no CodeRabbit anywhere" — the not-installed case. If CodeRabbit *does*
-  have a footprint on this PR but goes silent on a later head, that is
-  an outage, not a configuration: it lands in the wait loop below and
-  ends `gave-up reason=timeout`, which §4c covers.
+  Still none after `BOT_GRACE` → the evidence is PR-scoped and therefore
+  weak: `bot_footprint` only reads this PR, so "no answer within 3
+  minutes" is equally consistent with a CodeRabbit that is installed and
+  down. Do not call that `absent` — `absent` removes the bot from the
+  gate *and* excludes it from §4c's cover, which is exactly the
+  Copilot-flaky-attach mistake in reviewer's clothing. Set
+  `CODERABBIT_STATE=gave-up reason=no-response`, `CODERABBIT_STUCK=1`
+  (§4c then covers the gap) and skip the rest of 4b. Reserve `absent`
+  for a positively confirmed not-installed — no CodeRabbit footprint
+  anywhere in the repo, not merely on this PR.
 
 - **Trigger the current head + wait.** When installed, post
   `@coderabbitai review` (idempotent re-point at `HEAD_SHA`, through
@@ -378,7 +383,8 @@ triggered hard.
      - **Rate limited** — body matches `rate limit`, `rate-limited`,
        `too many requests`, or `try again in` → if `RL < CR_RL_MAX`: `sleep
        CR_RL_RETRY` (30 s), re-post `@coderabbitai review` **through
-       `record_own_comment`**, `RL=$((RL + 1))`, continue. Once `RL` reaches `CR_RL_MAX` (10): **give up** —
+       `record_own_comment`**, `RL=$((RL + 1))`, continue. Once `RL`
+       reaches `CR_RL_MAX` (10): **give up** —
        `CODERABBIT_STATE=gave-up reason=rate-limit`, `CODERABBIT_STUCK=1`,
        leave the loop.
      - **No terminal signal** — `sleep BOT_REVIEW_POLL`, continue.
@@ -461,6 +467,13 @@ the states above), `base=$BASE` (the **resolved** value, never the
 caller's possibly-unset `base`), and `ticket_ref` / `plan_path` /
 `config_prompt` when supplied.
 
+On **either** `ran` outcome, add the line's `applied=<n>` to
+`FALLBACK_APPLIED` (`FALLBACK_APPLIED=$((FALLBACK_APPLIED + <n>))`).
+Under `fixer=self` the panel commits what it applies, so a productive
+run reports its findings on the `committed=yes` line — accumulating only
+on `committed=no` would report `applied=0` for a fallback that fixed
+things. §8 reports the run-wide total, not the last run's.
+
 That fragment runs the same high-depth panel as
 `/wise-code-review-auto` (`review-branch-auto.md` with `fixer=self` — 5
 lenses over `origin/<base>..HEAD`), commits what it finds, pushes, and
@@ -470,14 +483,11 @@ final line:
 - `REVIEW-FALLBACK: ran … committed=no …` → `FALLBACK_STATE=ran`. The
   branch reviewed clean; continue to §5. Pass its `note=<url>` through
   `record_own_comment` so §1 does not read the audit note as a human
-  comment (skip when it reported `note=-`). Add its `applied=<n>` to a
-  run-scoped `FALLBACK_APPLIED` total — that is what §8's
-  `review-fallback=ran applied=<n>` reports, summed across every
-  fallback run, not just the last.
+  comment (skip when it reported `note=-`).
 - `REVIEW-FALLBACK: ran … committed=yes …` → `FALLBACK_STATE=ran`, same
-  `record_own_comment` bookkeeping, then treat it like any other committed fix: increment
-  `ATTEMPTS` and **re-enter §1**. The push re-runs CI, and it also gives
-  the stuck bot a fresh head to review — if it recovered, §4's latch
+  `record_own_comment` bookkeeping, then treat it like any other
+  committed fix: increment `ATTEMPTS` and **re-enter §1**. The push
+  re-runs CI, and it also gives the stuck bot a fresh head to review — if it recovered, §4's latch
   re-check picks that up and the normal bot path resumes.
 - `REVIEW-FALLBACK: failed reason=<r>` → `FALLBACK_STATE=failed`. There
   is no substitute review on record, so the stuck bot stays uncovered:
@@ -506,11 +516,18 @@ usually produced no review for this head, so there is nothing to handle
 — §4c covered the stuck ones and none of these block the merge. But
 "stuck" is not always "silent": a bot can post real inline findings and
 *then* rate-limit or run out of credits mid-review. So the skip is
-keyed on the **threads**, not the state — run the handler for any bot
-that has unresolved, non-outdated review threads anchored on
-`HEAD_SHA`, whatever its terminal §4 state, and skip only when that set
-is empty. Dropping a stuck bot's real findings and merging past them is
-the failure this rule exists to prevent.
+keyed on **actionable items**, not on state alone. This rule is
+**additive** — it never removes a `reviewed` bot from the queue. On top
+of every bot that reviewed, also run the handler for any bot that has
+either of these against `HEAD_SHA`, whatever its terminal §4 state:
+
+- unresolved, non-outdated review threads, or
+- an unaddressed `CHANGES_REQUESTED` review (a summary-level review
+  carries no thread, so a thread-only test would miss it entirely).
+
+Skip a bot only when both sets are empty. Dropping a stuck bot's real
+findings and merging past them is the failure this rule exists to
+prevent.
 
 That fragment classifies every comment by severity, fixes minors
 quickly, applies a considered "consolidated decision" to
@@ -590,8 +607,9 @@ so 2b gets an immediate exit instead. Concretely: on entry, if some bot
 is still stuck **and** `FALLBACK_STATE=failed` (or its `FALLBACK_SHA` is
 stale), no stability window can change that — skip straight to §8 with
 `WATCH-AUTO: all-green url=<pr_url> reason=review-fallback-failed` and
-leave the PR open. If no bot is stuck any more, 2b is moot (§4's latch
-clear already reset `FALLBACK_STATE`) and the windows run normally. Running it even while `SONAR_STATE=blocked-fetch`
+leave the PR open. If no bot is stuck any more, 2b is moot — it only
+consults `FALLBACK_STATE` while some bot is stuck — and the windows run
+normally. Running it even while `SONAR_STATE=blocked-fetch`
 (rather than exiting straight to a verdict) is what "keep watching but
 remind" means: each window re-attempts the Sonar fetch in case the
 operator sets the token mid-run.
@@ -747,7 +765,8 @@ what reviewed the branch instead.
 - `human-intervention` — a human commented (the loop stood down), or
   `reason=comment-gate-unreadable` (§1's human-comment gate could not be
   evaluated twice running — the run stops rather than assume nobody
-  spoke), or `reason=stability-capped` (the §6.5 window hit `STABILITY_MAX_ROUNDS`
+  spoke), or `reason=stability-capped` (the §6.5 window hit
+  `STABILITY_MAX_ROUNDS`
   without two consecutive clean windows — reviewers kept posting, so the
   PR is green but left open for a human to merge). A stalled bot never
   lands here: Copilot goes `stuck` and CodeRabbit bypasses / gives up
