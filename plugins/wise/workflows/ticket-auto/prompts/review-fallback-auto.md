@@ -25,8 +25,13 @@ the verdict — it reviews, commits, pushes, and reports.
   `<bot>:<reason>`, e.g. `copilot:review-timeout`,
   `coderabbit:out-of-credits`, `copilot:error,coderabbit:rate-limit`.
   Used for the audit note and the final line only.
-- `base` — **optional** base branch. Passed through; when absent the
-  review pass detects the repo's default branch itself.
+- `base` — **required**. The PR's actual base branch, already resolved
+  by the caller (§4c). Do NOT treat an empty value as "let the review
+  pass detect the default branch": on a PR onto `release*` that silently
+  reviews `origin/main..HEAD`, a diff that is not the PR's, and the
+  clean verdict would satisfy the caller's merge gate. Empty or missing
+  → emit `REVIEW-FALLBACK: failed reason=base-unresolved` and stop
+  before dispatching anything.
 - `ticket_ref`, `plan_path`, `config_prompt` — **optional** context,
   passed straight through to the review pass so it weighs findings
   against the ticket's intent, the plan's `## Decisions Made`, and the
@@ -41,8 +46,12 @@ Run all `git` / `gh` commands with `cd <project.path>` first.
 Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree=<project.path>`, `fixer=self`
-(the panel applies its own bounded fixes and commits them), plus `base`,
-`ticket_ref`, `plan_path`, and `config_prompt` when supplied.
+(the panel applies its own bounded fixes and commits them), the required
+`base`, plus `ticket_ref`, `plan_path`, and `config_prompt` when
+supplied. Verify `base` is non-empty first (see the context contract
+above) — a review of the wrong diff still satisfies the caller's merge
+gate, so this is the one input worth checking before the panel spins
+up.
 
 That fragment runs `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`
 at **high** effort —
@@ -110,7 +119,7 @@ Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
 REVIEW-FALLBACK: ran applied=<n> skipped=<m> committed=<yes|no> for=<stuck_bots> note=<comment-url|->
-REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed> for=<stuck_bots> [unpushed=<sha>]
+REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<stuck_bots> [unpushed=<sha>]
 ```
 
 - `ran` — the panel reviewed the branch. `committed=yes` means a fix

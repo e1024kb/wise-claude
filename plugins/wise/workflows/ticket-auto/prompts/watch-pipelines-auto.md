@@ -187,6 +187,7 @@ review gap locally for any bot that got stuck.
 
 ```bash
 HEAD_SHA="$(git rev-parse HEAD)"
+ITER_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # recency anchor for THIS §4 entry
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 BOT_REVIEW_POLL=20          # seconds between review-done polls
 BOT_REVIEW_TIMEOUT=900      # 15 min wall-clock cap per bot
@@ -196,7 +197,10 @@ CR_RL_MAX=10                # CodeRabbit rate-limit re-triggers before giving up
 POST_GREEN_STABILITY=180    # secs per post-green stability window (3 min) — §6.5
 STABILITY_CLEAN_TARGET=2    # consecutive clean windows required before merge — §6.5
 STABILITY_MAX_ROUNDS=10     # hard cap on stability windows before standing down — §6.5
-FALLBACK_MAX=2              # local review-fallback runs allowed per watch run — §4c
+FALLBACK_MAX=3              # local review-fallback runs per watch run — §4c
+                            # (2 productive runs + 1 confirming pass: every
+                            #  `committed=yes` advances the head, so the budget
+                            #  must allow a final `committed=no` on the new one)
 
 bot_logins() {        # $1 = "copilot" | "coderabbit" — exact logins for that bot only, as a jq array literal
   case "$1" in
@@ -246,14 +250,21 @@ latched bot gets **one** `bot_review_done` call instead of the full
 `BOT_REVIEW_TIMEOUT` wait — if it answers `true` (the outage cleared),
 clear the latch and treat it as `reviewed`; otherwise carry the previous
 stuck state forward immediately. When clearing a latch leaves **no** bot
-in a stuck state, retire the fallback bookkeeping: reset
-`FALLBACK_STATE=not-needed`, and clear `FALLBACK_SHA=""` **unless** the
-fallback at that sha succeeded (`ran`) and the sha is still `HEAD_SHA` —
-successful same-head coverage is worth keeping. Two failure modes this
-avoids: a stale `failed` keeping an otherwise mergeable PR open, and a
-stale `FALLBACK_SHA` from a *failed* run making §4c skip ("this head
-already got its local review") when a different bot gets stuck on the
-same head. Without the latch a bot that is down for
+in a stuck state, retire the fallback bookkeeping — and retire the two
+values **as a pair**, never one without the other:
+
+- the fallback at `FALLBACK_SHA` succeeded (`ran`) and that sha is still
+  `HEAD_SHA` → keep **both** `FALLBACK_STATE=ran` and `FALLBACK_SHA`.
+  This head has a local review on record; if another bot gets stuck on
+  the same head later in the run, §7's 2b is already satisfied.
+- otherwise → clear **both** (`FALLBACK_STATE=not-needed`,
+  `FALLBACK_SHA=""`).
+
+Splitting the pair is what breaks: a kept sha with a reset state makes
+§4c skip ("this head already got its local review") while §7's 2b still
+demands `ran`, so a head that *was* reviewed can never merge. Clearing
+the state alone re-introduces the stale-`failed` case, where an
+otherwise mergeable PR stays open. Without the latch a bot that is down for
 the afternoon would burn 15 minutes on every single loop iteration.
 
 #### 4a. Copilot — availability, trigger, wait (degrades to §4c)
@@ -262,9 +273,13 @@ the afternoon would burn 15 minutes on every single loop iteration.
   is in `gh pr view <pr_number> --json reviewRequests` OR has any Copilot
   footprint. Otherwise attempt one attach (follow
   `request-review-auto.md` §2 — CLI `--add-reviewer`, GraphQL fallback):
-  a successful request → expected; a "not a valid user" / not-enabled
-  failure → Copilot is **unavailable** for this repo → `COPILOT_STATE=absent`,
-  skip the wait.
+  a successful request → expected. Only an explicit "not a valid user" /
+  not-enabled response means Copilot is **unavailable** for this repo →
+  `COPILOT_STATE=absent`, skip the wait. Any other failure (network, 5xx,
+  auth hiccup) is not evidence of that: retry once, then
+  `COPILOT_STATE=stuck reason=attach-failed` so §4c covers the gap.
+  `absent` removes Copilot from the gate entirely, so it must never be
+  reached by a flaky call.
 - **Wait.** When expected, poll `bot_review_done "copilot"` against
   `HEAD_SHA` every `BOT_REVIEW_POLL`s, up to `BOT_REVIEW_TIMEOUT`. Done →
   `COPILOT_STATE=reviewed`.
@@ -275,8 +290,12 @@ the afternoon would burn 15 minutes on every single loop iteration.
   this decides whether Copilot's review gets skipped, so a loose match
   silently downgrades a real review:
   - **author** — exact-login Copilot only (`bot_logins "copilot"`),
-  - **recency** — only bodies created after this iteration's trigger for
-    `HEAD_SHA`; older bodies describe earlier heads,
+  - **recency** — only bodies created after `ITER_STARTED` (this §4
+    entry). Do not anchor on "this iteration's trigger": once Copilot is
+    already in `reviewRequests` no trigger is posted, and Copilot's
+    status notices are issue comments carrying no `commit_id`, so
+    without a time anchor a single old "unable to review" would latch
+    every later head as stuck forever,
   - **not a review of this head** — ignore any body attached to a review
     whose `commit_id == HEAD_SHA`; that IS the review, whatever words it
     contains,
@@ -327,6 +346,12 @@ triggered hard.
   `BOT_GRACE` → **not installed** → `CODERABBIT_STATE=absent`, skip the
   rest of 4b.
 
+  `absent` here means "nothing answered a trigger on a repo that shows
+  no CodeRabbit anywhere" — the not-installed case. If CodeRabbit *does*
+  have a footprint on this PR but goes silent on a later head, that is
+  an outage, not a configuration: it lands in the wait loop below and
+  ends `gave-up reason=timeout`, which §4c covers.
+
 - **Trigger the current head + wait.** When installed, post
   `@coderabbitai review` (idempotent re-point at `HEAD_SHA`, through
   `record_own_comment`), set `RL=0`, and loop — bounded by `BOT_REVIEW_TIMEOUT`:
@@ -335,15 +360,23 @@ triggered hard.
      leave the loop.
   2. Else read CodeRabbit's recent issue comments
      (`gh pr view <pr_number> --json comments`) and classify the latest
-     CodeRabbit status message:
+     CodeRabbit status message. Scope the match exactly as §4a scopes
+     Copilot's — **exact-login CodeRabbit only** (`bot_logins
+     "coderabbit"`), **created after `ITER_STARTED`**, and the body must
+     read as a whole status notice rather than merely contain a word.
+     A loose match here skips a real CodeRabbit review, so bare `quota`
+     / `try again` / `used up` never qualify on their own: CodeRabbit's
+     own review prose on a PR that touches quotas or retries contains
+     them.
      - **Out of credits / quota** — body matches (case-insensitive)
-       `out of credits`, `ran out of`, `used up`, `credit balance`,
-       `usage limit`, `quota`, `upgrade your plan` → **bypass**:
+       `out of credits`, `ran out of credits`, `credit balance`,
+       `usage limit`, `upgrade your plan`, or
+       `coderabbit .*(quota|used up)` → **bypass**:
        `CODERABBIT_STATE=bypassed reason=out-of-credits`,
        `CODERABBIT_STUCK=1`, leave the loop (do not keep waiting —
        CodeRabbit cannot review).
      - **Rate limited** — body matches `rate limit`, `rate-limited`,
-       `too many requests`, `try again` → if `RL < CR_RL_MAX`: `sleep
+       `too many requests`, or `try again in` → if `RL < CR_RL_MAX`: `sleep
        CR_RL_RETRY` (30 s), re-post `@coderabbitai review` **through
        `record_own_comment`**, `RL=$((RL + 1))`, continue. Once `RL` reaches `CR_RL_MAX` (10): **give up** —
        `CODERABBIT_STATE=gave-up reason=rate-limit`, `CODERABBIT_STUCK=1`,
@@ -397,32 +430,36 @@ either bound is already hit:
   open. Never merge a head on the strength of a review of an earlier
   one.
 
-**Run it.** Read
-`${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-fallback-auto.md`
-and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
-`project.path`, `stuck_bots=<bot>:<reason>[,<bot>:<reason>]` (built from
-the states above), `base`, and `ticket_ref` / `plan_path` /
-`config_prompt` when supplied.
-
-Resolve `base` here rather than assuming the repo default — a PR onto a
+**Resolve the base first.** Do this BEFORE dispatching — a PR onto a
 `release*` branch would otherwise have the panel review
-`origin/main..HEAD`, a diff that is not the PR's:
+`origin/main..HEAD`, a diff that is not the PR's, and a clean verdict on
+the wrong diff would satisfy the merge gate:
 
 ```bash
 BASE="${base:-$(gh pr view <pr_number> --json baseRefName --jq .baseRefName)}"
-if [ -z "$BASE" ]; then
-  # Do NOT fall through: the review pass would silently diff against the
-  # repo default branch, reviewing a diff that is not this PR's.
-  echo "review fallback: could not resolve the PR base" >&2
+git fetch origin "$BASE" >/dev/null 2>&1 || true
+if [ -z "$BASE" ] || ! git rev-parse --verify --quiet "origin/$BASE" >/dev/null; then
+  echo "review fallback: could not resolve the PR base ($BASE)" >&2
+  # FALLBACK_STATE=failed reason=base-unresolved — do NOT dispatch.
 fi
 ```
 
-If `BASE` comes back empty or the lookup errors, do **not** dispatch the
-fallback with no base. Set
-`FALLBACK_STATE=failed reason=base-unresolved` and let §7 leave the PR
-open — a review of the wrong diff is worse than no review, because it
-would satisfy the merge gate. Set `FALLBACK_SHA="$HEAD_SHA"` and `FALLBACK_RUNS=$((FALLBACK_RUNS + 1))`
-before dispatching, so a failure cannot loop.
+If `BASE` is empty, the lookup errored, or `origin/$BASE` does not exist
+in this worktree, set `FALLBACK_STATE=failed reason=base-unresolved`,
+**skip the dispatch**, and continue at §5 — §7 then leaves the PR open.
+Still set `FALLBACK_SHA="$HEAD_SHA"` and
+`FALLBACK_RUNS=$((FALLBACK_RUNS + 1))` on this path, so the failing
+lookup is not retried on every loop iteration.
+
+**Run it.** With a resolved `BASE`, set `FALLBACK_SHA="$HEAD_SHA"` and
+`FALLBACK_RUNS=$((FALLBACK_RUNS + 1))` (before dispatching, so a failure
+cannot loop), then read
+`${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-fallback-auto.md`
+and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
+`project.path`, `stuck_bots=<bot>:<reason>[,<bot>:<reason>]` (built from
+the states above), `base=$BASE` (the **resolved** value, never the
+caller's possibly-unset `base`), and `ticket_ref` / `plan_path` /
+`config_prompt` when supplied.
 
 That fragment runs the same high-depth panel as
 `/wise-code-review-auto` (`review-branch-auto.md` with `fixer=self` — 5
@@ -433,7 +470,10 @@ final line:
 - `REVIEW-FALLBACK: ran … committed=no …` → `FALLBACK_STATE=ran`. The
   branch reviewed clean; continue to §5. Pass its `note=<url>` through
   `record_own_comment` so §1 does not read the audit note as a human
-  comment (skip when it reported `note=-`).
+  comment (skip when it reported `note=-`). Add its `applied=<n>` to a
+  run-scoped `FALLBACK_APPLIED` total — that is what §8's
+  `review-fallback=ran applied=<n>` reports, summed across every
+  fallback run, not just the last.
 - `REVIEW-FALLBACK: ran … committed=yes …` → `FALLBACK_STATE=ran`, same
   `record_own_comment` bookkeeping, then treat it like any other committed fix: increment
   `ATTEMPTS` and **re-enter §1**. The push re-runs CI, and it also gives
@@ -459,10 +499,18 @@ For each bot that actually **reviewed** `HEAD_SHA` in §4 — Copilot when
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `bot_filter`, `bot_display_name`
 (`Copilot` / `CodeRabbit`), `head_sha=$HEAD_SHA`, and `ticket_ref` /
-`plan_path` / `config_prompt` when supplied. A bot whose §4 state is
-`absent`, `stuck`, `bypassed`, or `gave-up` produced no review for this
-head — there is nothing to handle, so skip it (§4c already covered the
-stuck ones, and none of these block the merge).
+`plan_path` / `config_prompt` when supplied.
+
+A bot whose §4 state is `absent`, `stuck`, `bypassed`, or `gave-up`
+usually produced no review for this head, so there is nothing to handle
+— §4c covered the stuck ones and none of these block the merge. But
+"stuck" is not always "silent": a bot can post real inline findings and
+*then* rate-limit or run out of credits mid-review. So the skip is
+keyed on the **threads**, not the state — run the handler for any bot
+that has unresolved, non-outdated review threads anchored on
+`HEAD_SHA`, whatever its terminal §4 state, and skip only when that set
+is empty. Dropping a stuck bot's real findings and merging past them is
+the failure this rule exists to prevent.
 
 That fragment classifies every comment by severity, fixes minors
 quickly, applies a considered "consolidated decision" to
@@ -550,7 +598,7 @@ operator sets the token mid-run.
 
 Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 
-1. `ROUNDS=ROUNDS+1`. If `ROUNDS > STABILITY_MAX_ROUNDS`, stand down
+1. `ROUNDS=$((ROUNDS + 1))`. If `ROUNDS > STABILITY_MAX_ROUNDS`, stand down
    without merging — `rm -rf "$SCRATCH"` in either case:
    - if the only unmet gate is Sonar (`SONAR_STATE=blocked-fetch`, every
      other condition holds) → emit
@@ -563,7 +611,9 @@ Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
 4. Re-check. A window is **dirty** if any of these hold:
    - a non-skipped check is no longer `SUCCESS` (re-run §1's
      `gh pr checks`),
-   - a **human** commented (the §1 allowlist jq) — stand down
+   - a **human** commented (the §1 allowlist jq, with `OWN_URLS`
+     **rebuilt** from `$SCRATCH/own-comment-urls` at this moment — §4b
+     and §4c have posted comments since §1 last built it) — stand down
      immediately: `rm -rf "$SCRATCH"`, emit
      `WATCH-AUTO: human-intervention url=<pr_url>` (never fight a
      reviewer),
@@ -583,7 +633,7 @@ Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
    stuck-loop catch and `max_fix_attempts` still bound real fix churn.
    After it re-greens, resume this loop at step 1.
 6. **Clean window** (nothing new **and** `SONAR_STATE=clean`) →
-   `CLEAN_STREAK=CLEAN_STREAK+1`. If
+   `CLEAN_STREAK=$((CLEAN_STREAK + 1))`. If
    `CLEAN_STREAK < STABILITY_CLEAN_TARGET`, loop to step 1 for the next
    consecutive window. Otherwise the PR is settled — proceed to §7. A
    window where Sonar is still `blocked-fetch` is never clean — it keeps
@@ -657,7 +707,7 @@ is where they all get swept up.
 Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
-WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout>] [review-fallback=ran applied=<n>]
+WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout>] [review-fallback=ran applied=<n>]
 WATCH-AUTO: all-green url=<pr_url> reason=<why-not-merged> [copilot=stuck reason=<…>] [coderabbit=<bypassed|gave-up> reason=<…>] [review-fallback=<ran|failed> …] [unpushed=<sha>]
 WATCH-AUTO: blocked url=<pr_url> items=<file:line;file:line;...>
 WATCH-AUTO: partial url=<pr_url> accepted=<comma-separated-markers>
@@ -680,8 +730,9 @@ what reviewed the branch instead.
   resolved, but the merge was blocked; PR left open. Same annotations.
   `reason=<why-not-merged>` is one of: branch protection / required
   approval / conflict; `review-fallback-failed` (a bot was stuck and
-  §4c's substitute review aborted, could not push, or only covered an
-  earlier head, so nothing reviewed the commit in front of us — a human
+  §4c's substitute review aborted, could not push, could not resolve the
+  PR base, or only covered an earlier head, so nothing reviewed the
+  commit in front of us — a human
   should look; `unpushed=<sha>` names a fix commit the failed push left
   in the local branch); or `sonar-unchecked` (§5.5 could
   not fetch the open issues — no token / no MCP — so the run could not

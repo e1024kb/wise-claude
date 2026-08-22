@@ -16,11 +16,12 @@ CodeRabbit), watches + fixes CI, then waits for both bots to review the
 head — bypassing CodeRabbit when it is out of credits and
 retrying-then-giving-up on a rate limit, and degrading a stuck Copilot
 to wise's own review panel rather than parking the PR — and resolves
-every review comment — end to end, with **no prompts after launch** (pre-flight asks one optional
-model/effort tuning questionary before autonomy starts). One worktree
-+ branch + PR per ticket. When a PR's checks
-all pass, every review bot has finished (a stuck one counts only when the local review fallback covered the same head), and every comment is
-fixed-or-dismissed it is **merged** (squash, respecting branch
+every review comment — end to end, with **no prompts after launch**
+(pre-flight asks one optional model/effort tuning questionary before
+autonomy starts). One worktree + branch + PR per ticket. When a PR's
+checks all pass, every review bot has finished (a stuck one counts only
+when the local review fallback covered the same head), and every comment
+is fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved — including one
 with a non-minor bot comment Claude can't confidently handle — is left
 open for a human. When a PR is merged, its worktree and local branch are
@@ -263,8 +264,9 @@ reason=stability-capped`) and leaves the green PR open for a human.
 ## Notes
 
 - **Merges on fully resolved.** A PR is merged (squash, fallback merge
-  commit) only when its checks all pass, both review bots have
-  finished, and every bot comment is fixed-or-dismissed with its
+  commit) only when its checks all pass, every review bot has finished
+  (a stuck one counts only when the local review fallback covered the
+  same head), and every bot comment is fixed-or-dismissed with its
   thread resolved. Branch protection is respected — if the repo
   requires a human approval the merge is left to a human and the PR
   stays open. A PR with a non-minor bot comment Claude can't
