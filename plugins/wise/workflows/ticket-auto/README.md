@@ -150,6 +150,7 @@ Driven by `prompts/process-tickets.md`, which follows these fragments:
 | Create PR | `prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
 | Request review | `prompts/request-review-auto.md` | (inline) | `/wise-pr-add-reviewers` |
 | Watch + fix | `prompts/watch-pipelines-auto.md` | `wise:software-engineer` · sonnet | `/wise-pr-watch` |
+| — review fallback (stuck bot) | `prompts/review-fallback-auto.md` (inside Watch + fix) | reviewer panel · high | `/wise-code-review-auto` |
 
 The **Plan** phase runs a four-way parallel research wave — design,
 related items, the grill **multi-source context sweep**
@@ -185,13 +186,24 @@ skill; `ticket-auto` passes `fixer=delegate` to drive the loop above.
 The `Watch + fix` phase **detects, triggers, and waits for** the review
 bots rather than inferring their absence from an empty footprint (the
 bug that let an early run merge before either bot reviewed). Copilot is
-the strict gate — a requested review must land on the head or the PR is
-left for a human (`copilot-review-timeout`). CodeRabbit is triggered
-hard (`@coderabbitai review`) but never deadlocks the run: if it reports
-being **out of credits** the phase bypasses it, and if it is
-**rate-limited** the phase re-triggers every 30 s up to 10 times before
-giving up — either way recorded as `coderabbit=bypassed|gave-up` on the
-verdict so `report` flags it. Once a bot has reviewed, every review
+attached and waited on; CodeRabbit is triggered hard
+(`@coderabbitai review`) and, if it reports being **out of credits**,
+bypassed, or if **rate-limited**, re-triggered every 30 s up to 10 times
+before giving up.
+
+**Neither bot is a merge gate.** When one gets stuck — Copilot times
+out / errors / is rate-limited, CodeRabbit is bypassed / gives up — the
+phase does not park the PR for a human. It runs the local review
+fallback (`prompts/review-fallback-auto.md`), which drives the same
+high-depth 5-lens panel as `/wise-code-review-auto` over the branch
+diff, commits and pushes what it finds, posts one audit comment naming
+the bot it stood in for, and lets the run keep going to green and merge.
+The verdict records both halves (`copilot=stuck reason=…`,
+`coderabbit=bypassed|gave-up`, `review-fallback=ran applied=<n>`) so
+`report` flags what actually reviewed the branch. The fallback runs at
+most once per head SHA and twice per watch run; if it fails, the PR is
+left open (`all-green reason=review-fallback-failed`) because nothing
+reviewed the branch. Once a bot has reviewed, every review
 comment is handled via the sub-fragment
 `prompts/handle-bot-reviews-auto.md` — each comment classified by
 severity (minors fixed quickly, major/critical ones via a considered

@@ -147,6 +147,7 @@ prompts verbatim, so the two workflows stay one implementation.
 | Create PR | `ticket-auto/prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
 | Request review | `ticket-auto/prompts/request-review-auto.md` | (inline) | `/wise-pr-add-reviewers` |
 | Watch + fix | `ticket-auto/prompts/watch-pipelines-auto.md` | `wise:software-engineer` · sonnet | `/wise-pr-watch` |
+| — review fallback (stuck bot) | `ticket-auto/prompts/review-fallback-auto.md` (inside Watch + fix) | reviewer panel · high | `/wise-code-review-auto` |
 
 The **Re-plan** phase is the difference from `ticket-auto`: instead of
 fetching a tracker ticket and authoring a plan from scratch, it reads the
