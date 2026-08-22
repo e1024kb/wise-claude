@@ -34,7 +34,124 @@ for the exact `gh` / `curl` / MCP queries and reuse them verbatim.
 
 Run all `gh` / `curl` / `git` commands with `cd <project.path>` first.
 
-### 1. Discover the component key + fetch the issues
+### 1. Footprint probe, then key discovery + fetch
+
+#### 1a. Is Sonar in play for this repo at all? (run this FIRST)
+
+A repo that has no Sonar project must not be gated on a Sonar verdict
+forever. This probe runs **before** key discovery, and its job is to
+decide which question §1b's fetch is answering - not to end the
+procedure. §1b always runs. A footprint here means "verify Sonar is
+clean"; no footprint means "confirm the project really does not exist",
+and only §1b's 404 can confirm that.
+
+This fragment does not inherit the caller's shell, so derive what the
+probes need first:
+
+```bash
+OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+```
+
+**A probe that could not run is not a probe that found nothing.** Each
+category below must complete successfully - the command exits 0 and its
+output parses - before its result counts. Retry a failed probe once; if
+it still fails, do NOT treat the category as absent. Emit
+`SONAR-AUTO: blocked-fetch reason=footprint-probe-failed` and stop.
+Absence has to be positively established, exactly as §4a of
+`watch-pipelines-auto.md` requires for Copilot's `absent` (where a
+network / 5xx / auth hiccup is explicitly NOT evidence of a bot being
+unavailable). A `gh` outage must never be able to unlock the merge
+gate.
+
+Look for a Sonar footprint in three categories, and require **every**
+one to be absent:
+
+1. **Config in the tree** - any of: `sonar-project.properties` or
+   `.sonarcloud.properties` **anywhere in the tree**, not just at the
+   root; `sonar-project.yaml` or `sonar-project.yml` (those exact
+   filenames, never "any `.yml` file"); a `<sonar.projectKey>` property
+   or the `sonar-maven-plugin` in `pom.xml`; the `org.sonarqube` plugin
+   or a `sonar { }` / `sonarqube { }` block in `build.gradle` /
+   `build.gradle.kts`; or a Sonar scan step in ANY CI config
+   (`.github/workflows/`, `.gitlab-ci.yml`, `azure-pipelines.yml`,
+   `Jenkinsfile`, `bitbucket-pipelines.yml`) - matching `sonarqube`,
+   `sonarcloud`, `SonarSource/`, `sonar-scanner`, `sonar:sonar`,
+   `SONAR_TOKEN`, or `SONAR_HOST_URL` case-insensitively.
+
+   Scan the **merge base** as well as the PR head
+   (`git merge-base HEAD origin/<base>`), and count a hit on either
+   side as present. A PR that deletes the Sonar config or its CI step
+   would otherwise erase categories 1, 2 and 3 at once and classify
+   itself as a repo that never had Sonar - the head that disables the
+   gate must not be the head that gets exempted from it.
+
+   A CI config that reaches Sonar indirectly - a `uses:` reference to
+   an external / reusable workflow, or a `make sonar`-style target
+   whose body this probe cannot see - makes category 1
+   **indeterminate**, not absent. Indeterminate is not absence: route
+   to `SONAR-AUTO: blocked-fetch reason=footprint-probe-failed` rather
+   than concluding the repo has no Sonar.
+
+   **Category 1 absent is weak evidence on its own.** SonarQube Cloud's
+   Automatic Analysis scans straight from the repository with no config
+   file and no CI step, so a fully Sonar-gated repo can legitimately
+   have nothing in the tree. Never conclude absence from category 1
+   alone.
+2. **A Sonar check on the PR** - anything matching `sonar`
+   (case-insensitive) in `gh pr checks <pr_number>` / the
+   `statusCheckRollup`.
+3. **Any Sonar bot activity** - an issue comment
+   (`gh pr view <pr_number> --json comments`) **or** a review
+   (`gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews"`) authored by
+   an exact-login Sonar bot: `sonarqubecloud[bot]`, `sonarqubecloud`,
+   `sonarcloud[bot]`, `sonarcloud`, plus `sonarqube[bot]` /
+   `sonarqube` for SonarQube Server, plus any additional login the
+   operator names in `config_prompt` (Server decorates PRs through a
+   customer-created GitHub App whose login is arbitrary, so this list
+   cannot be exhaustive by construction). A Sonar comment counts as a
+   footprint **whether or not** an `id=<key>` url can be parsed out of
+   it - for the footprint question the key is a discovery detail, not
+   the evidence. (Choosing WHICH project's verdict gates the merge is
+   a different question, and there the exact-login list is binding -
+   see §1b.)
+
+   Categories 2 and 3 are **PR-scoped**, and a PR-scoped probe cannot
+   tell "no Sonar here" from "Sonar has not posted yet" - the same trap
+   §4b of `watch-pipelines-auto.md` names for CodeRabbit. So when
+   category 1 is absent, do not decide on a head that is still settling:
+   if the PR head was pushed less than `BOT_GRACE` (180s) ago, wait out
+   the remainder and re-probe 2 and 3 before concluding. Then widen
+   beyond this PR - check the base branch's recent commits for a Sonar
+   check-run:
+
+   ```bash
+   BASE_SHA="$(gh pr view <pr_number> --json baseRefOid --jq .baseRefOid)"
+   gh api "repos/$OWNER_REPO/commits/$BASE_SHA/check-runs" \
+     --jq '[.check_runs[].name] | map(ascii_downcase) | any(test("sonar"))'
+   ```
+
+   A Sonar check on the base branch is repo-scoped proof that Sonar runs
+   here even when this PR has not been touched yet. Treat it as a
+   category-2 footprint.
+
+**Any footprint present** → Sonar **is** configured for this repo.
+Continue to §1b and never emit `not-configured`: an auth failure, a bad
+key, or a network error on a repo that has Sonar is `blocked-fetch`,
+not absence.
+
+**Every category absent** → Sonar is *probably* not configured here -
+but absence of evidence is not evidence of absence, and this verdict
+unlocks the merge gate, so it needs positive proof. Continue to §1b and
+let the fetch refute it. The issues-search endpoint is that proof: an
+unknown component returns an explicit **404 / "component not found"**,
+while any 200 means the project exists. Carry a flag
+(`NO_FOOTPRINT=true`) into §1b and read its outcome table there.
+
+Skipping the fetch would throw away the only call that can positively
+distinguish "no such project" from "project exists and is clean" - the
+distinction the whole verdict rests on.
+
+#### 1b. Discover the component key + fetch the issues
 
 Follow `handle-sonar-issues.md` §1 (discover `SONAR_KEY` — Sonar bot
 comment `id=<key>`, then `sonar-project.properties`, then `pom.xml`,
@@ -45,13 +162,36 @@ do **not** run separate sanity-check probes against the key (see that
 file's §2 + Guardrails for why a `components/show` 404 must not gate the
 result).
 
-Decide one outcome from the issues-search call alone:
+Two facts from §1 decide the outcome together with the fetch: whether
+§1a found any footprint (`NO_FOOTPRINT`), and whether the key is real
+or the `<org>_<repo>` guess (`SONAR_KEY_GUESSED`, set by that routine's
+last-resort step (d) - it always produces a key, so "no key at all" is
+never the signal). A key is **corroborated** when it came from a Sonar
+bot comment's `id=<key>`, `sonar-project.properties` /
+`.sonarcloud.properties`, `pom.xml`, or Gradle config - that is,
+`SONAR_KEY_GUESSED` is unset.
 
-- **OK (0 issues)** — successful query, empty result → go to §4, emit
-  `SONAR-AUTO: all-clear`.
-- **OK (N > 0 issues)** — successful query, N items → §2.
+Decide one outcome:
+
+- **404 / "component not found"** - the project does not exist. With
+  `NO_FOOTPRINT=true` that is the positive proof §1a wanted → go to §5,
+  emit `SONAR-AUTO: not-configured`. With a footprint present it means
+  the key is wrong, not that Sonar is missing → §4, emit
+  `SONAR-AUTO: blocked-fetch reason=key-unresolved`.
+- **OK (N > 0 issues)** - the project exists and has findings → §2. A
+  footprint-free repo that lands here was misclassified by §1a and the
+  fetch just corrected it; handle the issues normally.
+- **OK (0 issues), corroborated key** - genuinely clean → go to §5,
+  emit `SONAR-AUTO: all-clear`.
+- **OK (0 issues), guessed key** - untrustworthy: the guess may have
+  hit a stale, renamed, or unrelated empty project in the same org, and
+  an anonymous (unauthenticated) query can return an empty page instead
+  of a 404 for a project it cannot see. Never `all-clear`, never
+  `not-configured` → §4, emit
+  `SONAR-AUTO: blocked-fetch reason=key-unresolved`.
 - **AUTH-FAIL** (401 / 403, or `$SONAR_TOKEN` unset on a private
-  project) / **FETCH-FAIL** (404 bad key, network / MCP error) → §3.
+  project) / **FETCH-FAIL** (network / MCP error) → §4. An unreadable
+  answer is never absence.
 
 ### 2. Resolve every issue (autonomous — Fix or Accept)
 
@@ -110,8 +250,14 @@ Emit `SONAR-AUTO: aborted reason=apply-failed-on=<file:line>`.
 
 ### 4. Fetch-fail — blocked, postpone (do NOT guess clean)
 
+This is the *unverifiable* case, not the *absent* one. Absence is
+established only by §1b's explicit 404 on a repo §1a found no footprint
+for; a fetch that fails for any other reason - auth, network, a guessed
+key, an unreadable probe - proves nothing either way. Never downgrade
+any of those to `not-configured`.
+
 On AUTH-FAIL / FETCH-FAIL, emit
-`SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key>`. Never write
+`SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved|footprint-probe-failed>`. Never write
 `all-clear` on a failed fetch — by construction there is no 0-issues
 result to trust. The caller postpones Sonar (keeps working everything
 else, leaves the PR open instead of merging, reminds the operator).
@@ -119,14 +265,22 @@ Include the verifiable page URL in the surfaced reminder so the operator
 can triage:
 `https://sonarcloud.io/project/issues?id=$SONAR_KEY&pullRequest=<pr_number>&issueStatuses=OPEN,CONFIRMED`.
 
+Two reasons need different wording. On `key-unresolved` the key is only
+the `<org>_<repo>` guess, so that URL points at the wrong project or at
+none - omit it and tell the operator to pin a real key instead (a
+`sonar-project.properties` / `.sonarcloud.properties` entry, or the
+project key from the Sonar UI). On `footprint-probe-failed` no key was
+ever discovered - name the probe that could not run rather than a URL.
+
 ### 5. Emit the final line
 
 Alone on its own line, the FINAL line of this fragment's output:
 
 ```
+SONAR-AUTO: not-configured                             # 404 proved no such project - out of the gate
 SONAR-AUTO: all-clear                                  # fetched, 0 open issues
 SONAR-AUTO: handled committed=<yes|no> resolved=<N>    # every fetched issue Fixed/Accepted
-SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key>  # couldn't fetch — postpone, do NOT merge
+SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved|footprint-probe-failed>  # couldn't verify - postpone, do NOT merge
 SONAR-AUTO: aborted reason=<apply-failed-on=…|commit-failed|push-failed>
 ```
 
