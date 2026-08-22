@@ -4,10 +4,15 @@ Single source of truth for **how** the plugin produces a verified,
 ref-coded status report. Read by:
 
 - `skills/wise-report/SKILL.md` - the interactive `/wise-report`
-  slash command (scope = the current session). Today's only reader.
+  slash command (scope = the current session).
+- `workflows/ticket-auto/workflow.yaml` - the end-of-run `report`
+  step (scope = that run; `MODE=full`, `SAVE=yes`, run-specific
+  addendum before the final line).
+- `workflows/impl-plan-auto/workflow.yaml` - same shape as
+  ticket-auto's `report` step.
 
-The pass is parameterized (below) so a future workflow step or
-`-auto` building block can run the identical routine; when such a
+The pass is parameterized (below) so any further workflow step or
+`-auto` building block can run the identical routine; when a new
 caller lands, add it to this list.
 
 The core discipline: separate *recall* from *verification*. A report

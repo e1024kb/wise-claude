@@ -193,7 +193,7 @@ plugins/wise/
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
-│   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report)
+│   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report + the ticket-auto / impl-plan-auto report steps)
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by supervised-prompt + /wise-supervise
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
 │   ├── grill/                      # the subject-understanding routines (context sweep + gap analysis + blueprint schema) — read by /wise-grill (any subject), ticket-plan, ticket-auto (tickets)
@@ -405,9 +405,10 @@ one-liners below are the rule, not the argument for it.
   quality passes `simplify-pass.md` (read by the commit routine, the
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
   (read by `review-branch-auto.md` and `wise-code-review-auto`), the
-  verified status report `report-pass.md` (read by `/wise-report`;
-  parameterized by `SCOPE` / `MODE` / `SAVE` so a future workflow
-  step or `-auto` caller can run the identical routine), the
+  verified status report `report-pass.md` (read by `/wise-report`
+  and the `ticket-auto` / `impl-plan-auto` end-of-run `report`
+  steps; parameterized by `SCOPE` / `MODE` / `SAVE` so every caller
+  runs the identical routine), the
   watchdog routine `supervise-loop.md` (read by the `supervised-prompt`
   step, the `-auto` implement phase, and `wise-supervise`), the
   `references/grill/` subject-understanding routines

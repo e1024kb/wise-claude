@@ -73,7 +73,7 @@ flowchart TD
     C --> G[ensure-access<br/>prompt — probe every ticket's tracker]
     G --> H[gate-access<br/>bash — halt run if any tracker blocked]
     H --> D[process-tickets<br/>interactive — per-ticket orchestrator loop]
-    D --> E[report<br/>prompt — per-ticket roll-up]
+    D --> E[report<br/>prompt — verified status report, report-pass.md]
 ```
 
 `process-tickets` is the engine of the workflow. For each ticket it
@@ -118,14 +118,14 @@ cap both default to 10 (each overridable from `config_prompt`).
 | `ensure-access` | `prompt` | Verify every ticket's tracker is actually reachable (MCP / CLI / public URL). Emits a final `ACCESS: ok` / `ACCESS: blocked` line whose verdict is captured into `access_status` (value `ok` or `blocked`, from the `until:` regex group); on `blocked` it first prints the per-tracker fix. Never plans from invented ticket content. `model: sonnet`. |
 | `gate-access` | `bash` | Hard stop: exits non-zero with an actionable ERROR when `access_status != ok`, so a `blocked` outcome halts the run before any worktree / branch / plan / PR — the detailed fixes stay surfaced in-chat from `ensure-access`. |
 | `process-tickets` | `interactive` | The orchestrator — loops the ticket list, running the full plan→implement→review↔fix→PR→watch pipeline per ticket in its own worktree. |
-| `report` | `prompt` | Per-ticket roll-up: branch, worktree path, PR url, verdict; flags which PRs need a human (incl. `review=not-converged`); notes merged tickets were auto-cleaned and lists worktree-removal commands for any that remain. Dispatched to `wise:technical-writer` on `sonnet`. |
+| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes` — the report also lands in the per-workspace handoff store), verifying the run's claims against `state.yaml`, the per-ticket ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-ticket roll-up (branch, worktree path, PR url, verdict, incl. `review=not-converged`), blueprint pointers, and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
 
 The workflow sets `agents: auto`, but most of its work runs inside the
 `process-tickets` fragment, which dispatches each phase to a concrete
 roster role + model — brought in **fresh per phase** so transcripts
 release and the multi-ticket run stays within its context budget. The
 per-phase roles and models are in the [pipeline table](#per-ticket-pipeline-inside-process-tickets)
-below; at the step level `report` → `wise:technical-writer`. Model
+below; at the step level `report` → `wise:qa-engineer`. Model
 tiering (`opus` = the latest Opus, Opus 5): `opus` at `xhigh` for the
 planning brain, `opus` at `high` for the hands-on engineering
 (implement / fix / executors) + review brains, `sonnet` for the
