@@ -27,7 +27,11 @@ def _no_env_override(monkeypatch):
     ("opus", "high", "high"),               # at the ceiling → untouched
     ("opus", "low", "low"),
     ("claude-opus-5", "xhigh", "high"),
-    ("claude-opus-5-20260401", "xhigh", "high"),   # dated snapshot, prefix match
+    ("claude-opus-5-20260401", "xhigh", "high"),   # dated snapshot inherits
+    ("claude-opus-50-20270101", "xhigh", "xhigh"),  # near-miss id, NOT a snapshot
+    ("claude-opus-5-1", "xhigh", "xhigh"),          # version bump, ceiling is its own call
+    ("claude-opus-5-1-20270101", "xhigh", "xhigh"),  # snapshot of the version bump
+    ("claude-opus-5-2026040", "xhigh", "xhigh"),    # malformed date, no inherit
     ("claude-opus-4-8", "xhigh", "xhigh"),  # 4.8 keeps xhigh
     ("claude-opus-4-8", "max", "xhigh"),    # …but not max
     ("claude-opus-4-7", "xhigh", "xhigh"),  # untabled model → no ceiling
@@ -37,6 +41,14 @@ def _no_env_override(monkeypatch):
 ])
 def test_ceiling_table(workflows_module, model, effort, expected):
     assert workflows_module._resolve_model_dict(model, effort)["effort"] == expected
+
+
+def test_snapshot_match_requires_a_date_suffix(workflows_module):
+    """The suffix rule is what keeps a neighbouring model id out."""
+    assert workflows_module._is_snapshot_of("claude-opus-5-20260401", "claude-opus-5")
+    assert not workflows_module._is_snapshot_of("claude-opus-50-20270101", "claude-opus-5")
+    assert not workflows_module._is_snapshot_of("claude-opus-5-1", "claude-opus-5")
+    assert not workflows_module._is_snapshot_of("claude-opus-5", "claude-opus-5")
 
 
 def test_ceiling_reason_is_surfaced(workflows_module):

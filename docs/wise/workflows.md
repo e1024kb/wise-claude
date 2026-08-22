@@ -495,8 +495,8 @@ Two different clamps run on `effort:`, in this order:
 
 1. **Capability** — what the model family accepts (`MODEL_EFFORT_SUPPORT`).
    Haiku has no effort control at all, so the effort is dropped.
-2. **Policy** — the highest effort wise is willing to *ask* for from that
-   model (`MODEL_EFFORT_CEILING`). Keyed **per model**, not per family,
+2. **Policy** — the highest effort that wise is willing to *request*
+   from that model (`MODEL_EFFORT_CEILING`). Keyed **per model**, not per family,
    because the tiers are not equivalent across versions: Opus 5 reasons
    deeper at every level than Opus 4.8, so wise's planning steps get their
    signal at `high` while `xhigh`/`max` only buy latency and tokens.
@@ -511,9 +511,10 @@ Shipped ceilings:
 | anything else (`sonnet`, `fable`, `haiku`, untabled ids) | none | capability clamp only |
 
 Keys match the **resolved** model id/alias — exact match first, then the
-longest `claude-…` prefix, so `claude-opus-5-20260401` inherits
-`claude-opus-5`'s ceiling, and a retired id substituted for `opus`
-inherits Opus 5's. `model: inherit` has no ceiling (the engine cannot see
+longest `claude-…` key the model is a *dated snapshot* of (the base id
+plus `-YYYYMMDD`), so `claude-opus-5-20260401` inherits
+`claude-opus-5`'s ceiling while `claude-opus-5-1` (a different model)
+does not, and a retired id substituted for `opus` inherits Opus 5's. `model: inherit` has no ceiling (the engine cannot see
 the session model).
 
 Workflows keep authoring their intended depth (`effort: xhigh` on the

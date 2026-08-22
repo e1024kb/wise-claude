@@ -214,8 +214,10 @@ MODEL_EFFORT_SUPPORT = {
 # table has no ceiling (its capability set is the only limit).
 #
 # Keys match the RESOLVED model id/alias: exact first, then the longest
-# `claude-…` prefix, so a dated snapshot (claude-opus-5-20260401) inherits
-# claude-opus-5's ceiling. Override per run with
+# `claude-…` key the model is a DATED SNAPSHOT of (base id + `-YYYYMMDD`),
+# so claude-opus-5-20260401 inherits claude-opus-5's ceiling while a
+# neighbouring id (claude-opus-50-20270101) or a version bump
+# (claude-opus-5-1) does not. Override per run with
 # WISE_EFFORT_CEILING="claude-opus-5=xhigh,opus=xhigh" (`<model>=off` drops one
 # entry, a bare `off` disables every ceiling).
 MODEL_EFFORT_CEILING = {
@@ -1575,11 +1577,27 @@ def _effort_ceilings() -> dict:
     return table
 
 
+def _is_snapshot_of(model: str, key: str) -> bool:
+    """Whether `model` is a dated snapshot of the base id `key`.
+
+    A snapshot is the base id plus `-YYYYMMDD` and nothing else. The date
+    suffix is what makes the match safe: a bare prefix test would hand
+    `claude-opus-5`'s ceiling to `claude-opus-50-20270101` (a different
+    model) and to `claude-opus-5-1` (a version bump whose ceiling is its
+    own call, not an inherited one).
+    """
+    if not model.startswith(key + "-"):
+        return False
+    suffix = model[len(key) + 1:]
+    return len(suffix) == 8 and suffix.isdigit()
+
+
 def _effort_ceiling(model: str) -> str:
     """The policy ceiling for `model`, or '' when it has none.
 
-    Exact id/alias match wins; otherwise the longest matching `claude-…`
-    prefix, so dated snapshots inherit their base model's ceiling.
+    Exact id/alias match wins; otherwise the longest `claude-…` key this
+    model is a DATED SNAPSHOT of, so `claude-opus-5-20260401` inherits
+    `claude-opus-5`'s ceiling while a different model id does not.
     """
     m = (model or "").strip().lower()
     if not m or m == "inherit":
@@ -1589,7 +1607,8 @@ def _effort_ceiling(model: str) -> str:
         return table[m]
     best, ceiling = "", ""
     for key, level in table.items():
-        if key.startswith("claude-") and m.startswith(key) and len(key) > len(best):
+        if (key.startswith("claude-") and len(key) > len(best)
+                and _is_snapshot_of(m, key)):
             best, ceiling = key, level
     return ceiling
 
