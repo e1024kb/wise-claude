@@ -123,9 +123,14 @@ unambiguous. The directory name on disk equals the slash command:
   directory name matches the frontmatter `name:` field verbatim
   and doubles as the slash command.
 - Frontmatter keys: `name:`, `description:`, `argument-hint:`,
-  `allowed-tools:`. `user-invocable:` stays at its default (`true`).
-  No `command:` / `subcommand:` / `arguments:` — those were v1
-  dispatcher-routing fields and have no meaning in v2.
+  `allowed-tools:`, plus optional `model:` / `effort:` (see the
+  "model / effort follows the work" invariant in
+  `plugins/wise/CLAUDE.md`). `user-invocable:` must not be set at
+  all — the default (`true`) is the only supported value. No
+  `command:` / `subcommand:` / `subcommand-aliases:` /
+  `arguments:` — those were v1 dispatcher-routing fields and have
+  no meaning in v2. `scripts/validate_repo.py` enforces this key
+  set.
 - `argument-hint:` is the compact menu hint users see in the slash
   menu (e.g. `"[<workflow-name>]"`, `"[--check]"`). May be an empty
   string for skills that accept no arguments.
@@ -354,11 +359,13 @@ no ingest-style justification for them here.
 
 ## 4. Adding an action to a plugin
 
-Adding a new `/wise-<action>` slash command is a single-step
-operation: create one new skill directory under `plugins/wise/skills/`.
-No registration, no dispatcher code change, no `scripts/engine.py`
-edit. The `/wise` natural-language helper discovers the new skill on
-its next catalog emit via `scripts/engine.py list-skills`.
+Adding a new `/wise-<action>` slash command needs one new skill
+directory under `plugins/wise/skills/` plus two doc touches: a row in
+`plugins/wise/README.md`'s Commands table and a mention in
+`plugins/wise/CLAUDE.md` (validate_repo.py's doc-sync check fails CI
+otherwise). No dispatcher code change, no `scripts/engine.py` edit —
+the `/wise` natural-language helper discovers the new skill on its
+next catalog emit via `scripts/engine.py list-skills`.
 
 The directory name IS the slash command. A skill at
 `plugins/wise/skills/wise-workflow-run/SKILL.md` with frontmatter
@@ -470,9 +477,12 @@ no hidden-action intermediate shape.
    (subsequent sentences are operational / trigger hints for the
    LLM), so write the description with that in mind.
 
-5. Update the Commands table in `plugins/wise/README.md` so humans
-   reading the repo see the new slash command (the auto-discovery
-   helps at runtime but is not a substitute for docs).
+5. Update the Commands table in `plugins/wise/README.md` AND
+   mention the new command in `plugins/wise/CLAUDE.md` (actions
+   list + layout tree) so humans reading the repo see it — the
+   auto-discovery helps at runtime but is not a substitute for
+   docs, and `scripts/validate_repo.py`'s skill doc-sync check
+   fails CI when either is missing.
 
 ### 4.2 Natural-language helper — rarely touched
 
