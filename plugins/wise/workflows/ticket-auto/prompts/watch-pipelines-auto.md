@@ -246,9 +246,14 @@ latched bot gets **one** `bot_review_done` call instead of the full
 `BOT_REVIEW_TIMEOUT` wait — if it answers `true` (the outage cleared),
 clear the latch and treat it as `reviewed`; otherwise carry the previous
 stuck state forward immediately. When clearing a latch leaves **no** bot
-in a stuck state, reset `FALLBACK_STATE=not-needed` — the gap the
-fallback existed to cover is gone, and a stale `failed` from an earlier
-iteration must not keep an otherwise mergeable PR open. Without the latch a bot that is down for
+in a stuck state, retire the fallback bookkeeping: reset
+`FALLBACK_STATE=not-needed`, and clear `FALLBACK_SHA=""` **unless** the
+fallback at that sha succeeded (`ran`) and the sha is still `HEAD_SHA` —
+successful same-head coverage is worth keeping. Two failure modes this
+avoids: a stale `failed` keeping an otherwise mergeable PR open, and a
+stale `FALLBACK_SHA` from a *failed* run making §4c skip ("this head
+already got its local review") when a different bot gets stuck on the
+same head. Without the latch a bot that is down for
 the afternoon would burn 15 minutes on every single loop iteration.
 
 #### 4a. Copilot — availability, trigger, wait (degrades to §4c)
@@ -340,7 +345,7 @@ triggered hard.
      - **Rate limited** — body matches `rate limit`, `rate-limited`,
        `too many requests`, `try again` → if `RL < CR_RL_MAX`: `sleep
        CR_RL_RETRY` (30 s), re-post `@coderabbitai review` **through
-       `record_own_comment`**, `RL=RL+1`, continue. Once `RL` reaches `CR_RL_MAX` (10): **give up** —
+       `record_own_comment`**, `RL=$((RL + 1))`, continue. Once `RL` reaches `CR_RL_MAX` (10): **give up** —
        `CODERABBIT_STATE=gave-up reason=rate-limit`, `CODERABBIT_STUCK=1`,
        leave the loop.
      - **No terminal signal** — `sleep BOT_REVIEW_POLL`, continue.
@@ -405,7 +410,18 @@ Resolve `base` here rather than assuming the repo default — a PR onto a
 
 ```bash
 BASE="${base:-$(gh pr view <pr_number> --json baseRefName --jq .baseRefName)}"
-``` Set `FALLBACK_SHA=$HEAD_SHA` and `FALLBACK_RUNS=FALLBACK_RUNS+1`
+if [ -z "$BASE" ]; then
+  # Do NOT fall through: the review pass would silently diff against the
+  # repo default branch, reviewing a diff that is not this PR's.
+  echo "review fallback: could not resolve the PR base" >&2
+fi
+```
+
+If `BASE` comes back empty or the lookup errors, do **not** dispatch the
+fallback with no base. Set
+`FALLBACK_STATE=failed reason=base-unresolved` and let §7 leave the PR
+open — a review of the wrong diff is worse than no review, because it
+would satisfy the merge gate. Set `FALLBACK_SHA="$HEAD_SHA"` and `FALLBACK_RUNS=$((FALLBACK_RUNS + 1))`
 before dispatching, so a failure cannot loop.
 
 That fragment runs the same high-depth panel as

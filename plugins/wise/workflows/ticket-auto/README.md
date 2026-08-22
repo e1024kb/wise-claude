@@ -14,12 +14,12 @@ independent **review↔fix loop** (`wise:code-reviewer` judges,
 opens a PR, requests the bot reviews (attaches Copilot, triggers
 CodeRabbit), watches + fixes CI, then waits for both bots to review the
 head — bypassing CodeRabbit when it is out of credits and
-retrying-then-giving-up on a rate limit, while a requested Copilot
-review is awaited strictly — and resolves every review comment — end to
-end, with **no prompts after launch** (pre-flight asks one optional
+retrying-then-giving-up on a rate limit, and degrading a stuck Copilot
+to wise's own review panel rather than parking the PR — and resolves
+every review comment — end to end, with **no prompts after launch** (pre-flight asks one optional
 model/effort tuning questionary before autonomy starts). One worktree
 + branch + PR per ticket. When a PR's checks
-all pass, both review bots have finished, and every comment is
+all pass, every review bot has finished (a stuck one counts only when the local review fallback covered the same head), and every comment is
 fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved — including one
 with a non-minor bot comment Claude can't confidently handle — is left

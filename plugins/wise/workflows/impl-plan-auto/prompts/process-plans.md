@@ -382,7 +382,10 @@ bot that cannot review (timeout, error, rate limit, out of credits) does
 not stop the step: it runs the local high-depth review panel over the
 branch instead and carries on to the merge, annotating the verdict with
 `copilot=stuck` / `coderabbit=<bypassed|gave-up>` and
-`review-fallback=<ran|failed>`.
+`review-fallback=<ran|failed>`. Only a `ran` that
+covered the exact head being merged clears the way: a `failed` fallback,
+or one that only reviewed an earlier head, leaves the PR open because
+nothing reviewed the commit in front of it.
 Capture the `WATCH-AUTO:` verdict and record it as the plan's `verdict`
 (`merged` / `all-green` / `blocked …` / `partial …` / `exhausted …` /
 `human-intervention`) — checkpoint `verdict=<verdict>` and `last_phase=watched`.

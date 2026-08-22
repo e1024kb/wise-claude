@@ -16,7 +16,7 @@ independent **review↔fix loop** (`wise:code-reviewer` judges,
 opens a PR, requests the bot reviews (attaches Copilot, triggers
 CodeRabbit), watches + fixes CI, then resolves every review comment — end
 to end, with **no user prompts**. One worktree + branch + PR per plan.
-When a PR's checks all pass, both review bots have finished, and every
+When a PR's checks all pass, every review bot has finished (a stuck one counts only when the local review fallback covered the same head), and every
 comment is fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved is left open for a
 human. When a PR is merged, its worktree and local branch are removed to
@@ -208,7 +208,7 @@ The natural pairing:
   plan whose findings the codebase already fixed is dropped (recorded in
   the report); a plan that drifted is refreshed.
 - **Merges on fully resolved.** A PR is merged (squash, fallback merge
-  commit) only when its checks all pass, both review bots have finished,
+  commit) only when its checks all pass, every review bot has finished (a stuck one counts only when the local review fallback covered the same head),
   and every bot comment is fixed-or-dismissed with its thread resolved.
   Branch protection is respected — if the repo requires a human approval
   the merge is left to a human and the PR stays open. Any PR that isn't
