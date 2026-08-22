@@ -111,7 +111,7 @@ left open for a human.
   everything else, remind the operator, and leave the PR open
   (`all-green reason=sonar-unchecked`) rather than guessing it's clean.
   A repo with no Sonar project at all (no config, no Sonar check, no
-  Sonar bot footprint) is not postponed — Sonar leaves the merge gate
+  Sonar bot footprint) is not postponed - Sonar leaves the merge gate
   entirely, the same way an absent review bot does.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.

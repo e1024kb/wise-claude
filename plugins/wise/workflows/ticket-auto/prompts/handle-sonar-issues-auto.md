@@ -34,7 +34,56 @@ for the exact `gh` / `curl` / MCP queries and reuse them verbatim.
 
 Run all `gh` / `curl` / `git` commands with `cd <project.path>` first.
 
-### 1. Discover the component key + fetch the issues
+### 1. Footprint probe, then key discovery + fetch
+
+#### 1a. Is Sonar in play for this repo at all? (run this FIRST)
+
+A repo that has no Sonar project must not be gated on a Sonar verdict
+forever. This probe runs **before** key discovery and before any
+fetch - nothing below §1a executes until it says Sonar is present.
+
+Look for a Sonar footprint in three categories, and require **every**
+one to be absent:
+
+1. **Config in the tree** - any of: `sonar-project.properties`;
+   `sonar-project.yaml` / `.yml`; a `<sonar.projectKey>` property or
+   the `sonar-maven-plugin` in `pom.xml`; the `org.sonarqube` plugin
+   or a `sonar { }` / `sonarqube { }` block in `build.gradle` /
+   `build.gradle.kts`; or a Sonar scan step in ANY CI config
+   (`.github/workflows/`, `.gitlab-ci.yml`, `azure-pipelines.yml`,
+   `Jenkinsfile`, `bitbucket-pipelines.yml`) - matching
+   `sonarqube`, `sonarcloud`, `SonarSource/`, or `sonar-scanner`
+   case-insensitively.
+2. **A Sonar check on the PR** - anything matching `sonar`
+   (case-insensitive) in `gh pr checks <pr_number>` / the
+   `statusCheckRollup`.
+3. **Any Sonar bot activity on the PR** - an issue comment
+   (`gh pr view <pr_number> --json comments`) **or** a review
+   (`gh api repos/$OWNER_REPO/pulls/<pr_number>/reviews`) authored by
+   an exact-login Sonar bot (`sonarqubecloud[bot]`, `sonarqubecloud`,
+   `sonarcloud[bot]`, `sonarcloud`). A Sonar comment counts as a
+   footprint **whether or not** an `id=<key>` url can be parsed out of
+   it - the key is a discovery detail, not the evidence.
+
+**Every category absent** → this repo has no Sonar project. Emit
+`SONAR-AUTO: not-configured` and stop, WITHOUT running §1b. That fetch
+is worthless here: a guessed key returns the same empty result for a
+project that does not exist as for one that is genuinely clean, which
+is the very ambiguity that makes an unguarded `all-clear` unsafe.
+
+**Any footprint present** → Sonar **is** configured for this repo.
+Continue to §1b, and never emit `not-configured` from that point on:
+an auth failure, a bad key, or a network error on a repo that has
+Sonar is `blocked-fetch`, not absence.
+
+**Fail closed on ambiguous evidence.** If a footprint exists but §1b
+cannot derive a usable component key, that is NOT absence - emit
+`SONAR-AUTO: blocked-fetch reason=key-unresolved` so the caller
+postpones and the operator is told what to set. `not-configured` is
+reachable only from "no footprint anywhere", never from "found Sonar
+but could not identify the project".
+
+#### 1b. Discover the component key + fetch the issues
 
 Follow `handle-sonar-issues.md` §1 (discover `SONAR_KEY` — Sonar bot
 comment `id=<key>`, then `sonar-project.properties`, then `pom.xml`,
@@ -45,36 +94,9 @@ do **not** run separate sanity-check probes against the key (see that
 file's §2 + Guardrails for why a `components/show` 404 must not gate the
 result).
 
-**First, is SonarCloud even in play for this repo?** A repo that has
-no Sonar project must not be gated on a Sonar verdict forever. Before
-fetching, look for a Sonar footprint, and require **all** of these to
-be absent:
-
-- no Sonar config in the tree — `sonar-project.properties`,
-  `sonar-project.yaml`, a `<sonar.projectKey>` in `pom.xml`, or a
-  `sonarqube` / `sonarcloud` step under `.github/workflows/`,
-- no Sonar check on the PR — nothing matching `sonar`
-  (case-insensitive) in `gh pr checks <pr_number>` / the
-  `statusCheckRollup`,
-- no Sonar bot comment or review on the PR, ever — so §1's key
-  discovery found no `id=<key>` and fell through to the bare
-  `<org>_<repo>` guess.
-
-All three absent → this repo has no Sonar project. Emit
-`SONAR-AUTO: not-configured` and stop, WITHOUT running the guessed-key
-fetch. That fetch is worthless here: a guessed key returns the same
-empty result for a project that does not exist as for one that is
-genuinely clean, which is the very ambiguity that makes an unguarded
-`all-clear` unsafe.
-
-Any ONE footprint present → Sonar **is** configured for this repo.
-Continue with the fetch below and never emit `not-configured` from
-that point on: an auth failure, a bad key, or a network error on a
-repo that has Sonar is `blocked-fetch`, not absence.
-
 Decide one outcome from the issues-search call alone:
 
-- **OK (0 issues)** — successful query, empty result → go to §5, emit
+- **OK (0 issues)** - successful query, empty result → go to §5, emit
   `SONAR-AUTO: all-clear`.
 - **OK (N > 0 issues)** — successful query, N items → §2.
 - **AUTH-FAIL** (401 / 403, or `$SONAR_TOKEN` unset on a private
@@ -143,7 +165,7 @@ means the issues exist but could not be read. Never downgrade it to
 `not-configured`.
 
 On AUTH-FAIL / FETCH-FAIL, emit
-`SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key>`. Never write
+`SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved>`. Never write
 `all-clear` on a failed fetch — by construction there is no 0-issues
 result to trust. The caller postpones Sonar (keeps working everything
 else, leaves the PR open instead of merging, reminds the operator).
@@ -156,10 +178,10 @@ can triage:
 Alone on its own line, the FINAL line of this fragment's output:
 
 ```
-SONAR-AUTO: not-configured                             # repo has no Sonar project — out of the gate
+SONAR-AUTO: not-configured                             # repo has no Sonar project - out of the gate
 SONAR-AUTO: all-clear                                  # fetched, 0 open issues
 SONAR-AUTO: handled committed=<yes|no> resolved=<N>    # every fetched issue Fixed/Accepted
-SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key>  # couldn't fetch — postpone, do NOT merge
+SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved>  # couldn't fetch - postpone, do NOT merge
 SONAR-AUTO: aborted reason=<apply-failed-on=…|commit-failed|push-failed>
 ```
 

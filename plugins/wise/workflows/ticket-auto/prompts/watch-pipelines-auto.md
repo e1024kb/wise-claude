@@ -576,9 +576,11 @@ Capture its verdict into `SONAR_STATE`:
 - `SONAR-AUTO: not-configured` → `SONAR_STATE=absent`: the repo has no
   SonarCloud project at all (no config in the tree, no Sonar check on
   the PR, no Sonar bot footprint). Sonar leaves the merge gate
-  entirely for this run, exactly like an `absent` review bot — no
-  reminder, no postponement, and **skip §5.5 on every later
-  iteration**, since that answer cannot change mid-run. As with
+  entirely for this run, exactly like an `absent` review bot - no
+  reminder, no postponement, and **skip §5.5 for the rest of this
+  head**: it counts as settled in §6.5's clean-window test rather than
+  being re-fetched every window, and it is re-established by §1's
+  re-entry whenever a push moves the head. As with
   Copilot's `absent`, this must never be reached by a flaky call: it
   requires positive evidence of absence, which is why §1 of the
   handler demands all three footprints be missing.
@@ -656,18 +658,27 @@ Convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
      comment (`bot_review_done` / `bot_footprint` against a refreshed
      `HEAD_SHA`),
    - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone pushed),
-   - **Sonar is not yet verified clean** — if `SONAR_STATE != clean`,
-     re-run §5.5 now (a token / MCP may have appeared). If it returns
-     `handled committed=yes`, that is a real push: handle as a dirty
-     window below. If it still returns `blocked-fetch`, the window is
-     **not clean** — re-surface the §5.5 reminder and keep looping
-     (do not count it toward `CLEAN_STREAK`).
+   - **Sonar is unverified** - only `SONAR_STATE=blocked-fetch`
+     re-runs §5.5 here (a token / MCP may have appeared). If it
+     returns `handled committed=yes`, that is a real push: handle as a
+     dirty window below. If it still returns `blocked-fetch`, the
+     window is **not clean** - re-surface the §5.5 reminder and keep
+     looping (do not count it toward `CLEAN_STREAK`).
+     `SONAR_STATE=absent` is **settled, not unverified**: do NOT
+     re-run §5.5 for it, or the window can never come up clean and the
+     run stands down at `stability-capped` instead of reaching the §7
+     gate that accepts `absent`. The one exception is a head change -
+     when `git rev-parse HEAD` differs from `STABLE_SHA` the window is
+     already dirty, and §1's re-entry re-runs §5.5 on the new head, so
+     absence is re-established against what is actually about to
+     merge rather than assumed for the rest of the run.
 5. **Dirty window (non-human)** → `CLEAN_STREAK=0`, re-enter §1 — it
    re-waits §4 on the new `HEAD_SHA` and re-handles §5 + §5.5. A
    committed fix increments `ATTEMPTS` exactly as today; the §6
    stuck-loop catch and `max_fix_attempts` still bound real fix churn.
    After it re-greens, resume this loop at step 1.
-6. **Clean window** (nothing new **and** `SONAR_STATE=clean`) →
+6. **Clean window** (nothing new **and** `SONAR_STATE` is `clean` or
+   `absent`) →
    `CLEAN_STREAK=$((CLEAN_STREAK + 1))`. If
    `CLEAN_STREAK < STABILITY_CLEAN_TARGET`, loop to step 1 for the next
    consecutive window. Otherwise the PR is settled — proceed to §7. A
@@ -708,7 +719,7 @@ the PR — and only when **all** of these hold:
 7. `SONAR_STATE` is `clean` (§5.5 fetched the open issues and drove
    them to zero) **or** `absent` (§5.5 established this repo has no
    Sonar project, so Sonar is out of the gate entirely). A
-   `SONAR_STATE=blocked-fetch` does **not** merge — the run
+   `SONAR_STATE=blocked-fetch` does **not** merge - the run
    could not verify Sonar is clean, so the PR is left open with the §5.5
    reminder (do not force a merge on an unverified Sonar state). A §5.5
    `aborted` likewise does not merge.
