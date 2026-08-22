@@ -377,8 +377,9 @@ extend per type:
     `step["effort"]`), `low`, `high` — and `medium`/`xhigh`/`max` via
     Other. Store as `step["effort"]` when not default. (Conveyed as a
     prompt directive only — best-effort, may be ignored by the model
-    today; the real per-step knob is `model:`. See
-    `docs/wise/workflows.md`.)
+    today; the real per-step knob is `model:`. Note `xhigh`/`max` are
+    capped at resolve time by the model's policy ceiling — Opus 5 tops
+    out at `high`. See `docs/wise/workflows.md`.)
 
 - **interactive:** same `prompt` body + optional `until:` +
   `max_iterations` + `outputs:` fields. The difference is execution — an

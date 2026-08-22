@@ -21,7 +21,9 @@ project-selection: current
 #   - refine-plan     → architect
 # Model tiering (opus = the latest Opus, Opus 5): the solo
 # plan-authoring steps — gap-analysis, refine-plan — run on opus at
-# `effort: xhigh`; build-plan (the whole team) runs on opus at
+# `effort: xhigh`, which Opus 5's policy ceiling resolves to `high`
+# (see docs/wise/workflows.md § Effort ceilings); build-plan (the whole
+# team) runs on opus at
 # `effort: high` — the four-role panel already buys the depth, so
 # per-member xhigh would only add latency/cost, not signal; the
 # load-bearing evidence steps

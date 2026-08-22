@@ -256,8 +256,9 @@ Choose the entry phase (live state wins; consult the ledger only to break ties):
 ### 2. Re-plan from the file
 
 Dispatch a `Task` subagent — `subagent_type: wise:architect`,
-`model: opus`, reason at **xhigh** effort (the re-plan is this run's
-autonomous decision spine) — : "Read
+`model: opus`, reason at **high** effort (the re-plan is this run's
+autonomous decision spine; `high` is Opus 5's policy ceiling — see
+`docs/wise/workflows.md` § Effort ceilings) — : "Read
 `{{workflow.dir}}/prompts/replan-from-file.md` and follow it." with
 context `seed_plan=$SEED_PLAN`, `worktree=$WT`, `plan_path=$PLAN_PATH`,
 `project.kind={{project.kind}}`, and `config_prompt={{config_prompt}}`.

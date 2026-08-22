@@ -115,7 +115,7 @@ tuning:                          # optional — groups for the tuning questionar
       steps: [decide-release-kind]  # prompt-step ids the override binds to
     - id: plan                   # an ADVISORY group: no steps binding —
       label: "Plan phase"        #   the choice reaches the workflow via the
-      default: "opus / xhigh"    #   {{tuning_plan}} / {{tuning_summary}} outputs
+      default: "opus / high"     #   {{tuning_plan}} / {{tuning_summary}} outputs
 
 step-select:                     # optional — stages for the step-select questionary (see below)
   optional:
@@ -458,11 +458,13 @@ may act on it at a lower level). When the effort knob must be real, pick a
 roster agent whose default effort already matches. The directive uses the
 **resolved** effort, clamped to what the model's **family** supports
 (Opus, Sonnet, and Fable take the full range as of Sonnet 5; Haiku has
-no effort control so it is dropped). Clamping is family-level, not
-per-version — a pinned pre-Sonnet-5 id (e.g. `claude-sonnet-4-6`) is
-treated as the `sonnet` family and so also passes `xhigh` through
-unclamped — see
-[Model availability and fallback](#model-availability-and-fallback).
+no effort control so it is dropped) and then to that model's **policy
+ceiling** (Opus 5 tops out at `high`). Capability clamping is
+family-level, not per-version — a pinned pre-Sonnet-5 id (e.g.
+`claude-sonnet-4-6`) is treated as the `sonnet` family and so also passes
+`xhigh` through unclamped — see
+[Model availability and fallback](#model-availability-and-fallback) and
+[Effort ceilings](#effort-ceilings).
 
 ### Model availability and fallback
 
@@ -474,7 +476,8 @@ Before dispatch the conductor resolves the pinned model/effort via
   (`opus`), and the substitution `reason` is shown in the step's outcome
   line + log.
 - **Effort is clamped** to the resolved model's ceiling (a model that
-  lacks `xhigh`/`max` steps down; a model with no effort control drops it).
+  lacks `xhigh`/`max` steps down; a model with no effort control drops it),
+  then to its policy ceiling — see [Effort ceilings](#effort-ceilings).
 - On a **live** "model unavailable" failure, the step retries once down a
   tier chain (`opus → sonnet → haiku`) before failing.
 
@@ -485,6 +488,51 @@ the fallback path entirely. The durable availability check is Anthropic's
 but it needs an API key the subscription-auth conductor may lack, so the
 shipped path uses a static retired-id table plus the live error-driven
 retry.
+
+### Effort ceilings
+
+Two different clamps run on `effort:`, in this order:
+
+1. **Capability** — what the model family accepts (`MODEL_EFFORT_SUPPORT`).
+   Haiku has no effort control at all, so the effort is dropped.
+2. **Policy** — the highest effort wise is willing to *ask* for from that
+   model (`MODEL_EFFORT_CEILING`). Keyed **per model**, not per family,
+   because the tiers are not equivalent across versions: Opus 5 reasons
+   deeper at every level than Opus 4.8, so wise's planning steps get their
+   signal at `high` while `xhigh`/`max` only buy latency and tokens.
+
+Shipped ceilings:
+
+| model | ceiling | effect |
+| --- | --- | --- |
+| `opus` (alias → latest Opus = Opus 5) | `high` | authored `xhigh`/`max` run at `high` |
+| `claude-opus-5` (and dated snapshots) | `high` | same |
+| `claude-opus-4-8` | `xhigh` | keeps `xhigh`, `max` steps down |
+| anything else (`sonnet`, `fable`, `haiku`, untabled ids) | none | capability clamp only |
+
+Keys match the **resolved** model id/alias — exact match first, then the
+longest `claude-…` prefix, so `claude-opus-5-20260401` inherits
+`claude-opus-5`'s ceiling, and a retired id substituted for `opus`
+inherits Opus 5's. `model: inherit` has no ceiling (the engine cannot see
+the session model).
+
+Workflows keep authoring their intended depth (`effort: xhigh` on the
+planning steps) — the ceiling is applied at resolve time, and the
+step-down is surfaced in the outcome line + log as
+`effort xhigh→high (opus policy ceiling)`.
+
+Override per run with `WISE_EFFORT_CEILING`:
+
+```bash
+WISE_EFFORT_CEILING=off                     # no policy ceilings at all
+WISE_EFFORT_CEILING="opus=xhigh"            # raise one entry
+WISE_EFFORT_CEILING="claude-opus-5=medium"  # lower one entry
+WISE_EFFORT_CEILING="opus=off"              # drop one entry
+```
+
+Comma-separate pairs to set several. Unparseable pairs are ignored (a typo
+must not kill a run), so check the step's `reason` line to confirm an
+override landed.
 
 ```yaml
 agents: auto                 # workflow default

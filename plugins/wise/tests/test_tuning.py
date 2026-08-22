@@ -270,13 +270,17 @@ def _team_def(workflows_module, tmp_path):
     ])
 
 
-def test_resolve_team_no_override_unchanged(workflows_module, tmp_path, capsys):
+def test_resolve_team_no_override_uses_step_pin(workflows_module, tmp_path, capsys):
+    """No run override → the step's own model/effort pins flow through, with
+    the model's policy ceiling applied (opus → Opus 5 → `high`; the ceiling
+    table itself is pinned in `test_effort_ceiling.py`)."""
     path = _team_def(workflows_module, tmp_path)
     assert workflows_module.cmd_resolve_team(path, "solo") == 0
     data = json.loads(capsys.readouterr().out)
     m = data["members"][0]
-    assert (m["model"], m["effort"]) == ("opus", "xhigh")
-    assert m["reason"] is None
+    assert (m["model"], m["effort"]) == ("opus", "high")
+    assert "policy ceiling" in m["reason"]
+    assert "run tuning override" not in m["reason"]
 
 
 def test_resolve_team_override_wins_over_step_pin(
