@@ -1552,19 +1552,33 @@ def _downmap_effort(family: str, effort: str):
     return None, True
 
 
+# Memo for `_effort_ceilings()`, keyed by the raw env value so a changed
+# override still rebuilds. `(raw, table)` or None.
+_EFFORT_CEILING_MEMO = None
+
+
 def _effort_ceilings() -> dict:
     """MODEL_EFFORT_CEILING with the WISE_EFFORT_CEILING override applied.
 
     Value shape: `<model>=<level>` pairs, comma-separated; `<model>=off`
     removes one entry, a bare `off` disables every ceiling. Junk pairs are
     ignored rather than raised — a typo in an env var must not kill a run.
+
+    The merged table is memoized per raw env value — every resolution in a
+    run reads it, and re-parsing per lookup buys nothing. Callers must
+    treat the result as read-only.
     """
+    global _EFFORT_CEILING_MEMO
     raw = (os.environ.get("WISE_EFFORT_CEILING") or "").strip()
+    if _EFFORT_CEILING_MEMO is not None and _EFFORT_CEILING_MEMO[0] == raw:
+        return _EFFORT_CEILING_MEMO[1]
     table = dict(MODEL_EFFORT_CEILING)
     if not raw:
+        _EFFORT_CEILING_MEMO = (raw, table)
         return table
     if raw.lower() == "off":
-        return {}
+        _EFFORT_CEILING_MEMO = (raw, {})
+        return _EFFORT_CEILING_MEMO[1]
     for pair in raw.split(","):
         key, sep, level = pair.partition("=")
         key, level = key.strip().lower(), level.strip().lower()
@@ -1574,6 +1588,7 @@ def _effort_ceilings() -> dict:
             table.pop(key, None)
         elif level in EFFORT_ORDER:
             table[key] = level
+    _EFFORT_CEILING_MEMO = (raw, table)
     return table
 
 

@@ -117,6 +117,24 @@ def test_env_junk_is_ignored(workflows_module, monkeypatch, value):
     assert workflows_module._resolve_model_dict("opus", "xhigh")["effort"] == "high"
 
 
+def test_memo_rebuilds_when_the_env_changes(workflows_module, monkeypatch):
+    """The merged table is memoized, so a changed override must invalidate it."""
+    assert workflows_module._resolve_model_dict("opus", "max")["effort"] == "high"
+    monkeypatch.setenv("WISE_EFFORT_CEILING", "off")
+    assert workflows_module._resolve_model_dict("opus", "max")["effort"] == "max"
+    monkeypatch.setenv("WISE_EFFORT_CEILING", "opus=xhigh")
+    assert workflows_module._resolve_model_dict("opus", "max")["effort"] == "xhigh"
+    monkeypatch.delenv("WISE_EFFORT_CEILING")
+    assert workflows_module._resolve_model_dict("opus", "max")["effort"] == "high"
+
+
+def test_memo_is_not_mutated_by_callers(workflows_module):
+    """A lookup must not leave the shared table altered for the next one."""
+    first = dict(workflows_module._effort_ceilings())
+    workflows_module._effort_ceiling("claude-opus-5-20260401")
+    assert workflows_module._effort_ceilings() == first
+
+
 def test_env_adds_an_untabled_model(workflows_module, monkeypatch):
     monkeypatch.setenv("WISE_EFFORT_CEILING", "sonnet=medium")
     assert workflows_module._resolve_model_dict("sonnet", "xhigh")["effort"] == "medium"
