@@ -573,6 +573,15 @@ and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 issue and **Fixes or Accepts (suppresses) each** — there is no Skip.
 Capture its verdict into `SONAR_STATE`:
 
+- `SONAR-AUTO: not-configured` → `SONAR_STATE=absent`: the repo has no
+  SonarCloud project at all (no config in the tree, no Sonar check on
+  the PR, no Sonar bot footprint). Sonar leaves the merge gate
+  entirely for this run, exactly like an `absent` review bot — no
+  reminder, no postponement, and **skip §5.5 on every later
+  iteration**, since that answer cannot change mid-run. As with
+  Copilot's `absent`, this must never be reached by a flaky call: it
+  requires positive evidence of absence, which is why §1 of the
+  handler demands all three footprints be missing.
 - `SONAR-AUTO: all-clear` → `SONAR_STATE=clean`.
 - `SONAR-AUTO: handled committed=yes …` → a push happened: increment
   `ATTEMPTS` and **re-enter §1** (the push re-triggers CI + a fresh
@@ -696,8 +705,10 @@ the PR — and only when **all** of these hold:
    none returned `aborted` with `reason=unresolved-threads`,
 5. the rolled-up `BLOCKED` set is empty,
 6. no §5 bot invocation emitted `aborted`,
-7. `SONAR_STATE=clean` (§5.5 fetched the open issues and drove them to
-   zero). A `SONAR_STATE=blocked-fetch` does **not** merge — the run
+7. `SONAR_STATE` is `clean` (§5.5 fetched the open issues and drove
+   them to zero) **or** `absent` (§5.5 established this repo has no
+   Sonar project, so Sonar is out of the gate entirely). A
+   `SONAR_STATE=blocked-fetch` does **not** merge — the run
    could not verify Sonar is clean, so the PR is left open with the §5.5
    reminder (do not force a merge on an unverified Sonar state). A §5.5
    `aborted` likewise does not merge.

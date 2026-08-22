@@ -226,7 +226,11 @@ requires Sonar verified clean. When the issues can't be fetched (no
 `SONAR_TOKEN`, no Sonar MCP), it **postpones**: it keeps working every
 other check/comment, reminds the operator, and leaves the PR open
 (`all-green reason=sonar-unchecked`) rather than merging on an unverified
-Sonar state.
+Sonar state. A repo with **no Sonar project at all** is a different case
+and is not postponed: when the handler finds no Sonar config in the
+tree, no Sonar check on the PR and no Sonar bot footprint, it returns
+`not-configured` and Sonar drops out of the merge gate entirely, like an
+`absent` review bot.
 
 Reaching green once does not trigger the merge. The phase then holds a
 **post-green stability window** (3 min) and re-checks CI + comments; a

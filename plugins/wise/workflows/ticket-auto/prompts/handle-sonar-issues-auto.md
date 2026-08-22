@@ -45,13 +45,40 @@ do **not** run separate sanity-check probes against the key (see that
 file's §2 + Guardrails for why a `components/show` 404 must not gate the
 result).
 
+**First, is SonarCloud even in play for this repo?** A repo that has
+no Sonar project must not be gated on a Sonar verdict forever. Before
+fetching, look for a Sonar footprint, and require **all** of these to
+be absent:
+
+- no Sonar config in the tree — `sonar-project.properties`,
+  `sonar-project.yaml`, a `<sonar.projectKey>` in `pom.xml`, or a
+  `sonarqube` / `sonarcloud` step under `.github/workflows/`,
+- no Sonar check on the PR — nothing matching `sonar`
+  (case-insensitive) in `gh pr checks <pr_number>` / the
+  `statusCheckRollup`,
+- no Sonar bot comment or review on the PR, ever — so §1's key
+  discovery found no `id=<key>` and fell through to the bare
+  `<org>_<repo>` guess.
+
+All three absent → this repo has no Sonar project. Emit
+`SONAR-AUTO: not-configured` and stop, WITHOUT running the guessed-key
+fetch. That fetch is worthless here: a guessed key returns the same
+empty result for a project that does not exist as for one that is
+genuinely clean, which is the very ambiguity that makes an unguarded
+`all-clear` unsafe.
+
+Any ONE footprint present → Sonar **is** configured for this repo.
+Continue with the fetch below and never emit `not-configured` from
+that point on: an auth failure, a bad key, or a network error on a
+repo that has Sonar is `blocked-fetch`, not absence.
+
 Decide one outcome from the issues-search call alone:
 
-- **OK (0 issues)** — successful query, empty result → go to §4, emit
+- **OK (0 issues)** — successful query, empty result → go to §5, emit
   `SONAR-AUTO: all-clear`.
 - **OK (N > 0 issues)** — successful query, N items → §2.
 - **AUTH-FAIL** (401 / 403, or `$SONAR_TOKEN` unset on a private
-  project) / **FETCH-FAIL** (404 bad key, network / MCP error) → §3.
+  project) / **FETCH-FAIL** (404 bad key, network / MCP error) → §4.
 
 ### 2. Resolve every issue (autonomous — Fix or Accept)
 
@@ -110,6 +137,11 @@ Emit `SONAR-AUTO: aborted reason=apply-failed-on=<file:line>`.
 
 ### 4. Fetch-fail — blocked, postpone (do NOT guess clean)
 
+This is the *unverifiable* case, not the *absent* one: §1 already
+established that this repo HAS a Sonar footprint, so a failure here
+means the issues exist but could not be read. Never downgrade it to
+`not-configured`.
+
 On AUTH-FAIL / FETCH-FAIL, emit
 `SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key>`. Never write
 `all-clear` on a failed fetch — by construction there is no 0-issues
@@ -124,6 +156,7 @@ can triage:
 Alone on its own line, the FINAL line of this fragment's output:
 
 ```
+SONAR-AUTO: not-configured                             # repo has no Sonar project — out of the gate
 SONAR-AUTO: all-clear                                  # fetched, 0 open issues
 SONAR-AUTO: handled committed=<yes|no> resolved=<N>    # every fetched issue Fixed/Accepted
 SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key>  # couldn't fetch — postpone, do NOT merge
