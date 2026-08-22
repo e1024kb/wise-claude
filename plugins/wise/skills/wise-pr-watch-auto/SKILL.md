@@ -84,7 +84,7 @@ review comment needs the user's judgement, and list the `items=`
 `file:line` references the fragment reported. If the line carries a
 `copilot=stuck` or `coderabbit=<bypassed|gave-up>` annotation, name
 which bot could not review and why (timeout / error / rate limit / out
-of credits); when `review-fallback=ran` is present, say wise reviewed
+of credits / never answered); when `review-fallback=ran` is present, say wise reviewed
 the branch itself in that bot's place and how many findings it applied.
 `all-green reason=review-fallback-failed` means a bot was stuck AND the
 substitute review failed, so nothing reviewed the branch — the PR is

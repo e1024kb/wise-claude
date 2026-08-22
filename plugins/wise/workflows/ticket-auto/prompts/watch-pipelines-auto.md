@@ -410,16 +410,20 @@ in a *stuck* state for the current `HEAD_SHA`:
 - `CODERABBIT_STATE` ∈ {`bypassed`, `gave-up`} (out of credits / rate
   limit / timeout).
 
-`absent` is **not** a trigger for either bot. `absent` means the bot is
-not installed on this repo — a deliberate configuration, not an outage —
-and this loop's job is to cover *outages*, not to add a review nobody
-asked for. In the `ticket-auto` / `impl-plan-auto` pipelines the
-pre-push `review-branch-auto.md` gate already reviewed the branch, so
-the coverage is there either way. Run standalone via
-`/wise-pr-watch-auto` on a repo with no review bots there is no such
-gate, and the loop merges on CI alone — the same behaviour as before
-this section existed; run `/wise-code-review-auto` before pushing if you
-want the panel's read.
+`absent` is **not** a trigger. It means the bot is not installed here —
+a deliberate configuration, not an outage — and this loop's job is to
+cover outages, not to add a review nobody asked for.
+
+Note how narrow `absent` now is. Only Copilot reaches it, and only via
+an explicit not-a-valid-user / not-enabled response to the attach (§4a):
+that is positive evidence of "not available on this repo". CodeRabbit
+never reaches it — §4b's PR-scoped footprint cannot tell "not installed"
+from "installed and down", so an unanswered trigger is `gave-up
+reason=no-response`, which §4c *does* cover. The practical consequence
+is deliberate: on a repo running no review bots at all,
+`/wise-pr-watch-auto` runs one local panel pass over the branch rather
+than merging on CI alone. That is the safer default and it costs one
+pass.
 
 **Bounds.** Skip the section (leaving `FALLBACK_STATE` as it is) when
 either bound is already hit:
@@ -679,8 +683,10 @@ the PR — and only when **all** of these hold:
    merge, not an earlier one). `FALLBACK_STATE=failed`, or a `ran` whose
    `FALLBACK_SHA` is stale, does NOT merge: the head in front of us has
    no review on record, from a bot or from wise,
-3. the last §5 pass reported `committed=no` from every bot that
-   reviewed — the loop is stable, no fix is pending re-review,
+3. the last §5 pass reported `committed=no` from every bot §5 actually
+   invoked — which, since §5's rule is additive, includes a stuck bot
+   whose leftover threads were handled. The loop is stable: no fix is
+   pending re-review,
 4. every handled or dismissed bot comment is a resolved thread on the
    PR — every §5 bot invocation returned `handled` (or `all-clear`),
    none returned `aborted` with `reason=unresolved-threads`,
@@ -725,7 +731,7 @@ is where they all get swept up.
 Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
-WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout>] [review-fallback=ran applied=<n>]
+WATCH-AUTO: merged url=<pr_url> [copilot=stuck reason=<review-timeout|error|rate-limit|attach-failed>] [coderabbit=<bypassed|gave-up> reason=<out-of-credits|rate-limit|timeout|no-response>] [review-fallback=ran applied=<n>]
 WATCH-AUTO: all-green url=<pr_url> reason=<why-not-merged> [copilot=stuck reason=<…>] [coderabbit=<bypassed|gave-up> reason=<…>] [review-fallback=<ran|failed> …] [unpushed=<sha>]
 WATCH-AUTO: blocked url=<pr_url> items=<file:line;file:line;...>
 WATCH-AUTO: partial url=<pr_url> accepted=<comma-separated-markers>
@@ -796,8 +802,8 @@ Only a `merged` verdict closes the PR; every other verdict
   verdict leaves the PR open).
 - A stuck review bot never blocks the merge, and never stops the run.
   Copilot that times out / errors / is rate-limited goes `stuck`;
-  CodeRabbit that is out of credits or rate-limited is bypassed / gives
-  up. Both are recorded on the verdict and both hand off to §4c, which
+  CodeRabbit that is out of credits, rate-limited, or silent after a
+  trigger is bypassed / gives up. Both are recorded on the verdict and both hand off to §4c, which
   reviews the branch with wise's own panel instead. What the merge gate
   requires is that the branch got reviewed by *something* — never that a
   particular vendor's bot answered.
