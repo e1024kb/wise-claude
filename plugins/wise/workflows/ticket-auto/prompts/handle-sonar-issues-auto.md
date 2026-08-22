@@ -46,7 +46,8 @@ Look for a Sonar footprint in three categories, and require **every**
 one to be absent:
 
 1. **Config in the tree** - any of: `sonar-project.properties`;
-   `sonar-project.yaml` / `.yml`; a `<sonar.projectKey>` property or
+   `sonar-project.yaml` or `sonar-project.yml` (those exact filenames,
+   never "any `.yml` file"); a `<sonar.projectKey>` property or
    the `sonar-maven-plugin` in `pom.xml`; the `org.sonarqube` plugin
    or a `sonar { }` / `sonarqube { }` block in `build.gradle` /
    `build.gradle.kts`; or a Sonar scan step in ANY CI config
