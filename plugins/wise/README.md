@@ -85,7 +85,7 @@ below.
 | `/wise-pr-watch` | Watch CI + drive fixes to green. |
 | `/wise-pr-create-auto` | Autonomous `/wise-pr-create` — create/refresh a PR with no prompts (base = repo default branch). |
 | `/wise-pr-request-review-auto` | Autonomous `/wise-pr-add-reviewers` — attach Copilot code review with no prompts. |
-| `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); no prompts. |
+| `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); a stuck Copilot / CodeRabbit falls back to wise's own review panel instead of blocking; no prompts. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. Executors run **supervised** (a watchdog nudges any that hang); tune with `WISE_WORKER_*` env. |
 | `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (dispatches the `code-simplifier` agent, then drafts a Conventional-Commits subject and commits). NO prompts, never pushes. |
 | `/wise-code-review-auto [<base-branch>]` | Autonomously code-review the current branch at HIGH depth and apply the fixes — the heavyweight branch gate of the two-tier quality model: a panel of parallel reviewer subagents over `origin/<base>..HEAD`, bounded findings applied and committed. NO prompts, never pushes. |

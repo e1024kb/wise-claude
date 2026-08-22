@@ -3,11 +3,14 @@ name: wise-pr-watch-auto
 description: >-
   Autonomous variant of `/wise-pr-watch` — watch the current branch's
   PR pipelines, auto-fix failing checks (lint / tests / other),
-  commit + push, then trigger + wait for the bot reviews (Copilot
-  strictly; CodeRabbit best-effort — bypassed when out of credits,
-  retried-then-given-up on a rate limit) and handle every bot review
-  comment by severity (minors fixed, majors via a considered decision,
-  false positives dismissed with a reasoned reply). Loops
+  commit + push, then trigger + wait for the bot reviews (Copilot and
+  CodeRabbit) and handle every bot review comment by severity (minors
+  fixed, majors via a considered decision, false positives dismissed
+  with a reasoned reply). A stuck bot never blocks the merge: when
+  Copilot times out / errors / is rate-limited, or CodeRabbit is out of
+  credits / rate-limited / silent, the loop runs wise's own high-depth
+  reviewer panel (the `/wise-code-review-auto` pass) over the branch
+  diff instead, commits + pushes what it finds, and keeps going. Loops
   until CI is green and every comment is resolved and the PR has stayed
   quiet for two consecutive post-green stability windows (so late
   comments aren't missed), or an attempt cap is hit; then merges the PR
@@ -19,7 +22,7 @@ description: >-
   the PR and fix it without asking", "auto-drive CI to green", or types
   `/wise-pr-watch-auto`. For the interactive version use `/wise-pr-watch`.
 argument-hint: "[<max-fix-attempts>]"
-allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
+allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + fix loop
@@ -36,6 +39,13 @@ major/critical ones via a considered consolidated decision, false
 positives dismissed with a reasoned reply: the Lead Architect persona
 makes every call, no `AskUserQuestion`. It is also the reusable
 building block the `ticket-auto` workflow's watch step follows.
+
+Copilot and CodeRabbit are review *inputs*, not merge gates. When one of
+them is down — timeout, error, rate limit, out of credits — the loop
+substitutes wise's own review (`review-fallback-auto.md`, the same
+5-lens panel `/wise-code-review-auto` runs), records that it did, and
+keeps driving the PR to green and merge. The branch still gets reviewed
+before it merges; it just isn't held hostage to a vendor's uptime.
 
 ## Arguments
 
@@ -72,21 +82,28 @@ merged, what is green, what was accepted or left unfixed, and — for
 `blocked` verdict, say the PR was left open because a non-minor bot
 review comment needs the user's judgement, and list the `items=`
 `file:line` references the fragment reported. If the line carries a
-`coderabbit=<bypassed|gave-up>` annotation, note that CodeRabbit could
-not review (out of credits / rate-limited) so its pass was skipped; a
-`reason=copilot-review-timeout` means a requested Copilot review never
-arrived.
+`copilot=stuck` or `coderabbit=<bypassed|gave-up>` annotation, name
+which bot could not review and why (timeout / error / rate limit / out
+of credits / never answered); when `review-fallback=ran` is present, say wise reviewed
+the branch itself in that bot's place and how many findings it applied.
+`all-green reason=review-fallback-failed` means a bot was stuck AND the
+substitute review failed, so nothing reviewed the branch — the PR is
+left open for a human.
 
 ## Guardrails
 
 - Never call `AskUserQuestion`.
 - Never force-push, never `--no-verify`.
 - Merge only a fully resolved PR — every CI check green, every expected
-  bot terminal (Copilot reviewed, or unavailable; CodeRabbit reviewed /
-  bypassed / gave-up / absent), and every comment from a bot that
-  reviewed fixed-or-dismissed; never force a merge or override branch
-  protection; never merge past an unresolved non-minor bot comment (a
-  `blocked` verdict leaves the PR open).
+  bot terminal (Copilot reviewed / absent / stuck; CodeRabbit reviewed /
+  bypassed / gave-up / absent), every stuck bot covered by a successful
+  local review pass, and every comment from a bot that reviewed
+  fixed-or-dismissed; never force a merge or override branch protection;
+  never merge past an unresolved non-minor bot comment (a `blocked`
+  verdict leaves the PR open).
+- A stuck bot degrades to the local review panel; it never stops the
+  run. But never merge a branch that nothing reviewed — a stuck bot plus
+  a failed fallback leaves the PR open.
 - Drive SonarCloud open issues to **zero** before merging — fix each, or
   accept it with a minimum-scope suppression + rationale (or a Sonar MCP
   `change_issue_status`). Never merge with open issues. If the issues
@@ -95,6 +112,11 @@ arrived.
   (`all-green reason=sonar-unchecked`) rather than guessing it's clean.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.
+- `Task` is granted for one purpose: §4c's review fallback dispatches
+  the read-only reviewer panel with it when a bot is stuck. Nothing else
+  in the loop spawns subagents.
 - Never invoke another wise action skill (the fragment reads
   `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
-  `handle-sonar-issues-auto.md` directly).
+  `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly —
+  the review fallback runs `/wise-code-review-auto`'s *fragment*, not
+  the skill).

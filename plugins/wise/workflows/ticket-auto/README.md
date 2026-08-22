@@ -14,13 +14,14 @@ independent **review↔fix loop** (`wise:code-reviewer` judges,
 opens a PR, requests the bot reviews (attaches Copilot, triggers
 CodeRabbit), watches + fixes CI, then waits for both bots to review the
 head — bypassing CodeRabbit when it is out of credits and
-retrying-then-giving-up on a rate limit, while a requested Copilot
-review is awaited strictly — and resolves every review comment — end to
-end, with **no prompts after launch** (pre-flight asks one optional
-model/effort tuning questionary before autonomy starts). One worktree
-+ branch + PR per ticket. When a PR's checks
-all pass, both review bots have finished, and every comment is
-fixed-or-dismissed it is **merged** (squash, respecting branch
+retrying-then-giving-up on a rate limit, and degrading **either** stuck
+bot to wise's own review panel rather than parking the PR — and resolves
+every review comment — end to end, with **no prompts after launch**
+(pre-flight asks one optional model/effort tuning questionary before
+autonomy starts). One worktree + branch + PR per ticket. When a PR's
+checks all pass, every review bot has finished (a stuck one counts only
+when the local review fallback covered the same head), and every comment
+is fixed-or-dismissed it is **merged** (squash, respecting branch
 protection); a PR that can't be driven fully resolved — including one
 with a non-minor bot comment Claude can't confidently handle — is left
 open for a human. When a PR is merged, its worktree and local branch are
@@ -150,6 +151,7 @@ Driven by `prompts/process-tickets.md`, which follows these fragments:
 | Create PR | `prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
 | Request review | `prompts/request-review-auto.md` | (inline) | `/wise-pr-add-reviewers` |
 | Watch + fix | `prompts/watch-pipelines-auto.md` | `wise:software-engineer` · sonnet | `/wise-pr-watch` |
+| — review fallback (stuck bot) | `prompts/review-fallback-auto.md` (inside Watch + fix) | reviewer panel · high | `/wise-code-review-auto` |
 
 The **Plan** phase runs a four-way parallel research wave — design,
 related items, the grill **multi-source context sweep**
@@ -185,13 +187,26 @@ skill; `ticket-auto` passes `fixer=delegate` to drive the loop above.
 The `Watch + fix` phase **detects, triggers, and waits for** the review
 bots rather than inferring their absence from an empty footprint (the
 bug that let an early run merge before either bot reviewed). Copilot is
-the strict gate — a requested review must land on the head or the PR is
-left for a human (`copilot-review-timeout`). CodeRabbit is triggered
-hard (`@coderabbitai review`) but never deadlocks the run: if it reports
-being **out of credits** the phase bypasses it, and if it is
-**rate-limited** the phase re-triggers every 30 s up to 10 times before
-giving up — either way recorded as `coderabbit=bypassed|gave-up` on the
-verdict so `report` flags it. Once a bot has reviewed, every review
+attached and waited on; CodeRabbit is triggered hard
+(`@coderabbitai review`) and, if it reports being **out of credits**,
+bypassed, or if **rate-limited**, re-triggered every 30 s up to 10 times
+before giving up.
+
+**Neither bot is a merge gate.** When one gets stuck — Copilot times
+out / errors / is rate-limited, CodeRabbit is bypassed / gives up — the
+phase does not park the PR for a human. It runs the local review
+fallback (`prompts/review-fallback-auto.md`), which drives the same
+high-depth 5-lens panel as `/wise-code-review-auto` over the branch
+diff, commits and pushes what it finds, posts one audit comment naming
+the bot it stood in for, and lets the run keep going to green and merge.
+The verdict records both halves (`copilot=stuck reason=…`,
+`coderabbit=bypassed|gave-up`, `review-fallback=ran applied=<n>`) so
+`report` flags what actually reviewed the branch. The fallback runs at
+most once per head SHA and three times per watch run (two productive
+runs plus a confirming pass — each run that commits advances the head,
+so the budget has to allow a clean read on the new one); if it fails,
+the PR is left open (`all-green reason=review-fallback-failed`) because
+nothing reviewed the branch. Once a bot has reviewed, every review
 comment is handled via the sub-fragment
 `prompts/handle-bot-reviews-auto.md` — each comment classified by
 severity (minors fixed quickly, major/critical ones via a considered
@@ -251,8 +266,9 @@ reason=stability-capped`) and leaves the green PR open for a human.
 ## Notes
 
 - **Merges on fully resolved.** A PR is merged (squash, fallback merge
-  commit) only when its checks all pass, both review bots have
-  finished, and every bot comment is fixed-or-dismissed with its
+  commit) only when its checks all pass, every review bot has finished
+  (a stuck one counts only when the local review fallback covered the
+  same head), and every bot comment is fixed-or-dismissed with its
   thread resolved. Branch protection is respected — if the repo
   requires a human approval the merge is left to a human and the PR
   stays open. A PR with a non-minor bot comment Claude can't

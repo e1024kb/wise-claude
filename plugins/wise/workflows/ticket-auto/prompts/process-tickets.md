@@ -349,8 +349,9 @@ triggers CodeRabbit (`@coderabbitai review`); both best-effort — a
 request failure never blocks. Capture
 `REVIEW-REQUEST: copilot=<…> coderabbit=<…>`. The watch step (§8) does
 the real confirmation: it detects each bot, waits for the head review,
-and handles CodeRabbit's out-of-credits (bypass) / rate-limit
-(retry-then-give-up) states. Checkpoint `last_phase=review-requested`.
+and handles the stuck states (Copilot timeout / error / rate limit,
+CodeRabbit out-of-credits / rate-limit) by reviewing the branch with
+wise's own panel instead. Checkpoint `last_phase=review-requested`.
 
 ### 8. Watch + fix
 
@@ -363,10 +364,18 @@ and follow it." with `pr_number=<n>`, `pr_url=<url>`,
 `config_prompt={{config_prompt}}`. It watches CI,
 auto-fixes failures, waits for CodeRabbit / Copilot to finish
 reviewing, fixes or dismisses every bot comment, and — when the PR is
-fully resolved — merges it. Capture the `WATCH-AUTO:` verdict and
-record it as the ticket's `verdict` (`merged` / `all-green` /
-`blocked …` / `partial …` / `exhausted …` / `human-intervention`) — checkpoint
-`verdict=<verdict>` and `last_phase=watched`.
+fully resolved — merges it. A bot that cannot review (timeout, error,
+rate limit, out of credits) does not stop the step: it runs the local
+high-depth review panel over the branch instead and carries on to the
+merge, annotating the verdict with `copilot=stuck` /
+`coderabbit=<bypassed|gave-up>` and `review-fallback=<ran|failed>`. Only
+a `ran` that covered the exact head being merged clears the way: a
+`failed` fallback, or one that only reviewed an earlier head, leaves the
+PR open because nothing reviewed the commit in front of it. Capture the
+`WATCH-AUTO:` verdict and record it as the ticket's `verdict` (`merged`
+/ `all-green` / `blocked …` / `partial …` / `exhausted …` /
+`human-intervention`) — checkpoint `verdict=<verdict>` and
+`last_phase=watched`.
 
 ### 9. Record, clean up merged tickets, and continue
 
