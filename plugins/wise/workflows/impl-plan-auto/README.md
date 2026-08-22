@@ -127,8 +127,11 @@ roster role + model — brought in **fresh per phase** so transcripts
 release and the multi-plan run stays within its context budget. The
 per-phase roles and models are in the [pipeline table](#per-plan-pipeline-inside-process-plans)
 below; at the step level `report` → `wise:qa-engineer`. Model
-tiering (`opus` = the latest Opus, Opus 5): `opus` at `xhigh` for the
-re-planning brain, `opus` at `high` for the hands-on engineering
+tiering (`opus` = the latest Opus, Opus 5): `opus` at `high` for the
+re-planning brain — `high` is Opus 5's policy ceiling, so an authored
+`xhigh` resolves to `high` (see
+[Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings)) —
+`opus` at `high` for the hands-on engineering
 (implement / fix / executors) + review brains, `sonnet` for the
 watch+fix CI conductor and the
 hands-on engineering and bookkeeping steps. See
@@ -142,7 +145,7 @@ prompts verbatim, so the two workflows stay one implementation.
 
 | Phase | Fragment | Role · model | Notes |
 |---|---|---|---|
-| Re-plan | `prompts/replan-from-file.md` | `wise:architect` · opus · xhigh | seeds from the provided plan, re-verifies + refreshes against current HEAD |
+| Re-plan | `prompts/replan-from-file.md` | `wise:architect` · opus · high | seeds from the provided plan, re-verifies + refreshes against current HEAD |
 | Implement | `ticket-auto/prompts/implement-plan.md` | `wise:software-engineer` · opus · high | phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit |
 | Review ↔ fix | `ticket-auto/prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus · high ⇄ `wise:software-engineer` · opus · high | high-depth review gate (judges only) + an independent fixer, cycling before push |
 | Push | `wise-commit/commit-routine.md` | (inline) | `/wise-commit-push` |

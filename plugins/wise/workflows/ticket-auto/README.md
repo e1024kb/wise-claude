@@ -97,7 +97,7 @@ keep the step's context bounded.
 `rename_session` `skip` — pre-flight collects the ticket list
 (required), an optional free-form `config_prompt`, and one
 **model/effort tuning questionary** (`tuning: prompt`): a single
-profile question — `Defaults` (opus/xhigh plan, opus/high
+profile question — `Defaults` (opus/high plan, opus/high
 implement+fix and review, sonnet watch), `Economy` (sonnet at high
 everywhere), or `Custom` per phase group (plan / implement / review /
 watch). The groups are advisory (the phases dispatch inside
@@ -127,8 +127,11 @@ roster role + model — brought in **fresh per phase** so transcripts
 release and the multi-ticket run stays within its context budget. The
 per-phase roles and models are in the [pipeline table](#per-ticket-pipeline-inside-process-tickets)
 below; at the step level `report` → `wise:qa-engineer`. Model
-tiering (`opus` = the latest Opus, Opus 5): `opus` at `xhigh` for the
-planning brain, `opus` at `high` for the hands-on engineering
+tiering (`opus` = the latest Opus, Opus 5): `opus` at `high` for the
+planning brain — `high` is Opus 5's policy ceiling, so an authored
+`xhigh` resolves to `high` (see
+[Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings)) —
+`opus` at `high` for the hands-on engineering
 (implement / fix / executors) + review brains, `sonnet` for the
 watch+fix CI conductor and the
 hands-on engineering and bookkeeping steps. These are the defaults —
@@ -143,7 +146,7 @@ Driven by `prompts/process-tickets.md`, which follows these fragments:
 
 | Phase | Fragment | Role · model | Autonomous analogue of |
 |---|---|---|---|
-| Plan | `prompts/plan-ticket.md` | `wise:architect` · opus · xhigh | the interactive `ticket-plan` workflow |
+| Plan | `prompts/plan-ticket.md` | `wise:architect` · opus · high | the interactive `ticket-plan` workflow |
 | — grill context sweep + gap check | `references/grill/research-sources.md` + `references/grill/gap-analysis.md` (inside Plan) | (Explore subagents + the architect) | `/wise-grill` |
 | Implement | `prompts/implement-plan.md` | `wise:software-engineer` · opus · high | (phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit) |
 | Review ↔ fix | `prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus · high ⇄ `wise:software-engineer` · opus · high | high-depth review gate (judges only) + an independent fixer, cycling before push |

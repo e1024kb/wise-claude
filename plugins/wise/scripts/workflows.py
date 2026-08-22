@@ -204,6 +204,28 @@ MODEL_EFFORT_SUPPORT = {
     "haiku": set(),                                 # no effort control
 }
 
+# Policy effort ceilings — the highest effort wise will REQUEST from a model.
+# Distinct from MODEL_EFFORT_SUPPORT above on purpose: that one is *capability*
+# (what the model accepts), this one is *policy* (what is worth asking for).
+# Keyed per model, NOT per family, because the tiers differ by version: Opus 5
+# reasons deeper at every level than Opus 4.8, so wise's planning steps get
+# their signal at `high` and `xhigh`/`max` only buy latency and tokens, while
+# Opus 4.8 still needs `xhigh` for the same steps. A model absent from the
+# table has no ceiling (its capability set is the only limit).
+#
+# Keys match the RESOLVED model id/alias: exact first, then the longest
+# `claude-…` key the model is a DATED SNAPSHOT of (base id + `-YYYYMMDD`),
+# so claude-opus-5-20260401 inherits claude-opus-5's ceiling while a
+# neighbouring id (claude-opus-50-20270101) or a version bump
+# (claude-opus-5-1) does not. Override per run with
+# WISE_EFFORT_CEILING="claude-opus-5=xhigh,opus=xhigh" (`<model>=off` drops one
+# entry, a bare `off` disables every ceiling).
+MODEL_EFFORT_CEILING = {
+    "opus": "high",             # the alias resolves to the latest Opus = Opus 5
+    "claude-opus-5": "high",
+    "claude-opus-4-8": "xhigh",
+}
+
 # One-hop fallback per alias family, used when a pinned model is unavailable.
 # Prefer aliases in authored workflows — they auto-resolve and rarely retire.
 MODEL_TIER_NEXT = {
@@ -1530,14 +1552,103 @@ def _downmap_effort(family: str, effort: str):
     return None, True
 
 
+# Memo for `_effort_ceilings()`, keyed by the raw env value so a changed
+# override still rebuilds. `(raw, table)` or None.
+_EFFORT_CEILING_MEMO = None
+
+
+def _effort_ceilings() -> dict:
+    """MODEL_EFFORT_CEILING with the WISE_EFFORT_CEILING override applied.
+
+    Value shape: `<model>=<level>` pairs, comma-separated; `<model>=off`
+    removes one entry, a bare `off` disables every ceiling. Junk pairs are
+    ignored rather than raised — a typo in an env var must not kill a run.
+
+    The merged table is memoized per raw env value — every resolution in a
+    run reads it, and re-parsing per lookup buys nothing. Callers must
+    treat the result as read-only.
+    """
+    global _EFFORT_CEILING_MEMO
+    raw = (os.environ.get("WISE_EFFORT_CEILING") or "").strip()
+    if _EFFORT_CEILING_MEMO is not None and _EFFORT_CEILING_MEMO[0] == raw:
+        return _EFFORT_CEILING_MEMO[1]
+    table = dict(MODEL_EFFORT_CEILING)
+    if not raw:
+        _EFFORT_CEILING_MEMO = (raw, table)
+        return table
+    if raw.lower() == "off":
+        _EFFORT_CEILING_MEMO = (raw, {})
+        return _EFFORT_CEILING_MEMO[1]
+    for pair in raw.split(","):
+        key, sep, level = pair.partition("=")
+        key, level = key.strip().lower(), level.strip().lower()
+        if not sep or not key:
+            continue
+        if level in ("off", "none", ""):
+            table.pop(key, None)
+        elif level in EFFORT_ORDER:
+            table[key] = level
+    _EFFORT_CEILING_MEMO = (raw, table)
+    return table
+
+
+def _is_snapshot_of(model: str, key: str) -> bool:
+    """Whether `model` is a dated snapshot of the base id `key`.
+
+    A snapshot is the base id plus `-YYYYMMDD` and nothing else. The date
+    suffix is what makes the match safe: a bare prefix test would hand
+    `claude-opus-5`'s ceiling to `claude-opus-50-20270101` (a different
+    model) and to `claude-opus-5-1` (a version bump whose ceiling is its
+    own call, not an inherited one).
+    """
+    if not model.startswith(key + "-"):
+        return False
+    suffix = model[len(key) + 1:]
+    return len(suffix) == 8 and suffix.isdigit()
+
+
+def _effort_ceiling(model: str) -> str:
+    """The policy ceiling for `model`, or '' when it has none.
+
+    Exact id/alias match wins; otherwise the longest `claude-…` key this
+    model is a DATED SNAPSHOT of, so `claude-opus-5-20260401` inherits
+    `claude-opus-5`'s ceiling while a different model id does not.
+    """
+    m = (model or "").strip().lower()
+    if not m or m == "inherit":
+        return ""
+    table = _effort_ceilings()
+    if m in table:
+        return table[m]
+    best, ceiling = "", ""
+    for key, level in table.items():
+        if (key.startswith("claude-") and len(key) > len(best)
+                and _is_snapshot_of(m, key)):
+            best, ceiling = key, level
+    return ceiling
+
+
+def _cap_effort(model: str, effort: str):
+    """Clamp `effort` to `model`'s policy ceiling → (effort, changed)."""
+    eff = (effort or "").strip().lower()
+    ceiling = _effort_ceiling(model)
+    if not eff or eff not in EFFORT_ORDER or ceiling not in EFFORT_ORDER:
+        return effort, False
+    if EFFORT_ORDER.index(eff) <= EFFORT_ORDER.index(ceiling):
+        return effort, False
+    return ceiling, True
+
+
 def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
     """Resolve a pinned model+effort against availability + capability.
 
     Returns `{model, effort, fell_back, reason, next_fallback}`: substitutes a
     known-retired id for its maintained alias, clamps the effort to what the
-    resolved model supports, and hands back `next_fallback` (the alias to retry
-    with if the *live* dispatch still reports the model unavailable). `reason`
-    is the user-facing why, surfaced in chat + the step log.
+    resolved model supports and then to that model's policy ceiling
+    (MODEL_EFFORT_CEILING — e.g. Opus 5 tops out at `high`), and hands back
+    `next_fallback` (the alias to retry with if the *live* dispatch still
+    reports the model unavailable). `reason` is the user-facing why, surfaced
+    in chat + the step log.
     """
     pinned = (pinned or "").strip()
     effort = (effort or "").strip()
@@ -1556,7 +1667,15 @@ def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
         if eff_out is None:
             reasons.append(f"{model} has no effort control; effort '{effort}' dropped")
         else:
-            reasons.append(f"effort {effort}→{eff_out} ({model} ceiling)")
+            reasons.append(
+                f"effort {effort}→{eff_out} ({model} capability ceiling)")
+
+    if eff_out:
+        capped, lowered = _cap_effort(model, eff_out)
+        if lowered:
+            reasons.append(
+                f"effort {eff_out}→{capped} ({model} policy ceiling)")
+            eff_out = capped
 
     return {
         "model": model,

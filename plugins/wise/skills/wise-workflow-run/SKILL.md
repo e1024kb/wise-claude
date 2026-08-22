@@ -880,7 +880,11 @@ exploration"; `medium` = "balance speed and rigour"; `high` = "think
 carefully, weigh alternatives"; `xhigh`/`max` = "reason exhaustively; weigh
 edge cases and failure modes before answering". The `wise:<role>` agent's
 frontmatter `effort:` is its standing baseline; a member with null/unset
-resolved effort → append nothing.
+resolved effort → append nothing. Use the **resolved** effort verbatim —
+`resolve-model` / `resolve-team` already applied the model's policy
+ceiling (Opus 5 tops out at `high`, so an authored `xhigh` comes back as
+`high`, with the step-down in `reason`). Never re-raise it to the step's
+authored value.
 
 - `type: skill`:
   ```

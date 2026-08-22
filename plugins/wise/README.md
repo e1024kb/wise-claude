@@ -196,8 +196,11 @@ route every prompt step to a best-fit role, or bind a step explicitly
 with `agent: <role> | auto | off`. Steps run **in-conversation** (Task
 subagents, subscription-covered — no extra API billing): `model:` is the
 real per-step knob (a retired model auto-falls-back to its alias with a
-notice), and `effort:` is a best-effort prompt directive. Full reference:
-[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort).
+notice), and `effort:` is a best-effort prompt directive clamped to the
+resolved model's capability and then to its policy ceiling (Opus 5 tops
+out at `high`; override with `WISE_EFFORT_CEILING`). Full reference:
+[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort)
+and [Effort ceilings](../../docs/wise/workflows.md#effort-ceilings).
 
 The project a run operates on is resolved from the current context:
 `project-selection: current` auto-detects it from the current git
