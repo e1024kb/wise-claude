@@ -1667,7 +1667,8 @@ def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
         if eff_out is None:
             reasons.append(f"{model} has no effort control; effort '{effort}' dropped")
         else:
-            reasons.append(f"effort {effort}→{eff_out} ({model} ceiling)")
+            reasons.append(
+                f"effort {effort}→{eff_out} ({model} capability ceiling)")
 
     if eff_out:
         capped, lowered = _cap_effort(model, eff_out)

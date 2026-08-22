@@ -69,6 +69,18 @@ def test_no_effort_no_ceiling(workflows_module):
     assert workflows_module._resolve_model_dict("opus", "")["effort"] is None
 
 
+def test_capability_and_policy_reasons_are_distinguishable(workflows_module,
+                                                          monkeypatch):
+    """The two clamps read differently, so a log says which one fired."""
+    monkeypatch.setattr(workflows_module, "MODEL_EFFORT_SUPPORT",
+                        {**workflows_module.MODEL_EFFORT_SUPPORT,
+                         "sonnet": {"low", "medium", "high"}})
+    cap = workflows_module._resolve_model_dict("sonnet", "xhigh")
+    assert cap["effort"] == "high" and "capability ceiling" in cap["reason"]
+    pol = workflows_module._resolve_model_dict("opus", "xhigh")
+    assert "policy ceiling" in pol["reason"] and "capability" not in pol["reason"]
+
+
 def test_haiku_still_drops_effort(workflows_module):
     """Capability clamping runs first; the ceiling never resurrects an effort."""
     out = workflows_module._resolve_model_dict("haiku", "xhigh")
