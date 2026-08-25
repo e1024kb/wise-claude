@@ -71,8 +71,7 @@ func loadConfig() {...}
 Good (present-tense fact):
 
 ```go
-// Reads config once and caches it; safe to call from many
-// goroutines.
+// Caches the config after the first read.
 func loadConfig() {...}
 ```
 
