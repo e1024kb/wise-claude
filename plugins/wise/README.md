@@ -9,7 +9,8 @@ natural-language classifier, not a dispatcher.
 `wise` ships a workflow engine, shared scripts, and every action skill
 (`/wise-init`, `/wise-workflow-*`, `/wise-skills-*`, `/wise-pr-*`,
 `/wise-commit-*`, `/wise-insights-*`, `/wise-feedback`) plus the
-`wise-estimation` and `wise-markitdown` reference skills, the
+`wise-estimation`, `wise-markitdown`, and `wise-code-comments`
+reference skills, the
 `wise-human-writing` and `wise-tickets` hybrid skills (auto-consulted
 references + `/wise-human-writing` rewrite and `/wise-tickets`
 restructure commands), and the
@@ -267,6 +268,9 @@ the longer rationale):
   prose (e.g. `wise-estimation` firing on "story points", or
   `wise-markitdown` firing on "extract the text from this PDF"). Not
   user-invocable; Claude consults them when the `description:` matches.
+  `wise-code-comments` is one of these: the standing contract for
+  every code comment and docstring wise writes - ELI5 wording,
+  concise, present-tense facts only, no history.
 
 Two skills are hybrids of the two shapes:
 
