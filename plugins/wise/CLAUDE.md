@@ -23,7 +23,8 @@ with `just check`.
 marketplace: a workflow engine, shared scripts, and a set of
 tech-neutral action skills (`/wise-init`, `/wise-workflow-*`,
 `/wise-skills-*`, `/wise-pr-*`, `/wise-commit-*`) plus the
-`wise-estimation` and `wise-markitdown` reference skills, the
+`wise-estimation`, `wise-markitdown`, and `wise-code-comments`
+reference skills, the
 `wise-human-writing` and `wise-tickets` hybrid skills (auto-consulted
 references + `/wise-human-writing` rewrite and `/wise-tickets`
 restructure commands), and the
@@ -224,6 +225,7 @@ plugins/wise/
     ├── wise-commit-push/SKILL.md    # draft + commit + push; reads wise-commit/commit-routine.md
     ├── wise-estimation/SKILL.md     # reference skill (Fibonacci SP scale)
     ├── wise-markitdown/SKILL.md     # reference skill (file → markdown text extraction via markitdown)
+    ├── wise-code-comments/SKILL.md  # reference skill (code-comment rules: ELI5, concise, present-tense, no history)
     ├── wise-human-writing/SKILL.md  # hybrid: human-first rules for all outbound tracker/PR/doc/chat writing + /wise-human-writing rewrite
     ├── wise-tickets/SKILL.md        # hybrid: ticket structure/scoping/breakdown rules for any tracker + /wise-tickets restructure
     ├── wise-pr-create/SKILL.md      # create or refresh a PR

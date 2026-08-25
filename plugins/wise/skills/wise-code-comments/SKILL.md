@@ -11,15 +11,13 @@ description: >-
   MUST read like a plain-language (ELI5) statement of what the code
   does or what constraint it obeys RIGHT NOW - concise, present
   tense, no history, no ticket archaeology.
-allowed-tools:
-  - Read
 ---
 
 # Code-comment standards
 
 Standing contract for every code comment and docstring wise writes,
-in any language. Not user-invocable - it applies automatically
-whenever comments are written or edited.
+in any language. No slash command - it is auto-consulted whenever
+comments are written or edited.
 
 ## The rules (MUST)
 
