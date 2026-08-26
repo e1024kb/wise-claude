@@ -222,9 +222,11 @@ steps:
       reading ${CLAUDE_PLUGIN_ROOT}/references/report-pass.md and
       following it end to end with:
 
-        SCOPE = workflow run {{run.id}} (impl-plan-auto)
-        MODE  = full
-        SAVE  = yes
+        SCOPE  = workflow run {{run.id}} (impl-plan-auto)
+        MODE   = full
+        SAVE   = yes
+        RETURN = summary   # full report lives in the handoff file;
+                           # only counts + path come back to the run
 
       Claim material for the pass's recall step: the per-plan results
       table `process-plans` printed, and the step outputs —
@@ -236,7 +238,8 @@ steps:
       claimed PR's real state with `gh pr view <number>`).
 
       Between the pass's template sections and its final line, append
-      a `## Run specifics` addendum:
+      a `## Run specifics` addendum (with RETURN=summary it lands in
+      the handoff file; the conversation gets only the counts + path):
       - Per plan: source plan file, branch, worktree path, PR url,
         and verdict (merged / all-green / blocked / partial /
         exhausted / human-intervention / failed); for each PR left

@@ -362,8 +362,15 @@ steps:
       Persist the dossier for the later steps (they run as isolated
       subagents that cannot see this step's chat output): first
       `mkdir -p "{{run.dir}}/research"`, then `Write` the full dossier
-      to `{{run.dir}}/research/dossier.md`, AND return it as your
-      response too.
+      to `{{run.dir}}/research/dossier.md`. Do NOT paste the dossier
+      into your response — the file is the channel (every consumer
+      Reads it); the response carries only the verdict line below.
+
+      Your response's FINAL line MUST be exactly, on its own line:
+
+        DOSSIER: path={{run.dir}}/research/dossier.md lexicon=<term-count> sources-unavailable=<count>
+    until: 'DOSSIER: path=(\S+) lexicon=(\d+) sources-unavailable=(\d+)'
+    max_iterations: 2
     model: opus
     effort: high
     depends_on: [fetch-ticket]
@@ -389,10 +396,14 @@ steps:
       ${CLAUDE_PLUGIN_ROOT}/references/grill/blueprint-format.md and
       write `{{run.dir}}/plans/BLUEPRINT-<ref>.md` (mkdir -p the
       directory first; <ref> is {{ticket_ref}} with any leading '#'
-      stripped) exactly to that schema, then print the per-person
+      stripped) exactly to that schema. The user's pre-flight gap mode
+      is `{{gap_mode}}`: when it is `ask`, ALSO print the per-person
       question blocks inline — they are paste-ready for Slack / a
       ticket comment, and the next step lets the user answer any of
-      them directly.
+      them directly. When it is `defaults` (nobody will answer
+      mid-run), do NOT paste the blocks — print only the blueprint
+      path and the per-person question counts; the blocks live in the
+      BLUEPRINT file either way.
 
       Your response's FINAL line MUST be exactly, on its own line:
 
@@ -471,7 +482,11 @@ steps:
       This is a cross-functional planning team. Consolidate the outputs
       of `analyze-design`, `analyze-related`, `research-context`, and
       `codebase-audit` — plus the `gap-analysis` scorecard — into a
-      single investigation, then decide — AUTONOMOUSLY, with a one-line
+      single investigation. `research-context` returns only a
+      `DOSSIER:` verdict line — its full Context Dossier is the file
+      at `{{run.dir}}/research/dossier.md`; Read it first (skip
+      silently if it does not exist — the stage may have been
+      deselected at pre-flight). Then decide — AUTONOMOUSLY, with a one-line
       rationale each — every decision the work needs: scope & requirement
       clarifications (product lens), technical approach (reuse vs extend
       vs build-new for each functional piece, grounded in the audit),

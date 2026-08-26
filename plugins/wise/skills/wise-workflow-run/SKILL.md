@@ -1240,15 +1240,25 @@ bookkeeping (tool calls). Structure:
       - `approval`: the user's pick (`Approve` → completed, `Reject`
         → failed).
 
-   b. Append the full tool output to the step's log file. Use the
-      `workflows.py write-log` subcommand, piping the output to
-      stdin — NOT the `Write` tool, which prompts Claude Code's
-      per-file permission dialog on first write:
+   b. Append a bounded excerpt of the tool output to the step's log
+      file. Use the `workflows.py write-log` subcommand, piping the
+      output to stdin — NOT the `Write` tool, which prompts Claude
+      Code's per-file permission dialog on first write.
+
+      Bound the excerpt: when the output is 120 lines or fewer, log
+      it whole; otherwise log the FIRST 60 lines, then a marker line
+      `[... truncated <N> lines — full output was in the conductor
+      transcript]`, then the LAST 60 lines (verdict/final lines
+      always live at the tail, so they are always captured).
+      Re-emitting the full output would double every step's token
+      cost in this conversation for no gain — the log is a debugging
+      aid, not the artifact channel (steps persist real artifacts to
+      files themselves).
 
       ```bash
       python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" write-log \
         "$RUN_DIR" "<step.id>" "<step-run-ulid>" <<'WISE_LOG_EOF'
-      <the full step output — subagent final message / bash stdout+stderr / etc.>
+      <the bounded excerpt — first 60 / marker / last 60 lines>
       WISE_LOG_EOF
       ```
 
