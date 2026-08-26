@@ -272,8 +272,8 @@ fails — missing store = `medium`).
 The per-group `tuning_<id>` / per-step `tuning_step_<id>` outputs are
 the machine channel (dispatch overrides, `{{tuning_<id>}}` /
 `{{cap_<name>}}` templates); `tuning_summary` is display-only. Log the
-result (`Pre-flight profile: low — sonnet tiers (opus planning), minimal
-research, solo panels.`). Dispatch precedence is §10d's job:
+result (`Pre-flight profile: low — sonnet tiers (opus planning/authoring),
+minimal research, solo panels.`). Dispatch precedence is §10d's job:
 `tuning_step_<sid>` > `tuning_<gid>` > declared pins, and
 `team_mode=solo` adds `--team-mode solo` to every `resolve-team` call
 (when its JSON returns a `collapsed` key, append to the step prompt:

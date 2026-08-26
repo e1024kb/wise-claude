@@ -143,8 +143,8 @@ step-select:
       skip: [analyze-design, analyze-related, research-context, gaps]
 
 # Budget profiles (docs/wise/workflows.md § Profiles). `medium` = the
-# declared defaults; `low` = sonnet evidence/authoring tiers + the
-# minimal research preset + solo leads on the two panel steps
+# declared defaults; `low` = sonnet evidence tier + opus/high authoring
+# + the minimal research preset + solo leads on the two panel steps
 # (codebase-audit, build-plan); `max` = full research + full panels on
 # opus. Budget only — flow modes, branch rules, and the plan's
 # structure are identical at every level.

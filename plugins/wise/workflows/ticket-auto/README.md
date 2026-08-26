@@ -97,8 +97,8 @@ keep the step's context bounded.
 `rename_session` `skip` — pre-flight collects the ticket list
 (required), an optional free-form `config_prompt`, and one **budget
 profile question** (`tuning: prompt` + the `profiles:` block):
-**low** (opus/high plan, sonnet implement/watch, fix cap 3, review-cycle cap 2,
-solo teams), **medium** (the declared defaults — opus/high plan and
+**low** (opus/high plan, sonnet implement/watch, fix cap 3, review-cycle cap 2),
+**medium** (the declared defaults — opus/high plan and
 implement+fix, sonnet watch), **max** (opus/high across phases), or
 **Custom** per phase group (plan / implement / watch). The session
 profile set by `/wise-profile` pre-answers it as the Recommended
