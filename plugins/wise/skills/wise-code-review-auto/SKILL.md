@@ -67,9 +67,10 @@ and follow it end to end with `worktree`, `base`, and `profile`. The
 fragment reviews `origin/<base>..HEAD` at the profile's panel depth per
 `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` (always the
 3-lens set — correctness, security, tests; the profile sets each
-reviewer's effort: low -> medium, medium -> high, max -> xhigh
-ceiling-clamped; reviewer model never downgraded), applies the bounded
-findings, and commits them with `SIMPLIFY=no PUSH=no`.
+reviewer's effort — low -> medium, medium -> high — and `max` adds the
+per-finding verification pass; reviewer model never downgraded),
+applies the bounded findings, and commits them with
+`SIMPLIFY=no PUSH=no`.
 
 ### 3. Relay the result
 

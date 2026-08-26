@@ -35,7 +35,7 @@ table; `medium` = the plugin's standard behavior):
 |---|---|
 | `low` | cheapest run that keeps every gate: sonnet tiers for research / planning / implementation, minimal optional research, solo leads instead of panels, low retry caps |
 | `medium` | the standard defaults (set this to undo a `low`/`max`) |
-| `max` | everything on: opus tiers across phases, full research, review panel at xhigh effort |
+| `max` | everything on: opus tiers across phases, full research, review findings adversarially verified before apply |
 
 The hard invariant, at every level: profiles change model tier /
 optional-step scope / team size / caps ONLY — never correctness
@@ -75,8 +75,9 @@ available, then ask ONE question:
   2. `low` — "Cheapest run that keeps every gate: sonnet tiers,
      minimal optional research, solo leads, medium-effort reviews, low
      retry caps. Correctness rules unchanged."
-  3. `max` — "Everything on: opus across phases, full research, full
-     review panels. Highest cost."
+  3. `max` — "Everything on: opus across phases, full research,
+     review findings adversarially verified before apply. Highest
+     cost."
 
 ### 3. Persist
 

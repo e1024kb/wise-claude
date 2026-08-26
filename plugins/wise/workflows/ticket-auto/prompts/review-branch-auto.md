@@ -40,10 +40,11 @@ calls `AskUserQuestion`.
   (`ticket-auto`'s review↔fix loop) → the panel REPORTS its bounded findings
   and a verdict but applies NOTHING; the caller hands the fixing to a separate
   engineer role and re-invokes this gate to verify, looping until clean.
-- `profile` — **optional** `low` / `medium` (default) / `max` — sets
-  the per-reviewer EFFORT per `code-review-pass.md`'s table (the panel
-  is always the 3-lens set; low → medium effort, medium → high, max →
-  xhigh, ceiling-clamped). `ticket-auto` always pins `medium` (the
+- `profile` — **optional** `low` / `medium` (default) / `max` — per
+  `code-review-pass.md`'s table: the panel is always the 3-lens set;
+  low → medium effort, medium → high, max → high PLUS the
+  per-finding verification pass (each kept finding adversarially
+  re-checked before apply). `ticket-auto` always pins `medium` (the
   review gate never follows the run's budget profile down or up); the
   standalone skill resolves it from the session profile / its
   `--profile` flag.

@@ -39,14 +39,22 @@ pinned value); it maps to the reasoning-effort directive each reviewer
 subagent gets. The reviewer **model is never downgraded** — effort is
 the budget knob:
 
-| profile | lenses | per-reviewer effort directive |
-|---|---|---|
-| `low` | 3 | `medium` |
-| **`medium`** (default) | 3 | `high` |
-| `max` | 3 | `xhigh` (the model's policy ceiling may clamp it — Opus 5 tops out at `high`) |
+| profile | lenses | per-reviewer effort directive | extra |
+|---|---|---|---|
+| `low` | 3 | `medium` | — |
+| **`medium`** (default) | 3 | `high` | — |
+| `max` | 3 | `high` | **verification pass** (below) |
 
 The effort directive is appended to each reviewer's prompt the same
 way workflow dispatch conveys effort (a prompt directive, best-effort).
+`max` deliberately does NOT reach for a higher effort word — `xhigh`
+clamps to `high` under Opus 5's policy ceiling, so it would be a
+no-op; instead `max` buys a **verification pass**, a real extra
+dispatch (step 3b below): after curation, each kept finding gets one
+adversarial re-check by a fresh read-only subagent prompted to REFUTE
+it against the actual code; findings the checker refutes are dropped
+(noted as skipped). What `max` buys is fewer false positives at the
+gate, not more findings.
 
 There is a second shape for one caller only — **`panel=universal`**,
 used by the PR watcher's review fallback (`review-fallback-auto.md`):
@@ -91,6 +99,14 @@ that deliberately.)
    dependencies, large refactors — and any finding on lines the branch
    didn't touch. If `plan_path` is supplied, drop anything the plan's
    `## Decisions Made` deliberately chose; note it as skipped.
+
+3b. **Verify (`max` profile only).** Dispatch one fresh read-only
+   subagent per kept finding — in a single parallel message — each
+   prompted to REFUTE its finding against the current code ("is this
+   actually wrong as claimed? Default to refuted when the evidence is
+   ambiguous."). A finding the checker refutes is dropped and counted
+   as skipped with a one-line reason. Skip this step entirely at
+   `low` / `medium`.
 
 4. **Apply + commit.** Apply the kept findings via `Edit` / `Write`, then
    commit them (the caller owns the commit step and the final verdict).
