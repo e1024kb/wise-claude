@@ -57,6 +57,18 @@ Read `$ARGUMENTS` and split into whitespace-separated tokens:
 - The first remaining token, if present, is `max_fix_attempts` — the
   cap on commit-producing fix rounds before the loop stops. Ignore
   anything else.
+- A `--profile` with no value, or a value that isn't `low` / `medium` /
+  `max`, is an error — stop before the watch loop with:
+
+  ```
+  Unknown --profile value: <value>
+  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--profile low|medium|max]
+  ```
+
+  A typo here must not silently fall through to the session or
+  `medium` default and change the fallback depth / attempt cap without
+  the operator noticing (the same validation
+  `/wise-code-review-auto` applies to its own `--profile` argument).
 
 Resolve `profile`: the `--profile` argument if given, else the session
 profile via `${CLAUDE_PLUGIN_ROOT}/references/profile-read.md` (read it

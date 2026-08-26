@@ -1000,7 +1000,9 @@ def cmd_get_profiles(def_path: str) -> int:
             return 2
         res: dict = {"tuning": {}, "skip": [], "caps": {}}
 
-        tuning = entry.get("tuning") or {}
+        tuning = entry.get("tuning")
+        if tuning is None:
+            tuning = {}
         if not isinstance(tuning, dict):
             print(f"INVALID:profile-tuning:expected-mapping:{level}",
                   file=sys.stderr)
@@ -1059,7 +1061,9 @@ def cmd_get_profiles(def_path: str) -> int:
                 return 2
             res["team-mode"] = team_mode
 
-        caps = entry.get("caps") or {}
+        caps = entry.get("caps")
+        if caps is None:
+            caps = {}
         if not isinstance(caps, dict):
             print(f"INVALID:profile-caps:expected-mapping:{level}",
                   file=sys.stderr)

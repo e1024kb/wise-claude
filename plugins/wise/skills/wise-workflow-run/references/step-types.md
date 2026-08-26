@@ -19,7 +19,9 @@ workflow uses none of these never loads it. Schema/semantics live in
      NOT try to produce the team's final answer — a synthesis step does that."*
      — plus the member's effort directive. Do **not** pass `until:` to members
      (it governs the synthesis only). Capture each member's returned text as its
-     draft and log it under the step log.
+     draft — hold it in-memory; do NOT `write-log` it yet (`workflows.py
+     write-log` overwrites the log file on every call, so writing per-round
+     would erase Round 1's drafts by the time Round 3 runs).
   2. **Round 2 — lead integration** (only when `lead` is set). Dispatch the
      lead as one `Task` (`wise:<lead>`, its model/effort) with `prompt` = the
      rendered `def.prompt` + *"\n\nYour panel produced these inputs:\n`<role>`:
@@ -29,9 +31,13 @@ workflow uses none of these never loads it. Schema/semantics live in
      the drafts (and the lead proposal, if any) into the step's single result:
      dedup overlaps, combine complementary points, surface disagreements. This
      synthesis IS the step output — if `def.until` is set, end it with the
-     matching final line; if `def.outputs` is set, extract from it. Append the
-     synthesis to the step log beneath the member drafts. Remember every
-     member's `agent`/`model`/`effort` + the `lead` — 10e reports them.
+     matching final line; if `def.outputs` is set, extract from it. Now issue
+     the single `write-log` call for this step — its content is every member
+     draft (Round 1), the lead's proposal (Round 2, if any), and the
+     synthesis (Round 3), in that order, all in one write. This is the ONE
+     `write-log` invocation for the whole team step, per the overwrite
+     semantics above. Remember every member's `agent`/`model`/`effort` + the
+     `lead` — 10e reports them.
 
   **Important — `prompt` steps run in an isolated Task subagent.**
   The subagent has its own tool list (for a `general-purpose` dispatch,
@@ -50,7 +56,11 @@ workflow uses none of these never loads it. Schema/semantics live in
   the wave (`Task` has no timeout/heartbeat — a hung subagent hangs the conductor
   indefinitely). Resolve `agent`/`model`/`effort` exactly as `prompt`
   (`resolve-team` → a single member; a team **list** is not supported here — one
-  supervised step is one worker). Then follow
+  supervised step is one worker). If `resolve-team` comes back `mode: team`
+  (the step's `agent:` is a list), that is an authoring error for this step
+  type — FAIL the step immediately with a clear error rather than silently
+  dispatching only one of the members; a `supervised-prompt` step must
+  declare a single `agent:` role. Then follow
   `${CLAUDE_PLUGIN_ROOT}/references/supervise-loop.md`:
   1. `TeamCreate({ team_name: "wise-<run.id>-<step.id>" })`.
   2. `TaskCreate` the step's goal, then spawn ONE background worker:
@@ -133,7 +143,8 @@ workflow uses none of these never loads it. Schema/semantics live in
 - `type: approval`:
 
   **In wave-sync or auto-advance mode** — use `AskUserQuestion`:
-  ```
+
+  ```text
   AskUserQuestion({
     question: "<def.message>",
     header: "Approval — <step.id>",

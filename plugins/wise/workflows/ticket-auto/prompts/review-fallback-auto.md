@@ -62,8 +62,9 @@ at low/medium, five + the confidence-scoring pass at max) — curates the
 concrete correctness / security / clear-quality findings, applies them,
 and commits.
 
-**Check `Task` first.** The panel is five parallel reviewer subagents,
-so it needs the `Task` tool. Not every caller has it: the `ticket-auto`
+**Check `Task` first.** The panel is a parallel-subagent panel sized by
+`profile` — 3 lenses at `low`/`medium`, 5 lenses + a confidence pass at
+`max` — so it needs the `Task` tool. Not every caller has it: the `ticket-auto`
 / `impl-plan-auto` watch step runs as `wise:software-engineer`, whose
 tool list is `Read, Write, Edit, Bash, Glob, Grep` — no `Task` — and a
 subagent cannot spawn subagents anyway. Do not report a panel that
@@ -122,9 +123,11 @@ stepping in:
 ```bash
 NOTE_URL="$(gh pr comment <pr_number> --body "$(cat <<'EOF'
 wise: <stuck_bots, rendered as "Copilot (review timeout)" / "CodeRabbit (out of credits)">
-could not review this PR, so wise ran its own high-depth review panel
-over the branch diff instead (5 lenses: correctness, security,
-conventions, history/context, test coverage).
+could not review this PR, so wise ran its own review panel over the
+branch diff instead (<lens count and names at this run's actual
+profile depth — "3 lenses: correctness, security, test coverage" at
+low/medium, "5 lenses: correctness, security, conventions,
+history/context, test coverage, plus a confidence-scoring pass" at max>).
 
 Result: <n> finding(s) applied, <m> skipped.
 EOF

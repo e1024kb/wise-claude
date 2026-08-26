@@ -13,8 +13,10 @@ Caller supplies `pr_number` and `project.path` (run everything with
   `SONAR_KEY_GUESSED=true` when it came from the `<org>_<repo>`
   convention rather than a corroborated source.
 - One fetch outcome bucket: `OK (N issues)` / `OK (0 issues)` /
-  `AUTH-FAIL` / `FETCH-FAIL` — defined at the end of §2. The caller
-  owns what each bucket means (gate, verdict, postponement).
+  `AUTH-FAIL` / `NOT_FOUND` / `FETCH-FAIL` — defined at the end of §2.
+  The caller owns what each bucket means (gate, verdict, postponement);
+  callers that don't need the 404/other-failure distinction (the
+  interactive handler) may treat `NOT_FOUND` the same as `FETCH-FAIL`.
 
 ### 1. Discover the SonarCloud component key (authoritative)
 
@@ -45,10 +47,12 @@ if [ -z "$SONAR_KEY" ] && [ -f sonar-project.properties ]; then
     | head -1 | awk -F= '{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')"
 fi
 
-# c) pom.xml for Maven.
+# c) pom.xml for Maven. A multi-module pom.xml can declare more than
+#    one <sonar.projectKey> element; take the first match only so
+#    SONAR_KEY never ends up holding several newline-joined keys.
 if [ -z "$SONAR_KEY" ] && [ -f pom.xml ]; then
   SONAR_KEY="$(grep -oE '<sonar\.projectKey>[^<]+</sonar\.projectKey>' pom.xml \
-    | sed 's/<[^>]*>//g')"
+    | head -1 | sed 's/<[^>]*>//g')"
 fi
 
 # d) Last resort — the common <org>_<repo> convention. Mark as a guess.
@@ -69,13 +73,22 @@ stored credentials handle auth transparently and sidestep the
 
 Fallback order if no MCP is visible:
 
-1. **`$SONAR_TOKEN`-authenticated curl** (when the env var is set):
+1. **`$SONAR_TOKEN`-authenticated curl** (when the env var is set).
+   Pass the token through a temporary `--netrc-file`, never through
+   `-u`/argv — an argument-list credential is visible to any other
+   process on the host that can read `/proc/<pid>/cmdline` or run
+   `ps`:
    ```bash
-   curl -fsSL -u "$SONAR_TOKEN:" \
-     "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_KEY&pullRequest=$PR&issueStatuses=OPEN,CONFIRMED&resolved=false&ps=500" \
-     > "$SCRATCH/sonar-issues-$PR.json"
+   NETRC_FILE="$(mktemp "${TMPDIR:-/tmp}/wise-sonar-netrc-XXXXXX")"
+   chmod 600 "$NETRC_FILE"
+   printf 'machine sonarcloud.io login %s password\n' "$SONAR_TOKEN" > "$NETRC_FILE"
+   HTTP_CODE="$(curl -sSL --netrc-file "$NETRC_FILE" \
+     -o "$SCRATCH/sonar-issues-$PR.json" -w '%{http_code}' \
+     "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_KEY&pullRequest=$PR&issueStatuses=OPEN,CONFIRMED&resolved=false&ps=500")"
+   rm -f "$NETRC_FILE"
    ```
-2. **Anonymous curl** (public projects only).
+2. **Anonymous curl** (public projects only) — same `-w '%{http_code}'`
+   capture, no `--netrc-file`.
 
 **The issues-search endpoint is authoritative.** Do **not** run
 a separate "sanity-check" probe against the project key
@@ -89,13 +102,16 @@ improvised sanity-check produced a "200/0 issues but key 404'd"
 deadlock that asked the user 4 questions when the right answer
 was always "trust the 200/0 and emit all-clear".
 
-Outcome buckets (decided by the issues-search call alone, no
-separate probes):
-- MCP call succeeded / curl exit 0 (any count, including 0) →
+Outcome buckets (decided by the issues-search call's HTTP status
+alone, no separate probes):
+- MCP call succeeded / `HTTP_CODE` is `200` (any count, including 0) →
   `OK`; parse results.
-- Issues-search HTTP 401 / 403 OR `$SONAR_TOKEN` unset on a
+- `HTTP_CODE` is `401` or `403`, OR `$SONAR_TOKEN` unset on a
   private project → `AUTH-FAIL`.
-- Issues-search HTTP 404 (truly bad `SONAR_KEY`) →
-  `FETCH-FAIL`.
-- Network error / MCP error on the issues-search call /
-  anything else → `FETCH-FAIL`.
+- `HTTP_CODE` is `404` (the component key doesn't exist) →
+  `NOT_FOUND` — kept distinct from the generic fetch failure below so
+  a caller can tell "this key is wrong" from "the call itself broke"
+  (the autonomous handler's §1b needs exactly that distinction to
+  choose between `not-configured` and `blocked-fetch reason=key-unresolved`).
+- Network error / MCP error on the issues-search call, or any other
+  non-200/401/403/404 status → `FETCH-FAIL`.

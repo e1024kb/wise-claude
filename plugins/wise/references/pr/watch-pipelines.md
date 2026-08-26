@@ -258,7 +258,7 @@ hold off" short-circuits everything else).
 Before any queue runs, sweep the PR for review threads GitHub
 flagged as outdated (`isOutdated: true`) but that nobody marked
 resolved (`isResolved: false`). The handler-level classifiers
-in `handle-bot-reviews.md` §2 and `comment-surfaces.md` §3
+in `handle-bot-reviews.md` §2 and `comment-surfaces.md` §2
 already filter outdated items out of the actionable lists —
 they're stale by construction (the lines they anchor to moved
 or were deleted, so the comment no longer applies to the

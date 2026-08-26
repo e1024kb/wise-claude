@@ -501,9 +501,10 @@ run reports its findings on the `committed=yes` line — accumulating only
 on `committed=no` would report `applied=0` for a fallback that fixed
 things. §8 reports the run-wide total, not the last run's.
 
-That fragment runs the same high-depth review as
-`/wise-code-review-auto` (`review-branch-auto.md` with `fixer=self` — 5
-lenses over `origin/<BASE>..HEAD`), commits what it finds, pushes, and
+That fragment runs the same review as `/wise-code-review-auto`
+(`review-branch-auto.md` with `fixer=self` over `origin/<BASE>..HEAD`,
+sized by `profile` — 3 lenses at low/medium, 5 lenses + a
+confidence-scoring pass at max), commits what it finds, pushes, and
 posts one audit comment naming the bot it stood in for. It reports
 `depth=panel` when it could dispatch the parallel reviewer subagents and
 `depth=inline` when the caller has no `Task` tool and it worked the

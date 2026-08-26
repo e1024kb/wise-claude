@@ -88,20 +88,31 @@ Letters are case-insensitive (`F`, `f`, `A`, `a`, …).
 | Duplicate index (e.g. `1F 1A`)              | `Index 1 appears twice — one decision per item.` |
 | Mixed indexed + positional                  | `Mix of indexed and positional tokens — pick one style for the whole string.` |
 | Positional count > page size                | `Too many decisions — this page has <K> items.` |
+| Missing index on a queue with no `S` in `allowed_letters` (Sonar) | `Missing decision for item <index> — this queue has no Skip; every item needs F or A.` |
 
-**Missing indices** (when some items have no decision) are
-**NOT** silent — treat them as `S` AND print a visible note
-before applying:
+**Missing indices** (when some items have no decision) are **NOT**
+silent, but the queue's `allowed_letters` decides what "not silent"
+means:
 
-```text
-Implicit skip: items <comma-separated indices> — no decision in the input, treated as Skip.
-```
+- **Queue allows `S`** (bot/human queues) — treat missing indices as
+  `S` AND print a visible note before applying:
 
-This lets the user notice a typo that would otherwise be
-invisible. If the note catches them by surprise, they can edit
-and re-submit (the prompt re-emits automatically only on parse
-errors; implicit skips apply, but the note is loud enough that
-the user can always abort the next page via Skip queue).
+  ```text
+  Implicit skip: items <comma-separated indices> — no decision in the input, treated as Skip.
+  ```
+
+  This lets the user notice a typo that would otherwise be
+  invisible. If the note catches them by surprise, they can edit
+  and re-submit (the prompt re-emits automatically only on parse
+  errors; implicit skips apply, but the note is loud enough that
+  the user can always abort the next page via Skip queue).
+
+- **Queue does NOT allow `S`** (the Sonar queue — every issue must be
+  Fixed or Accepted) — a missing index is a validation failure, not an
+  implicit anything: re-ask with `Missing decision for item <index> —
+  this queue has no Skip; every item needs F or A.` Never silently
+  turn a missing Sonar index into an `S` the apply phase cannot act
+  on.
 
 Examples (assume bot queue, `allowed_letters=F,A,D,S`):
 

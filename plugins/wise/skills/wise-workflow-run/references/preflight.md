@@ -176,10 +176,15 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-step-select "$DEF"; \
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" profile-get
 ```
 
-`get-tuning` exit 2 (an `INVALID:` authoring error) or an empty
-`groups` list → log a `WARN:` line and skip this subsection; a broken
-block never blocks the run. `get-profiles` exit 2 → `WARN:` and run
-the LEGACY flow below (as if the workflow declared no `profiles:`).
+`get-tuning` exit 2 (an `INVALID:` authoring error) → log a `WARN:`
+line and skip this subsection entirely; a broken tuning block never
+blocks the run. An empty `groups` list is NOT an error — it only means
+the workflow declares no tunable groups, and it must not skip the rest
+of §6b2: continue to the fork below so `step-preset`/`skip`,
+`team-mode`, and `caps` from a `profiles:` block can still apply, just
+with nothing to ask in the per-group tuning questions. `get-profiles`
+exit 2 → `WARN:` and run the LEGACY flow below (as if the workflow
+declared no `profiles:`).
 `profile-get` prints the session level (`low|medium|max`; it never
 fails — missing store = `medium`).
 
@@ -208,7 +213,13 @@ fails — missing store = `medium`).
        ends with `Correctness rules unchanged.`
   2. **On a level pick** — expand `profiles[<level>]` and persist in
      ONE chained Bash (the run stub exists since §4, so
-     `record-output` works; outputs survive resume):
+     `record-output` works; outputs survive resume). A workflow may
+     declare a sparse `profiles:` block (e.g. only `medium:`) — Q1
+     still offers all three levels, so if the picked level is absent
+     from the `profiles` JSON, treat it as `{}`, the same "declared
+     defaults, nothing overridden" convention an explicit empty entry
+     gets. Never treat a missing level as an error or skip the
+     record-output calls below:
      - `record-output run_profile <level>` — always.
      - per `tuning` entry: `record-output tuning_<gid> "<model> / <effort>"`
        (or the literal `default`). An empty tuning map (the `medium`
@@ -361,12 +372,14 @@ Then, for each input in order:
    - **Absent and required** → `AskUserQuestion`:
      - Question: the input's `prompt` text.
      - Header: the input's `name` (truncated to 12 chars).
-     - **Free-text input** (no `options` declared) → Options: `Other`
-       only — the user types the value via free text. (Declaring only
-       `Other` satisfies AskUserQuestion's minimum of two options by
-       including the implicit "Other" affordance; if the harness
-       rejects single-option calls, add a trailing `Cancel run` option
-       and abort cleanly when picked.)
+     - **Free-text input** (no `options` declared) → Options:
+       `Provide input` (description: type the value via the free-text
+       `Other` affordance) plus a trailing `Cancel run` option (abort
+       the run cleanly when picked, same as a validation abort at the
+       attempt cap below). `AskUserQuestion` requires 2-4 declared
+       options per question; a single implicit `Other` affordance does
+       not satisfy that minimum, so always declare both, not just when
+       a harness happens to reject the single-option form.
      - **Choice input** (`options` declared) → one option per entry:
        label = the entry's `label` (or its `value`), description = the
        entry's `description`. List the `default` value's option first.
@@ -382,11 +395,20 @@ Then, for each input in order:
 2. Validate + extract via the engine — empty strings for regexes
    the input didn't declare (run this for positionally-supplied and
    prompted values alike; skip it only for the optional-default-empty
-   case above):
+   case above). Keep the raw answer OUT of the generated shell source:
+   a user- or ticket-supplied string can contain `$(...)`, backticks,
+   or quotes that Bash would parse before `validate-input` ever runs.
+   Assign it via a quoted heredoc (which suppresses expansion inside
+   the body) and reference it as a plain double-quoted variable, never
+   splice it into the command text:
 
    ```bash
+   RAW_ANSWER=$(cat <<'WISE_RAW_ANSWER_EOF'
+   <the raw answer, verbatim, unescaped>
+   WISE_RAW_ANSWER_EOF
+   )
    CLEAN=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
-     validate-input "<raw-answer>" "<extract-or-empty>" "<validate-or-empty>")
+     validate-input "$RAW_ANSWER" "<extract-or-empty>" "<validate-or-empty>")
    ```
 
    Exit 0 → `CLEAN` holds the cleaned value; store it as

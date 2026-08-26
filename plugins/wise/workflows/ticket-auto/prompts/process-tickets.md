@@ -366,7 +366,11 @@ wise's own panel instead. Checkpoint `last_phase=review-requested`.
 ### 8. Watch + fix
 
 Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
-`model: sonnet` — : "Read `{{workflow.dir}}/prompts/watch-pipelines-auto.md`
+model/effort = the resolved `tuning.watch` value from the per-phase
+table built at the top of this fragment (default `model: sonnet`, no
+effort directive when `tuning.watch` is `default`/empty/an
+un-rendered `{{…}}` placeholder) — : "Read
+`{{workflow.dir}}/prompts/watch-pipelines-auto.md`
 and follow it." with `pr_number=<n>`, `pr_url=<url>`,
 `current_branch=<branch>`, `project.path=$WT`,
 `max_fix_attempts=$MAX_FIX_ATTEMPTS` (resolved up front),

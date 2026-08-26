@@ -42,7 +42,9 @@ policy fallback), apply the same winning override by passing `<m>` /
 `<e>` as the `resolve-model` arguments in place of the step's own
 pins.
 → JSON `{mode, lead, members:[{role, lead, model, effort, reason, fell_back,
-next_fallback}], errors}`. These fields apply to `prompt` steps **only** —
+next_fallback}], errors, collapsed?: {from, dropped}}` — `collapsed` is
+present only under `--team-mode solo` (see below); its absence means
+the run is not collapsing a team. These fields apply to `prompt` steps **only** —
 `interactive` steps run inline in this conductor (your own model) and `skill`
 steps run under the invoked skill's frontmatter; ignore `agent:` / `model:` /
 `effort:` on every other step type. A step pinning none of them inherits the

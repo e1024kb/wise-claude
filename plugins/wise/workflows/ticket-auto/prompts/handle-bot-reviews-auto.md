@@ -53,8 +53,10 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 Read `${CLAUDE_PLUGIN_ROOT}/references/pr/comment-surfaces.md` and run
 its §1 (three REST surfaces) + §2 (GraphQL review threads) with
 `<prefix>` = `pr-$PR-auto`. Each review-comment `databaseId` maps to a
-thread `id` via `comments.nodes[0].databaseId`; `isResolved` /
-`isOutdated` flag threads to skip in §2 (semantics in that file).
+thread `id` by matching against any of that thread's
+`comments.nodes[].databaseId` (not just the opener's — a reply carries
+its own `databaseId`); `isResolved` / `isOutdated` flag threads to skip
+in §2 (semantics in that file).
 
 ### 2. Build the actionable list — filtered by `bot_filter`
 

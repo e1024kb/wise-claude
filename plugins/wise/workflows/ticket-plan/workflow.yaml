@@ -206,16 +206,6 @@ inputs:
       - value: ask
         label: "Ask me at setup"
         description: "The composite setup questionnaire (branch, base, session rename) fires mid-run as before."
-  - name: review_lenses
-    prompt: "Review depth for review passes this plan leads to?"
-    default: "3"
-    options:
-      - value: "3"
-        label: "3 lenses"
-        description: "The medium review pass — correctness, security, tests, on opus. The recommended gate depth."
-      - value: "5"
-        label: "5 lenses (full panel)"
-        description: "Adds the conventions/dead-code and git-history/context lenses plus the confidence-scoring pass. Highest cost."
   - name: implement_mode
     prompt: "Implement the plan after setup?"
     default: plan-only
@@ -229,6 +219,22 @@ inputs:
       - value: ask
         label: "Ask me after setup"
         description: "The implement question fires mid-run, once the plan and branch are settled."
+  # Declared LAST (after implement_mode) so it doesn't shift any
+  # existing input's position — a positional invocation binds tokens
+  # in declaration order, and README.md documents
+  # `/wise-workflow-run ticket-plan PROJ-1 defaults auto auto now` as a
+  # 5-token non-interactive example; inserting a new input before
+  # implement_mode would silently rebind that trailing `now` token.
+  - name: review_lenses
+    prompt: "Review depth for review passes this plan leads to?"
+    default: "3"
+    options:
+      - value: "3"
+        label: "3 lenses"
+        description: "The medium review pass — correctness, security, tests, on opus. The recommended gate depth."
+      - value: "5"
+        label: "5 lenses (full panel)"
+        description: "Adds the conventions/dead-code and git-history/context lenses plus the confidence-scoring pass. Highest cost."
 
 steps:
   - id: detect-context
@@ -397,6 +403,14 @@ steps:
       to `{{run.dir}}/research/dossier.md`. Do NOT paste the dossier
       into your response — the file is the channel (every consumer
       Reads it); the response carries only the verdict line below.
+
+      Before emitting the verdict line, confirm the write actually
+      landed — `test -s "{{run.dir}}/research/dossier.md"` (exists and
+      non-empty). If it fails, retry the `Write` once; if it still
+      fails, do NOT emit the `DOSSIER:` line — end with a plain failure
+      message instead so this step's `max_iterations: 2` retries the
+      whole step rather than downstream steps silently working from a
+      missing file.
 
       Your response's FINAL line MUST be exactly, on its own line:
 

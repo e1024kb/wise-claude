@@ -171,9 +171,11 @@ bot comment's `id=<key>`, `sonar-project.properties` /
 `.sonarcloud.properties`, `pom.xml`, or Gradle config - that is,
 `SONAR_KEY_GUESSED` is unset.
 
-Decide one outcome:
+Decide one outcome (`sonar-fetch.md` §2 now returns `NOT_FOUND` as its
+own bucket, distinct from generic `FETCH-FAIL`, precisely so this step
+can tell the two apart):
 
-- **404 / "component not found"** - the project does not exist. With
+- **`NOT_FOUND`** ("component not found") - the project does not exist. With
   `NO_FOOTPRINT=true` that is the positive proof §1a wanted → go to §5,
   emit `SONAR-AUTO: not-configured`. With a footprint present it means
   the key is wrong, not that Sonar is missing → §4, emit

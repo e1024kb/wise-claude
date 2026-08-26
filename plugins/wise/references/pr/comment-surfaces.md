@@ -37,31 +37,50 @@ gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100" --paginate \
 
 ## 2. Fetch the review threads (GraphQL)
 
-Thread node IDs are what the reply / resolve steps need:
+Thread node IDs are what the reply / resolve steps need. Paginate —
+a PR can have more than 100 review threads — and fetch every
+comment in each thread (not just the one that opened it), since a
+reply carries its own `databaseId` distinct from the opener's:
 
 ```bash
-gh api graphql -f query='
-  query($owner: String!, $repo: String!, $number: Int!) {
+gh api graphql --paginate -f query='
+  query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
-        reviewThreads(first: 100) {
+        reviewThreads(first: 100, after: $endCursor) {
+          pageInfo { hasNextPage endCursor }
           nodes {
             id
             isResolved
             isOutdated
-            comments(first: 1) { nodes { databaseId } }
+            comments(first: 100) { nodes { databaseId } }
           }
         }
       }
     }
   }
 ' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
+  | jq -s '{data:{repository:{pullRequest:{reviewThreads:{
+      nodes: (map(.data.repository.pullRequest.reviewThreads.nodes) | add)
+    }}}}}' \
   > "$SCRATCH/<prefix>-threads.json"
 ```
 
+`gh api graphql --paginate` recognises the `$endCursor` variable +
+`pageInfo { hasNextPage endCursor }` shape and re-issues the query
+per page automatically, emitting one JSON document per page; the
+trailing `jq -s` merges every page's `nodes` back into the same
+single-document shape every consumer already parses
+(`.data.repository.pullRequest.reviewThreads.nodes[]`) — no caller
+needs to change how it reads this file.
+
 The mapping: each review-comment `databaseId` (surface #2 above) maps
-to a thread `id` (GraphQL node ID) via `comments.nodes[0].databaseId`.
-Every queue skips threads that are:
+to a thread `id` (GraphQL node ID) by matching against ANY of that
+thread's `comments.nodes[].databaseId` — not just
+`comments.nodes[0]` (the thread-opening comment). A reply posted
+later in the same thread has its own `databaseId` and must resolve
+to the same thread id as the opener's. Every queue skips threads that
+are:
 
 - `isResolved: true` — a person already marked the thread resolved.
 - `isOutdated: true` — GitHub flagged the anchor stale (the referenced
@@ -114,13 +133,18 @@ for THREAD_ID in "${ADDRESSED_THREAD_IDS[@]}"; do
         thread { isResolved }
       }
     }
-  ' -F threadId="$THREAD_ID" >/dev/null 2>&1; then
+  ' -F threadId="$THREAD_ID" 2>"$SCRATCH/resolve-err.log"; then
     RESOLVED=$((RESOLVED + 1))
+  else
+    echo "resolveReviewThread failed for THREAD_ID=$THREAD_ID: $(cat "$SCRATCH/resolve-err.log")" >&2
   fi
 done
 ```
 
 Failures (403, thread already resolved by someone else, no write
 access) log + continue — the fix itself already landed locally; the
-bot re-flags on its next pass if the concern still applies. Report
-the successful resolve count to the caller's verdict line.
+bot re-flags on its next pass if the concern still applies. Preserve
+the error text (as above) rather than redirecting it to `/dev/null` —
+a 403 / invalid-thread / permission failure should be visible as
+something more than a lower resolve count. Report the successful
+resolve count to the caller's verdict line.

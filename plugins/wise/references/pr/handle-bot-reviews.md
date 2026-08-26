@@ -290,8 +290,8 @@ paged-bulk, or §4 Walk). Walk it in order; per item:
 
   Append this item's review-thread id (looked up from
   `"$SCRATCH/pr-$PR-threads.json"` by matching the review-comment's
-  numeric `id` against `comments.nodes[0].databaseId`) into
-  `FIXED_THREAD_IDS` for the §6 resolve.
+  numeric `id` against any of that thread's `comments.nodes[].databaseId`
+  — not just the opener's) into `FIXED_THREAD_IDS` for the §6 resolve.
 
 - **`A` — Fix using suggestion.** Parse the comment body for the
   `suggestion` block:

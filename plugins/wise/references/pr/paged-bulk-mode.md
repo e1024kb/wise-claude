@@ -330,7 +330,7 @@ what the handler will do once collection finishes.
 
 ### 4. Decision-string grammar
 
-The full grammar — token forms (`1F`, `2A`, `3S`, `4D`, ranges,
+The full grammar — token forms (`1F`, `2A`, `3S`, `4D`,
 omissions = implicit Skip), per-queue allowed letters, and every parse
 error message — lives in
 `${CLAUDE_PLUGIN_ROOT}/references/pr/paged-bulk-details.md` §B. Read

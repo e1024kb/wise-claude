@@ -769,10 +769,13 @@ Logs:   <path to logs dir>.
   for readiness.
 - Never reorder or re-rank a wave — dispatch all runnable steps
   together, in one message.
-- Never swallow step output — every step's full output goes to
-  `logs/<id>.<step-run-ulid>.log`. The in-chat outcome line in 10e is
-  a summary; the log file is the source of truth, and 10e should
-  name it when the summary can't fit.
+- Never swallow step output silently — every step's output is written
+  to `logs/<id>.<step-run-ulid>.log` as a bounded excerpt (first 60 /
+  truncation marker / last 60 lines, per §10e(b)); the full output
+  stays visible in the conductor's own transcript for this turn, it is
+  just not all persisted to the log file. The in-chat outcome line in
+  10e is a summary; the log file's excerpt is the durable record after
+  the turn ends, and 10e should name the log when the summary can't fit.
 - Every message in the main loop **must end with a tool call** — the
   full turn-continuity rule is §10. A trailing text-only message stalls
   the run, especially across a between-wave transition in synchronous
