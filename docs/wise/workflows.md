@@ -683,7 +683,7 @@ pinned answer is logged.
      prompt** (like wave-sync): `ask` steps render, approval gates use
      `AskUserQuestion`, and `interactive` steps may prompt. The run
      flows wave-to-wave on its own and stops only where a step
-     genuinely needs the user's input. Per-step chat output (9d/9e) is
+     genuinely needs the user's input. Per-step chat output (10d/10e) is
      shown, so it is not silent the way synchronous is — it just never
      asks "continue to the next wave?".
 

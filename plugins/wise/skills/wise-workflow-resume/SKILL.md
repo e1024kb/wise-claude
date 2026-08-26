@@ -219,7 +219,7 @@ steps remaining.`
 From here on, behaviour is identical to `wise-workflow-run` [§10](../wise-workflow-run/SKILL.md#10-main-loop) and [§11](../wise-workflow-run/SKILL.md#11-finalise) —
 **including the turn-continuity rule** (every message ends with a
 tool call; prose is bundled with the tool call that follows it) and
-**the per-step reporting format** (9d announcements + 9e outcome
+**the per-step reporting format** (10d announcements + 10e outcome
 lines). A resumed run produces the same live chat output as a fresh
 run; the only user-visible difference is the "Resuming run <id>…"
 preamble from §7 instead of "Run <id> started".
@@ -227,14 +227,14 @@ preamble from §7 instead of "Run <id> started".
 Run the same algorithm against the existing `state.yaml`:
 
 - Call `next-wave` for runnable steps.
-- Apply `to_skip` (with 9b's skip-report prose).
-- Announce the wave (9d) and dispatch runnable steps in a single
+- Apply `to_skip` (with 10b's skip-report prose).
+- Announce the wave (10d) and dispatch runnable steps in a single
   message.
-- Collect, score, log, update state (9e).
+- Collect, score, log, update state (10e).
 - In wave-sync mode (state.control_mode), yield between waves with
-  the 9g menu.
-- In synchronous or auto-advance mode, skip 9g and bundle the next
-  `next-wave` call into the same message as 9e's results.
+  the 10g menu.
+- In synchronous or auto-advance mode, skip 10g and bundle the next
+  `next-wave` call into the same message as 10e's results.
   (auto-advance still honors in-step prompts — asks, approvals, and
   AskUserQuestion inside interactive steps; only synchronous
   suppresses them.)
