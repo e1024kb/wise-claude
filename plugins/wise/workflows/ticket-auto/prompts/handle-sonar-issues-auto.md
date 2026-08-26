@@ -26,9 +26,10 @@ an unverified Sonar state, and reminds the operator to set the token.
 
 Sibling fragments this handler reads — `commit-from-fix.md` — lives in
 `${CLAUDE_PLUGIN_ROOT}/references/pr/`. The component-key discovery and
-issue-fetch logic are shared with the interactive
-`references/pr/handle-sonar-issues.md` (§1–§2); read that file's §1–§2
-for the exact `gh` / `curl` / MCP queries and reuse them verbatim.
+issue-fetch logic live in the shared routine
+`${CLAUDE_PLUGIN_ROOT}/references/pr/sonar-fetch.md` (also used by the
+interactive handler); read that file for the exact `gh` / `curl` / MCP
+queries and reuse them verbatim.
 
 ## Procedure
 
@@ -153,14 +154,13 @@ distinction the whole verdict rests on.
 
 #### 1b. Discover the component key + fetch the issues
 
-Follow `handle-sonar-issues.md` §1 (discover `SONAR_KEY` — Sonar bot
+Follow `sonar-fetch.md` §1 (discover `SONAR_KEY` — Sonar bot
 comment `id=<key>`, then `sonar-project.properties`, then `pom.xml`,
 then the `<org>_<repo>` guess) and §2 (fetch — prefer a
 `mcp__*sonar*__*` tool, else `$SONAR_TOKEN`-authenticated curl, else
 anonymous curl) exactly. The issues-search endpoint is authoritative —
 do **not** run separate sanity-check probes against the key (see that
-file's §2 + Guardrails for why a `components/show` 404 must not gate the
-result).
+file's §2 for why a `components/show` 404 must not gate the result).
 
 Two facts from §1 decide the outcome together with the fetch: whether
 §1a found any footprint (`NO_FOOTPRINT`), and whether the key is real

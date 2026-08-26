@@ -198,7 +198,7 @@ plugins/wise/
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by supervised-prompt + /wise-supervise
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
 │   ├── grill/                      # the subject-understanding routines (context sweep + gap analysis + blueprint schema) — read by /wise-grill (any subject), ticket-plan, ticket-auto (tickets)
-│   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
+│   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode, comment-surfaces, sonar-fetch) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
 └── skills/
     ├── wise/SKILL.md               # natural-language helper (bare catalog + intent classifier)
     ├── wise-init/SKILL.md          # dep-install wizard
@@ -420,6 +420,7 @@ one-liners below are the rule, not the argument for it.
   `references/pr/` PR/commit fragments (`draft-body.md`, `ensure-pr.md`,
   `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
   the `handle-*.md` queue handlers, `paged-bulk-mode.md`,
+  the shared `comment-surfaces.md` / `sonar-fetch.md` fetch spines,
   `commit-from-fix.md`, read by the `wise-pr-*` skills and the
   `ticket-auto` workflow) — has a single home there, addressed as
   `${CLAUDE_PLUGIN_ROOT}/references/<file>.md` and read at run time.

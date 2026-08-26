@@ -50,50 +50,11 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 
 ### 1. Fetch the three comment surfaces + threads
 
-```bash
-PR=<pr_number>
-OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
-
-# Issue comments (top-level conversation; bot summaries).
-gh pr view "$PR" --json comments \
-  > "$SCRATCH/pr-$PR-auto-issue-comments.json"
-
-# Line-level review comments (path + line + suggestion bodies).
-gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate \
-  > "$SCRATCH/pr-$PR-auto-review-comments.json"
-
-# Review summaries (state: CHANGES_REQUESTED / APPROVED / COMMENTED).
-gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  > "$SCRATCH/pr-$PR-auto-reviews.json"
-```
-
-Also fetch the review threads via GraphQL — thread node IDs are
-needed for the reply and resolve steps:
-
-```bash
-gh api graphql -f query='
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      pullRequest(number: $number) {
-        reviewThreads(first: 100) {
-          nodes {
-            id
-            isResolved
-            isOutdated
-            comments(first: 1) { nodes { databaseId } }
-          }
-        }
-      }
-    }
-  }
-' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
-  > "$SCRATCH/pr-$PR-auto-threads.json"
-```
-
-Each review-comment `databaseId` maps to a thread `id` (GraphQL node
-ID) via `comments.nodes[0].databaseId`. `isResolved` / `isOutdated`
-flag threads to skip in §2.
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/comment-surfaces.md` and run
+its §1 (three REST surfaces) + §2 (GraphQL review threads) with
+`<prefix>` = `pr-$PR-auto`. Each review-comment `databaseId` maps to a
+thread `id` via `comments.nodes[0].databaseId`; `isResolved` /
+`isOutdated` flag threads to skip in §2 (semantics in that file).
 
 ### 2. Build the actionable list — filtered by `bot_filter`
 

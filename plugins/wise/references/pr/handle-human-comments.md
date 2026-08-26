@@ -22,50 +22,20 @@ Run all `gh` commands with `cd <project.path>` first.
 
 ### 1. Fetch human comments across all three GitHub surfaces
 
-Three GitHub API endpoints carry PR comments (issue comments,
-review comments, reviews). For each, keep only entries whose
-author is human. An author is NOT human if **any** of the
-following matches — this list MUST stay aligned with the bot
-classifiers in `handle-bot-reviews.md` §2, otherwise a Copilot /
-CodeRabbit comment leaks into this queue AND the bot queue and
-the user walks it twice:
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/comment-surfaces.md` and run
+its §1 (three REST surfaces) + §2 (GraphQL review threads) with
+`<prefix>` = `wise-hum-$PR`.
 
-- `.user.type == "Bot"` — GitHub's own flag. Necessary but not
-  sufficient: Copilot's built-in reviewer has been observed to
-  surface with `type: "User"` on the REST payload, so also
-  apply the login checks below.
-- login is the exact string `Copilot` — GitHub's built-in
-  reviewer posts under this literal login. The bare `copilot-*`
-  glob does NOT catch it (the glob needs a trailing hyphen the
-  `Copilot` login doesn't have); this line is the one that
-  matters.
-- login is `copilot-pull-request-reviewer`, OR starts with
-  `copilot-` (covers org variants like
-  `copilot-pull-request-reviewer[bot]`).
-- login is `coderabbitai` or `coderabbitai[bot]`.
-- login is `github-actions` or ends with `[bot]`.
-- login is `sonarcloud` or `sonarqubecloud`.
-
-```bash
-PR=<pr_number>
-OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
-
-gh pr view "$PR" --json comments > "$SCRATCH/wise-hum-issue-$PR.json"
-gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate > "$SCRATCH/wise-hum-review-$PR.json"
-gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100"  --paginate > "$SCRATCH/wise-hum-reviews-$PR.json"
-```
-
-Also pull review-thread resolution + outdated state (same GraphQL
-query as `handle-bot-reviews.md` §1 — it fetches both
-`isResolved` and `isOutdated`) to skip threads the user already
-resolved AND threads GitHub flagged as outdated (the referenced
-lines moved or were deleted, so the comment's anchor is stale).
+Then keep only entries whose author is human: an author is NOT human
+when any rule of that file's §3 bot-author allowlist matches — the
+allowlist is the single alignment point with the bot queues, so a
+Copilot / CodeRabbit comment can never leak into this queue AND the
+bot queue and get walked twice.
 
 Merge into a flat list; keep only items from human authors whose
-thread is neither `isResolved: true` nor `isOutdated: true`. Drop
-empty-body review-summary entries whose children are already
-covered.
+thread is neither `isResolved: true` nor `isOutdated: true` (stale
+anchor — see that file's §2). Drop empty-body review-summary entries
+whose children are already covered.
 
 ### 2. If empty, announce and exit
 
@@ -286,43 +256,10 @@ Expect:
 
 ### 6. Phase C — Apply remote side effects
 
-Run remote actions in this order:
-
-1. **Resolve threads.** Loop over
-   `FIXED_THREAD_IDS ∪ DISMISS_THREAD_IDS`:
-
-   ```bash
-   RESOLVED=0
-   for THREAD_ID in "${FIXED_THREAD_IDS[@]}" "${DISMISS_THREAD_IDS[@]}"; do
-     if gh api graphql -f query='
-       mutation($threadId: ID!) {
-         resolveReviewThread(input: { threadId: $threadId }) {
-           thread { isResolved }
-         }
-       }
-     ' -F threadId="$THREAD_ID" >/dev/null 2>&1; then
-       RESOLVED=$((RESOLVED + 1))
-     fi
-   done
-   ```
-
-   Failures (403, already resolved by the reviewer, no write
-   access) log + continue — the user's intent landed; the
-   reviewer can always re-open the thread if they disagree.
-
-2. **Post replies.** For each entry in `REPLIES_TO_POST`:
-   - Top-level issue comment →
-     `gh api repos/$OWNER_REPO/issues/$PR/comments -f body=…`.
-   - Line-level review comment →
-     `gh pr review $PR --comment --body "<body>"` (or
-     `gh api repos/$OWNER_REPO/pulls/$PR/comments/<id>/replies`
-     for an in-thread reply when the API supports it).
-
-   Failures (network, 403) log + continue. Reply does NOT
-   resolve the thread — leaves the conversation open by
-   design.
-
-Track the resolved-thread count for §8.
+Resolve every thread the walk marked addressed (Fix / Dismiss): run
+`comment-surfaces.md` §4 with `ADDRESSED_THREAD_IDS` = those thread
+ids. Failures log + continue; record the successful resolve count for
+§8.
 
 ### 7. Phase D — Push
 

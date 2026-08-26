@@ -49,55 +49,11 @@ Run all `gh` / `git` commands with `cd <project.path>` first.
 
 ### 1. Fetch the three comment surfaces
 
-```bash
-PR=<pr_number>
-OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
-
-# Issue comments (top-level). Author/body/url etc.
-gh pr view "$PR" --json comments \
-  > "$SCRATCH/pr-$PR-issue-comments.json"
-
-# Line-level review comments (path + line + suggestion bodies).
-gh api "repos/$OWNER_REPO/pulls/$PR/comments?per_page=100" --paginate \
-  > "$SCRATCH/pr-$PR-review-comments.json"
-
-# Review summaries (state: CHANGES_REQUESTED / APPROVED / COMMENTED).
-gh api "repos/$OWNER_REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  > "$SCRATCH/pr-$PR-reviews.json"
-```
-
-Also fetch review threads via GraphQL — we'll need thread IDs for
-the Dismiss path later:
-
-```bash
-gh api graphql -f query='
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      pullRequest(number: $number) {
-        reviewThreads(first: 100) {
-          nodes {
-            id
-            isResolved
-            isOutdated
-            comments(first: 1) { nodes { databaseId } }
-          }
-        }
-      }
-    }
-  }
-' -f owner="${OWNER_REPO%/*}" -f repo="${OWNER_REPO#*/}" -F number=$PR \
-  > "$SCRATCH/pr-$PR-threads.json"
-```
-
-The resulting mapping: each review-comment `databaseId` (from #2)
-maps to a thread `id` (GraphQL node ID) which the Dismiss path
-resolves. `isResolved` tells us the user already marked the
-thread resolved — skip those. `isOutdated` tells us GitHub
-marked the anchor stale because the referenced lines moved or
-were deleted since the comment was posted — skip those too; the
-advice may no longer apply to the current diff, and GitHub itself
-renders these with an "Outdated" badge.
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/comment-surfaces.md` and run
+its §1 (three REST surfaces) + §2 (GraphQL review threads) with
+`<prefix>` = `pr-$PR`. That file also carries the
+databaseId → thread-id mapping and the isResolved / isOutdated skip
+semantics this queue applies in §2 below.
 
 ### 2. Classify — filtered by `bot_filter`
 
@@ -393,28 +349,11 @@ If at least one staged change exists after the walk, drive
 ### 6. Phase C — Apply remote side effects
 
 Resolve every thread the user signalled "addressed" via Fix /
-Fix-using-suggestion / Dismiss. Loop over
-`FIXED_THREAD_IDS ∪ DISMISS_THREAD_IDS`:
-
-```bash
-RESOLVED=0
-for THREAD_ID in "${FIXED_THREAD_IDS[@]}" "${DISMISS_THREAD_IDS[@]}"; do
-  if gh api graphql -f query='
-    mutation($threadId: ID!) {
-      resolveReviewThread(input: { threadId: $threadId }) {
-        thread { isResolved }
-      }
-    }
-  ' -F threadId="$THREAD_ID" >/dev/null 2>&1; then
-    RESOLVED=$((RESOLVED + 1))
-  fi
-done
-```
-
-Failures (403, thread already resolved by someone else, no
-write access) log + continue — the fix itself landed in §5; the
-bot will re-flag on the next pass if the concern still applies.
-Record the successful resolve count as `<R>` for §8.
+Fix-using-suggestion / Dismiss: run `comment-surfaces.md` §4 with
+`ADDRESSED_THREAD_IDS` = `FIXED_THREAD_IDS ∪ DISMISS_THREAD_IDS`.
+Failures log + continue (the fix itself landed in §5; the bot
+re-flags on its next pass). Record the successful resolve count as
+`<R>` for §8.
 
 ### 7. Phase D — Push
 
