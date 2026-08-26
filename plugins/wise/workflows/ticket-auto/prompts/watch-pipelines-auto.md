@@ -79,6 +79,7 @@ across loop iterations — the Guardrails section requires `rm -rf
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wise-pr-XXXXXX")"
 RUN_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 : > "$SCRATCH/own-comment-urls"      # comment urls this run posted itself
+: > "$SCRATCH/own-trigger-urls"      # @coderabbitai triggers to DELETE before run end
 FALLBACK_RUNS=0                      # §4c local review-fallback runs so far
 FALLBACK_SHA=""                      # head sha the last fallback reviewed
 FALLBACK_STATE=not-needed            # not-needed | ran | failed
@@ -216,8 +217,6 @@ OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 BOT_REVIEW_POLL=20          # seconds between review-done polls
 BOT_REVIEW_TIMEOUT=900      # 15 min wall-clock cap per bot
 BOT_GRACE=180               # secs to wait for a bot's FIRST footprint after a trigger
-CR_RL_RETRY=30              # secs between CodeRabbit rate-limit re-triggers
-CR_RL_MAX=10                # CodeRabbit rate-limit re-triggers before giving up
 POST_GREEN_STABILITY=180    # secs per post-green stability window (3 min) — §6.5
 STABILITY_CLEAN_TARGET=2    # consecutive clean windows required before merge — §6.5
 STABILITY_MAX_ROUNDS=10     # hard cap on stability windows before standing down — §6.5
@@ -348,77 +347,106 @@ merge on its own. It hands off to §4c, which reviews the branch locally
 in Copilot's place. Copilot being slow or down is not evidence about the
 code, and it is not a reason to park a PR that is otherwise green.
 
-#### 4b. CodeRabbit — detect, trigger, wait, with credit / rate-limit handling
+#### 4b. CodeRabbit — check-run first, at most ONE trigger per head, cleanup
 
-CodeRabbit must never deadlock the pipeline — it is best-effort, but
-triggered hard.
+CodeRabbit must never deadlock the pipeline — and the watcher must
+never spam the PR timeline. Two hard rules govern this section:
 
-- **Detect installation.** If `bot_footprint "coderabbit"` is already
-  `true`, it is installed. Otherwise post a trigger and grace-wait:
+- **The check run is the primary channel, not comments.** An installed
+  CodeRabbit surfaces a check named `CodeRabbit` on the PR whose
+  description carries its live status (`Review in progress`,
+  `Review completed`, `Review rate limited`, `Review skipped`). Read it
+  with `gh pr checks <pr_number> --json name,state,description`.
+  Detection, waiting, and rate-limit classification all come from this
+  check (plus `bot_review_done` for head-sha confirmation) — never from
+  posting comments to see what answers.
+- **At most ONE `@coderabbitai review` comment per head SHA, ever** —
+  and every trigger this run posts is deleted again before the run
+  ends (below). Comment triggers are a last resort: an installed
+  CodeRabbit auto-reviews pushes, so most heads need no trigger at all.
 
-  ```bash
-  record_own_comment "$(gh pr comment <pr_number> --body "@coderabbitai review")"
-  ```
+Procedure:
 
-  Every `@coderabbitai review` this section posts goes through
-  `record_own_comment` (§ preamble) — the trigger is written under the
-  operator's login, and the §1 human-stop gate must not read it back as a
-  reviewer stepping in.
+1. **Detect.** CodeRabbit is installed if the `CodeRabbit` check run
+   exists on this PR, OR `bot_footprint "coderabbit"` is true. Neither
+   → wait `BOT_GRACE` (a fresh PR may not have the check yet) and
+   re-probe once. Still neither → the evidence is PR-scoped and weak
+   ("no check within 3 minutes" is equally consistent with an
+   installed CodeRabbit that is down): set
+   `CODERABBIT_STATE=gave-up reason=no-response`, `CODERABBIT_STUCK=1`
+   (§4c covers the gap), run the trigger-cleanup below, and skip the
+   rest of 4b. Reserve `absent` for a positively confirmed
+   not-installed — no CodeRabbit footprint anywhere in the repo, not
+   merely on this PR. Do NOT post a trigger merely to probe
+   installation.
+2. **Wait on the check.** While the check description reads
+   `Review in progress` (or the check is `pending`), poll every
+   `BOT_REVIEW_POLL`s, bounded by `BOT_REVIEW_TIMEOUT`. When
+   `bot_review_done "coderabbit"` confirms a review of `HEAD_SHA` →
+   `CODERABBIT_STATE=reviewed`, run the trigger-cleanup below, leave
+   4b.
+3. **Rate limited.** Check description reads `Review rate limited`
+   (or a CodeRabbit status comment created after `ITER_STARTED`
+   matches the rate-limit phrasing below): do NOT post triggers at
+   it — a rate-limited CodeRabbit refuses commands too, and each
+   refused trigger spawns an "Action not completed" reply (that is
+   the spam this section exists to prevent). Keep polling the check
+   within the same `BOT_REVIEW_TIMEOUT`; if the limit clears
+   (description changes) resume step 2. Still rate-limited at
+   timeout → `CODERABBIT_STATE=gave-up reason=rate-limit`,
+   `CODERABBIT_STUCK=1`, trigger-cleanup, leave 4b.
+4. **Stalled.** Installed, not rate-limited, but no review of
+   `HEAD_SHA` and the check is not progressing (no state/description
+   change across two polls): post the head's ONE trigger — only if
+   this run has not already posted a trigger for this `HEAD_SHA`:
 
-  Poll `bot_footprint "coderabbit"` every `BOT_REVIEW_POLL`s up to
-  `BOT_GRACE`s. Got a footprint → installed, continue below.
+   ```bash
+   TRIGGER_URL="$(gh pr comment <pr_number> --body "@coderabbitai review")"
+   record_own_comment "$TRIGGER_URL"
+   printf '%s\n' "$TRIGGER_URL" >> "$SCRATCH/own-trigger-urls"   # deletion list
+   ```
 
-  Still none after `BOT_GRACE` → the evidence is PR-scoped and therefore
-  weak: `bot_footprint` only reads this PR, so "no answer within 3
-  minutes" is equally consistent with a CodeRabbit that is installed and
-  down. Do not call that `absent` — `absent` removes the bot from the
-  gate *and* excludes it from §4c's cover, which is exactly the
-  Copilot-flaky-attach mistake in reviewer's clothing. Set
-  `CODERABBIT_STATE=gave-up reason=no-response`, `CODERABBIT_STUCK=1`
-  (§4c then covers the gap) and skip the rest of 4b. Reserve `absent`
-  for a positively confirmed not-installed — no CodeRabbit footprint
-  anywhere in the repo, not merely on this PR.
+   Then resume step 2's wait. Never re-post for the same head — one
+   trigger either works or the timeout path handles it
+   (`gave-up reason=timeout`, `CODERABBIT_STUCK=1`, trigger-cleanup).
+5. **Out of credits.** A CodeRabbit status comment created after
+   `ITER_STARTED` whose whole body reads as a credit notice —
+   (case-insensitive) `out of credits`, `ran out of credits`,
+   `credit balance`, `usage limit`, `upgrade your plan`, or
+   `coderabbit .*(quota|used up)`; bare `quota` / `try again` never
+   qualify alone (CodeRabbit's own review prose on a PR about quotas
+   contains them) → `CODERABBIT_STATE=bypassed reason=out-of-credits`,
+   `CODERABBIT_STUCK=1`, trigger-cleanup, leave 4b.
 
-- **Trigger the current head + wait.** When installed, post
-  `@coderabbitai review` (idempotent re-point at `HEAD_SHA`, through
-  `record_own_comment`), set `RL=0`, and loop — bounded by `BOT_REVIEW_TIMEOUT`:
+**Trigger-cleanup (runs on EVERY 4b exit — reviewed, gave-up,
+bypassed — and again at §8 as a safety net).** Delete every trigger
+comment this run posted, so the timeline never accumulates them:
 
-  1. `bot_review_done "coderabbit"` true → `CODERABBIT_STATE=reviewed`,
-     leave the loop.
-  2. Else read CodeRabbit's recent issue comments
-     (`gh pr view <pr_number> --json comments`) and classify the latest
-     CodeRabbit status message. Scope the match exactly as §4a scopes
-     Copilot's — **exact-login CodeRabbit only** (`bot_logins
-     "coderabbit"`), **created after `ITER_STARTED`**, and the body must
-     read as a whole status notice rather than merely contain a word.
-     A loose match here skips a real CodeRabbit review, so bare `quota`
-     / `try again` / `used up` never qualify on their own: CodeRabbit's
-     own review prose on a PR that touches quotas or retries contains
-     them.
-     - **Out of credits / quota** — body matches (case-insensitive)
-       `out of credits`, `ran out of credits`, `credit balance`,
-       `usage limit`, `upgrade your plan`, or
-       `coderabbit .*(quota|used up)` → **bypass**:
-       `CODERABBIT_STATE=bypassed reason=out-of-credits`,
-       `CODERABBIT_STUCK=1`, leave the loop (do not keep waiting —
-       CodeRabbit cannot review).
-     - **Rate limited** — body matches `rate limit`, `rate-limited`,
-       `too many requests`, or `try again in` → if `RL < CR_RL_MAX`: `sleep
-       CR_RL_RETRY` (30 s), re-post `@coderabbitai review` **through
-       `record_own_comment`**, `RL=$((RL + 1))`, continue. Once `RL`
-       reaches `CR_RL_MAX` (10): **give up** —
-       `CODERABBIT_STATE=gave-up reason=rate-limit`, `CODERABBIT_STUCK=1`,
-       leave the loop.
-     - **No terminal signal** — `sleep BOT_REVIEW_POLL`, continue.
-  3. If `BOT_REVIEW_TIMEOUT` elapses with no review and no terminal
-     signal → `CODERABBIT_STATE=gave-up reason=timeout`,
-     `CODERABBIT_STUCK=1`, leave the loop.
+```bash
+if [ -s "$SCRATCH/own-trigger-urls" ]; then
+  while IFS= read -r u; do
+    cid="${u##*issuecomment-}"
+    gh api -X DELETE "repos/$OWNER_REPO/issues/comments/$cid" 2>/dev/null || true
+  done < "$SCRATCH/own-trigger-urls"
+  : > "$SCRATCH/own-trigger-urls"
+fi
+```
+
+Deleting is best-effort (a 403 on a permissions-limited token just
+leaves the comment). Keep the urls in `own-comment-urls` too — the §1
+human gate must still subtract them while they exist. When the
+operator's permissions allow, ALSO delete any `Action not completed`
+reply CodeRabbit posted directly under a deleted trigger (exact-login
+CodeRabbit, body contains `Action not completed`, created after this
+run's trigger) — the failure notice is orphaned noise once its
+trigger is gone; skip silently on 403.
 
 A `bypassed` / `gave-up` CodeRabbit does **not** block the merge (§7) —
 it hands off to §4c (a local review pass in its place) and is recorded
 on the verdict so the report flags that CodeRabbit did not review.
-`BOT_REVIEW_POLL` / `BOT_REVIEW_TIMEOUT` / `BOT_GRACE` / `CR_RL_RETRY` /
-`CR_RL_MAX` are tunable constants.
+`BOT_REVIEW_POLL` / `BOT_REVIEW_TIMEOUT` / `BOT_GRACE` are tunable
+constants (`CR_RL_RETRY` / `CR_RL_MAX` are retired — the rate-limit
+path waits on the check instead of re-triggering).
 
 #### 4c. Local review fallback — cover a stuck bot
 
@@ -820,6 +848,8 @@ open.
 
 ### 8. Terminal verdict
 
+Run §4b's trigger-cleanup one last time (safety net — any
+`@coderabbitai review` this run posted must not outlive it), THEN
 `rm -rf "$SCRATCH"` — every path that reaches this section (merged,
 all-green, blocked, partial, exhausted) funnels through here, so this
 is where they all get swept up.
@@ -925,6 +955,11 @@ Only a `merged` verdict closes the PR; every other verdict
   open, and never claim clean on a failed fetch — a `blocked-fetch`
   Sonar postpones (reminder surfaced, PR left open), it never merges and
   never guesses "0 issues".
+- Never spam the PR timeline: at most ONE `@coderabbitai review` per
+  head SHA, never as an installation probe, never while CodeRabbit
+  reports rate-limited (each refused trigger spawns an "Action not
+  completed" reply), and every trigger this run posts is deleted
+  before the run ends.
 - Stand down the moment a human comments on the PR — but never against
   the run's own comments. Every comment this loop posts (the
   `@coderabbitai review` triggers, §4c's audit note) goes through

@@ -192,13 +192,17 @@ skill — `wise-implement-plan-auto`, `wise-code-review-auto`,
 default `fixer=self` behaviour for the standalone `/wise-code-review-auto`
 skill; `ticket-auto` passes `fixer=delegate` to drive the loop above.
 
-The `Watch + fix` phase **detects, triggers, and waits for** the review
-bots rather than inferring their absence from an empty footprint (the
-bug that let an early run merge before either bot reviewed). Copilot is
-attached and waited on; CodeRabbit is triggered hard
-(`@coderabbitai review`) and, if it reports being **out of credits**,
-bypassed, or if **rate-limited**, re-triggered every 30 s up to 10 times
-before giving up.
+The `Watch + fix` phase **detects and waits for** the review bots
+rather than inferring their absence from an empty footprint (the bug
+that let an early run merge before either bot reviewed). Copilot is
+attached and waited on; CodeRabbit is watched through its **check
+run** (`Review in progress` / `Review completed` / `Review rate
+limited`) — comments are a last resort: at most ONE
+`@coderabbitai review` per head SHA (only when the check stalls, never
+as an installation probe, never while rate-limited), and every trigger
+the run posts is deleted again before the run ends, so the PR timeline
+never accumulates them. **Out of credits** → bypassed; rate-limited
+past the wait budget → gives up.
 
 **Neither bot is a merge gate.** When one gets stuck — Copilot times
 out / errors / is rate-limited, CodeRabbit is bypassed / gives up — the
