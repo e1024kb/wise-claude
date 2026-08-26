@@ -98,7 +98,7 @@ tuning:
 profiles:
   low:
     tuning:
-      plan: "sonnet / high"
+      plan: "opus / high"
       implement: "sonnet"
       watch: "sonnet"
     # No team-mode here: this workflow's phases dispatch single roster
