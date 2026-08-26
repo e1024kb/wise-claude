@@ -41,11 +41,14 @@ SONAR_KEY="$(gh api "repos/$OWNER_REPO/issues/$PR/comments" \
   | grep -oE 'sonarcloud\.io/[^)"]*[?&]id=[^&)"[:space:]]+' \
   | head -1 | sed -E 's/.*[?&]id=([^&)"[:space:]]+).*/\1/')"
 
-# b) sonar-project.properties.
-if [ -z "$SONAR_KEY" ] && [ -f sonar-project.properties ]; then
-  SONAR_KEY="$(grep -E '^sonar\.projectKey[[:space:]]*=' sonar-project.properties \
-    | head -1 | awk -F= '{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')"
-fi
+# b) sonar-project.properties / .sonarcloud.properties (SonarCloud's
+#    automatic-analysis config carries the same sonar.projectKey line).
+for f in sonar-project.properties .sonarcloud.properties; do
+  if [ -z "$SONAR_KEY" ] && [ -f "$f" ]; then
+    SONAR_KEY="$(grep -E '^sonar\.projectKey[[:space:]]*=' "$f" \
+      | head -1 | awk -F= '{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')"
+  fi
+done
 
 # c) pom.xml for Maven. A multi-module pom.xml can declare more than
 #    one <sonar.projectKey> element; take the first match only so
@@ -53,6 +56,18 @@ fi
 if [ -z "$SONAR_KEY" ] && [ -f pom.xml ]; then
   SONAR_KEY="$(grep -oE '<sonar\.projectKey>[^<]+</sonar\.projectKey>' pom.xml \
     | head -1 | sed 's/<[^>]*>//g')"
+fi
+
+# c2) build.gradle / build.gradle.kts for Gradle — the sonarqube
+#     plugin declares the key as property("sonar.projectKey"), "value"
+#     (Kotlin) or property "sonar.projectKey", "value" (Groovy).
+if [ -z "$SONAR_KEY" ]; then
+  for f in build.gradle build.gradle.kts; do
+    if [ -z "$SONAR_KEY" ] && [ -f "$f" ]; then
+      SONAR_KEY="$(grep -oE 'property[( ]"sonar\.projectKey",[[:space:]]*"[^"]+"' "$f" \
+        | head -1 | sed -E 's/.*,[[:space:]]*"([^"]+)".*/\1/')"
+    fi
+  done
 fi
 
 # d) Last resort — the common <org>_<repo> convention. Mark as a guess.

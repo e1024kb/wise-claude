@@ -101,7 +101,9 @@ profiles:
       plan: "sonnet / high"
       implement: "sonnet"
       watch: "sonnet"
-    team-mode: solo
+    # No team-mode here: this workflow's phases dispatch single roster
+    # roles inside process-tickets.md (never through resolve-team), so
+    # a team-mode value would be a silent no-op.
     caps:
       max_fix_attempts: 3
       max_review_cycles: 2
@@ -111,7 +113,6 @@ profiles:
       plan: "opus / high"
       implement: "opus / high"
       watch: "sonnet"
-    team-mode: full
 
 inputs:
   - name: ticket_ids
