@@ -300,7 +300,8 @@ may override it). Set `CYCLE=0`. Loop:
    `findings_file=$UNITS_DIR/$BR.findings.md`, `ticket_ref=<slug>` (from §1, the
    plan slug stands in as the change's ref), `plan_path=$PLAN_PATH` (from §1),
    and `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
-   `origin/<base>..HEAD` (five lenses + confidence-scoring), WRITES its bounded
+   `origin/<base>..HEAD` (the pinned medium review pass — opus, the
+   3-lens set; pass **`profile=medium`**), WRITES its bounded
    findings as a numbered block to `findings_file`, applies nothing, and returns
    `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> findings_file=<path>`.
    Keeping the findings in the file (not pasted into this conductor's context each

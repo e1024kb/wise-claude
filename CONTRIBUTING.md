@@ -762,13 +762,19 @@ user-facing reference. Contributor-side invariants:
   from earlier steps. No expression language. `when:` supports one
   trivial form: `name == 'literal'` / `name != 'literal'`.
 - **`preflight:` is optional and omitted when empty.** The block
-  pins any or all of the three pre-flight answers (`control-mode`,
-  `worktree`, `rename`) so the runner isn't offered choices that
-  don't make sense for the workflow. Default value for each key is
-  `prompt` (ask the runner). Invalid values on any key fall back to
-  `prompt` with a `WARN:` line from `workflows.py get-preflight`.
-  Valid enum values per key are tracked in the `PREFLIGHT_KEYS` map
-  in `scripts/workflows.py`.
+  pins any or all of the five pre-flight answers (`control-mode`,
+  `worktree`, `rename_session` — default `prompt`; plus the opt-in
+  `tuning` and `step-select` questionaries — default `skip`) so the
+  runner isn't offered choices that don't make sense for the
+  workflow. Invalid values on any key fall back to that key's default
+  with a `WARN:` line from `workflows.py get-preflight`. Valid enum
+  values per key are tracked in the `PREFLIGHT_KEYS` map in
+  `scripts/workflows.py`. A workflow may additionally declare a
+  top-level `profiles:` block mapping the budget levels
+  (`low`/`medium`/`max`) to tuning tiers, step skips, team-mode, and
+  caps — see `docs/wise/workflows.md § Profiles`; the convention
+  `medium: {}` (empty = declared defaults) is enforced by review, not
+  schema.
 - **Agent binding is `prompt`-only and passes through untouched.** The
   workflow-level `agents: off|auto` policy and the step-level `agent:` /
   `model:` / `effort:` fields bind only to `type: prompt` steps. The

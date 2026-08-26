@@ -95,19 +95,23 @@ keep the step's context bounded.
 
 `control-mode` is pinned `synchronous`, `worktree` `current`,
 `rename_session` `skip` — pre-flight collects the ticket list
-(required), an optional free-form `config_prompt`, and one
-**model/effort tuning questionary** (`tuning: prompt`): a single
-profile question — `Defaults` (opus/high plan, opus/high
-implement+fix and review, sonnet watch), `Economy` (sonnet at high
-everywhere), or `Custom` per phase group (plan / implement / review /
-watch). The groups are advisory (the phases dispatch inside
+(required), an optional free-form `config_prompt`, and one **budget
+profile question** (`tuning: prompt` + the `profiles:` block):
+**low** (sonnet plan/implement/watch, fix cap 3, review-cycle cap 2,
+solo teams), **medium** (the declared defaults — opus/high plan and
+implement+fix, sonnet watch), **max** (opus/high across phases), or
+**Custom** per phase group (plan / implement / watch). The session
+profile set by `/wise-profile` pre-answers it as the Recommended
+option. The groups are advisory (the phases dispatch inside
 `process-tickets`, not at the step level), so the choices reach the
-orchestrator as per-group `tuning_<group>` outputs, which every phase
-treats as binding. After launch there are no `ask` / `approval` steps and no
-further questions: every quality / depth dial takes its maximum-value
-default (e.g. the review gate runs at **high** effort — five reviewer
-lenses + a confidence pass). The review↔fix cycle cap and the CI-fix
-cap both default to 10 (each overridable from `config_prompt`).
+orchestrator as per-group `tuning_<group>` (+ `cap_<name>`) outputs,
+which every phase treats as binding. The **review gate is pinned at
+every profile**: the medium review pass — opus, the 3-lens set
+(correctness, security, tests) — never follows the budget down or up,
+so it has no tuning group and is never asked. After launch there are
+no `ask` / `approval` steps and no further questions. The review↔fix
+cycle cap and the CI-fix cap default to 10; precedence: profile
+`cap_*` value → `config_prompt` override → 10.
 
 ## Steps
 
@@ -262,12 +266,13 @@ reason=stability-capped`) and leaves the green PR open for a human.
 
 ```
 /wise-workflow-run ticket-auto
-# Bare: pre-flight asks the model/effort profile (one click for
-# Defaults) and the ticket list (config_prompt is optional and skipped).
+# Bare: pre-flight asks the budget profile (one click keeps the
+# session profile / medium) and the ticket list (config_prompt is
+# optional and skipped).
 
 /wise-workflow-run ticket-auto PROJ-1,PROJ-2
-# Two tickets. Comma-separated, NO spaces. Max-value defaults; the only
-# question is the pre-flight tuning profile, then fully unattended.
+# Two tickets. Comma-separated, NO spaces. The only question is the
+# pre-flight budget profile, then fully unattended.
 
 /wise-workflow-run ticket-auto ENG-42 prefer the design-system lib; never touch infra/*; cap CI fixes at 4
 # One ticket + free-form config_prompt (everything after the first token).

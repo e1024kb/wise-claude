@@ -137,22 +137,34 @@ pre-flight all we have is the run ULID; the rename is folded into the
 
 All configuration happens at pre-flight, before the DAG launches:
 
-- **Model/effort tuning** (`tuning: prompt`) — one profile question
-  (`Defaults` / `Economy` — sonnet at high everywhere / `Custom`);
-  Custom opens one question per group. Two tunable groups: **evidence
-  & research** (`analyze-design`, `research-context`,
-  `codebase-audit`) and **plan authoring** (`gap-analysis`,
-  `build-plan`, `refine-plan`). An override binds at dispatch
-  (`resolve-team --model/--effort`) and wins over step- and
-  team-member pins.
-- **Stage selection** (`step-select: prompt`) — one preset question:
-  **Full** (everything), **Standard** (skip the deep-dive context
-  sweep), **Minimal** (fetch + codebase audit + plan only — no
-  research wave, no gap analysis), or **Custom** (multiSelect over
-  the four optional research stages: design analysis, related tickets
-  & docs, deep-dive sweep, gap analysis). Deselected stages are
-  pre-marked `skipped` in run state; the `none-failed` trigger-rules
-  above keep the DAG flowing past them.
+- **Budget profile & tuning** (`tuning: prompt` + the `profiles:`
+  block) — ONE question: `Budget profile for this run?` — **low**
+  (sonnet evidence/authoring tiers, minimal research preset, solo
+  leads on the two panel steps), **medium** (the declared defaults),
+  **max** (full research + full panels on opus), or **Custom
+  (per-step)**. The session profile set by `/wise-profile`
+  pre-answers it as the Recommended option. A level pick also answers
+  stage selection (below) and records `run_profile` /
+  `tuning_<group>` / `team_mode` outputs. Custom opens model/effort
+  per tunable STEP (`tuning_step_<step-id>`, winning over group and
+  declared pins at dispatch), then the per-step skip multiSelect,
+  then a full-team-vs-solo question for the panel steps
+  (`codebase-audit`, `build-plan` — solo keeps the lead, who is asked
+  to briefly cover the dropped lenses).
+- **Stage selection** (`step-select: prompt`) — asked only when the
+  profile question didn't already answer it (its preset/skip applies
+  silently on a level pick): **Full**, **Standard** (skip the
+  deep-dive context sweep), **Minimal** (fetch + codebase audit +
+  plan only), or **Custom** (multiSelect over per-STEP entries:
+  design analysis, related tickets & docs, deep-dive sweep, and the
+  coupled gap-analysis pair). Deselected steps are pre-marked
+  `skipped` in run state; the `none-failed` trigger-rules above keep
+  the DAG flowing past them.
+- **Review depth** (`review_lenses` choice input) — `3 lenses`
+  (correctness, security, tests — the recommended gate depth) or
+  `5 lenses (full panel)`; recorded for the review passes the plan
+  leads to (the finalize step renders the matching
+  `/wise-code-review-auto --profile …` suggestion).
 - **Flow modes** (choice inputs, asked as one composite questionary) —
   `gap_mode` (**proceed on defaults** / pause and ask), `review_mode`
   (**accept as-is** / pause for review), `branch_mode` (**ticket

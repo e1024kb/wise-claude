@@ -164,76 +164,110 @@ Prompt:
 Store both answers for step 8; they go into `state.yaml` via
 `start-run` and persist across resume.
 
-**6b2. Model/effort tuning questionary (only if `TUNING=prompt`):**
+**6b2. Profile & tuning questionary (only if `TUNING=prompt`):**
 
-Fetch the workflow's tuning groups:
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-tuning "$DEF"
-```
-
-→ JSON `{groups: [{id, label, steps: [{id, model, effort}], default?}]}`.
-Exit 2 (an `INVALID:` authoring error) or an empty `groups` list →
-log a `WARN:` line and skip this subsection; a broken tuning block
-never blocks the run.
-
-The flow is **two-level** so the common case stays one click:
-
-1. **Level 1 — profile.** One `AskUserQuestion`:
-   - Question: `Model/effort profile for this run?`
-   - Header: `Tuning`
-   - Options:
-     - `Defaults (as tuned) (Recommended)` — `Run every step group on
-       the workflow's declared model/effort defaults:` + one line per
-       group rendered from the JSON it already carries: the `default`
-       string for an advisory group, else the per-step pins (collapse
-       when uniform — `opus/high`; list the outliers when mixed —
-       `opus/high (codebase-audit: sonnet/high)`).
-     - `Economy` — `Run every tunable group on sonnet at high effort —
-       cheaper and faster, less planning depth.`
-     - `Custom` — `Pick model + effort per step group in a follow-up
-       question.`
-2. **Level 2 — per group (only on `Custom`).** One composite
-   `AskUserQuestion` call, one question per group (workflows keep
-   these ≤4 by design). Per question:
-   - Question: `Model/effort for: <group.label>?`
-   - Header: the group id (truncated to 12 chars)
-   - Options: `Keep default (<current model/effort summary>)` /
-     `Opus · high` / `Sonnet · high` / `Sonnet · low`. `Other`
-     accepts a free-text `<model> <effort>` pair — resolve it through
-     `resolve-model "<model>" "<effort>"` BEFORE recording, so a
-     typo'd model or unsupported effort is caught (and clamped) here
-     rather than flowing into dispatch as binding config.
-
-Resolve each group to either `default` or a concrete
-`<model> / <effort>` pair, then persist the choices into run state —
-one `record-output` per group plus the summary, **chained in a single
-Bash invocation** (each call rewrites state.yaml; N separate tool
-calls would be N round-trips for one logical mutation). The run stub
-exists since §4, so `record-output` works; outputs survive resume and
-render into `{{…}}` templates:
+Fetch — in ONE chained Bash — the workflow's profiles, tuning groups,
+step-select block, and the session's stored budget profile:
 
 ```bash
-python3 .../workflows.py record-output "$STATE" tuning_<group.id> "<default | model / effort>" \
-  && python3 .../workflows.py record-output "$STATE" tuning_<group2.id> "…" \
-  && python3 .../workflows.py record-output "$STATE" tuning_summary "<one line: '<id>: <choice>; …' or 'all defaults'>"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-profiles "$DEF"; \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-tuning "$DEF"; \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-step-select "$DEF"; \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" profile-get
 ```
 
-The per-group `tuning_<id>` outputs are the machine channel (dispatch
-overrides, `{{tuning_<id>}}` templates); `tuning_summary` is
-display-only.
+`get-tuning` exit 2 (an `INVALID:` authoring error) or an empty
+`groups` list → log a `WARN:` line and skip this subsection; a broken
+block never blocks the run. `get-profiles` exit 2 → `WARN:` and run
+the LEGACY flow below (as if the workflow declared no `profiles:`).
+`profile-get` prints the session level (`low|medium|max`; it never
+fails — missing store = `medium`).
 
-Log the result (`Pre-flight tuning: authoring=sonnet/high, rest
-default.`). When `TUNING=skip`, record nothing — templates that
-reference `{{tuning_summary}}` render as a raw placeholder and the
-workflow's prompts treat that as "defaults stand". How the choice is
-applied at dispatch is §9's job (the `resolve-team --model/--effort`
-override for step-bound groups; the `{{tuning_<id>}}` /
-`{{tuning_summary}}` outputs for advisory groups with no `steps:`).
+**Fork on the `profiles` JSON:**
 
-**6b3. Step-selection questionary (only if `STEP_SELECT=prompt`):**
+- **`profiles` empty (workflow declares none) → LEGACY flow**: run the
+  two-level tuning questionary exactly as before — Level 1
+  `Defaults (as tuned) (Recommended)` / `Economy` (sonnet · high
+  everywhere) / `Custom`, Level 2 per-group on Custom — and then §6b3
+  as its own questionary. (This is the pre-profiles behavior,
+  unchanged, for user-authored workflows.)
 
-Fetch the workflow's optional stages + presets:
+- **`profiles` present → PROFILE-FIRST flow** (the bundled workflows):
+
+  1. **Q1 — one `AskUserQuestion`** (this single question replaces the
+     legacy Level 1 AND §6b3's preset question):
+     - Question: `Budget profile for this run?`
+     - Header: `Profile`
+     - Options (exactly 4). With a stored session profile `<l>`:
+       `Session profile: <l> — keep (Recommended)` first, then the
+       other two levels, then `Custom (per-step)`. Without one:
+       `low` / `medium (Recommended)` / `max` / `Custom (per-step)`.
+       Each level's description renders what it changes for THIS
+       workflow from the `profiles` JSON (tuning tiers, skipped
+       stages via its step-preset/skip, team-mode, caps) — and always
+       ends with `Correctness rules unchanged.`
+  2. **On a level pick** — expand `profiles[<level>]` and persist in
+     ONE chained Bash (the run stub exists since §4, so
+     `record-output` works; outputs survive resume):
+     - `record-output run_profile <level>` — always.
+     - per `tuning` entry: `record-output tuning_<gid> "<model> / <effort>"`
+       (or the literal `default`). An empty tuning map (the `medium`
+       convention) records nothing — declared defaults stand.
+     - `step-preset` / `skip` → resolve the covered step ids from the
+       step-select JSON and pre-mark them exactly as §6b3's
+       mechanics describe (`update-step … status=skipped` +
+       `record-output skipped_stages …`); `step-preset: full` or no
+       key → no marks. Then SKIP §6b3 entirely — the profile answered
+       it.
+     - `team-mode` → `record-output team_mode <solo|full>` (§10d
+       passes `--team-mode solo` on every `resolve-team` call when
+       recorded solo).
+     - per cap: `record-output cap_<name> <int>`.
+     - `record-output tuning_summary "profile=<level>; <one line of what changed, or 'defaults'>"`.
+  3. **On `Custom (per-step)`** — per-step control, three parts:
+     a. One composite `AskUserQuestion`, one question per TUNABLE STEP
+        (the union of every step-bound group's `steps`; chunk ≤4 per
+        call; for a workflow whose groups are advisory — no `steps:`
+        binding, e.g. ticket-auto's phases — fall back to one question
+        per GROUP, the phases ARE the steps there). Options:
+        `Keep default (<pins>)` / `Opus · high` / `Sonnet · high` /
+        `Sonnet · low`; `Other` free-text resolved through
+        `resolve-model` BEFORE recording. Record only non-default
+        answers: `record-output tuning_step_<step-id> "<model> / <effort>"`
+        for step-bound picks (normalise `-` in the step id to `_` in
+        the output name), `record-output tuning_<gid> …` for advisory
+        groups.
+     b. Then run §6b3's multiSelect skip questionary as written.
+     c. Then, when any tunable step declares a team (`agent:` list):
+        one question — `Panel steps: full team or solo lead?` →
+        `record-output team_mode <full|solo>`.
+     Caps are NOT asked on Custom — declared defaults stand.
+     Finish with `record-output run_profile custom` + `tuning_summary`.
+
+  When BOTH `TUNING=skip` and `STEP_SELECT=skip` are pinned, ask
+  nothing at all: apply the stored session profile's mapping silently
+  (record the same outputs as a level pick). A workflow that pins
+  `tuning: skip` without profiles keeps today's behavior — nothing
+  recorded, declared defaults stand.
+
+The per-group `tuning_<id>` / per-step `tuning_step_<id>` outputs are
+the machine channel (dispatch overrides, `{{tuning_<id>}}` /
+`{{cap_<name>}}` templates); `tuning_summary` is display-only. Log the
+result (`Pre-flight profile: low — sonnet tiers, minimal research,
+solo panels.`). Dispatch precedence is §10d's job:
+`tuning_step_<sid>` > `tuning_<gid>` > declared pins, and
+`team_mode=solo` adds `--team-mode solo` to every `resolve-team` call
+(when its JSON returns a `collapsed` key, append to the step prompt:
+`Solo mode: also cover these dropped lenses briefly: <dropped roles>.`
+and log `team collapsed: <from>→1 (<dropped>)`).
+
+**6b3. Step-selection questionary (only if `STEP_SELECT=prompt`, and
+only when §6b2 did not already answer it — a profile-level pick
+applies its step-preset/skip and SKIPS this subsection; the legacy
+flow and the Custom path still run it):**
+
+Fetch the workflow's optional stages + presets (already fetched in
+§6b2's chained call — reuse that JSON):
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" get-step-select "$DEF"
@@ -256,8 +290,10 @@ label, description?, skip}]}`. Exit 2 or an empty `optional` list →
    question, chunked ≤4 options), listing that group's stages:
    - Question: `<ask-group>: which optional stages should be SKIPPED?
      (select none to run them all)`
-   - Options: one per stage — label = `entry.label`, description
-     names the step ids it covers.
+   - Options: one per entry — label = `entry.label`, description
+     names the step id(s) it covers (bundled workflows author these
+     PER-STEP, so this is per-step granularity; a coupled pair like
+     ticket-plan's `gaps` stays one entry by design).
 
 Resolve the final set of deselected stage ids, then **pre-mark every
 covered step as skipped** in run state so the scheduler never

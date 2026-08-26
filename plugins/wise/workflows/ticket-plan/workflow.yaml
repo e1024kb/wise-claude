@@ -73,15 +73,15 @@ agents: auto
 # tracker MCP / CLI at run time and proposes install options when none is
 # found, rather than declaring a fixed tracker plugin up front.
 #
-# tuning / step-select: prompt — two opt-in pre-flight questionaries.
-# `tuning` lets the user confirm or override the model / effort defaults
-# for the two heavy step groups below (two-level: Defaults / Economy /
-# Custom-per-group); `step-select` lets the user drop optional research
-# stages (design analysis, related items, deep-dive sweep, gap
-# analysis) via presets
-# (Full / Standard / Minimal) or a per-stage Custom pick. Both run in the
-# main TUI before the DAG launches; the user's choices are recorded in
-# run state (outputs + pre-marked skipped steps) so resume keeps them.
+# tuning / step-select: prompt — the opt-in pre-flight questionaries.
+# With the `profiles:` block below they collapse to ONE budget-profile
+# question (low / medium / max — pre-answered by the session profile
+# from /wise-profile — or Custom per-step); a level pick applies the
+# profile's tuning tiers + step preset + team-mode in one go, and
+# Custom opens per-STEP model/effort, per-step skips, and the
+# full-team-vs-solo choice. Runs in the main TUI before the DAG
+# launches; choices are recorded in run state (outputs + pre-marked
+# skipped steps) so resume keeps them.
 preflight:
   control-mode:   auto-advance
   rename_session: skip
@@ -91,8 +91,8 @@ preflight:
 # Model/effort tuning groups the pre-flight questionary offers. Each
 # group binds the user's choice to its prompt steps at dispatch time
 # (conductor passes `resolve-team --model/--effort`); a group override
-# wins over step- AND member-level pins, so "Economy" really does put a
-# whole planning panel on sonnet. Steps not listed here (the mechanical
+# wins over step- AND member-level pins, so a low profile really does
+# put a whole planning panel on sonnet. Steps not listed here (the mechanical
 # sonnet steps) are not tunable — overriding them buys nothing.
 tuning:
   groups:
@@ -113,19 +113,20 @@ tuning:
 # are NOT stages either — they are governed by the flow-mode choice
 # inputs below (gap_mode / review_mode / implement_mode), which decide
 # HOW those decisions get made, not whether the work runs.
+# Entries are PER-STEP (an entry id that IS a step id needs no steps:
+# list — the engine defaults it to [<id>]); `gaps` stays a coupled
+# pair because `resolve-gaps` is meaningless without the scorecard
+# `gap-analysis` produces.
 step-select:
   optional:
-    - id: design
+    - id: analyze-design
       label: "Design analysis (Figma / design links)"
-      steps: [analyze-design]
       ask-group: "Research"
-    - id: related
+    - id: analyze-related
       label: "Related tickets & reference docs"
-      steps: [analyze-related]
       ask-group: "Research"
-    - id: deep-dive
+    - id: research-context
       label: "Deep-dive context sweep (grill research)"
-      steps: [research-context]
       ask-group: "Research"
     - id: gaps
       label: "Gap analysis + blueprint + gap questions"
@@ -135,11 +136,32 @@ step-select:
     - id: standard
       label: "Standard"
       description: "Skip the deep-dive context sweep; keep design, related, audit, and gap analysis"
-      skip: [deep-dive]
+      skip: [research-context]
     - id: minimal
       label: "Minimal"
       description: "Fetch + codebase audit + plan only — no research wave, no gap analysis"
-      skip: [design, related, deep-dive, gaps]
+      skip: [analyze-design, analyze-related, research-context, gaps]
+
+# Budget profiles (docs/wise/workflows.md § Profiles). `medium` = the
+# declared defaults; `low` = sonnet evidence/authoring tiers + the
+# minimal research preset + solo leads on the two panel steps
+# (codebase-audit, build-plan); `max` = full research + full panels on
+# opus. Budget only — flow modes, branch rules, and the plan's
+# structure are identical at every level.
+profiles:
+  low:
+    tuning:
+      evidence: "sonnet / medium"
+      authoring: "sonnet / high"
+    step-preset: minimal
+    team-mode: solo
+  medium: {}
+  max:
+    tuning:
+      evidence: "opus / high"
+      authoring: "opus / high"
+    step-preset: full
+    team-mode: full
 
 # All flow decisions are collected UP FRONT as choice inputs (the
 # conductor renders consecutive choice inputs as one composite
@@ -184,6 +206,16 @@ inputs:
       - value: ask
         label: "Ask me at setup"
         description: "The composite setup questionnaire (branch, base, session rename) fires mid-run as before."
+  - name: review_lenses
+    prompt: "Review depth for review passes this plan leads to?"
+    default: "3"
+    options:
+      - value: "3"
+        label: "3 lenses"
+        description: "The medium review pass — correctness, security, tests, on opus. The recommended gate depth."
+      - value: "5"
+        label: "5 lenses (full panel)"
+        description: "Adds the conventions/dead-code and git-history/context lenses plus the confidence-scoring pass. Highest cost."
   - name: implement_mode
     prompt: "Implement the plan after setup?"
     default: plan-only
@@ -756,7 +788,7 @@ steps:
           failed) is in the chat just above. Confirm the work landed as
           per-task commits on `{{work_branch}}` (nothing pushed), then
           point at the natural next steps:
-            — Review the branch:  /wise-code-review-auto
+            — Review the branch:  /wise-code-review-auto --profile <'max' when {{review_lenses}} is 5, else 'medium'>
             — Open a PR:          /wise-pr-create
           If any task came back `failed`, tell the user to inspect those
           commits before reviewing.

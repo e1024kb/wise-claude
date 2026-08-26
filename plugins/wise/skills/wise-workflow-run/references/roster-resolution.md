@@ -7,27 +7,40 @@ member's model is passed and falls back, and how effort is conveyed.
 Schema/semantics live in `docs/wise/workflows.md § Agents, model and
 effort`.
 
-**Tuning override (only when the run recorded one).** If the workflow
-declares a `tuning:` block and the run's state carries a
-`tuning_<group.id>` output that is not `default` (recorded by §6b2 —
-on resume, re-shell `get-tuning "$DEF"` once and read the outputs
-from state rather than trusting conversation memory), and this step's
-id is in that group's `steps:` list, append the user's choice to the
-call:
+**Tuning override (only when the run recorded one).** Overrides come
+from the run's state outputs, recorded by §6b2 (on resume, re-shell
+`get-tuning "$DEF"` once and read the outputs from state rather than
+trusting conversation memory). Precedence, most specific first:
+
+1. `tuning_step_<step-id>` (Custom's per-step pick; hyphens in the
+   step id appear as underscores in the output name) — always wins.
+2. `tuning_<group.id>` that is not `default`, when this step's id is
+   in that group's `steps:` list.
+3. Nothing recorded → the step's declared pins stand.
+
+With a winning `<model> / <effort>` value, append it to the call —
+and, when the run recorded `team_mode=solo`, always add
+`--team-mode solo` (also on calls with no model override):
 
 ```bash
-python3 .../workflows.py resolve-team "$DEF" "<step.id>" --model <m> --effort <e>
+python3 .../workflows.py resolve-team "$DEF" "<step.id>" --model <m> --effort <e> --team-mode <full|solo>
 ```
 
-The override wins over the step's AND every team member's pinned
-model/effort (the engine notes `run tuning override` in each member's
-`reason` — surface it on the 10e line like any other reason). Groups
+The model/effort override wins over the step's AND every team
+member's pinned model/effort (the engine notes `run tuning override`
+in each member's `reason` — surface it on the 10e line like any other
+reason). Under `--team-mode solo` a team step comes back
+`mode: single` with an additive `collapsed: {from, dropped}` key —
+append to the dispatched prompt:
+`Solo mode: also cover these dropped lenses briefly: <dropped roles>.`
+and log `team collapsed: <from>→1 (<dropped>)`. Groups
 with no `steps:` binding (advisory groups) are not applied here —
 their choice reaches the workflow through the `{{tuning_<id>}}` /
-`{{tuning_summary}}` template outputs instead. For a step that
-resolves through `resolve-model` (mode `off` / `auto` / policy
-fallback), apply the same override by passing `<m>` / `<e>` as the
-`resolve-model` arguments in place of the step's own pins.
+`{{tuning_summary}}` / `{{cap_<name>}}` template outputs instead. For
+a step that resolves through `resolve-model` (mode `off` / `auto` /
+policy fallback), apply the same winning override by passing `<m>` /
+`<e>` as the `resolve-model` arguments in place of the step's own
+pins.
 → JSON `{mode, lead, members:[{role, lead, model, effort, reason, fell_back,
 next_fallback}], errors}`. These fields apply to `prompt` steps **only** —
 `interactive` steps run inline in this conductor (your own model) and `skill`

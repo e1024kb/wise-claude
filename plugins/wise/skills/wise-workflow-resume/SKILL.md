@@ -246,11 +246,15 @@ and the full turn-continuity note. Two pre-flight artifacts carry over
 from the original run with no extra bookkeeping: steps the user
 deselected at step-select are already `skipped` in `state.yaml`
 (`reset-running` never touches terminal steps), and model/effort
-tuning choices live in `state.outputs` as `tuning_<group>` /
-`tuning_summary` — apply them at dispatch exactly as
-`wise-workflow-run` §10's tuning-override rule describes (re-shell
-`get-tuning "$DEF"` once; read the choices from state, not from
-conversation memory).
+profile + tuning choices live in `state.outputs` — `run_profile`,
+`tuning_<group>`, per-step `tuning_step_<step-id>`, `team_mode`,
+`cap_<name>`, and `tuning_summary` — apply them at dispatch exactly
+as `wise-workflow-run`'s roster-resolution reference describes
+(precedence `tuning_step_*` > `tuning_<group>` > declared pins;
+`team_mode=solo` → `--team-mode solo` on every `resolve-team` call;
+re-shell `get-tuning "$DEF"` once; read every choice from state, not
+from conversation memory). The profile questionary itself is never
+re-asked on resume.
 
 ## Stuck-run takeover
 

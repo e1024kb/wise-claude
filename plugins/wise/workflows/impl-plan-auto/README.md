@@ -105,9 +105,12 @@ context bounded.
 `control-mode` is pinned `synchronous`, `worktree` `current`,
 `rename_session` `skip` — the only pre-flight input is the plan-file list
 (required) and an optional free-form `config_prompt`. There are no `ask` /
-`approval` steps, and no tuning questions: every quality / depth dial
-takes its maximum-value default (e.g. the review gate runs at **high**
-effort — five reviewer lenses + a confidence pass). The review↔fix cycle
+`approval` steps, no tuning questions, and no `profiles:` block (this
+workflow stays budget-profile-insensitive for now — a single-plan
+execution has few discretionary dials): every quality / depth dial
+takes its declared default. The review gate is pinned to the medium
+review pass — opus, the 3-lens set (correctness, security, tests) —
+the same per-workflow policy `ticket-auto` pins. The review↔fix cycle
 cap and the CI-fix cap both default to 10 (each overridable from
 `config_prompt`).
 
