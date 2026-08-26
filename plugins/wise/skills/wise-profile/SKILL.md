@@ -94,7 +94,8 @@ environment; never guess one:
 
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
-case "$sid" in */*|.|..) sid= ;; esac   # a session id is a filename - never a path
+# Same token rule as workflows.py's _profile_safe_sid():
+case "$sid" in ""|.|..|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) sid= ;; esac
 [ -n "$sid" ] || { echo "Cannot resolve a session id — run /wise-init to install python3, then retry."; exit 1; }
 d="${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile"
 mkdir -p "$d"

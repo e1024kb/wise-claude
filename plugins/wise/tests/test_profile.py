@@ -109,14 +109,20 @@ def test_profile_set_prunes_stale_siblings(workflows_module, wise_env, monkeypat
     assert fresh.exists()
 
 
-def test_profile_set_rejects_traversal_session_id(workflows_module, wise_env, monkeypatch, capsys, tmp_path):
+def test_profile_set_rejects_traversal_session_id(workflows_module, wise_env, monkeypatch, capsys):
     """A hostile session-id env var must never escape the profile dir —
-    it is treated as "no session" (exit 2, nothing written anywhere)."""
+    it is treated as "no session" (exit 2, nothing written anywhere).
+    Assert against the path the write WOULD resolve to (`_profile_dir()
+    / evil`), so a validation regression fails here rather than passing
+    on a hard-coded unrelated location."""
     for evil in ("../../../../tmp/pwned", "/etc/foo", "..", "a/b"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", evil)
         assert workflows_module.cmd_profile_set("low") == 2
         assert "INVALID:profile-no-session" in capsys.readouterr().err
-    assert not (tmp_path / "tmp" / "pwned").exists()
+        would_be = (workflows_module._profile_dir() / evil).resolve()
+        # ".." resolves to an existing DIRECTORY (the data root) — the
+        # regression signal is a written profile FILE at the target.
+        assert not would_be.is_file()
 
 
 def test_profile_get_traversal_session_id_defaults_medium(workflows_module, wise_env, monkeypatch, capsys):

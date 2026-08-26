@@ -16,7 +16,9 @@ as `init-check.md`):
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
 [ -z "$sid" ] && sid="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" current-session-id 2>/dev/null)"
-case "$sid" in */*|.|..|"") sid= ;; esac   # a session id is a filename - never a path
+# Same token rule as workflows.py's _profile_safe_sid(): plain token,
+# alnum first char, [A-Za-z0-9._-] only, never a path or dot-name.
+case "$sid" in ""|.|..|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) sid= ;; esac
 level="$(cat "${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile/${sid:-none}" 2>/dev/null)"
 # no external trim tool (consumers only grant cat/python3): command
 # substitution strips trailing newlines, and the case guard rejects
