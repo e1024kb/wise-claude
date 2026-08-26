@@ -467,3 +467,24 @@ def test_resolve_team_full_mode_shape_unchanged(
     assert data["mode"] == "team"
     assert "collapsed" not in data
     assert set(data) == {"mode", "lead", "members", "errors"}
+
+
+def test_get_profiles_tolerates_malformed_sibling_blocks(
+        workflows_module, tmp_path, capsys):
+    """A non-mapping `tuning:` / `step-select:` must not traceback —
+    it means "no known ids", so a profile referencing a group comes
+    back as the matching INVALID instead of a crash."""
+    path = _write_def(workflows_module, tmp_path, {
+        "tuning": ["not", "a", "mapping"],
+        "step-select": "nope",
+        "profiles": {"low": {"tuning": {"authoring": "sonnet"}}},
+    })
+    assert workflows_module.cmd_get_profiles(path) == 2
+    assert "INVALID:profile-tuning-unknown-group:low:authoring" in capsys.readouterr().err
+
+    path2 = _write_def(workflows_module, tmp_path, {
+        "tuning": "nope",
+        "profiles": {"low": {}},
+    })
+    assert workflows_module.cmd_get_profiles(path2) == 0
+    assert json.loads(capsys.readouterr().out)["profiles"]["low"]["tuning"] == {}

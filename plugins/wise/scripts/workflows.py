@@ -970,20 +970,30 @@ def cmd_get_profiles(def_path: str) -> int:
         print("INVALID:profiles-block:expected-mapping", file=sys.stderr)
         return 2
 
+    # A malformed sibling block (tuning:/step-select: not a mapping) is
+    # get-tuning's / get-step-select's error to report — here it just
+    # means "no known ids", so a profile referencing one comes back as
+    # the matching INVALID instead of a traceback.
+    tuning_block = data.get("tuning")
+    tuning_block = tuning_block if isinstance(tuning_block, dict) else {}
+    raw_groups = tuning_block.get("groups")
     tuning_groups = {
         str(g.get("id") or "")
-        for g in ((data.get("tuning") or {}).get("groups") or [])
+        for g in (raw_groups if isinstance(raw_groups, list) else [])
         if isinstance(g, dict)
     }
-    ss_block = data.get("step-select") or {}
+    ss_block = data.get("step-select")
+    ss_block = ss_block if isinstance(ss_block, dict) else {}
+    raw_optional = ss_block.get("optional")
     optional_ids = {
         str(e.get("id") or "")
-        for e in (ss_block.get("optional") or [])
+        for e in (raw_optional if isinstance(raw_optional, list) else [])
         if isinstance(e, dict)
     }
+    raw_presets = ss_block.get("presets")
     preset_ids = {
         str(p.get("id") or "")
-        for p in (ss_block.get("presets") or [])
+        for p in (raw_presets if isinstance(raw_presets, list) else [])
         if isinstance(p, dict)
     }
 
