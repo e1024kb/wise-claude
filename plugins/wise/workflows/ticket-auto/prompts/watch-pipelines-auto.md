@@ -36,10 +36,11 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
   worktree, when called from `ticket-auto`).
 - `max_fix_attempts` — cap on commit-producing fix rounds (default 10).
 - `profile` — **optional** `low` / `medium` (default) / `max` — the
-  session token-budget level. It scales only: the §4c review-fallback
-  panel depth (passed through as `profile`) and the model tier the fix
-  subagent prompts request at `low` (prefer sonnet-grade focus). It
-  never changes the loop's gates, verdicts, or merge rules.
+  session token-budget level. It scales only the model tier the fix
+  subagent prompts request at `low` (prefer sonnet-grade focus); the
+  §4c review fallback is deliberately NOT profile-scaled (one
+  universal reviewer at medium effort, always). It never changes the
+  loop's gates, verdicts, or merge rules.
 - `dispatch_mode` — **optional** `inline` (default) / `task`. How the
   §5 bot-comment queue and the Sonar-issues section execute their
   handlers. `inline` = read the handler file and follow it in THIS
@@ -491,8 +492,9 @@ and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `stuck_bots=<bot>:<reason>[,<bot>:<reason>]` (built from
 the states above), `base=$BASE` (the **resolved** value, never the
 caller's possibly-unset `base`), and `ticket_ref` / `plan_path` /
-`config_prompt` when supplied, plus `profile` (the caller's level,
-default `medium`) for the substitute panel's depth.
+`config_prompt` when supplied. (No `profile` — the substitute review
+is one universal reviewer at medium effort, whatever the run's
+budget profile.)
 
 On **either** `ran` outcome, add the line's `applied=<n>` to
 `FALLBACK_APPLIED` (`FALLBACK_APPLIED=$((FALLBACK_APPLIED + <n>))`).
@@ -501,10 +503,12 @@ run reports its findings on the `committed=yes` line — accumulating only
 on `committed=no` would report `applied=0` for a fallback that fixed
 things. §8 reports the run-wide total, not the last run's.
 
-That fragment runs the same review as `/wise-code-review-auto`
-(`review-branch-auto.md` with `fixer=self` over `origin/<BASE>..HEAD`,
-sized by `profile` — 3 lenses at low/medium, 5 lenses + a
-confidence-scoring pass at max), commits what it finds, pushes, and
+That fragment runs `review-branch-auto.md` with `fixer=self` over
+`origin/<BASE>..HEAD` in `panel=universal` shape — ONE reviewer
+subagent covering correctness, security, and test-coverage at medium
+effort, profile-independent (it substitutes for a bot review of a
+branch that already passed the pre-push gate) — commits what it
+finds, pushes, and
 posts one audit comment naming the bot it stood in for. It reports
 `depth=panel` when it could dispatch the parallel reviewer subagents and
 `depth=inline` when the caller has no `Task` tool and it worked the

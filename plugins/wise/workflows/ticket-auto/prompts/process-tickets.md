@@ -294,8 +294,9 @@ Resolve `MAX_REVIEW_CYCLES` up front — precedence:
    wise:code-reviewer`, `model: opus`, reason at **high** effort — : "Read
    `{{workflow.dir}}/prompts/review-branch-auto.md` and follow it." with
    `worktree=$WT`, **`fixer=delegate`**, **`profile=medium`** (the review
-   gate is pinned to the medium pass — opus, the 3-lens set — at every
-   budget profile; it never follows the run's profile),
+   gate is pinned to the medium pass — opus, the 3-lens set at high
+   effort — at every budget profile; it never follows the run's
+   profile),
    `findings_file=$UNITS_DIR/$BR.findings.md`,
    `ticket_ref=<ticket_ref>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
    `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews

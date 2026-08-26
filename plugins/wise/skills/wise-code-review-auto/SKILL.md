@@ -2,8 +2,9 @@
 name: wise-code-review-auto
 description: >-
   Autonomously code-review the current branch and apply the fixes —
-  dispatches a panel of parallel reviewer subagents (depth set by the
-  session token-budget profile: 3 lenses at low/medium, 5 at max) over
+  dispatches the 3-lens panel of parallel reviewer subagents
+  (correctness, security, tests — reviewer effort set by the session
+  token-budget profile) over
   `origin/<base>..HEAD`, applies the concrete correctness / security /
   clear-quality findings (skipping judgement-call refactors), and commits
   them. The heavyweight branch gate of the plugin's two-tier quality
@@ -64,9 +65,10 @@ the fragment detect the default branch). Resolve `profile` as: the
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree`, `base`, and `profile`. The
 fragment reviews `origin/<base>..HEAD` at the profile's panel depth per
-`${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` (3-lens set at
-low/medium — correctness, security, tests; 5 lenses + confidence pass
-at max; reviewer model never downgraded), applies the bounded
+`${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` (always the
+3-lens set — correctness, security, tests; the profile sets each
+reviewer's effort: low -> medium, medium -> high, max -> xhigh
+ceiling-clamped; reviewer model never downgraded), applies the bounded
 findings, and commits them with `SIMPLIFY=no PUSH=no`.
 
 ### 3. Relay the result

@@ -33,7 +33,7 @@ falls through to `medium` like everything else.
 ## Interpretation rules
 
 - `PROFILE_LEVEL` scales **token budget only**: model tiers, optional
-  research scope, panel size (lenses / team members), and retry caps.
+  research scope, reviewer effort, team size, and retry caps.
   Each consuming skill owns its concrete mapping table — this fragment
   never prescribes one.
 - The invariant every mapping honors: **profiles never change

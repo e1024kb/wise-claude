@@ -107,7 +107,8 @@ option. The groups are advisory (the phases dispatch inside
 orchestrator as per-group `tuning_<group>` (+ `cap_<name>`) outputs,
 which every phase treats as binding. The **review gate is pinned at
 every profile**: the medium review pass — opus, the 3-lens set
-(correctness, security, tests) — never follows the budget down or up,
+(correctness, security, tests) at high effort — never follows the
+budget down or up,
 so it has no tuning group and is never asked. After launch there are
 no `ask` / `approval` steps and no further questions. The review↔fix
 cycle cap and the CI-fix cap default to 10; precedence: profile

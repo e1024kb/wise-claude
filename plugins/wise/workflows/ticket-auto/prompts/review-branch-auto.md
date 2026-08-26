@@ -3,7 +3,8 @@
 The branch-review gate of `ticket-auto`'s per-ticket pipeline. Once a
 ticket's branch is fully implemented and every task is committed — but
 **before the branch is pushed / a PR is opened** — this reviews the
-whole branch diff at the caller's `profile` depth. In the default `fixer=self` mode it
+whole branch diff with the 3-lens panel at the caller's
+`profile`-mapped effort. In the default `fixer=self` mode it
 applies the concrete findings and commits them; in `fixer=delegate` mode
 it reports the findings for the caller to fix (see the `fixer` context
 below). It is the heavyweight tier of the plugin's two-tier quality
@@ -39,12 +40,13 @@ calls `AskUserQuestion`.
   (`ticket-auto`'s review↔fix loop) → the panel REPORTS its bounded findings
   and a verdict but applies NOTHING; the caller hands the fixing to a separate
   engineer role and re-invokes this gate to verify, looping until clean.
-- `profile` — **optional** `low` / `medium` (default) / `max` — the
-  panel depth per `code-review-pass.md`'s Profile → panel depth table
-  (low/medium → the 3-lens set; max → 5 lenses + confidence pass).
-  `ticket-auto` always pins `medium` (the review gate never follows the
-  run's budget profile down or up); the standalone skill resolves it
-  from the session profile / its `--profile` flag.
+- `profile` — **optional** `low` / `medium` (default) / `max` — sets
+  the per-reviewer EFFORT per `code-review-pass.md`'s table (the panel
+  is always the 3-lens set; low → medium effort, medium → high, max →
+  xhigh, ceiling-clamped). `ticket-auto` always pins `medium` (the
+  review gate never follows the run's budget profile down or up); the
+  standalone skill resolves it from the session profile / its
+  `--profile` flag.
 
 ## Procedure
 
@@ -65,12 +67,12 @@ review — emit the **mode-appropriate** clean result and stop: `fixer=self`
 → `REVIEW-AUTO: applied=0 skipped=0 committed=no`; `fixer=delegate` →
 `REVIEW-AUTO: mode=delegate verdict=clean findings=0 findings_file=-`.
 
-### 2. Review (profile-depth panel)
+### 2. Review (3-lens panel at the profile's effort)
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` end to end
-at the `profile` depth over `RANGE`: dispatch the parallel reviewer
-panel (read-only `Task` subagents — the 3-lens set for low/medium, 5
-lenses + the confidence-scoring pass for max) and curate the
+over `RANGE`: dispatch the parallel 3-lens reviewer panel (read-only
+`Task` subagents — correctness, security, tests — each carrying the
+`profile`-mapped effort directive) and curate the
 high-confidence, **bounded** findings (concrete
 correctness / security / clear-quality; skip judgement-call refactors,
 behaviour changes, broad renames, new deps).

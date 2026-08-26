@@ -160,11 +160,11 @@ All configuration happens at pre-flight, before the DAG launches:
   coupled gap-analysis pair). Deselected steps are pre-marked
   `skipped` in run state; the `none-failed` trigger-rules above keep
   the DAG flowing past them.
-- **Review depth** (`review_lenses` choice input) — `3 lenses`
-  (correctness, security, tests — the recommended gate depth) or
-  `5 lenses (full panel)`; recorded for the review passes the plan
-  leads to (the finalize step renders the matching
-  `/wise-code-review-auto --profile …` suggestion).
+- **Review depth** follows the budget profile — the review panel any
+  follow-up `/wise-code-review-auto` runs is always the 3-lens set
+  (correctness, security, tests); the profile sets each reviewer's
+  effort, so there is no separate review question (the finalize step
+  renders `/wise-code-review-auto --profile <run profile>`).
 - **Flow modes** (choice inputs, asked as one composite questionary) —
   `gap_mode` (**proceed on defaults** / pause and ask), `review_mode`
   (**accept as-is** / pause for review), `branch_mode` (**ticket
