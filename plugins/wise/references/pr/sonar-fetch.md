@@ -128,5 +128,12 @@ alone, no separate probes):
   a caller can tell "this key is wrong" from "the call itself broke"
   (the autonomous handler's §1b needs exactly that distinction to
   choose between `not-configured` and `blocked-fetch reason=key-unresolved`).
+  CAVEAT (verified empirically): an **anonymous** issues-search does
+  NOT 404 on a missing component — SonarCloud returns `200` with
+  `total: 0` for any unknown key. `NOT_FOUND` is therefore realistic
+  only on authenticated calls; an anonymous caller that needs to
+  distinguish "missing project" from "empty project" must use the
+  existence probe the autonomous handler's §1b defines
+  (`api/measures/component`, which 404s reliably without auth).
 - Network error / MCP error on the issues-search call, or any other
   non-200/401/403/404 status → `FETCH-FAIL`.

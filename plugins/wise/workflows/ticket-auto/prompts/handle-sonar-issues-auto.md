@@ -185,12 +185,36 @@ can tell the two apart):
   fetch just corrected it; handle the issues normally.
 - **OK (0 issues), corroborated key** - genuinely clean → go to §5,
   emit `SONAR-AUTO: all-clear`.
-- **OK (0 issues), guessed key** - untrustworthy: the guess may have
-  hit a stale, renamed, or unrelated empty project in the same org, and
-  an anonymous (unauthenticated) query can return an empty page instead
-  of a 404 for a project it cannot see. Never `all-clear`, never
-  `not-configured` → §4, emit
-  `SONAR-AUTO: blocked-fetch reason=key-unresolved`.
+- **OK (0 issues), guessed key** - untrustworthy on its own: the guess
+  may have hit a stale, renamed, or unrelated empty project, and an
+  **anonymous** issues-search returns `200` / `total: 0` for ANY
+  unknown key (verified empirically — it never 404s without auth), so
+  this cell is exactly where a no-Sonar repo lands and `NOT_FOUND`
+  cannot save it. Disambiguate with one **existence probe** — the one
+  endpoint that 404s reliably without auth:
+
+  ```bash
+  PROBE=$(curl -s -o /dev/null -w "%{http_code}" \
+    "https://sonarcloud.io/api/measures/component?component=$SONAR_KEY&metricKeys=ncloc")
+  ```
+
+  - `PROBE=404` **and** `NO_FOOTPRINT=true` → the guessed project does
+    not exist and the repo carries no Sonar footprint anywhere — that
+    is the positive proof §1a wanted → §5, emit
+    `SONAR-AUTO: not-configured`.
+  - `PROBE=404` with a footprint present → the key is wrong, not Sonar
+    missing → §4, `SONAR-AUTO: blocked-fetch reason=key-unresolved`.
+  - `PROBE=200` → a project with the guessed key exists, but nothing
+    corroborates that it is THIS repo's project → §4,
+    `SONAR-AUTO: blocked-fetch reason=key-unresolved` (never
+    `all-clear` off an uncorroborated key).
+  - anything else (network, 5xx) → §4, `blocked-fetch` — an unreadable
+    answer is never absence.
+
+  Scope guard: this probe exists ONLY to resolve the guessed-key
+  ambiguity in this cell. It never vetoes a **corroborated** key's
+  issues-search result — the pre-2.6.3 sanity-check deadlock rule in
+  `sonar-fetch.md` §2 still stands.
 - **AUTH-FAIL** (401 / 403, or `$SONAR_TOKEN` unset on a private
   project) / **FETCH-FAIL** (network / MCP error) → §4. An unreadable
   answer is never absence.
