@@ -36,9 +36,9 @@ the verdict — it reviews, commits, pushes, and reports.
   passed straight through to the review pass so it weighs findings
   against the ticket's intent, the plan's `## Decisions Made`, and the
   operator's standing guardrails.
-- `profile` — **optional** `low` / `medium` (default) / `max` — the
-  substitute panel's depth, passed straight through to the review pass
-  (low/medium → 3-lens set; max → 5 lenses + confidence pass).
+- (The substitute review is deliberately profile-INDEPENDENT: one
+  universal reviewer at `medium` effort, whatever the run's budget
+  profile — see below. No `profile` input.)
 
 ## Procedure
 
@@ -49,18 +49,21 @@ Run all `git` / `gh` commands with `cd <project.path>` first.
 Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree=<project.path>`, `fixer=self`
-(the panel applies its own bounded fixes and commits them), the required
-`base`, plus `ticket_ref`, `plan_path`, `config_prompt`, and `profile`
+(the reviewer applies its own bounded fixes and commits them), the
+required `base`, **`panel=universal`** (ONE reviewer subagent covering
+correctness, security, and test-coverage in a single read-only pass at
+`medium` effort — a substitute for a bot review of a branch that
+already passed the pre-push gate, so one universal reviewer is the
+right weight), plus `ticket_ref`, `plan_path`, and `config_prompt`
 when supplied. Verify `base` is non-empty first (see the context contract
 above) — a review of the wrong diff still satisfies the caller's merge
 gate, so this is the one input worth checking before the panel spins
 up.
 
 That fragment runs `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`
-at the `profile` depth — parallel read-only reviewer lenses (3-lens set
-at low/medium, five + the confidence-scoring pass at max) — curates the
-concrete correctness / security / clear-quality findings, applies them,
-and commits.
+in `panel=universal` shape — one read-only reviewer covering all three
+focus areas at `medium` effort — curates the concrete correctness /
+security / clear-quality findings, applies them, and commits.
 
 **Check `Task` first.** The panel is a parallel-subagent panel sized by
 `profile` — 3 lenses at `low`/`medium`, 5 lenses + a confidence pass at

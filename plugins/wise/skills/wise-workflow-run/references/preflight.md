@@ -164,6 +164,16 @@ Prompt:
 Store both answers for step 8; they go into `state.yaml` via
 `start-run` and persist across resume.
 
+**6b-silent. Pinned-skip profile apply (when `TUNING=skip`):** §6b2 and
+§6b3 below are gated on their `prompt` pins and never run for a
+workflow that pins them `skip` — so evaluate THIS rule first, outside
+both: when the workflow declares a `profiles:` block AND both
+`TUNING=skip` and `STEP_SELECT=skip` are pinned, ask nothing and apply
+the stored session profile's mapping silently (run §6b2's step 2
+persistence — same `record-output "$STATE"` outputs as a level pick).
+A workflow that pins `tuning: skip` without a `profiles:` block keeps
+today's behavior — nothing recorded, declared defaults stand.
+
 **6b2. Profile & tuning questionary (only if `TUNING=prompt`):**
 
 Fetch — in ONE chained Bash — the workflow's profiles, tuning groups,
@@ -220,21 +230,24 @@ fails — missing store = `medium`).
      defaults, nothing overridden" convention an explicit empty entry
      gets. Never treat a missing level as an error or skip the
      record-output calls below:
-     - `record-output run_profile <level>` — always.
-     - per `tuning` entry: `record-output tuning_<gid> "<model> / <effort>"`
+     Every call below takes the state path first — the CLI signature is
+     `record-output "$STATE" <name> <value>` (matching §6b3's example);
+     omitting `"$STATE"` is an argparse error and nothing persists:
+     - `record-output "$STATE" run_profile <level>` — always.
+     - per `tuning` entry: `record-output "$STATE" tuning_<gid> "<model> / <effort>"`
        (or the literal `default`). An empty tuning map (the `medium`
        convention) records nothing — declared defaults stand.
      - `step-preset` / `skip` → resolve the covered step ids from the
        step-select JSON and pre-mark them exactly as §6b3's
-       mechanics describe (`update-step … status=skipped` +
-       `record-output skipped_stages …`); `step-preset: full` or no
+       mechanics describe (`update-step "$STATE" <step-id> status=skipped` +
+       `record-output "$STATE" skipped_stages …`); `step-preset: full` or no
        key → no marks. Then SKIP §6b3 entirely — the profile answered
        it.
-     - `team-mode` → `record-output team_mode <solo|full>` (§10d
+     - `team-mode` → `record-output "$STATE" team_mode <solo|full>` (§10d
        passes `--team-mode solo` on every `resolve-team` call when
        recorded solo).
-     - per cap: `record-output cap_<name> <int>`.
-     - `record-output tuning_summary "profile=<level>; <one line of what changed, or 'defaults'>"`.
+     - per cap: `record-output "$STATE" cap_<name> <int>`.
+     - `record-output "$STATE" tuning_summary "profile=<level>; <one line of what changed, or 'defaults'>"`.
   3. **On `Custom (per-step)`** — per-step control, three parts:
      a. One composite `AskUserQuestion`, one question per TUNABLE STEP
         (the union of every step-bound group's `steps`; chunk ≤4 per
@@ -244,22 +257,17 @@ fails — missing store = `medium`).
         `Keep default (<pins>)` / `Opus · high` / `Sonnet · high` /
         `Sonnet · low`; `Other` free-text resolved through
         `resolve-model` BEFORE recording. Record only non-default
-        answers: `record-output tuning_step_<step-id> "<model> / <effort>"`
+        answers: `record-output "$STATE" tuning_step_<step-id> "<model> / <effort>"`
         for step-bound picks (normalise `-` in the step id to `_` in
-        the output name), `record-output tuning_<gid> …` for advisory
-        groups.
+        the output name), `record-output "$STATE" tuning_<gid> …` for
+        advisory groups.
      b. Then run §6b3's multiSelect skip questionary as written.
      c. Then, when any tunable step declares a team (`agent:` list):
         one question — `Panel steps: full team or solo lead?` →
-        `record-output team_mode <full|solo>`.
+        `record-output "$STATE" team_mode <full|solo>`.
      Caps are NOT asked on Custom — declared defaults stand.
-     Finish with `record-output run_profile custom` + `tuning_summary`.
-
-  When BOTH `TUNING=skip` and `STEP_SELECT=skip` are pinned, ask
-  nothing at all: apply the stored session profile's mapping silently
-  (record the same outputs as a level pick). A workflow that pins
-  `tuning: skip` without profiles keeps today's behavior — nothing
-  recorded, declared defaults stand.
+     Finish with `record-output "$STATE" run_profile custom` +
+     `record-output "$STATE" tuning_summary …`.
 
 The per-group `tuning_<id>` / per-step `tuning_step_<id>` outputs are
 the machine channel (dispatch overrides, `{{tuning_<id>}}` /
@@ -403,13 +411,20 @@ Then, for each input in order:
    splice it into the command text:
 
    ```bash
-   RAW_ANSWER=$(cat <<'WISE_RAW_ANSWER_EOF'
+   RAW_ANSWER=$(cat <<'WISE_RAW_<random-6-chars>'
    <the raw answer, verbatim, unescaped>
-   WISE_RAW_ANSWER_EOF
+   WISE_RAW_<random-6-chars>
    )
    CLEAN=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" \
      validate-input "$RAW_ANSWER" "<extract-or-empty>" "<validate-or-empty>")
    ```
+
+   The delimiter must be **freshly random per invocation** (e.g.
+   `WISE_RAW_k3x9qp`), never a fixed public string: a hostile answer
+   containing the delimiter as its own line would terminate the
+   heredoc early and have the rest parsed as shell. If the answer
+   text happens to contain your chosen delimiter line, pick another
+   random one before running.
 
    Exit 0 → `CLEAN` holds the cleaned value; store it as
    `inputs["<name>"]`.

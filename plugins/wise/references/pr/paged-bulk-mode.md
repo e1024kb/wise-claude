@@ -190,13 +190,18 @@ Emit ONE `AskUserQuestion`:
   1. `<picks_action_label>: <decisions-string>` — only when
      `auto_classify=true`. The label uses the caller's
      `picks_action_label` verb. Examples — `Fix: 1A 2F 3S 4F 5A`
-     for bot queues, `Accept: 1A 2F 3S 4F 5A` for Sonar.
+     for bot queues, `Accept: 1A 2F 3A 4F 5A` for Sonar (whose
+     `allowed_letters=F,A` has no Skip — suggestions there are
+     always F or A).
      Recommended; picking this records Claude's picks for the
      whole page into `decisions[]` verbatim.
   2. `All Fix` — record every item on this page as `F`.
      Shortcut for pages of obvious patches.
   3. `All Skip` — record every item as `S` and advance to the
      next page without recording any apply-bound decisions.
+     Include this option ONLY when `S` ∈ `allowed_letters` — the
+     Sonar queue (`F,A`) never renders it; every fetched Sonar
+     issue must end Fixed or Accepted.
   4. `Custom decisions` — edit the decisions via the always-
      available **Other** text input. Use this to override
      Claude's picks or to type the string from scratch.
@@ -211,7 +216,8 @@ picks-action option.
 - `All Fix` → synthesise `1F 2F 3F 4F 5F` (trimmed to page
   size).
 - `All Skip` → synthesise `1S 2S 3S 4S 5S` (trimmed to page
-  size).
+  size). (Only reachable on queues whose `allowed_letters`
+  include `S` — see §3b.)
 - `Custom decisions` → the user typed a string via Other. Parse
   it with the grammar in §4.
 
@@ -272,7 +278,7 @@ specific payload:
   CHANGES_REQUESTED with no thread to resolve. Use F, A, or
   S."`
 - Sonar items need no extra per-item pre-record validation:
-  `allowed_letters=F,A,S` already excludes `D`, and every
+  `allowed_letters=F,A` already excludes `D` and `S`, and every
   Sonar item has a target path so `A` (suppression) always
   applies later.
 
@@ -331,7 +337,7 @@ what the handler will do once collection finishes.
 ### 4. Decision-string grammar
 
 The full grammar — token forms (`1F`, `2A`, `3S`, `4D`,
-omissions = implicit Skip), per-queue allowed letters, and every parse
+omissions = implicit Skip on queues whose allowed letters include `S`; on the Sonar queue (no `S`) an omission is a validation re-ask, per §B), per-queue allowed letters, and every parse
 error message — lives in
 `${CLAUDE_PLUGIN_ROOT}/references/pr/paged-bulk-details.md` §B. Read
 it the FIRST time §3c/§3d must parse a typed string (a run where the

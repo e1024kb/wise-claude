@@ -9,8 +9,8 @@ description: >-
   with a reasoned reply). A stuck bot never blocks the merge: when
   Copilot times out / errors / is rate-limited, or CodeRabbit is out of
   credits / rate-limited / silent, the loop runs wise's own
-  reviewer panel (the `/wise-code-review-auto` pass, at the session
-  profile's depth) over the branch
+  substitute reviewer (one universal read-only agent at medium
+  effort) over the branch
   diff instead, commits + pushes what it finds, and keeps going. Loops
   until CI is green and every comment is resolved and the PR has stayed
   quiet for two consecutive post-green stability windows (so late
@@ -43,8 +43,10 @@ building block the `ticket-auto` workflow's watch step follows.
 
 Copilot and CodeRabbit are review *inputs*, not merge gates. When one of
 them is down — timeout, error, rate limit, out of credits — the loop
-substitutes wise's own review (`review-fallback-auto.md`, the same
-panel `/wise-code-review-auto` runs, at the profile's depth), records that it did, and
+substitutes wise's own review (`review-fallback-auto.md` — one
+universal reviewer at medium effort, profile-independent: it stands in
+for a bot review of a branch that already passed the pre-push gate),
+records that it did, and
 keeps driving the PR to green and merge. The branch still gets reviewed
 before it merges; it just isn't held hostage to a vendor's uptime.
 
@@ -77,11 +79,14 @@ in the same message as §1's probes; silent degrade to `medium`).
 The profile scales budget only — never the loop's gates, verdicts, or
 merge rules:
 
-| profile | max_fix_attempts default | review-fallback panel | fixer tier |
-|---|---|---|---|
-| `low` | 3 | 3-lens set | prefer sonnet-grade focus |
-| `medium` | 10 | 3-lens set | today's defaults |
-| `max` | 10 | 5 lenses + confidence pass | today's defaults |
+| profile | max_fix_attempts default | fixer tier |
+|---|---|---|
+| `low` | 3 | prefer sonnet-grade focus |
+| `medium` | 10 | today's defaults |
+| `max` | 10 | today's defaults |
+
+The §4c review fallback is NOT profile-scaled: always one universal
+reviewer at medium effort (see `code-review-pass.md` `panel=universal`).
 
 An explicit `max_fix_attempts` argument always beats the profile's
 default.

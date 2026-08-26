@@ -126,6 +126,11 @@ Loop over the thread IDs the caller decided are addressed:
 
 ```bash
 RESOLVED=0
+# Per-invocation error log: §4 may run in a different Bash invocation
+# than the caller's mktemp, so never assume $SCRATCH is set — and a
+# fixed filename under shared /tmp would let concurrent handler runs
+# truncate each other's stderr before it is read.
+ERRLOG="$(mktemp "${SCRATCH:-${TMPDIR:-/tmp}}/resolve-err-XXXXXX")"
 for THREAD_ID in "${ADDRESSED_THREAD_IDS[@]}"; do
   if gh api graphql -f query='
     mutation($threadId: ID!) {
@@ -133,12 +138,13 @@ for THREAD_ID in "${ADDRESSED_THREAD_IDS[@]}"; do
         thread { isResolved }
       }
     }
-  ' -F threadId="$THREAD_ID" 2>"$SCRATCH/resolve-err.log"; then
+  ' -F threadId="$THREAD_ID" 2>"$ERRLOG"; then
     RESOLVED=$((RESOLVED + 1))
   else
-    echo "resolveReviewThread failed for THREAD_ID=$THREAD_ID: $(cat "$SCRATCH/resolve-err.log")" >&2
+    echo "resolveReviewThread failed for THREAD_ID=$THREAD_ID: $(cat "$ERRLOG")" >&2
   fi
 done
+rm -f "$ERRLOG"
 ```
 
 Failures (403, thread already resolved by someone else, no write

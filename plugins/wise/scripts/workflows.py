@@ -1022,7 +1022,11 @@ def cmd_get_profiles(def_path: str) -> int:
                 print(f"INVALID:profile-tuning-unknown-group:{level}:{gid}",
                       file=sys.stderr)
                 return 2
-            sval = str(value or "").strip()
+            if not isinstance(value, str):
+                print(f"INVALID:profile-tuning-bad-value:{level}:{gid}",
+                      file=sys.stderr)
+                return 2
+            sval = value.strip()
             if sval == "default":
                 res["tuning"][gid] = "default"
                 continue
@@ -1558,12 +1562,26 @@ def _profile_dir() -> Path:
     return wise_data_root() / "profile"
 
 
+# Session ids become filenames under the profile store; a hostile
+# CLAUDE_CODE_SESSION_ID / WISE_SESSION_ID (settable from a repo-local
+# settings env block) must not traverse out of it. Reject anything that
+# is not a plain token — a non-matching id is treated as "no session".
+_SESSION_ID_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _profile_safe_sid() -> str | None:
+    sid = _current_session_id()
+    if not sid or not _SESSION_ID_FILE_RE.match(sid) or sid in (".", ".."):
+        return None
+    return sid
+
+
 def cmd_profile_set(level: str) -> int:
     level = level.strip().lower()
     if level not in PROFILE_LEVELS:
         print(f"INVALID:profile-level:{level}", file=sys.stderr)
         return 2
-    sid = _current_session_id()
+    sid = _profile_safe_sid()
     if not sid:
         print("INVALID:profile-no-session", file=sys.stderr)
         return 2
@@ -1599,14 +1617,16 @@ def cmd_profile_get() -> int:
     failure as `medium`, so a user who never ran /wise-profile sees zero
     change and no error noise.
     """
-    sid = _current_session_id()
+    sid = _profile_safe_sid()
     if sid:
         try:
             level = (_profile_dir() / sid).read_text(encoding="utf-8").strip().lower()
             if level in PROFILE_LEVELS:
                 print(level)
                 return 0
-        except OSError:
+        except (OSError, ValueError):
+            # ValueError covers UnicodeDecodeError on a non-UTF-8 store —
+            # degrade like any other unreadable store, never traceback.
             pass
     print(PROFILE_DEFAULT)
     return 0

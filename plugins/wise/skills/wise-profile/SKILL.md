@@ -35,7 +35,7 @@ table; `medium` = the plugin's standard behavior):
 |---|---|
 | `low` | cheapest run that keeps every gate: sonnet tiers for research / planning / implementation, minimal optional research, solo leads instead of panels, low retry caps |
 | `medium` | the standard defaults (set this to undo a `low`/`max`) |
-| `max` | everything on: opus tiers across phases, full research, full 5-lens review panels |
+| `max` | everything on: opus tiers across phases, full research, review findings adversarially verified before apply |
 
 The hard invariant, at every level: profiles change model tier /
 optional-step scope / team size / caps ONLY — never correctness
@@ -73,10 +73,11 @@ available, then ask ONE question:
   1. `medium (Recommended)` — "The standard defaults — full quality,
      standard cost. Pick this to reset a low/max session."
   2. `low` — "Cheapest run that keeps every gate: sonnet tiers,
-     minimal optional research, solo leads, 3-lens reviews, low retry
-     caps. Correctness rules unchanged."
-  3. `max` — "Everything on: opus across phases, full research, full
-     review panels. Highest cost."
+     minimal optional research, solo leads, medium-effort reviews, low
+     retry caps. Correctness rules unchanged."
+  3. `max` — "Everything on: opus across phases, full research,
+     review findings adversarially verified before apply. Highest
+     cost."
 
 ### 3. Persist
 
@@ -94,6 +95,8 @@ environment; never guess one:
 
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
+# Same token rule as workflows.py's _profile_safe_sid():
+case "$sid" in ""|.|..|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) sid= ;; esac
 [ -n "$sid" ] || { echo "Cannot resolve a session id — run /wise-init to install python3, then retry."; exit 1; }
 d="${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile"
 mkdir -p "$d"
@@ -104,7 +107,7 @@ printf '%s\n' "<level>" > "$d/$sid.tmp.$$" && mv "$d/$sid.tmp.$$" "$d/$sid"
 
 Tell the user in one line what is now active and what it affects,
 e.g. `Profile low set for this session — sonnet tiers, minimal
-research, solo leads, 3-lens reviews. Reset with /wise-profile
+research, solo leads, medium-effort reviews. Reset with /wise-profile
 medium.`
 
 Your response's FINAL line MUST be exactly, on its own line:

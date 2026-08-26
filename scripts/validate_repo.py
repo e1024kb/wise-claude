@@ -169,11 +169,18 @@ def check_workflow_schemas(errors: list[str], workflows_module) -> None:
     import contextlib
     import io
 
-    getters = (
-        ("get-tuning", workflows_module.cmd_get_tuning),
-        ("get-step-select", workflows_module.cmd_get_step_select),
-        ("get-profiles", workflows_module.cmd_get_profiles),
-    )
+    try:
+        getters = (
+            ("get-tuning", workflows_module.cmd_get_tuning),
+            ("get-step-select", workflows_module.cmd_get_step_select),
+            ("get-profiles", workflows_module.cmd_get_profiles),
+        )
+    except AttributeError as exc:
+        errors.append(
+            f"workflows.py: missing expected export ({exc}) "
+            "(workflow schema checks skipped — they depend on this export)"
+        )
+        return
     workflows_dir = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
     for workflow_yaml in sorted(workflows_dir.glob("*/workflow.yaml")):
         rel = workflow_yaml.relative_to(REPO_ROOT)

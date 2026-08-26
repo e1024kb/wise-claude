@@ -44,7 +44,8 @@ forever. This probe runs **before** key discovery, and its job is to
 decide which question §1b's fetch is answering - not to end the
 procedure. §1b always runs. A footprint here means "verify Sonar is
 clean"; no footprint means "confirm the project really does not exist",
-and only §1b's 404 can confirm that.
+and only §1b's existence probe (`api/measures/component` — the one
+endpoint that 404s reliably without auth) can confirm that.
 
 This fragment does not inherit the caller's shell, so derive what the
 probes need first:
@@ -143,9 +144,11 @@ not absence.
 **Every category absent** → Sonar is *probably* not configured here -
 but absence of evidence is not evidence of absence, and this verdict
 unlocks the merge gate, so it needs positive proof. Continue to §1b and
-let the fetch refute it. The issues-search endpoint is that proof: an
-unknown component returns an explicit **404 / "component not found"**,
-while any 200 means the project exists. Carry a flag
+let §1b refute it. The proof is NOT the issues-search itself — an
+**anonymous** issues-search returns `200`/`total: 0` for any unknown
+key (verified empirically) — it is §1b's `api/measures/component`
+existence probe, which returns an explicit **404** for a missing
+project and `200` when it exists. Carry a flag
 (`NO_FOOTPRINT=true`) into §1b and read its outcome table there.
 
 Skipping the fetch would throw away the only call that can positively
