@@ -187,3 +187,4 @@ here because the stakes are high: **never** `--force` /
 `git push -u origin <branch>` hint instead), and **never** retry a
 failed push (no auto-pull, no auto-rebase). A refused or failed push
 leaves the local commit in place; the operator decides the resolution.
+- Profile-insensitive by design: the session token-budget profile (`/wise-profile`) does not change this skill — commit/push drafting and refusal rules are correctness territory profiles MUST never touch.

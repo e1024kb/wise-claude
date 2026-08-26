@@ -1,8 +1,9 @@
 ---
 name: wise-code-review-auto
 description: >-
-  Autonomously code-review the current branch at HIGH depth and apply
-  the fixes — dispatches a panel of parallel reviewer subagents over
+  Autonomously code-review the current branch and apply the fixes —
+  dispatches a panel of parallel reviewer subagents (depth set by the
+  session token-budget profile: 3 lenses at low/medium, 5 at max) over
   `origin/<base>..HEAD`, applies the concrete correctness / security /
   clear-quality findings (skipping judgement-call refactors), and commits
   them. The heavyweight branch gate of the plugin's two-tier quality
@@ -11,51 +12,62 @@ description: >-
   alias) or `/wise:wise-code-review-auto` (canonical). Use when the user
   says "code review the branch", "review my changes before pushing", "run
   a code review pass", or types `/wise-code-review-auto`.
-argument-hint: "[<base-branch>]"
-allowed-tools: Task, Read, Edit, Write, Bash(git:*), Bash(gh:*)
+argument-hint: "[<base-branch>] [--profile low|medium|max]"
+allowed-tools: Task, Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(python3:*)
 ---
 
-# /wise-code-review-auto — review a branch at high effort, autonomously
+# /wise-code-review-auto — review a branch autonomously
 
 ## Why this skill exists
 
 The simplify pass is the lightweight tier — it runs before every commit.
-This is the **heavyweight tier**: one **high-depth multi-agent review**
-over the whole branch (a panel of parallel reviewer subagents), applied
-and committed, meant to run **once before the branch reaches GitHub**. It
+This is the **heavyweight tier**: one **multi-agent review** over the
+whole branch (a panel of parallel reviewer subagents at the session
+profile's depth), applied and committed, meant to run **once before the
+branch reaches GitHub**. It
 is the decision-free building block the `ticket-auto` workflow's review
 step follows (between implement and push), and it is usable standalone
 before you `git push` / open a PR.
 
 ## Arguments
 
-Read `$ARGUMENTS`. The first whitespace-separated token, if present, is
-the **base branch** to diff against. When absent, the base is detected
-(repo default branch). Any further tokens are an error:
+Read `$ARGUMENTS` and split into whitespace-separated tokens:
+
+- `--profile <low|medium|max>` (anywhere) — per-run override of the
+  session token-budget profile, for this invocation only (the stored
+  session profile is untouched).
+- The first remaining token, if any, is the **base branch** to diff
+  against. When absent, the base is detected (repo default branch).
+- Any further tokens (or a `--profile` without a valid level) are an
+  error:
 
 ```
 Unknown argument(s): <the extra tokens>
-Usage: /wise-code-review-auto [<base-branch>]
+Usage: /wise-code-review-auto [<base-branch>] [--profile low|medium|max]
 ```
 
 ## Procedure
 
-### 1. Resolve the worktree + base
+### 1. Resolve the worktree, base + profile
 
-```bash
-git rev-parse --show-toplevel
-```
+In ONE message run `git rev-parse --show-toplevel` and — unless
+`--profile` was passed — the session-profile read from
+`${CLAUDE_PLUGIN_ROOT}/references/profile-read.md` (silent degrade to
+`medium`).
 
 Use the toplevel as `worktree`. Resolve `base` from `$ARGUMENTS` (or let
-the fragment detect the default branch).
+the fragment detect the default branch). Resolve `profile` as: the
+`--profile` argument if given, else the session profile, else `medium`.
 
 ### 2. Follow the shared fragment
 
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
-and follow it end to end with `worktree` and `base`. The fragment
-reviews `origin/<base>..HEAD` at high effort per
-`${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`, applies the
-bounded findings, and commits them with `SIMPLIFY=no PUSH=no`.
+and follow it end to end with `worktree`, `base`, and `profile`. The
+fragment reviews `origin/<base>..HEAD` at the profile's panel depth per
+`${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` (3-lens set at
+low/medium — correctness, security, tests; 5 lenses + confidence pass
+at max; reviewer model never downgraded), applies the bounded
+findings, and commits them with `SIMPLIFY=no PUSH=no`.
 
 ### 3. Relay the result
 

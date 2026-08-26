@@ -86,3 +86,4 @@ COMMIT: failed reason="<verbatim error>"
   `--no-verify` / `--force`, no AI-attribution trailer, no retry on
   failure).
 - Never invoke another wise action skill.
+- Profile-insensitive by design: the session token-budget profile (`/wise-profile`) does not change this skill — one cheap behavior-preserving pass; scaling it would risk the behaviour-preserved guarantee.

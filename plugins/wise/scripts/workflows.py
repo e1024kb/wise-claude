@@ -55,6 +55,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -1372,6 +1373,75 @@ def _current_session_id() -> str | None:
     return _synthetic_session_id()
 
 
+PROFILE_LEVELS = ("low", "medium", "max")
+PROFILE_DEFAULT = "medium"
+_PROFILE_GC_SECONDS = 30 * 24 * 3600  # prune sibling files older than 30 days
+
+
+def _profile_dir() -> Path:
+    """Session-profile store: `<wise_data_root>/profile/<session-id>`.
+
+    One word per file (low|medium|max). Documented as state exception (e)
+    in the plugin CLAUDE.md. Routed through `wise_data_root()` so a future
+    relocation stays a one-function change.
+    """
+    return wise_data_root() / "profile"
+
+
+def cmd_profile_set(level: str) -> int:
+    level = level.strip().lower()
+    if level not in PROFILE_LEVELS:
+        print(f"INVALID:profile-level:{level}", file=sys.stderr)
+        return 2
+    sid = _current_session_id()
+    if not sid:
+        print("INVALID:profile-no-session", file=sys.stderr)
+        return 2
+    pdir = _profile_dir()
+    pdir.mkdir(parents=True, exist_ok=True)
+    # Atomic write (same mkstemp + replace pattern as init-registry.py) so
+    # a concurrent reader never sees a partial file.
+    fd, tmp = tempfile.mkstemp(dir=pdir, prefix=".tmp-profile-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(level + "\n")
+        os.replace(tmp, pdir / sid)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    # Opportunistic GC: sessions are ephemeral, so files from long-dead
+    # sessions accumulate. Best-effort — errors are swallowed; reads never
+    # prune (profile-get stays pure and fast).
+    cutoff = time.time() - _PROFILE_GC_SECONDS
+    for entry in pdir.iterdir():
+        with contextlib.suppress(OSError):
+            if entry.name != sid and entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink()
+    print(f"PROFILE: level={level} scope=session session={sid}")
+    return 0
+
+
+def cmd_profile_get() -> int:
+    """Print the session's stored profile level, degrading to the default.
+
+    NEVER exits non-zero for a missing/garbage store — consumers treat any
+    failure as `medium`, so a user who never ran /wise-profile sees zero
+    change and no error noise.
+    """
+    sid = _current_session_id()
+    if sid:
+        try:
+            level = (_profile_dir() / sid).read_text(encoding="utf-8").strip().lower()
+            if level in PROFILE_LEVELS:
+                print(level)
+                return 0
+        except OSError:
+            pass
+    print(PROFILE_DEFAULT)
+    return 0
+
+
 def cmd_current_session_id() -> int:
     sid = _current_session_id()
     if not sid:
@@ -2259,6 +2329,8 @@ def main() -> int:
     p.add_argument("template"); p.add_argument("state_path")
 
     sub.add_parser("current-session-id")
+    p = sub.add_parser("profile-set"); p.add_argument("level")
+    sub.add_parser("profile-get")
     p = sub.add_parser("session-path"); p.add_argument("session_id")
     p = sub.add_parser("session-label")
     p.add_argument("run_id"); p.add_argument("workflow_name")
@@ -2314,6 +2386,8 @@ def main() -> int:
         "dump-state": lambda: cmd_dump_state(args.state_path),
         "render": lambda: cmd_render(args.template, args.state_path),
         "current-session-id": lambda: cmd_current_session_id(),
+        "profile-set": lambda: cmd_profile_set(args.level),
+        "profile-get": lambda: cmd_profile_get(),
         "session-path": lambda: cmd_session_path(args.session_id),
         "session-label": lambda: cmd_session_label(args.run_id, args.workflow_name),
         "find-runs-by-session": lambda: cmd_find_runs_by_session(args.session_id),

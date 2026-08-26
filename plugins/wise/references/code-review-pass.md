@@ -29,20 +29,24 @@ the diff), but stays fully autonomous and self-contained.
 > CodeRabbit / Copilot still review the PR later, in the watch loop — this
 > gate is the *pre-push* catch.
 
-### Effort → panel depth
+### Profile → panel depth
 
-`effort` maps to how many lenses the panel covers:
+The caller passes a `profile` level (the session token-budget profile
+from `references/profile-read.md`, or a pinned value); it maps to how
+many lenses the panel covers. The reviewer **model is never
+downgraded** — every lens judges at full quality; lens count is the
+budget knob:
 
-| effort | reviewer subagents (lenses) |
+| profile | reviewer subagents (lenses) |
 |---|---|
-| `low` | 1 — correctness/bugs only |
-| `medium` | 3 — (a) correctness & logic bugs, (b) security & input handling, (c) conventions, dead code, and `CLAUDE.md` adherence |
-| **`high`** (default) | **5 — the medium three plus (d) git-history/context regressions and (e) test-coverage gaps, with a confidence-scoring pass** |
+| `low` / **`medium`** (default) | 3 — (a) correctness & logic bugs, (b) security & input handling, (c) test-coverage gaps |
+| `max` | 5 — the three plus (d) conventions, dead code, and `CLAUDE.md` adherence and (e) git-history/context regressions, with a confidence-scoring pass |
 
-The plugin standardises on **`high`** for this gate — the autonomous
-quality tier always takes the maximum depth. A caller may pass a lower
-effort explicitly, but the default everywhere is `high` (5 reviewer
-subagents + the confidence-scoring pass).
+`medium` (= the plugin default) runs the 3-lens set: the lenses that
+catch shipping-blockers. The `max` panel adds the quality/context
+lenses and the confidence-scoring pass for runs where cost is no
+constraint. (Pre-4.15 this table was keyed by `effort` with a 5-lens
+default; the lens-set model replaced it deliberately.)
 
 ## The pass (review → curate → apply → commit)
 
@@ -50,7 +54,7 @@ subagents + the confidence-scoring pass).
    the commits about to be pushed (the caller supplies `base` / detects
    the default branch).
 
-2. **Dispatch the panel.** In a single message, dispatch the effort's
+2. **Dispatch the panel.** In a single message, dispatch the profile's
    reviewer `Task` subagents **in parallel**, each **read-only**
    (`subagent_type: "Explore"` is a good fit). Give each its lens, the
    diff range, and the worktree. Each returns a list of findings —

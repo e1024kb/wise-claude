@@ -3,7 +3,7 @@
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
 credits / stayed rate-limited / never answered. Instead of parking the
-PR for a human, run **wise's own high-depth reviewer panel** (the same
+PR for a human, run **wise's own reviewer panel** (the same
 pass `/wise-code-review-auto` runs) over the PR's branch diff, commit
 what it finds, push, and let the caller keep driving the PR to green and
 merge it.
@@ -36,6 +36,9 @@ the verdict — it reviews, commits, pushes, and reports.
   passed straight through to the review pass so it weighs findings
   against the ticket's intent, the plan's `## Decisions Made`, and the
   operator's standing guardrails.
+- `profile` — **optional** `low` / `medium` (default) / `max` — the
+  substitute panel's depth, passed straight through to the review pass
+  (low/medium → 3-lens set; max → 5 lenses + confidence pass).
 
 ## Procedure
 
@@ -47,16 +50,17 @@ Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree=<project.path>`, `fixer=self`
 (the panel applies its own bounded fixes and commits them), the required
-`base`, plus `ticket_ref`, `plan_path`, and `config_prompt` when
-supplied. Verify `base` is non-empty first (see the context contract
+`base`, plus `ticket_ref`, `plan_path`, `config_prompt`, and `profile`
+when supplied. Verify `base` is non-empty first (see the context contract
 above) — a review of the wrong diff still satisfies the caller's merge
 gate, so this is the one input worth checking before the panel spins
 up.
 
 That fragment runs `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`
-at **high** effort — five parallel read-only reviewer lenses plus the
-confidence-scoring pass — curates the concrete correctness / security /
-clear-quality findings, applies them, and commits.
+at the `profile` depth — parallel read-only reviewer lenses (3-lens set
+at low/medium, five + the confidence-scoring pass at max) — curates the
+concrete correctness / security / clear-quality findings, applies them,
+and commits.
 
 **Check `Task` first.** The panel is five parallel reviewer subagents,
 so it needs the `Task` tool. Not every caller has it: the `ticket-auto`

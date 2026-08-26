@@ -133,3 +133,4 @@ trailer, no retry on failure, and `.gitignore` is the only place to
 exclude files (the routine's `git add -A` sweeps in everything else).
 This skill additionally **never pushes** — that's `/wise-commit-push`'s
 job.
+- Profile-insensitive by design: the session token-budget profile (`/wise-profile`) does not change this skill — commit drafting and refusal rules are correctness territory profiles MUST never touch.

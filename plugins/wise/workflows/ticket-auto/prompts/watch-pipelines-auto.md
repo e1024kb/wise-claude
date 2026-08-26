@@ -35,6 +35,11 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 - `project.path` — absolute path to the repo working tree (a ticket
   worktree, when called from `ticket-auto`).
 - `max_fix_attempts` — cap on commit-producing fix rounds (default 10).
+- `profile` — **optional** `low` / `medium` (default) / `max` — the
+  session token-budget level. It scales only: the §4c review-fallback
+  panel depth (passed through as `profile`) and the model tier the fix
+  subagent prompts request at `low` (prefer sonnet-grade focus). It
+  never changes the loop's gates, verdicts, or merge rules.
 - `base` — **optional** override for the PR's base branch. When absent,
   §4c resolves it from the PR itself and fails closed if it cannot — it
   never lets the review pass fall back to the repo default, which would
@@ -471,7 +476,8 @@ and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `stuck_bots=<bot>:<reason>[,<bot>:<reason>]` (built from
 the states above), `base=$BASE` (the **resolved** value, never the
 caller's possibly-unset `base`), and `ticket_ref` / `plan_path` /
-`config_prompt` when supplied.
+`config_prompt` when supplied, plus `profile` (the caller's level,
+default `medium`) for the substitute panel's depth.
 
 On **either** `ran` outcome, add the line's `applied=<n>` to
 `FALLBACK_APPLIED` (`FALLBACK_APPLIED=$((FALLBACK_APPLIED + <n>))`).
