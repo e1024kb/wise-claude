@@ -107,7 +107,7 @@ printf '%s\n' "<level>" > "$d/$sid.tmp.$$" && mv "$d/$sid.tmp.$$" "$d/$sid"
 ### 4. Confirm
 
 Tell the user in one line what is now active and what it affects,
-e.g. `Profile low set for this session — sonnet tiers (planning/authoring stay opus), minimal research, solo leads, medium-effort reviews. Reset with /wise-profile medium.`
+e.g. `Profile low set for this session — sonnet tiers for research / implementation (planning/authoring stay opus), minimal research, solo leads, medium-effort reviews. Reset with /wise-profile medium.`
 
 Your response's FINAL line MUST be exactly, on its own line:
 
