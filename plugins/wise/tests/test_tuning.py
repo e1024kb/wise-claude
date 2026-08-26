@@ -314,3 +314,177 @@ def test_resolve_team_override_still_clamped(workflows_module, tmp_path, capsys)
     assert m["model"] == "haiku"
     assert m["effort"] is None
     assert "no effort control" in m["reason"]
+
+
+# ---- get-profiles ----------------------------------------------------------
+
+def _profiles_def(workflows_module, tmp_path, profiles: dict):
+    return _write_def(workflows_module, tmp_path, {
+        "tuning": {"groups": [
+            {"id": "authoring", "label": "Authoring", "steps": ["a", "b"]},
+            {"id": "plan", "label": "Plan", "default": "opus / high"},
+        ]},
+        "step-select": {
+            "optional": [{"id": "a", "label": "Step A"}],
+            "presets": [{"id": "minimal", "label": "Minimal", "skip": ["a"]}],
+        },
+        "profiles": profiles,
+    })
+
+
+def test_get_profiles_empty_when_absent(workflows_module, tmp_path, capsys):
+    path = _write_def(workflows_module, tmp_path, {})
+    assert workflows_module.cmd_get_profiles(path) == 0
+    assert json.loads(capsys.readouterr().out) == {"profiles": {}}
+
+
+def test_get_profiles_full_shape(workflows_module, tmp_path, capsys):
+    path = _profiles_def(workflows_module, tmp_path, {
+        "low": {
+            "tuning": {"authoring": "sonnet / medium", "plan": "default"},
+            "step-preset": "minimal",
+            "team-mode": "solo",
+            "caps": {"max_review_cycles": 2},
+        },
+        "medium": {},
+        "max": {"step-preset": "full", "team-mode": "full"},
+    })
+    assert workflows_module.cmd_get_profiles(path) == 0
+    data = json.loads(capsys.readouterr().out)["profiles"]
+    low = data["low"]
+    assert low["tuning"]["authoring"] == {
+        "model": "sonnet", "effort": "medium", "reason": None}
+    assert low["tuning"]["plan"] == "default"
+    assert low["step-preset"] == "minimal"
+    assert low["team-mode"] == "solo"
+    assert low["caps"] == {"max_review_cycles": 2}
+    assert data["medium"] == {"tuning": {}, "skip": [], "caps": {}}
+    assert data["max"]["step-preset"] == "full"
+
+
+def test_get_profiles_model_only_tuning_value(workflows_module, tmp_path, capsys):
+    path = _profiles_def(workflows_module, tmp_path, {
+        "low": {"tuning": {"authoring": "sonnet"}},
+    })
+    assert workflows_module.cmd_get_profiles(path) == 0
+    data = json.loads(capsys.readouterr().out)["profiles"]
+    assert data["low"]["tuning"]["authoring"]["model"] == "sonnet"
+    assert data["low"]["tuning"]["authoring"]["effort"] is None
+
+
+@pytest.mark.parametrize("profiles, marker", [
+    ({"turbo": {}}, "INVALID:profile-level:turbo"),
+    ({"low": []}, "INVALID:profile-entry:expected-mapping:low"),
+    ({"low": {"tuning": {"nope": "sonnet"}}},
+     "INVALID:profile-tuning-unknown-group:low:nope"),
+    ({"low": {"tuning": {"authoring": "sonnet / high / extra"}}},
+     "INVALID:profile-tuning-bad-value:low:authoring"),
+    ({"low": {"step-preset": "nope"}},
+     "INVALID:profile-step-preset-unknown:low:nope"),
+    ({"low": {"step-preset": "minimal", "skip": ["a"]}},
+     "INVALID:profile-step-preset-and-skip:low"),
+    ({"low": {"skip": ["nope"]}},
+     "INVALID:profile-skip-unknown-optional:low:nope"),
+    ({"low": {"team-mode": "duo"}},
+     "INVALID:profile-team-mode:low:duo"),
+    ({"low": {"caps": {"Bad-Name": 3}}},
+     "INVALID:profile-cap-name:low:Bad-Name"),
+    ({"low": {"caps": {"max_fix_attempts": 0}}},
+     "INVALID:profile-cap-not-positive-int:low:max_fix_attempts"),
+    ({"low": {"caps": {"max_fix_attempts": "three"}}},
+     "INVALID:profile-cap-not-positive-int:low:max_fix_attempts"),
+])
+def test_get_profiles_invalid(workflows_module, tmp_path, capsys, profiles, marker):
+    path = _profiles_def(workflows_module, tmp_path, profiles)
+    assert workflows_module.cmd_get_profiles(path) == 2
+    assert marker in capsys.readouterr().err
+
+
+def test_get_profiles_block_not_mapping(workflows_module, tmp_path, capsys):
+    path = _write_def(workflows_module, tmp_path, {"profiles": ["low"]})
+    assert workflows_module.cmd_get_profiles(path) == 2
+    assert "INVALID:profiles-block:expected-mapping" in capsys.readouterr().err
+
+
+# ---- resolve-team --team-mode ----------------------------------------------
+
+def test_resolve_team_solo_collapses_to_lead(workflows_module, tmp_path, capsys):
+    path = _team_def(workflows_module, tmp_path)
+    assert workflows_module.cmd_resolve_team(
+        path, "panel", team_mode="solo") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["mode"] == "single"
+    assert len(data["members"]) == 1
+    assert data["members"][0]["role"] == "architect"
+    assert data["collapsed"] == {"from": 2, "dropped": ["qa-engineer"]}
+    assert "team collapsed to lead (solo mode)" in data["members"][0]["reason"]
+
+
+def test_resolve_team_solo_no_lead_keeps_first_member(
+        workflows_module, tmp_path, capsys):
+    path = _write_def(workflows_module, tmp_path, {}, steps=[
+        {"id": "panel", "type": "prompt", "prompt": "y",
+         "agent": ["architect", "qa-engineer", "product-manager"],
+         "model": "opus", "effort": "high", "depends_on": []},
+    ])
+    assert workflows_module.cmd_resolve_team(
+        path, "panel", team_mode="solo") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["mode"] == "single"
+    assert data["members"][0]["role"] == "architect"
+    assert data["collapsed"]["from"] == 3
+    assert data["collapsed"]["dropped"] == ["qa-engineer", "product-manager"]
+    assert "no declared lead" in data["members"][0]["reason"]
+
+
+def test_resolve_team_solo_noop_on_single(workflows_module, tmp_path, capsys):
+    path = _team_def(workflows_module, tmp_path)
+    assert workflows_module.cmd_resolve_team(
+        path, "solo", team_mode="solo") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["mode"] == "single"
+    assert "collapsed" not in data
+
+
+def test_resolve_team_solo_composes_with_override(
+        workflows_module, tmp_path, capsys):
+    path = _team_def(workflows_module, tmp_path)
+    assert workflows_module.cmd_resolve_team(
+        path, "panel", "sonnet", "high", team_mode="solo") == 0
+    data = json.loads(capsys.readouterr().out)
+    m = data["members"][0]
+    assert (m["model"], m["effort"]) == ("sonnet", "high")
+    assert "run tuning override" in m["reason"]
+    assert data["collapsed"]["from"] == 2
+
+
+def test_resolve_team_full_mode_shape_unchanged(
+        workflows_module, tmp_path, capsys):
+    """Additive-shape guard: full mode must not grow a `collapsed` key."""
+    path = _team_def(workflows_module, tmp_path)
+    assert workflows_module.cmd_resolve_team(path, "panel") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["mode"] == "team"
+    assert "collapsed" not in data
+    assert set(data) == {"mode", "lead", "members", "errors"}
+
+
+def test_get_profiles_tolerates_malformed_sibling_blocks(
+        workflows_module, tmp_path, capsys):
+    """A non-mapping `tuning:` / `step-select:` must not traceback —
+    it means "no known ids", so a profile referencing a group comes
+    back as the matching INVALID instead of a crash."""
+    path = _write_def(workflows_module, tmp_path, {
+        "tuning": ["not", "a", "mapping"],
+        "step-select": "nope",
+        "profiles": {"low": {"tuning": {"authoring": "sonnet"}}},
+    })
+    assert workflows_module.cmd_get_profiles(path) == 2
+    assert "INVALID:profile-tuning-unknown-group:low:authoring" in capsys.readouterr().err
+
+    path2 = _write_def(workflows_module, tmp_path, {
+        "tuning": "nope",
+        "profiles": {"low": {}},
+    })
+    assert workflows_module.cmd_get_profiles(path2) == 0
+    assert json.loads(capsys.readouterr().out)["profiles"]["low"]["tuning"] == {}

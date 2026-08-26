@@ -105,9 +105,12 @@ context bounded.
 `control-mode` is pinned `synchronous`, `worktree` `current`,
 `rename_session` `skip` — the only pre-flight input is the plan-file list
 (required) and an optional free-form `config_prompt`. There are no `ask` /
-`approval` steps, and no tuning questions: every quality / depth dial
-takes its maximum-value default (e.g. the review gate runs at **high**
-effort — five reviewer lenses + a confidence pass). The review↔fix cycle
+`approval` steps, no tuning questions, and no `profiles:` block (this
+workflow stays budget-profile-insensitive for now — a single-plan
+execution has few discretionary dials): every quality / depth dial
+takes its declared default. The review gate is pinned to the medium
+review pass — opus, the 3-lens set (correctness, security, tests) —
+the same per-workflow policy `ticket-auto` pins. The review↔fix cycle
 cap and the CI-fix cap both default to 10 (each overridable from
 `config_prompt`).
 
@@ -119,7 +122,7 @@ cap and the CI-fix cap both default to 10 (each overridable from
 | `split-plans` | `prompt` | Parse `plan_files` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
 | `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. (Per-plan existence is checked inside `process-plans` — a missing plan fails just that plan.) |
 | `process-plans` | `interactive` | The orchestrator — loops the plan list, running the full re-plan→implement→review↔fix→PR→watch pipeline per plan in its own worktree. |
-| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes` — the report also lands in the per-workspace handoff store), verifying the run's claims against `state.yaml`, the per-plan ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-plan roll-up (source plan, branch, worktree path, PR url, verdict, incl. `review=not-converged`) and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
+| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes`, `RETURN=summary` — the full report lands in the per-workspace handoff store; the run conversation gets only the per-section counts + saved path), verifying the run's claims against `state.yaml`, the per-plan ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-plan roll-up (source plan, branch, worktree path, PR url, verdict, incl. `review=not-converged`) and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
 
 The workflow sets `agents: auto`, but most of its work runs inside the
 `process-plans` fragment, which dispatches each phase to a concrete

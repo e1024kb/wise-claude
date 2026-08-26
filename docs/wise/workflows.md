@@ -129,6 +129,18 @@ step-select:                     # optional — stages for the step-select quest
       description: "Skip the lint pass"
       skip: [lint-stage]         # ⊆ optional entry ids
 
+profiles:                        # optional — budget-profile mappings (see § Profiles)
+  low:                           # keys ⊆ {low, medium, max}
+    tuning:                      # tuning-group id → "<model> [/ <effort>]" | "default"
+      authoring: "sonnet / medium"
+    step-preset: quick           # a step-select preset id, or `full` (XOR `skip:`)
+    # skip: [lint-stage]         # alternative: explicit optional-entry ids
+    team-mode: solo              # solo | full — collapse `agent:` teams to the lead
+    caps:                        # positive ints → recorded as cap_<name> outputs,
+      max_fix_attempts: 3        #   consumed by prompts as {{cap_<name>}}
+  medium: {}                     # empty = the workflow's declared defaults (convention)
+  max: { team-mode: full }
+
 steps:
   - id: list-workflows           # unique per workflow; [a-z0-9-]
     type: skill
@@ -683,7 +695,7 @@ pinned answer is logged.
      prompt** (like wave-sync): `ask` steps render, approval gates use
      `AskUserQuestion`, and `interactive` steps may prompt. The run
      flows wave-to-wave on its own and stops only where a step
-     genuinely needs the user's input. Per-step chat output (9d/9e) is
+     genuinely needs the user's input. Per-step chat output (10d/10e) is
      shown, so it is not silent the way synchronous is — it just never
      asks "continue to the next wave?".
 
@@ -723,11 +735,23 @@ in the main TUI *before* the DAG launches, so even a
 them without breaking its no-prompts-after-launch contract. Both
 persist their answers in `state.yaml`, so resume keeps them.
 
-4. **Model/effort tuning (`preflight.tuning`)** — reads the top-level
-   `tuning:` block (`get-tuning`). Two-level UX: one profile question
-   (`Defaults` / `Economy` — sonnet at high for every group / `Custom`),
-   and on Custom one follow-up question per group. Choices are recorded
-   as `tuning_<group-id>` outputs plus a human-readable
+4. **Profile & tuning (`preflight.tuning`)** — reads the top-level
+   `tuning:` + `profiles:` blocks (`get-tuning` / `get-profiles`) and
+   the session budget profile (`profile-get`, set by `/wise-profile`).
+   With a `profiles:` block, ONE question runs: `Budget profile for
+   this run?` — low / medium / max / `Custom (per-step)`, with the
+   stored session profile pre-selected as the Recommended option; a
+   level pick expands the workflow's `profiles[level]` mapping
+   (tuning tiers, a step-preset/skip applied via §5's mechanics,
+   `team_mode`, `cap_<name>` values) and also answers the
+   stage-selection questionary. `Custom` asks model/effort per
+   tunable STEP (recorded as `tuning_step_<step-id>`; advisory-group
+   workflows fall back to per-group), then §5's multiSelect skips,
+   then full-team-vs-solo when a step declares a team. Without a
+   `profiles:` block the legacy two-level flow runs unchanged
+   (`Defaults` / `Economy` / `Custom` per group). Choices are recorded
+   as `run_profile`, `tuning_<group-id>` / `tuning_step_<step-id>`,
+   `team_mode`, `cap_<name>` outputs plus a human-readable
    `tuning_summary`. A group **with** a `steps:` list is applied at
    dispatch — the conductor passes
    `resolve-team --model <m> --effort <e>`, which overrides the step's
@@ -738,13 +762,38 @@ persist their answers in `state.yaml`, so resume keeps them.
    binds its per-phase models inside `process-tickets`).
 
 5. **Stage selection (`preflight.step-select`)** — reads the top-level
-   `step-select:` block (`get-step-select`). One preset question
-   (`Full` / declared presets / `Custom`), and on Custom one
-   multiSelect question per `ask-group` listing stages to skip.
+   `step-select:` block (`get-step-select`). Skipped entirely when a
+   profile level already applied its step-preset/skip (see 4). One
+   preset question (`Full` / declared presets / `Custom`), and on
+   Custom one multiSelect question per `ask-group` listing entries to
+   skip — bundled workflows author entries per-STEP (an entry id that
+   IS a step id needs no `steps:` list), so Custom is per-step
+   granularity.
    Deselected stages have their steps **pre-marked `skipped` in run
    state** before the first wave; downstream consolidation steps must
    use `trigger-rule: none-failed` so user-skipped dependencies don't
    skip-propagate through the DAG (see the trigger-rule list above).
+
+### Profiles
+
+The optional top-level `profiles:` block maps each budget level
+(`low` / `medium` / `max` — the `/wise-profile` vocabulary) to
+workflow-specific settings: `tuning` values per group, a
+`step-preset` (or explicit `skip` list), a `team-mode`
+(`solo` collapses every `agent:`-list team to its lead via
+`resolve-team --team-mode solo`, which returns an additive
+`collapsed: {from, dropped}` key), and `caps` (positive integers
+recorded as `cap_<name>` outputs and consumed by prompts as
+`{{cap_<name>}}` — e.g. `process-tickets.md`'s fix/review-cycle
+caps). Convention: `medium: {}` — an empty mapping means "the
+workflow's declared defaults", so a run that never touches the
+questionary behaves exactly as authored. Profiles scale token budget
+ONLY (model tiers, optional-step scope, team size, caps) — never
+correctness rules; `validate_repo.py` runs `get-profiles` over every
+bundled workflow so schema errors fail CI, and at run time an invalid
+block degrades to the legacy flow with a `WARN:` (never a blocked
+run). Dispatch precedence: `tuning_step_<sid>` > `tuning_<gid>` >
+declared pins.
 
 ### Why pin
 

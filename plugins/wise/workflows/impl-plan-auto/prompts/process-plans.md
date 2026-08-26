@@ -300,7 +300,8 @@ may override it). Set `CYCLE=0`. Loop:
    `findings_file=$UNITS_DIR/$BR.findings.md`, `ticket_ref=<slug>` (from §1, the
    plan slug stands in as the change's ref), `plan_path=$PLAN_PATH` (from §1),
    and `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
-   `origin/<base>..HEAD` (five lenses + confidence-scoring), WRITES its bounded
+   `origin/<base>..HEAD` (the pinned medium review pass — opus, the
+   3-lens set; pass **`profile=medium`**), WRITES its bounded
    findings as a numbered block to `findings_file`, applies nothing, and returns
    `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> findings_file=<path>`.
    Keeping the findings in the file (not pasted into this conductor's context each
@@ -375,6 +376,9 @@ Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
 and follow it." with `pr_number=<n>`, `pr_url=<url>`,
 `current_branch=<branch>`, `project.path=$WT`,
 `max_fix_attempts=$MAX_FIX_ATTEMPTS` (resolved up front),
+`dispatch_mode=inline` (this watch loop already runs inside a Task
+subagent — subagents cannot spawn subagents, so the queue handlers
+must run inline; the explicit pin documents the constraint),
 `ticket_ref=<slug>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
 `config_prompt={{config_prompt}}`. It watches CI, auto-fixes failures,
 waits for CodeRabbit / Copilot to finish reviewing, fixes or dismisses

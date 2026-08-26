@@ -17,23 +17,28 @@ worktree — fully autonomously, no prompts.
   per-ticket phase below so the guidance reaches the actual work; never
   prompt the user about anything it implies — predict the answer and
   proceed, taking the max-value option for anything it leaves open.
-- `tuning.plan` / `tuning.implement` / `tuning.review` / `tuning.watch`
-  — the operator's pre-flight model/effort choice per phase group, one
-  structured value each (recorded by the conductor's tuning
-  questionary). A value of the form `<model> / <effort>` (e.g.
-  `sonnet / high`) is BINDING: dispatch that phase's `Task` subagents
-  with that `model:` and effort directive instead of the defaults
-  written at each phase below. A value of `default`, empty, or a raw
-  un-rendered `{{…}}` placeholder → the written defaults stand for
-  that phase.
+- `tuning.plan` / `tuning.implement` / `tuning.watch` — the operator's
+  pre-flight model/effort choice per phase group, one structured value
+  each (recorded by the conductor's profile/tuning questionary). A
+  value of the form `<model> / <effort>` (e.g. `sonnet / high`) is
+  BINDING: dispatch that phase's `Task` subagents with that `model:`
+  and effort directive instead of the defaults written at each phase
+  below. A value of `default`, empty, or a raw un-rendered `{{…}}`
+  placeholder → the written defaults stand for that phase. The REVIEW
+  phase has no tuning value on purpose — its gate is pinned (§4).
+- `cap.max_fix_attempts` / `cap.max_review_cycles` — optional cap
+  overrides recorded by the profile questionary. A positive integer is
+  BINDING at the head of the precedence chain below; empty or a raw
+  un-rendered `{{…}}` placeholder → not set.
 - `project.path` — absolute path to the base repo.
 - `project.name`, `project.kind`, `run.dir`, `workflow.dir` — run context.
 
-Resolve the CI-fix cap once, up front: `MAX_FIX_ATTEMPTS` = the value
-`config_prompt` names if it specifies one (e.g. "cap CI fixes at 4"),
-else the default **10**. Pass it to the watch phase (§8). Resolve the
-per-phase model/effort table from `tuning` in the same breath, so every
-phase dispatch below reads from one resolved table.
+Resolve the CI-fix cap once, up front — precedence:
+`cap.max_fix_attempts` when it carries a positive integer, else the
+value `config_prompt` names if it specifies one (e.g. "cap CI fixes at
+4"), else the default **10**. Pass it to the watch phase (§8). Resolve
+the per-phase model/effort table from `tuning` in the same breath, so
+every phase dispatch below reads from one resolved table.
 
 ## Context-budget rule (read first)
 
@@ -281,16 +286,20 @@ The implement phase already ran the simplify pass on each task commit. Now —
 before anything is pushed — converge the branch through an **independent
 reviewer and fixer**, cycling until the reviewer is satisfied.
 
-Resolve `MAX_REVIEW_CYCLES` up front (default **10**; `config_prompt` may
-override it). Set `CYCLE=0`. Loop:
+Resolve `MAX_REVIEW_CYCLES` up front — precedence:
+`cap.max_review_cycles` when it carries a positive integer, else a
+`config_prompt` override, else the default **10**. Set `CYCLE=0`. Loop:
 
 1. **Review.** Dispatch a `Task` subagent — `subagent_type:
    wise:code-reviewer`, `model: opus`, reason at **high** effort — : "Read
    `{{workflow.dir}}/prompts/review-branch-auto.md` and follow it." with
-   `worktree=$WT`, **`fixer=delegate`**, `findings_file=$UNITS_DIR/$BR.findings.md`,
+   `worktree=$WT`, **`fixer=delegate`**, **`profile=medium`** (the review
+   gate is pinned to the medium pass — opus, the 3-lens set — at every
+   budget profile; it never follows the run's profile),
+   `findings_file=$UNITS_DIR/$BR.findings.md`,
    `ticket_ref=<ticket_ref>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
    `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
-   `origin/<base>..HEAD` (five lenses + confidence-scoring), WRITES its bounded
+   `origin/<base>..HEAD` (the 3-lens set), WRITES its bounded
    findings as a numbered block to `findings_file`, applies nothing, and returns
    `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> findings_file=<path>`.
    Keeping the findings in the file (not pasted into this conductor's context each
@@ -357,10 +366,17 @@ wise's own panel instead. Checkpoint `last_phase=review-requested`.
 ### 8. Watch + fix
 
 Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
-`model: sonnet` — : "Read `{{workflow.dir}}/prompts/watch-pipelines-auto.md`
+model/effort = the resolved `tuning.watch` value from the per-phase
+table built at the top of this fragment (default `model: sonnet`, no
+effort directive when `tuning.watch` is `default`/empty/an
+un-rendered `{{…}}` placeholder) — : "Read
+`{{workflow.dir}}/prompts/watch-pipelines-auto.md`
 and follow it." with `pr_number=<n>`, `pr_url=<url>`,
 `current_branch=<branch>`, `project.path=$WT`,
 `max_fix_attempts=$MAX_FIX_ATTEMPTS` (resolved up front),
+`dispatch_mode=inline` (this watch loop already runs inside a Task
+subagent — subagents cannot spawn subagents, so the queue handlers
+must run inline; the explicit pin documents the constraint),
 `ticket_ref=<ticket_ref>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
 `config_prompt={{config_prompt}}`. It watches CI,
 auto-fixes failures, waits for CodeRabbit / Copilot to finish

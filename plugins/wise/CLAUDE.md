@@ -53,6 +53,13 @@ Current actions (all standalone):
 - `/wise-workflow-status` — inspect runs in the current workspace.
 - `/wise-workflow-remove` — delete a user workflow definition.
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
+- `/wise-profile` — set the session's token-budget profile
+  (`low|medium|max`, default `medium` = the standard behavior). Stored
+  per session; profile-sensitive skills (`wise-code-review-auto`,
+  `wise-pr-watch-auto`, the workflow conductor) read it via
+  `references/profile-read.md` and degrade silently to `medium`.
+  Budget only — model tiers, optional-step scope, panel size, retry
+  caps; NEVER correctness rules.
 - `/wise-fork` — reorient a forked session. Inherited context becomes
   read-only background; every in-flight task, plan, and promise from
   before the fork is dropped (the original session owns them);
@@ -192,13 +199,14 @@ plugins/wise/
 │   ├── subject-drafting.md         # Conventional-Commits scope / type / subject rules
 │   ├── branch-naming.md            # the ticket = branch-name rule
 │   ├── init-check.md               # shared init-registry fast-path protocol
+│   ├── profile-read.md             # session token-budget profile read (silent degrade to medium); read by profile-sensitive skills
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
 │   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report + the ticket-auto / impl-plan-auto report steps)
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by supervised-prompt + /wise-supervise
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
 │   ├── grill/                      # the subject-understanding routines (context sweep + gap analysis + blueprint schema) — read by /wise-grill (any subject), ticket-plan, ticket-auto (tickets)
-│   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
+│   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode, comment-surfaces, sonar-fetch) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
 └── skills/
     ├── wise/SKILL.md               # natural-language helper (bare catalog + intent classifier)
     ├── wise-init/SKILL.md          # dep-install wizard
@@ -213,6 +221,7 @@ plugins/wise/
     ├── wise-prd-architect/           # model-invoked PRD authoring (SKILL.md + agents/ + references/)
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
     ├── wise-feedback/SKILL.md       # file a feedback issue
+    ├── wise-profile/SKILL.md        # session token-budget profile (low|medium|max; budget only, never correctness)
     ├── wise-fork/SKILL.md           # reorient a forked session (context = background; pre-fork work dropped)
     ├── wise-report/SKILL.md         # verified session status report (ref-coded, evidence-tagged; --full / --save)
     ├── wise-insights-mine/SKILL.md  # self-improvement loop: mine sessions → draft skills
@@ -328,7 +337,15 @@ one-liners below are the rule, not the argument for it.
   pass (`/wise-report --save` today; any `SAVE=yes` caller of
   `references/report-pass.md`), a per-workspace sibling of the runs
   tree (same slug, same XDG rules), kept off-tree for the same
-  reasons as run state.
+  reasons as run state; and
+  (e) the **session profile store** under
+  `~/.local/share/wise/profile/<session-id>` — one word
+  (`low|medium|max`) written atomically by `/wise-profile`
+  (`workflows.py profile-set`), read via
+  `references/profile-read.md` / `profile-get` with silent
+  degradation to `medium`, and GC'd opportunistically (files from
+  sessions older than 30 days) on each write. Routed through
+  `wise_data_root()`.
   New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `scripts/workflows.py` — never
@@ -420,6 +437,7 @@ one-liners below are the rule, not the argument for it.
   `references/pr/` PR/commit fragments (`draft-body.md`, `ensure-pr.md`,
   `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
   the `handle-*.md` queue handlers, `paged-bulk-mode.md`,
+  the shared `comment-surfaces.md` / `sonar-fetch.md` fetch spines,
   `commit-from-fix.md`, read by the `wise-pr-*` skills and the
   `ticket-auto` workflow) — has a single home there, addressed as
   `${CLAUDE_PLUGIN_ROOT}/references/<file>.md` and read at run time.

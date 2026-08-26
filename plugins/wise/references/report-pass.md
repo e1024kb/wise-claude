@@ -33,6 +33,16 @@ then reports, with evidence attached and unproven claims labelled.
 - `SAVE` - `yes` or `no` (default `no`). Controls whether §4 also
   writes the report to the per-workspace handoff store and prints
   its path.
+- `RETURN` - `full` (default) or `summary`. Controls what §4 prints
+  to the caller's conversation. `full` - the whole rendered report,
+  as today. `summary` - only the report H1, one line per section
+  with its item count (`Done: 4 · Not done: 1 · Plan: 2 · ...`),
+  and the `Saved:` path line; the complete report exists only in
+  the handoff file, so `RETURN=summary` requires `SAVE=yes`
+  (a caller passing `RETURN=summary SAVE=no` is an authoring error -
+  treat it as `RETURN=full`). Meant for workflow report steps whose
+  full text would otherwise sit in the conductor context for the
+  rest of the run.
 
 No other inputs. The routine reads everything else from the live
 context and the probes below.
@@ -171,6 +181,14 @@ Sources: git, gh, workflows, .remember | skipped: <list or none>
 each item add 1-3 indented lines of context and a short proof
 excerpt (a log line, a diff stat, a PR check name). Same structure,
 same refs either way.
+
+**Printing by `RETURN`:** `full` - print the whole rendered report.
+`summary` - build the full report (MODE still governs the handoff
+file's detail), but print only: the H1 line, one line of per-section
+counts (`Done: <n> · Not done: <n> · Plan: <n> · Questions: <n> ·
+Leftovers: <n> · Postponed: <n> · Risks: <n>`), and the `Saved:`
+line from §4's write. The final `REPORT:` line (§5) is emitted
+either way.
 
 **`SAVE=yes`:** after printing, write the exact same report as
 markdown to the per-workspace handoff store:

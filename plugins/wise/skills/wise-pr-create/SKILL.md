@@ -211,3 +211,4 @@ Watch pipelines + comments with:
 - Never draft the body freehand — the `wise-human-writing` read that
   `draft-body.md` §5 mandates is part of the procedure, not optional
   polish.
+- Profile-insensitive by design: the session token-budget profile (`/wise-profile`) does not change this skill — one mechanical drafting pass; nothing to scale.

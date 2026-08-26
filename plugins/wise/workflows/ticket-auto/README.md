@@ -95,19 +95,23 @@ keep the step's context bounded.
 
 `control-mode` is pinned `synchronous`, `worktree` `current`,
 `rename_session` `skip` — pre-flight collects the ticket list
-(required), an optional free-form `config_prompt`, and one
-**model/effort tuning questionary** (`tuning: prompt`): a single
-profile question — `Defaults` (opus/high plan, opus/high
-implement+fix and review, sonnet watch), `Economy` (sonnet at high
-everywhere), or `Custom` per phase group (plan / implement / review /
-watch). The groups are advisory (the phases dispatch inside
+(required), an optional free-form `config_prompt`, and one **budget
+profile question** (`tuning: prompt` + the `profiles:` block):
+**low** (sonnet plan/implement/watch, fix cap 3, review-cycle cap 2,
+solo teams), **medium** (the declared defaults — opus/high plan and
+implement+fix, sonnet watch), **max** (opus/high across phases), or
+**Custom** per phase group (plan / implement / watch). The session
+profile set by `/wise-profile` pre-answers it as the Recommended
+option. The groups are advisory (the phases dispatch inside
 `process-tickets`, not at the step level), so the choices reach the
-orchestrator as per-group `tuning_<group>` outputs, which every phase
-treats as binding. After launch there are no `ask` / `approval` steps and no
-further questions: every quality / depth dial takes its maximum-value
-default (e.g. the review gate runs at **high** effort — five reviewer
-lenses + a confidence pass). The review↔fix cycle cap and the CI-fix
-cap both default to 10 (each overridable from `config_prompt`).
+orchestrator as per-group `tuning_<group>` (+ `cap_<name>`) outputs,
+which every phase treats as binding. The **review gate is pinned at
+every profile**: the medium review pass — opus, the 3-lens set
+(correctness, security, tests) — never follows the budget down or up,
+so it has no tuning group and is never asked. After launch there are
+no `ask` / `approval` steps and no further questions. The review↔fix
+cycle cap and the CI-fix cap default to 10; precedence: profile
+`cap_*` value → `config_prompt` override → 10.
 
 ## Steps
 
@@ -119,7 +123,7 @@ cap both default to 10 (each overridable from `config_prompt`).
 | `ensure-access` | `prompt` | Verify every ticket's tracker is actually reachable (MCP / CLI / public URL). Emits a final `ACCESS: ok` / `ACCESS: blocked` line whose verdict is captured into `access_status` (value `ok` or `blocked`, from the `until:` regex group); on `blocked` it first prints the per-tracker fix. Never plans from invented ticket content. `model: sonnet`. |
 | `gate-access` | `bash` | Hard stop: exits non-zero with an actionable ERROR when `access_status != ok`, so a `blocked` outcome halts the run before any worktree / branch / plan / PR — the detailed fixes stay surfaced in-chat from `ensure-access`. |
 | `process-tickets` | `interactive` | The orchestrator — loops the ticket list, running the full plan→implement→review↔fix→PR→watch pipeline per ticket in its own worktree. |
-| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes` — the report also lands in the per-workspace handoff store), verifying the run's claims against `state.yaml`, the per-ticket ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-ticket roll-up (branch, worktree path, PR url, verdict, incl. `review=not-converged`), blueprint pointers, and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
+| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes`, `RETURN=summary` — the full report lands in the per-workspace handoff store; the run conversation gets only the per-section counts + saved path), verifying the run's claims against `state.yaml`, the per-ticket ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-ticket roll-up (branch, worktree path, PR url, verdict, incl. `review=not-converged`), blueprint pointers, and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
 
 The workflow sets `agents: auto`, but most of its work runs inside the
 `process-tickets` fragment, which dispatches each phase to a concrete
@@ -199,7 +203,7 @@ before giving up.
 out / errors / is rate-limited, CodeRabbit is bypassed / gives up — the
 phase does not park the PR for a human. It runs the local review
 fallback (`prompts/review-fallback-auto.md`), which drives the same
-high-depth 5-lens panel as `/wise-code-review-auto` over the branch
+reviewer panel as `/wise-code-review-auto` over the branch
 diff, commits and pushes what it finds, posts one audit comment naming
 the bot it stood in for, and lets the run keep going to green and merge.
 The verdict records both halves (`copilot=stuck reason=…`,
@@ -262,12 +266,13 @@ reason=stability-capped`) and leaves the green PR open for a human.
 
 ```
 /wise-workflow-run ticket-auto
-# Bare: pre-flight asks the model/effort profile (one click for
-# Defaults) and the ticket list (config_prompt is optional and skipped).
+# Bare: pre-flight asks the budget profile (one click keeps the
+# session profile / medium) and the ticket list (config_prompt is
+# optional and skipped).
 
 /wise-workflow-run ticket-auto PROJ-1,PROJ-2
-# Two tickets. Comma-separated, NO spaces. Max-value defaults; the only
-# question is the pre-flight tuning profile, then fully unattended.
+# Two tickets. Comma-separated, NO spaces. The only question is the
+# pre-flight budget profile, then fully unattended.
 
 /wise-workflow-run ticket-auto ENG-42 prefer the design-system lib; never touch infra/*; cap CI fixes at 4
 # One ticket + free-form config_prompt (everything after the first token).

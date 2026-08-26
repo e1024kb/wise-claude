@@ -212,3 +212,32 @@ def test_find_runs_by_session_reports_fresh_failed_run(
     assert run_id == "run-failed"
     assert status == "failed"
     assert freshness == "fresh"
+
+
+def test_profile_outputs_roundtrip_and_render(workflows_module, wise_env, tmp_path, capsys):
+    """Profile-questionary outputs (run_profile / tuning_step_* / team_mode /
+    cap_*) persist through record-output and render as {{...}} templates —
+    including a name derived from a hyphenated step id."""
+    def_path = _def_yaml(workflows_module, tmp_path)
+    run_dir = tmp_path / "run-p"
+    ctx = json.dumps({"claude_session_id": "sess-p", "session_label": "run-p_demo"})
+    assert workflows_module.cmd_init_state(str(def_path), str(run_dir), "run-p", ctx) == 0
+    state_path = str(run_dir / "state.yaml")
+
+    for name, value in (
+        ("run_profile", "low"),
+        ("tuning_step_gap_analysis", "sonnet / high"),
+        ("team_mode", "solo"),
+        ("cap_max_review_cycles", "2"),
+    ):
+        assert workflows_module.cmd_record_output(state_path, name, value) == 0
+    capsys.readouterr()
+
+    state = workflows_module.load_yaml(run_dir / "state.yaml")
+    assert state["outputs"]["run_profile"] == "low"
+    assert state["outputs"]["cap_max_review_cycles"] == "2"
+
+    assert workflows_module.cmd_render(
+        "p={{run_profile}} t={{tuning_step_gap_analysis}} c={{cap_max_review_cycles}}",
+        state_path) == 0
+    assert capsys.readouterr().out.strip() == "p=low t=sonnet / high c=2"

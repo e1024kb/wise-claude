@@ -354,3 +354,4 @@ Commit with:
 - **Never reach for `xclip` / `wl-copy` / other clipboard backends.**
   `pbcopy` is the only supported clipboard integration; on
   non-macOS, report the skip and let the user copy manually.
+- Profile-insensitive by design: the session token-budget profile (`/wise-profile`) does not change this skill — read-only drafting; correctness territory profiles MUST never touch.

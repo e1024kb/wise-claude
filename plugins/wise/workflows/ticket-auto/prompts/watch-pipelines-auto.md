@@ -35,6 +35,25 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 - `project.path` — absolute path to the repo working tree (a ticket
   worktree, when called from `ticket-auto`).
 - `max_fix_attempts` — cap on commit-producing fix rounds (default 10).
+- `profile` — **optional** `low` / `medium` (default) / `max` — the
+  session token-budget level. It scales only: the §4c review-fallback
+  panel depth (passed through as `profile`) and the model tier the fix
+  subagent prompts request at `low` (prefer sonnet-grade focus). It
+  never changes the loop's gates, verdicts, or merge rules.
+- `dispatch_mode` — **optional** `inline` (default) / `task`. How the
+  §5 bot-comment queue and the Sonar-issues section execute their
+  handlers. `inline` = read the handler file and follow it in THIS
+  conversation (the only option when this loop itself already runs
+  inside a Task subagent — subagents cannot spawn subagents, so
+  `process-tickets` / `process-plans` pin `inline`). `task` = dispatch
+  each handler to a fresh `Task` subagent that reads its own handler
+  file, does the whole phased job (fetch → fix → commit → reply/resolve
+  → push) in the shared worktree, and returns ONLY its terminal verdict
+  line — keeping the handler prose and per-comment churn out of this
+  conversation, which is re-sent every loop turn. `/wise-pr-watch-auto`
+  (conductor-level) passes `task`. The §4c review fallback is ALWAYS
+  inline regardless of this input — it dispatches the reviewer panel
+  itself and Task calls cannot nest.
 - `base` — **optional** override for the PR's base branch. When absent,
   §4c resolves it from the PR itself and fails closed if it cannot — it
   never lets the review pass fall back to the repo default, which would
@@ -465,13 +484,15 @@ lookup is not retried on every loop iteration.
 
 **Run it.** With a resolved `BASE`, set `FALLBACK_SHA="$HEAD_SHA"` and
 `FALLBACK_RUNS=$((FALLBACK_RUNS + 1))` (before dispatching, so a failure
-cannot loop), then read
+cannot loop), then — ALWAYS inline, whatever `dispatch_mode` says (this
+fragment dispatches the reviewer panel itself; Task cannot nest) — read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-fallback-auto.md`
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `stuck_bots=<bot>:<reason>[,<bot>:<reason>]` (built from
 the states above), `base=$BASE` (the **resolved** value, never the
 caller's possibly-unset `base`), and `ticket_ref` / `plan_path` /
-`config_prompt` when supplied.
+`config_prompt` when supplied, plus `profile` (the caller's level,
+default `medium`) for the substitute panel's depth.
 
 On **either** `ran` outcome, add the line's `applied=<n>` to
 `FALLBACK_APPLIED` (`FALLBACK_APPLIED=$((FALLBACK_APPLIED + <n>))`).
@@ -480,11 +501,12 @@ run reports its findings on the `committed=yes` line — accumulating only
 on `committed=no` would report `applied=0` for a fallback that fixed
 things. §8 reports the run-wide total, not the last run's.
 
-That fragment runs the same high-depth review as
-`/wise-code-review-auto` (`review-branch-auto.md` with `fixer=self` — 5
-lenses over `origin/<BASE>..HEAD`), commits what it finds, pushes, and
+That fragment runs the same review as `/wise-code-review-auto`
+(`review-branch-auto.md` with `fixer=self` over `origin/<BASE>..HEAD`,
+sized by `profile` — 3 lenses at low/medium, 5 lenses + a
+confidence-scoring pass at max), commits what it finds, pushes, and
 posts one audit comment naming the bot it stood in for. It reports
-`depth=panel` when it could dispatch the five reviewer subagents and
+`depth=panel` when it could dispatch the parallel reviewer subagents and
 `depth=inline` when the caller has no `Task` tool and it worked the
 lenses sequentially instead — carry that value onto the §8 verdict so
 the report never implies a panel that did not run. Capture its
@@ -514,12 +536,32 @@ the gate only cares that no bot is stuck *and* uncovered.
 
 For each bot that actually **reviewed** `HEAD_SHA` in §4 — Copilot when
 `COPILOT_STATE=reviewed`, then CodeRabbit when `CODERABBIT_STATE=reviewed`
-— read
+— run
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/handle-bot-reviews-auto.md`
-and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
+with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `bot_filter`, `bot_display_name`
 (`Copilot` / `CodeRabbit`), `head_sha=$HEAD_SHA`, and `ticket_ref` /
-`plan_path` / `config_prompt` when supplied.
+`plan_path` / `config_prompt` when supplied — by `dispatch_mode`:
+
+- **`inline`** (default): Read the handler file and follow it end to
+  end in this conversation, exactly as before.
+- **`task`**: dispatch ONE `Task` subagent — `subagent_type:
+  wise:software-engineer`, `model: sonnet` — with the prompt: "Read
+  `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/handle-bot-reviews-auto.md`
+  and follow it end to end with: <the context lines above, values
+  filled in — the payload must be self-sufficient; the subagent has no
+  memory of this loop and re-fetches all comment state from GitHub>.
+  Your final message must END with the handler's `BOT-REVIEWS-AUTO:`
+  verdict line." Capture ONLY that verdict line into the loop's state;
+  do not restate the subagent's transcript. Then refresh
+  `HEAD_SHA="$(git rev-parse HEAD)"` — the handler commits and pushes
+  inside the subagent, so the loop's head moved without it observing
+  the intermediate steps. Queues run strictly sequentially (never two
+  handler subagents at once — they share the worktree). If the
+  dispatch itself errors (the subagent dies without a verdict line),
+  treat that bot's queue as `unchecked reason=dispatch-failed` for
+  this iteration and continue — re-dispatch next iteration is safe
+  (handlers re-fetch open threads and skip resolved ones).
 
 A bot whose §4 state is `absent`, `stuck`, `bypassed`, or `gave-up`
 usually produced no review for this head, so there is nothing to handle
@@ -568,10 +610,16 @@ queues, before the merge gate — so the PR ships with **0 open issues**.
 as an `other` check and attempts a real fix. This section is about open
 issues regardless of the check's PASS/FAIL state.)
 
-Read
+Run
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/handle-sonar-issues-auto.md`
-and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
-`project.path`, and `config_prompt` when supplied. It fetches every open
+with `pr_number`, `pr_url`, `current_branch`, `project.path`, and
+`config_prompt` when supplied — by `dispatch_mode`, exactly as §5
+describes (inline = read + follow here; task = one sequential
+`wise:software-engineer` Task whose self-sufficient prompt carries
+those context values, returns only the `SONAR-AUTO:` verdict line,
+then refresh `HEAD_SHA`; a dispatch error → treat this iteration's
+Sonar fetch as blocked, i.e. the `blocked-fetch` postponement path,
+and retry next iteration). It fetches every open
 issue and **Fixes or Accepts (suppresses) each** — there is no Skip.
 Capture its verdict into `SONAR_STATE`:
 

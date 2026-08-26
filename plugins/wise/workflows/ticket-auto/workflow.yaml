@@ -7,7 +7,7 @@ description: >-
   (code-reviewer ⇄ software-engineer), commits, pushes, opens a PR,
   requests review, and watches + fixes CI until the PR is green — end to
   end, with no prompts after launch (pre-flight asks one optional
-  model/effort tuning questionary before autonomy starts). One
+  profile/tuning questionary before autonomy starts). One
   worktree + branch + PR per ticket; a PR
   is merged once all its checks pass — and its worktree + local branch
   are then cleaned up so the base repo stays clean — otherwise it is left
@@ -22,7 +22,7 @@ project-selection: current
 # phase to a concrete roster role brought in FRESH per phase:
 #   - plan      → wise:architect (opus, high)
 #   - implement → wise:software-engineer (opus, high)
-#   - review    → wise:code-reviewer (opus, high) — REVIEWS only
+#   - review    → wise:code-reviewer (opus, medium review pass — 3 lenses; pinned at every profile) — REVIEWS only
 #   - fix       → wise:software-engineer (opus, high) — applies the
 #                 reviewer's findings; the two cycle until the reviewer is
 #                 satisfied (cap 10, config_prompt-overridable; on non-
@@ -42,10 +42,12 @@ agents: auto
 # never asks the user for consent, permission, or a decision. Every
 # choice the interactive ticket-plan flow delegates to the user is made
 # here by the Lead Architect agent instead. The ONE user touchpoint is
-# the pre-flight tuning questionary (`tuning: prompt` below) — it runs
-# in the main TUI before autonomy starts, letting the operator confirm
-# or override the per-phase model/effort defaults; its answers land in
-# run state as per-group `tuning_<group>` outputs and bind every phase.
+# the pre-flight profile/tuning questionary (`tuning: prompt` below) —
+# it runs in the main TUI before autonomy starts: one profile question
+# (low/medium/max from the `profiles:` block, pre-answered by the
+# session profile, with Custom for per-group control); the answers land
+# in run state as `run_profile` + per-group `tuning_<group>` (+
+# `cap_<name>`, `team_mode`) outputs and bind every phase.
 #   control-mode: synchronous — no approval gates, no ask steps.
 #   worktree: current — NOT `new`. Pre-flight `new` would give ONE
 #     worktree for the whole run; this workflow needs one worktree PER
@@ -80,12 +82,37 @@ tuning:
     - id: implement
       label: "Implement + fix phases (software-engineer executors)"
       default: "opus / high"
-    - id: review
-      label: "Review phase (code-reviewer gate)"
-      default: "opus / high"
     - id: watch
       label: "CI watch + fix conductor"
       default: "sonnet"
+  # The REVIEW phase is deliberately NOT a tuning group: the review gate
+  # is pinned to the medium review pass (opus, the 3-lens set — see
+  # references/code-review-pass.md) at every budget profile. It never
+  # follows the run's profile down (quality floor) or up (the gate's
+  # depth is a per-workflow policy, not a budget knob).
+
+# Budget profiles (see docs/wise/workflows.md § Profiles). `medium` = the
+# declared defaults above; `low` trades depth for cost on the phases that
+# tolerate it (never the review gate, never any correctness rule); `max`
+# removes the remaining ceilings.
+profiles:
+  low:
+    tuning:
+      plan: "sonnet / high"
+      implement: "sonnet"
+      watch: "sonnet"
+    # No team-mode here: this workflow's phases dispatch single roster
+    # roles inside process-tickets.md (never through resolve-team), so
+    # a team-mode value would be a silent no-op.
+    caps:
+      max_fix_attempts: 3
+      max_review_cycles: 2
+  medium: {}
+  max:
+    tuning:
+      plan: "opus / high"
+      implement: "opus / high"
+      watch: "sonnet"
 
 inputs:
   - name: ticket_ids
@@ -297,8 +324,9 @@ steps:
         config_prompt:    {{config_prompt}}
         tuning.plan:      {{tuning_plan}}
         tuning.implement: {{tuning_implement}}
-        tuning.review:    {{tuning_review}}
         tuning.watch:     {{tuning_watch}}
+        cap.max_fix_attempts:   {{cap_max_fix_attempts}}
+        cap.max_review_cycles:  {{cap_max_review_cycles}}
         project.path:     {{project.path}}
         project.name:     {{project.name}}
         project.kind:     {{project.kind}}
@@ -337,9 +365,11 @@ steps:
       reading ${CLAUDE_PLUGIN_ROOT}/references/report-pass.md and
       following it end to end with:
 
-        SCOPE = workflow run {{run.id}} (ticket-auto)
-        MODE  = full
-        SAVE  = yes
+        SCOPE  = workflow run {{run.id}} (ticket-auto)
+        MODE   = full
+        SAVE   = yes
+        RETURN = summary   # full report lives in the handoff file;
+                           # only counts + path come back to the run
 
       Claim material for the pass's recall step: the per-ticket
       results table `process-tickets` printed, and the step outputs —
@@ -351,7 +381,8 @@ steps:
       claimed PR's real state with `gh pr view <number>`).
 
       Between the pass's template sections and its final line, append
-      a `## Run specifics` addendum:
+      a `## Run specifics` addendum (with RETURN=summary it lands in
+      the handoff file; the conversation gets only the counts + path):
       - Per ticket: ticket ref, branch, worktree path, PR url, and
         verdict (merged / all-green / partial / exhausted /
         human-intervention / failed); for each PR left open for a

@@ -55,6 +55,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -924,6 +925,176 @@ def cmd_get_step_select(def_path: str) -> int:
     return 0
 
 
+# ---------- get-profiles ----------------------------------------------------
+
+# Cap names become `cap_<name>` outputs consumed as `{{cap_<name>}}`
+# template placeholders — underscores allowed (unlike _SLUG_RE) because
+# the whole name sits after the `cap_` prefix.
+_CAP_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def cmd_get_profiles(def_path: str) -> int:
+    """Emit the workflow's `profiles:` block as JSON for the conductor.
+
+    Schema (top-level in the definition; every field optional, and an
+    empty level mapping means "the workflow's declared defaults" — the
+    `medium` convention):
+
+        profiles:
+          low:
+            tuning:                       # tuning-group id → "<model> [/ <effort>]" | "default"
+              evidence: "sonnet / medium"
+            step-preset: minimal          # a step-select preset id, or `full`
+            # skip: [deep-dive]           # alternative to step-preset (exclusive)
+            team-mode: solo               # solo | full
+            caps:                         # advisory ints the workflow's prompts
+              max_review_cycles: 2        # consume as {{cap_<name>}}
+          medium: {}
+          max: { ... }
+
+    Output: `{"profiles": {"low": {"tuning": {gid: {model, effort, reason} |
+    "default"}, "step-preset"?, "skip": [...], "team-mode"?, "caps": {...}},
+    ...}}` — tuning values come back already resolved through
+    `_resolve_model_dict` (retired-id substitution + effort clamp).
+    `{"profiles": {}}` when the workflow declares no block. Structural
+    errors exit 2 with an `INVALID:` line on stderr, mirroring
+    `get-tuning` — the conductor treats that as "fall back to the legacy
+    questionary", never as a blocked run.
+    """
+    data = load_yaml(Path(def_path))
+    block = data.get("profiles")
+    if block is None:
+        print(json.dumps({"profiles": {}}))
+        return 0
+    if not isinstance(block, dict):
+        print("INVALID:profiles-block:expected-mapping", file=sys.stderr)
+        return 2
+
+    # A malformed sibling block (tuning:/step-select: not a mapping) is
+    # get-tuning's / get-step-select's error to report — here it just
+    # means "no known ids", so a profile referencing one comes back as
+    # the matching INVALID instead of a traceback.
+    tuning_block = data.get("tuning")
+    tuning_block = tuning_block if isinstance(tuning_block, dict) else {}
+    raw_groups = tuning_block.get("groups")
+    tuning_groups = {
+        str(g.get("id") or "")
+        for g in (raw_groups if isinstance(raw_groups, list) else [])
+        if isinstance(g, dict)
+    }
+    ss_block = data.get("step-select")
+    ss_block = ss_block if isinstance(ss_block, dict) else {}
+    raw_optional = ss_block.get("optional")
+    optional_ids = {
+        str(e.get("id") or "")
+        for e in (raw_optional if isinstance(raw_optional, list) else [])
+        if isinstance(e, dict)
+    }
+    raw_presets = ss_block.get("presets")
+    preset_ids = {
+        str(p.get("id") or "")
+        for p in (raw_presets if isinstance(raw_presets, list) else [])
+        if isinstance(p, dict)
+    }
+
+    out: dict[str, dict] = {}
+    for level, entry in block.items():
+        if level not in PROFILE_LEVELS:
+            print(f"INVALID:profile-level:{level}", file=sys.stderr)
+            return 2
+        if entry is None:
+            entry = {}
+        if not isinstance(entry, dict):
+            print(f"INVALID:profile-entry:expected-mapping:{level}",
+                  file=sys.stderr)
+            return 2
+        res: dict = {"tuning": {}, "skip": [], "caps": {}}
+
+        tuning = entry.get("tuning")
+        if tuning is None:
+            tuning = {}
+        if not isinstance(tuning, dict):
+            print(f"INVALID:profile-tuning:expected-mapping:{level}",
+                  file=sys.stderr)
+            return 2
+        for gid, value in tuning.items():
+            if gid not in tuning_groups:
+                print(f"INVALID:profile-tuning-unknown-group:{level}:{gid}",
+                      file=sys.stderr)
+                return 2
+            sval = str(value or "").strip()
+            if sval == "default":
+                res["tuning"][gid] = "default"
+                continue
+            parts = [x.strip() for x in sval.split("/")]
+            model = parts[0] if parts else ""
+            effort = parts[1] if len(parts) > 1 else ""
+            if not model or len(parts) > 2:
+                print(f"INVALID:profile-tuning-bad-value:{level}:{gid}",
+                      file=sys.stderr)
+                return 2
+            rm = _resolve_model_dict(model, effort)
+            res["tuning"][gid] = {
+                "model": rm["model"], "effort": rm["effort"],
+                "reason": rm["reason"],
+            }
+
+        preset = entry.get("step-preset")
+        skip = entry.get("skip")
+        if preset is not None and skip is not None:
+            print(f"INVALID:profile-step-preset-and-skip:{level}",
+                  file=sys.stderr)
+            return 2
+        if preset is not None:
+            preset = str(preset)
+            if preset != "full" and preset not in preset_ids:
+                print(f"INVALID:profile-step-preset-unknown:{level}:{preset}",
+                      file=sys.stderr)
+                return 2
+            res["step-preset"] = preset
+        if skip is not None:
+            if not isinstance(skip, list):
+                print(f"INVALID:profile-skip-not-list:{level}", file=sys.stderr)
+                return 2
+            for oid in skip:
+                if oid not in optional_ids:
+                    print(f"INVALID:profile-skip-unknown-optional:{level}:{oid}",
+                          file=sys.stderr)
+                    return 2
+            res["skip"] = list(skip)
+
+        team_mode = entry.get("team-mode")
+        if team_mode is not None:
+            if team_mode not in ("solo", "full"):
+                print(f"INVALID:profile-team-mode:{level}:{team_mode}",
+                      file=sys.stderr)
+                return 2
+            res["team-mode"] = team_mode
+
+        caps = entry.get("caps")
+        if caps is None:
+            caps = {}
+        if not isinstance(caps, dict):
+            print(f"INVALID:profile-caps:expected-mapping:{level}",
+                  file=sys.stderr)
+            return 2
+        for name, value in caps.items():
+            if not _CAP_RE.match(str(name)):
+                print(f"INVALID:profile-cap-name:{level}:{name}",
+                      file=sys.stderr)
+                return 2
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                print(f"INVALID:profile-cap-not-positive-int:{level}:{name}",
+                      file=sys.stderr)
+                return 2
+            res["caps"][str(name)] = value
+
+        out[level] = res
+
+    print(json.dumps({"profiles": out}, indent=2))
+    return 0
+
+
 # ---------- list-inputs / validate-input -----------------------------------
 
 def cmd_list_inputs(def_path: str) -> int:
@@ -1372,6 +1543,75 @@ def _current_session_id() -> str | None:
     return _synthetic_session_id()
 
 
+PROFILE_LEVELS = ("low", "medium", "max")
+PROFILE_DEFAULT = "medium"
+_PROFILE_GC_SECONDS = 30 * 24 * 3600  # prune sibling files older than 30 days
+
+
+def _profile_dir() -> Path:
+    """Session-profile store: `<wise_data_root>/profile/<session-id>`.
+
+    One word per file (low|medium|max). Documented as state exception (e)
+    in the plugin CLAUDE.md. Routed through `wise_data_root()` so a future
+    relocation stays a one-function change.
+    """
+    return wise_data_root() / "profile"
+
+
+def cmd_profile_set(level: str) -> int:
+    level = level.strip().lower()
+    if level not in PROFILE_LEVELS:
+        print(f"INVALID:profile-level:{level}", file=sys.stderr)
+        return 2
+    sid = _current_session_id()
+    if not sid:
+        print("INVALID:profile-no-session", file=sys.stderr)
+        return 2
+    pdir = _profile_dir()
+    pdir.mkdir(parents=True, exist_ok=True)
+    # Atomic write (same mkstemp + replace pattern as init-registry.py) so
+    # a concurrent reader never sees a partial file.
+    fd, tmp = tempfile.mkstemp(dir=pdir, prefix=".tmp-profile-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(level + "\n")
+        os.replace(tmp, pdir / sid)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    # Opportunistic GC: sessions are ephemeral, so files from long-dead
+    # sessions accumulate. Best-effort — errors are swallowed; reads never
+    # prune (profile-get stays pure and fast).
+    cutoff = time.time() - _PROFILE_GC_SECONDS
+    for entry in pdir.iterdir():
+        with contextlib.suppress(OSError):
+            if entry.name != sid and entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink()
+    print(f"PROFILE: level={level} scope=session session={sid}")
+    return 0
+
+
+def cmd_profile_get() -> int:
+    """Print the session's stored profile level, degrading to the default.
+
+    NEVER exits non-zero for a missing/garbage store — consumers treat any
+    failure as `medium`, so a user who never ran /wise-profile sees zero
+    change and no error noise.
+    """
+    sid = _current_session_id()
+    if sid:
+        try:
+            level = (_profile_dir() / sid).read_text(encoding="utf-8").strip().lower()
+            if level in PROFILE_LEVELS:
+                print(level)
+                return 0
+        except OSError:
+            pass
+    print(PROFILE_DEFAULT)
+    return 0
+
+
 def cmd_current_session_id() -> int:
     sid = _current_session_id()
     if not sid:
@@ -1721,7 +1961,8 @@ def _normalize_member(item) -> dict:
 
 
 def cmd_resolve_team(def_path: str, step_id: str,
-                     model_override: str = "", effort_override: str = "") -> int:
+                     model_override: str = "", effort_override: str = "",
+                     team_mode: str = "full") -> int:
     """Resolve a prompt step's `agent:` into a normalized, model-resolved team.
 
     Reads the step's `agent:` / `model:` / `effort:` from the definition and
@@ -1810,9 +2051,25 @@ def cmd_resolve_team(def_path: str, step_id: str,
             "next_fallback": rm["next_fallback"],
         })
 
-    print(json.dumps(
-        {"mode": mode, "lead": lead, "members": out_members, "errors": errors},
-        indent=2))
+    result: dict = {"mode": mode, "lead": lead, "members": out_members,
+                    "errors": errors}
+    if team_mode not in ("full", "solo"):
+        errors.append(f"--team-mode: unknown value '{team_mode}' (full|solo)")
+    elif team_mode == "solo" and mode == "team" and out_members:
+        # Budget-profile collapse: keep only the lead (declared lead, else
+        # the first member) and demote to a single dispatch. Additive
+        # `collapsed` key so full-mode consumers see an unchanged shape.
+        keep = next((m for m in out_members if m["lead"]), out_members[0])
+        dropped = [m["role"] for m in out_members if m is not keep]
+        note = "team collapsed to lead (solo mode)"
+        if not keep["lead"]:
+            note += "; no declared lead — first member kept"
+        keep["reason"] = f"{keep['reason']}; {note}" if keep["reason"] else note
+        result["mode"] = "single"
+        result["lead"] = keep["role"] if keep["lead"] else None
+        result["members"] = [keep]
+        result["collapsed"] = {"from": len(out_members), "dropped": dropped}
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -2227,6 +2484,7 @@ def main() -> int:
     p = sub.add_parser("get-preflight"); p.add_argument("def_path")
     p = sub.add_parser("get-tuning"); p.add_argument("def_path")
     p = sub.add_parser("get-step-select"); p.add_argument("def_path")
+    p = sub.add_parser("get-profiles"); p.add_argument("def_path")
     p = sub.add_parser("write-log")
     p.add_argument("run_dir")
     p.add_argument("step_id")
@@ -2259,6 +2517,8 @@ def main() -> int:
     p.add_argument("template"); p.add_argument("state_path")
 
     sub.add_parser("current-session-id")
+    p = sub.add_parser("profile-set"); p.add_argument("level")
+    sub.add_parser("profile-get")
     p = sub.add_parser("session-path"); p.add_argument("session_id")
     p = sub.add_parser("session-label")
     p.add_argument("run_id"); p.add_argument("workflow_name")
@@ -2283,6 +2543,8 @@ def main() -> int:
     p.add_argument("def_path"); p.add_argument("step_id")
     p.add_argument("--model", default="", dest="model_override")
     p.add_argument("--effort", default="", dest="effort_override")
+    p.add_argument("--team-mode", default="full", dest="team_mode",
+                   choices=("full", "solo"))
 
     sub.add_parser("list-resumable-runs")
     sub.add_parser("prune-runs")
@@ -2302,6 +2564,7 @@ def main() -> int:
         "get-preflight": lambda: cmd_get_preflight(args.def_path),
         "get-tuning": lambda: cmd_get_tuning(args.def_path),
         "get-step-select": lambda: cmd_get_step_select(args.def_path),
+        "get-profiles": lambda: cmd_get_profiles(args.def_path),
         "write-log": lambda: cmd_write_log(args.run_dir, args.step_id, args.step_run_id),
         "list-inputs": lambda: cmd_list_inputs(args.def_path),
         "validate-input": lambda: cmd_validate_input(args.raw, args.extract, args.validate),
@@ -2314,6 +2577,8 @@ def main() -> int:
         "dump-state": lambda: cmd_dump_state(args.state_path),
         "render": lambda: cmd_render(args.template, args.state_path),
         "current-session-id": lambda: cmd_current_session_id(),
+        "profile-set": lambda: cmd_profile_set(args.level),
+        "profile-get": lambda: cmd_profile_get(),
         "session-path": lambda: cmd_session_path(args.session_id),
         "session-label": lambda: cmd_session_label(args.run_id, args.workflow_name),
         "find-runs-by-session": lambda: cmd_find_runs_by_session(args.session_id),
@@ -2325,7 +2590,7 @@ def main() -> int:
         "resolve-model": lambda: cmd_resolve_model(args.pinned, args.effort),
         "resolve-team": lambda: cmd_resolve_team(
             args.def_path, args.step_id,
-            args.model_override, args.effort_override),
+            args.model_override, args.effort_override, args.team_mode),
         "list-resumable-runs": lambda: cmd_list_resumable_runs(),
         "prune-runs": lambda: cmd_prune_runs(),
         "apply-worktree-include": lambda: cmd_apply_worktree_include(

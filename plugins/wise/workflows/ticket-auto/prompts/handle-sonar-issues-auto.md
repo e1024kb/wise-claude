@@ -26,9 +26,10 @@ an unverified Sonar state, and reminds the operator to set the token.
 
 Sibling fragments this handler reads — `commit-from-fix.md` — lives in
 `${CLAUDE_PLUGIN_ROOT}/references/pr/`. The component-key discovery and
-issue-fetch logic are shared with the interactive
-`references/pr/handle-sonar-issues.md` (§1–§2); read that file's §1–§2
-for the exact `gh` / `curl` / MCP queries and reuse them verbatim.
+issue-fetch logic live in the shared routine
+`${CLAUDE_PLUGIN_ROOT}/references/pr/sonar-fetch.md` (also used by the
+interactive handler); read that file for the exact `gh` / `curl` / MCP
+queries and reuse them verbatim.
 
 ## Procedure
 
@@ -153,14 +154,13 @@ distinction the whole verdict rests on.
 
 #### 1b. Discover the component key + fetch the issues
 
-Follow `handle-sonar-issues.md` §1 (discover `SONAR_KEY` — Sonar bot
+Follow `sonar-fetch.md` §1 (discover `SONAR_KEY` — Sonar bot
 comment `id=<key>`, then `sonar-project.properties`, then `pom.xml`,
 then the `<org>_<repo>` guess) and §2 (fetch — prefer a
 `mcp__*sonar*__*` tool, else `$SONAR_TOKEN`-authenticated curl, else
 anonymous curl) exactly. The issues-search endpoint is authoritative —
 do **not** run separate sanity-check probes against the key (see that
-file's §2 + Guardrails for why a `components/show` 404 must not gate the
-result).
+file's §2 for why a `components/show` 404 must not gate the result).
 
 Two facts from §1 decide the outcome together with the fetch: whether
 §1a found any footprint (`NO_FOOTPRINT`), and whether the key is real
@@ -171,9 +171,11 @@ bot comment's `id=<key>`, `sonar-project.properties` /
 `.sonarcloud.properties`, `pom.xml`, or Gradle config - that is,
 `SONAR_KEY_GUESSED` is unset.
 
-Decide one outcome:
+Decide one outcome (`sonar-fetch.md` §2 now returns `NOT_FOUND` as its
+own bucket, distinct from generic `FETCH-FAIL`, precisely so this step
+can tell the two apart):
 
-- **404 / "component not found"** - the project does not exist. With
+- **`NOT_FOUND`** ("component not found") - the project does not exist. With
   `NO_FOOTPRINT=true` that is the positive proof §1a wanted → go to §5,
   emit `SONAR-AUTO: not-configured`. With a footprint present it means
   the key is wrong, not that Sonar is missing → §4, emit
@@ -183,12 +185,36 @@ Decide one outcome:
   fetch just corrected it; handle the issues normally.
 - **OK (0 issues), corroborated key** - genuinely clean → go to §5,
   emit `SONAR-AUTO: all-clear`.
-- **OK (0 issues), guessed key** - untrustworthy: the guess may have
-  hit a stale, renamed, or unrelated empty project in the same org, and
-  an anonymous (unauthenticated) query can return an empty page instead
-  of a 404 for a project it cannot see. Never `all-clear`, never
-  `not-configured` → §4, emit
-  `SONAR-AUTO: blocked-fetch reason=key-unresolved`.
+- **OK (0 issues), guessed key** - untrustworthy on its own: the guess
+  may have hit a stale, renamed, or unrelated empty project, and an
+  **anonymous** issues-search returns `200` / `total: 0` for ANY
+  unknown key (verified empirically — it never 404s without auth), so
+  this cell is exactly where a no-Sonar repo lands and `NOT_FOUND`
+  cannot save it. Disambiguate with one **existence probe** — the one
+  endpoint that 404s reliably without auth:
+
+  ```bash
+  PROBE=$(curl -s -o /dev/null -w "%{http_code}" \
+    "https://sonarcloud.io/api/measures/component?component=$SONAR_KEY&metricKeys=ncloc")
+  ```
+
+  - `PROBE=404` **and** `NO_FOOTPRINT=true` → the guessed project does
+    not exist and the repo carries no Sonar footprint anywhere — that
+    is the positive proof §1a wanted → §5, emit
+    `SONAR-AUTO: not-configured`.
+  - `PROBE=404` with a footprint present → the key is wrong, not Sonar
+    missing → §4, `SONAR-AUTO: blocked-fetch reason=key-unresolved`.
+  - `PROBE=200` → a project with the guessed key exists, but nothing
+    corroborates that it is THIS repo's project → §4,
+    `SONAR-AUTO: blocked-fetch reason=key-unresolved` (never
+    `all-clear` off an uncorroborated key).
+  - anything else (network, 5xx) → §4, `blocked-fetch` — an unreadable
+    answer is never absence.
+
+  Scope guard: this probe exists ONLY to resolve the guessed-key
+  ambiguity in this cell. It never vetoes a **corroborated** key's
+  issues-search result — the pre-2.6.3 sanity-check deadlock rule in
+  `sonar-fetch.md` §2 still stands.
 - **AUTH-FAIL** (401 / 403, or `$SONAR_TOKEN` unset on a private
   project) / **FETCH-FAIL** (network / MCP error) → §4. An unreadable
   answer is never absence.

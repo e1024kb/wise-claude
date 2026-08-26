@@ -137,22 +137,34 @@ pre-flight all we have is the run ULID; the rename is folded into the
 
 All configuration happens at pre-flight, before the DAG launches:
 
-- **Model/effort tuning** (`tuning: prompt`) — one profile question
-  (`Defaults` / `Economy` — sonnet at high everywhere / `Custom`);
-  Custom opens one question per group. Two tunable groups: **evidence
-  & research** (`analyze-design`, `research-context`,
-  `codebase-audit`) and **plan authoring** (`gap-analysis`,
-  `build-plan`, `refine-plan`). An override binds at dispatch
-  (`resolve-team --model/--effort`) and wins over step- and
-  team-member pins.
-- **Stage selection** (`step-select: prompt`) — one preset question:
-  **Full** (everything), **Standard** (skip the deep-dive context
-  sweep), **Minimal** (fetch + codebase audit + plan only — no
-  research wave, no gap analysis), or **Custom** (multiSelect over
-  the four optional research stages: design analysis, related tickets
-  & docs, deep-dive sweep, gap analysis). Deselected stages are
-  pre-marked `skipped` in run state; the `none-failed` trigger-rules
-  above keep the DAG flowing past them.
+- **Budget profile & tuning** (`tuning: prompt` + the `profiles:`
+  block) — ONE question: `Budget profile for this run?` — **low**
+  (sonnet evidence/authoring tiers, minimal research preset, solo
+  leads on the two panel steps), **medium** (the declared defaults),
+  **max** (full research + full panels on opus), or **Custom
+  (per-step)**. The session profile set by `/wise-profile`
+  pre-answers it as the Recommended option. A level pick also answers
+  stage selection (below) and records `run_profile` /
+  `tuning_<group>` / `team_mode` outputs. Custom opens model/effort
+  per tunable STEP (`tuning_step_<step-id>`, winning over group and
+  declared pins at dispatch), then the per-step skip multiSelect,
+  then a full-team-vs-solo question for the panel steps
+  (`codebase-audit`, `build-plan` — solo keeps the lead, who is asked
+  to briefly cover the dropped lenses).
+- **Stage selection** (`step-select: prompt`) — asked only when the
+  profile question didn't already answer it (its preset/skip applies
+  silently on a level pick): **Full**, **Standard** (skip the
+  deep-dive context sweep), **Minimal** (fetch + codebase audit +
+  plan only), or **Custom** (multiSelect over per-STEP entries:
+  design analysis, related tickets & docs, deep-dive sweep, and the
+  coupled gap-analysis pair). Deselected steps are pre-marked
+  `skipped` in run state; the `none-failed` trigger-rules above keep
+  the DAG flowing past them.
+- **Review depth** (`review_lenses` choice input) — `3 lenses`
+  (correctness, security, tests — the recommended gate depth) or
+  `5 lenses (full panel)`; recorded for the review passes the plan
+  leads to (the finalize step renders the matching
+  `/wise-code-review-auto --profile …` suggestion).
 - **Flow modes** (choice inputs, asked as one composite questionary) —
   `gap_mode` (**proceed on defaults** / pause and ask), `review_mode`
   (**accept as-is** / pause for review), `branch_mode` (**ticket
@@ -175,9 +187,9 @@ until `setup`).
 | `fetch-ticket` | `prompt` | Fetches the ticket via the established access, normalises it into a tracker-agnostic shape, and classifies it as frontend / backend / fullstack / other. |
 | `analyze-design` | `prompt` | Design-spec summary (layout / states / responsive) from any design links. Emits `NO-DESIGN` for backend tickets or when there are none. Dispatched to `wise:ux-designer` on `opus`, `effort: high` (design specs are load-bearing for the plan). |
 | `analyze-related` | `prompt` | Fetches linked / parent tickets + reference docs. Emits `NO-RELATED` when empty. |
-| `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and returns the Context Dossier (incl. the People map and sources-unavailable list) — persisted to `<run-dir>/research/dossier.md` so the isolated `gap-analysis` subagent can read it. Runs on `opus`, `effort: high` (the dossier is the evidence base every later step plans off). |
+| `research-context` | `prompt` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and builds the Context Dossier (incl. the People map and sources-unavailable list) — persisted to `<run-dir>/research/dossier.md` (the file is the channel: `gap-analysis` and `build-plan` Read it; the step's own response is just the `DOSSIER: path=… lexicon=… sources-unavailable=…` verdict line). Runs on `opus`, `effort: high` (the dossier is the evidence base every later step plans off). |
 | `codebase-audit` | `prompt` | Type-routed "reuse first" audit — UI layer for frontend, API/data/service layer for backend, both for fullstack. Dispatched to a **team** — `wise:software-engineer` (lead) + `wise:architect` — on `sonnet`, `effort: high`. |
-| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory and prints the paste-ready per-person question blocks. Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `opus`, `effort: xhigh` — resolved to `high` under Opus 5's policy ceiling (the READY / GAPS judgement is a planning call). |
+| `gap-analysis` | `prompt` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory; the paste-ready per-person question blocks are printed inline only when `gap_mode=ask` (on `defaults` only the blueprint path + per-person counts are printed — nobody would answer mid-run). Emits `readiness` + `open_questions`. Dispatched to `wise:architect` on `opus`, `effort: xhigh` — resolved to `high` under Opus 5's policy ceiling (the READY / GAPS judgement is a planning call). |
 | `resolve-gaps` | `ask` | `when: [readiness == 'gaps', gap_mode == 'ask']` — free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. With `gap_mode=defaults` this never fires. |
 | `build-plan` | `prompt` | Cross-functional planning **team**: consolidates the four analyses + gap scorecard, folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Team — `wise:architect` (lead) + `wise:product-manager` + `wise:software-engineer` + `wise:qa-engineer`, the whole panel on `opus`, conductor-synthesized, `effort: high`. |
 | `present-plan` | `prompt` | Informational — surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |

@@ -57,7 +57,7 @@ gh pr checks <pr_number> --json 'name,state,conclusion,link,detailsUrl,completed
 Checks are one source of unfinished business; **PR comments are
 the other**. GitHub splits them across three API surfaces — the
 watch loop reads all three (see
-`handle-bot-reviews.md` §1 for the exact queries):
+`comment-surfaces.md` §1–§2 for the exact queries):
 
 1. `gh pr view --json comments` — top-level issue comments (bot
    summaries live here).
@@ -258,7 +258,7 @@ hold off" short-circuits everything else).
 Before any queue runs, sweep the PR for review threads GitHub
 flagged as outdated (`isOutdated: true`) but that nobody marked
 resolved (`isResolved: false`). The handler-level classifiers
-in `handle-bot-reviews.md` §2 and `handle-human-comments.md` §1
+in `handle-bot-reviews.md` §2 and `comment-surfaces.md` §2
 already filter outdated items out of the actionable lists —
 they're stale by construction (the lines they anchor to moved
 or were deleted, so the comment no longer applies to the

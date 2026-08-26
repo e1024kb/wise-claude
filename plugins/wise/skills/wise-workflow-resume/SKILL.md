@@ -219,7 +219,7 @@ steps remaining.`
 From here on, behaviour is identical to `wise-workflow-run` [§10](../wise-workflow-run/SKILL.md#10-main-loop) and [§11](../wise-workflow-run/SKILL.md#11-finalise) —
 **including the turn-continuity rule** (every message ends with a
 tool call; prose is bundled with the tool call that follows it) and
-**the per-step reporting format** (9d announcements + 9e outcome
+**the per-step reporting format** (10d announcements + 10e outcome
 lines). A resumed run produces the same live chat output as a fresh
 run; the only user-visible difference is the "Resuming run <id>…"
 preamble from §7 instead of "Run <id> started".
@@ -227,14 +227,14 @@ preamble from §7 instead of "Run <id> started".
 Run the same algorithm against the existing `state.yaml`:
 
 - Call `next-wave` for runnable steps.
-- Apply `to_skip` (with 9b's skip-report prose).
-- Announce the wave (9d) and dispatch runnable steps in a single
+- Apply `to_skip` (with 10b's skip-report prose).
+- Announce the wave (10d) and dispatch runnable steps in a single
   message.
-- Collect, score, log, update state (9e).
+- Collect, score, log, update state (10e).
 - In wave-sync mode (state.control_mode), yield between waves with
-  the 9g menu.
-- In synchronous or auto-advance mode, skip 9g and bundle the next
-  `next-wave` call into the same message as 9e's results.
+  the 10g menu.
+- In synchronous or auto-advance mode, skip 10g and bundle the next
+  `next-wave` call into the same message as 10e's results.
   (auto-advance still honors in-step prompts — asks, approvals, and
   AskUserQuestion inside interactive steps; only synchronous
   suppresses them.)
@@ -246,11 +246,15 @@ and the full turn-continuity note. Two pre-flight artifacts carry over
 from the original run with no extra bookkeeping: steps the user
 deselected at step-select are already `skipped` in `state.yaml`
 (`reset-running` never touches terminal steps), and model/effort
-tuning choices live in `state.outputs` as `tuning_<group>` /
-`tuning_summary` — apply them at dispatch exactly as
-`wise-workflow-run` §10's tuning-override rule describes (re-shell
-`get-tuning "$DEF"` once; read the choices from state, not from
-conversation memory).
+profile + tuning choices live in `state.outputs` — `run_profile`,
+`tuning_<group>`, per-step `tuning_step_<step-id>`, `team_mode`,
+`cap_<name>`, and `tuning_summary` — apply them at dispatch exactly
+as `wise-workflow-run`'s roster-resolution reference describes
+(precedence `tuning_step_*` > `tuning_<group>` > declared pins;
+`team_mode=solo` → `--team-mode solo` on every `resolve-team` call;
+re-shell `get-tuning "$DEF"` once; read every choice from state, not
+from conversation memory). The profile questionary itself is never
+re-asked on resume.
 
 ## Stuck-run takeover
 

@@ -3,7 +3,7 @@
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
 credits / stayed rate-limited / never answered. Instead of parking the
-PR for a human, run **wise's own high-depth reviewer panel** (the same
+PR for a human, run **wise's own reviewer panel** (the same
 pass `/wise-code-review-auto` runs) over the PR's branch diff, commit
 what it finds, push, and let the caller keep driving the PR to green and
 merge it.
@@ -36,6 +36,9 @@ the verdict — it reviews, commits, pushes, and reports.
   passed straight through to the review pass so it weighs findings
   against the ticket's intent, the plan's `## Decisions Made`, and the
   operator's standing guardrails.
+- `profile` — **optional** `low` / `medium` (default) / `max` — the
+  substitute panel's depth, passed straight through to the review pass
+  (low/medium → 3-lens set; max → 5 lenses + confidence pass).
 
 ## Procedure
 
@@ -47,19 +50,21 @@ Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree=<project.path>`, `fixer=self`
 (the panel applies its own bounded fixes and commits them), the required
-`base`, plus `ticket_ref`, `plan_path`, and `config_prompt` when
-supplied. Verify `base` is non-empty first (see the context contract
+`base`, plus `ticket_ref`, `plan_path`, `config_prompt`, and `profile`
+when supplied. Verify `base` is non-empty first (see the context contract
 above) — a review of the wrong diff still satisfies the caller's merge
 gate, so this is the one input worth checking before the panel spins
 up.
 
 That fragment runs `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md`
-at **high** effort — five parallel read-only reviewer lenses plus the
-confidence-scoring pass — curates the concrete correctness / security /
-clear-quality findings, applies them, and commits.
+at the `profile` depth — parallel read-only reviewer lenses (3-lens set
+at low/medium, five + the confidence-scoring pass at max) — curates the
+concrete correctness / security / clear-quality findings, applies them,
+and commits.
 
-**Check `Task` first.** The panel is five parallel reviewer subagents,
-so it needs the `Task` tool. Not every caller has it: the `ticket-auto`
+**Check `Task` first.** The panel is a parallel-subagent panel sized by
+`profile` — 3 lenses at `low`/`medium`, 5 lenses + a confidence pass at
+`max` — so it needs the `Task` tool. Not every caller has it: the `ticket-auto`
 / `impl-plan-auto` watch step runs as `wise:software-engineer`, whose
 tool list is `Read, Write, Edit, Bash, Glob, Grep` — no `Task` — and a
 subagent cannot spawn subagents anyway. Do not report a panel that
@@ -68,10 +73,10 @@ never ran:
 - **`Task` available** (the standalone `/wise-pr-watch-auto`, which
   grants it, or any main-thread caller) — dispatch the panel as
   `code-review-pass.md` describes. Report `depth=panel`.
-- **`Task` unavailable** — degrade rather than abort. Work the same five
+- **`Task` unavailable** — degrade rather than abort. Work the same
   lenses **sequentially in this context**, reading the diff and the
   files each lens needs, then curate and apply exactly as the panel
-  path does. One context sees all five lenses instead of five
+  path does. One context works every lens instead of parallel
   independent ones, so it catches less; that is a real reduction in
   depth and it goes on the record. Report `depth=inline`.
 
@@ -118,9 +123,11 @@ stepping in:
 ```bash
 NOTE_URL="$(gh pr comment <pr_number> --body "$(cat <<'EOF'
 wise: <stuck_bots, rendered as "Copilot (review timeout)" / "CodeRabbit (out of credits)">
-could not review this PR, so wise ran its own high-depth review panel
-over the branch diff instead (5 lenses: correctness, security,
-conventions, history/context, test coverage).
+could not review this PR, so wise ran its own review panel over the
+branch diff instead (<lens count and names at this run's actual
+profile depth — "3 lenses: correctness, security, test coverage" at
+low/medium, "5 lenses: correctness, security, conventions,
+history/context, test coverage, plus a confidence-scoring pass" at max>).
 
 Result: <n> finding(s) applied, <m> skipped.
 EOF
@@ -143,7 +150,7 @@ REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<
 ```
 
 - `ran` — the branch was reviewed. `depth=panel` means the five-agent
-  panel ran; `depth=inline` means this context worked the five lenses
+  panel ran; `depth=inline` means this context worked the lenses
   sequentially because the caller has no `Task` tool. `committed=yes`
   means a fix commit was pushed (the caller must re-poll CI);
   `committed=no` means the branch reviewed clean and nothing moved.

@@ -161,6 +161,35 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
                     )
 
 
+def check_workflow_schemas(errors: list[str], workflows_module) -> None:
+    """Run the engine's own tuning / step-select / profiles parsers over
+    every bundled workflow, so a schema authoring error (unknown tuning
+    group, bad profile value, preset/skip conflict) fails CI instead of
+    surfacing as a WARN-and-skip at run time."""
+    import contextlib
+    import io
+
+    getters = (
+        ("get-tuning", workflows_module.cmd_get_tuning),
+        ("get-step-select", workflows_module.cmd_get_step_select),
+        ("get-profiles", workflows_module.cmd_get_profiles),
+    )
+    workflows_dir = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
+    for workflow_yaml in sorted(workflows_dir.glob("*/workflow.yaml")):
+        rel = workflow_yaml.relative_to(REPO_ROOT)
+        for label, fn in getters:
+            out, err = io.StringIO(), io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    rc = fn(str(workflow_yaml))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{rel}: {label} crashed ({exc})")
+                continue
+            if rc != 0:
+                detail = err.getvalue().strip() or f"exit {rc}"
+                errors.append(f"{rel}: {label} rejected the block ({detail})")
+
+
 # The frontmatter keys wise skills use today, plus the upstream Agent
 # Skills spec keys (`license`, `metadata`) so a legitimate upstream key
 # never hard-fails CI. Extend deliberately when a new key is adopted —
@@ -562,6 +591,7 @@ def main() -> int:
             )
         else:
             check_workflows(workflow_errors, step_types, trigger_rules)
+            check_workflow_schemas(workflow_errors, workflows_module)
             check_skill_frontmatter(skill_errors, parse_frontmatter)
             check_skill_doc_sync(doc_sync_errors, parse_frontmatter)
 

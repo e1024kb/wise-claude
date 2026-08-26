@@ -8,8 +8,9 @@ description: >-
   fixed, majors via a considered decision, false positives dismissed
   with a reasoned reply). A stuck bot never blocks the merge: when
   Copilot times out / errors / is rate-limited, or CodeRabbit is out of
-  credits / rate-limited / silent, the loop runs wise's own high-depth
-  reviewer panel (the `/wise-code-review-auto` pass) over the branch
+  credits / rate-limited / silent, the loop runs wise's own
+  reviewer panel (the `/wise-code-review-auto` pass, at the session
+  profile's depth) over the branch
   diff instead, commits + pushes what it finds, and keeps going. Loops
   until CI is green and every comment is resolved and the PR has stayed
   quiet for two consecutive post-green stability windows (so late
@@ -21,8 +22,8 @@ description: >-
   `/wise:wise-pr-watch-auto` (canonical). Use when the user says "watch
   the PR and fix it without asking", "auto-drive CI to green", or types
   `/wise-pr-watch-auto`. For the interactive version use `/wise-pr-watch`.
-argument-hint: "[<max-fix-attempts>]"
-allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
+argument-hint: "[<max-fix-attempts>] [--profile low|medium|max]"
+allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + fix loop
@@ -43,15 +44,47 @@ building block the `ticket-auto` workflow's watch step follows.
 Copilot and CodeRabbit are review *inputs*, not merge gates. When one of
 them is down — timeout, error, rate limit, out of credits — the loop
 substitutes wise's own review (`review-fallback-auto.md`, the same
-5-lens panel `/wise-code-review-auto` runs), records that it did, and
+panel `/wise-code-review-auto` runs, at the profile's depth), records that it did, and
 keeps driving the PR to green and merge. The branch still gets reviewed
 before it merges; it just isn't held hostage to a vendor's uptime.
 
 ## Arguments
 
-Read `$ARGUMENTS`. The first whitespace-separated token, if present,
-is `max_fix_attempts` — the cap on commit-producing fix rounds before
-the loop stops. Default 10 when absent. Ignore anything else.
+Read `$ARGUMENTS` and split into whitespace-separated tokens:
+
+- `--profile <low|medium|max>` (anywhere) — per-run override of the
+  session token-budget profile, for this invocation only.
+- The first remaining token, if present, is `max_fix_attempts` — the
+  cap on commit-producing fix rounds before the loop stops. Ignore
+  anything else.
+- A `--profile` with no value, or a value that isn't `low` / `medium` /
+  `max`, is an error — stop before the watch loop with:
+
+  ```
+  Unknown --profile value: <value>
+  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--profile low|medium|max]
+  ```
+
+  A typo here must not silently fall through to the session or
+  `medium` default and change the fallback depth / attempt cap without
+  the operator noticing (the same validation
+  `/wise-code-review-auto` applies to its own `--profile` argument).
+
+Resolve `profile`: the `--profile` argument if given, else the session
+profile via `${CLAUDE_PLUGIN_ROOT}/references/profile-read.md` (read it
+in the same message as §1's probes; silent degrade to `medium`).
+
+The profile scales budget only — never the loop's gates, verdicts, or
+merge rules:
+
+| profile | max_fix_attempts default | review-fallback panel | fixer tier |
+|---|---|---|---|
+| `low` | 3 | 3-lens set | prefer sonnet-grade focus |
+| `medium` | 10 | 3-lens set | today's defaults |
+| `max` | 10 | 5 lenses + confidence pass | today's defaults |
+
+An explicit `max_fix_attempts` argument always beats the profile's
+default.
 
 ## Procedure
 
@@ -70,7 +103,12 @@ message pointing at `/wise-pr-create-auto`.
 
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/watch-pipelines-auto.md`
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
-`project.path` (the toplevel), and `max_fix_attempts`.
+`project.path` (the toplevel), `max_fix_attempts` (the resolved value —
+explicit argument, else the profile's default), `profile`, and
+`dispatch_mode=task` — this skill runs the loop at conductor level, so
+the bot-comment and Sonar handlers run as fresh `Task` subagents that
+return only their verdict lines, keeping the handler prose out of this
+conversation.
 
 ### 3. Relay the verdict
 
@@ -117,9 +155,11 @@ left open for a human.
   returns an explicit 404 for the project.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.
-- `Task` is granted for one purpose: §4c's review fallback dispatches
-  the read-only reviewer panel with it when a bot is stuck. Nothing else
-  in the loop spawns subagents.
+- `Task` is granted for two purposes: the `dispatch_mode=task` queue
+  handlers (§5 bot comments, Sonar issues — one sequential subagent per
+  queue, verdict line back), and §4c's review fallback dispatching the
+  read-only reviewer panel when a bot is stuck. Nothing else in the
+  loop spawns subagents.
 - Never invoke another wise action skill (the fragment reads
   `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
   `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly —
