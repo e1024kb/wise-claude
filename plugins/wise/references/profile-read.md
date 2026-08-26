@@ -16,7 +16,11 @@ as `init-check.md`):
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
 [ -z "$sid" ] && sid="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" current-session-id 2>/dev/null)"
-level="$(cat "${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile/${sid}" 2>/dev/null | tr -d '[:space:]')"
+case "$sid" in */*|.|..|"") sid= ;; esac   # a session id is a filename - never a path
+level="$(cat "${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile/${sid:-none}" 2>/dev/null)"
+# no external trim tool (consumers only grant cat/python3): command
+# substitution strips trailing newlines, and the case guard rejects
+# anything else anyway
 case "$level" in low|medium|max) ;; *) level=medium ;; esac
 echo "PROFILE_LEVEL=$level"
 ```

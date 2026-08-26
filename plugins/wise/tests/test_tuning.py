@@ -393,6 +393,10 @@ def test_get_profiles_model_only_tuning_value(workflows_module, tmp_path, capsys
      "INVALID:profile-cap-not-positive-int:low:max_fix_attempts"),
     ({"low": {"caps": {"max_fix_attempts": "three"}}},
      "INVALID:profile-cap-not-positive-int:low:max_fix_attempts"),
+    ({"low": {"caps": {"max_fix_attempts": True}}},
+     "INVALID:profile-cap-not-positive-int:low:max_fix_attempts"),
+    ({"low": {"tuning": {"authoring": {"model": "sonnet"}}}},
+     "INVALID:profile-tuning-bad-value:low:authoring"),
 ])
 def test_get_profiles_invalid(workflows_module, tmp_path, capsys, profiles, marker):
     path = _profiles_def(workflows_module, tmp_path, profiles)
@@ -414,6 +418,7 @@ def test_resolve_team_solo_collapses_to_lead(workflows_module, tmp_path, capsys)
         path, "panel", team_mode="solo") == 0
     data = json.loads(capsys.readouterr().out)
     assert data["mode"] == "single"
+    assert data["lead"] == "architect"
     assert len(data["members"]) == 1
     assert data["members"][0]["role"] == "architect"
     assert data["collapsed"] == {"from": 2, "dropped": ["qa-engineer"]}
@@ -431,6 +436,7 @@ def test_resolve_team_solo_no_lead_keeps_first_member(
         path, "panel", team_mode="solo") == 0
     data = json.loads(capsys.readouterr().out)
     assert data["mode"] == "single"
+    assert data["lead"] is None
     assert data["members"][0]["role"] == "architect"
     assert data["collapsed"]["from"] == 3
     assert data["collapsed"]["dropped"] == ["qa-engineer", "product-manager"]
@@ -488,3 +494,81 @@ def test_get_profiles_tolerates_malformed_sibling_blocks(
     })
     assert workflows_module.cmd_get_profiles(path2) == 0
     assert json.loads(capsys.readouterr().out)["profiles"]["low"]["tuning"] == {}
+
+
+def test_get_profiles_bare_level_and_null_fields_are_defaults(
+        workflows_module, tmp_path, capsys):
+    """The idiomatic YAML forms — a bare `medium:` (None) and null
+    tuning/caps — must behave exactly like explicit empties, not error
+    (an error here silently drops the whole feature to the legacy flow)."""
+    path = _profiles_def(workflows_module, tmp_path, {
+        "medium": None,
+        "low": {"tuning": None, "caps": None},
+    })
+    assert workflows_module.cmd_get_profiles(path) == 0
+    data = json.loads(capsys.readouterr().out)["profiles"]
+    assert data["medium"] == {"tuning": {}, "skip": [], "caps": {}}
+    assert data["low"] == {"tuning": {}, "skip": [], "caps": {}}
+
+
+def test_get_profiles_valid_skip_list(workflows_module, tmp_path, capsys):
+    path = _profiles_def(workflows_module, tmp_path, {
+        "low": {"skip": ["a"]},
+    })
+    assert workflows_module.cmd_get_profiles(path) == 0
+    low = json.loads(capsys.readouterr().out)["profiles"]["low"]
+    assert low["skip"] == ["a"]
+    assert "step-preset" not in low
+
+
+def test_resolve_team_unknown_team_mode_is_error_not_collapse(
+        workflows_module, tmp_path, capsys):
+    """Only reachable through the API (argparse pins choices), but the
+    guard must survive refactors: unknown mode -> error recorded, full
+    shape kept, no collapse."""
+    path = _team_def(workflows_module, tmp_path)
+    assert workflows_module.cmd_resolve_team(
+        path, "panel", team_mode="duo") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert any("--team-mode" in e for e in data["errors"])
+    assert data["mode"] == "team"
+    assert "collapsed" not in data
+
+
+def test_resolve_team_solo_keeps_errors_of_dropped_members(
+        workflows_module, tmp_path, capsys):
+    """Pins current semantics: collapsing never swallows validation
+    errors, even ones about members that got dropped — an authoring bug
+    stays loud whatever the budget profile."""
+    path = _write_def(workflows_module, tmp_path, {}, steps=[
+        {"id": "panel", "type": "prompt", "prompt": "y",
+         "agent": [
+             {"role": "architect", "lead": True},
+             {"role": "not-a-role"},
+         ],
+         "model": "opus", "effort": "high", "depends_on": []},
+    ])
+    assert workflows_module.cmd_resolve_team(
+        path, "panel", team_mode="solo") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["mode"] == "single"
+    assert data["members"][0]["role"] == "architect"
+    assert any("not-a-role" in e for e in data["errors"])
+    assert data["collapsed"]["dropped"] == ["not-a-role"]
+
+
+def test_resolve_team_solo_noop_on_auto_and_unset(
+        workflows_module, tmp_path, capsys):
+    """Documented no-op: solo only collapses explicit teams; `auto` and
+    unset steps route through the conductor unchanged."""
+    path = _write_def(workflows_module, tmp_path, {}, steps=[
+        {"id": "routed", "type": "prompt", "prompt": "x", "agent": "auto",
+         "depends_on": []},
+        {"id": "plain", "type": "prompt", "prompt": "y", "depends_on": []},
+    ])
+    for sid, mode in (("routed", "auto"), ("plain", "unset")):
+        assert workflows_module.cmd_resolve_team(
+            path, sid, team_mode="solo") == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["mode"] == mode
+        assert "collapsed" not in data

@@ -94,6 +94,7 @@ environment; never guess one:
 
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
+case "$sid" in */*|.|..) sid= ;; esac   # a session id is a filename - never a path
 [ -n "$sid" ] || { echo "Cannot resolve a session id — run /wise-init to install python3, then retry."; exit 1; }
 d="${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile"
 mkdir -p "$d"

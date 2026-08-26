@@ -559,9 +559,13 @@ with `pr_number`, `pr_url`, `current_branch`,
   the intermediate steps. Queues run strictly sequentially (never two
   handler subagents at once — they share the worktree). If the
   dispatch itself errors (the subagent dies without a verdict line),
-  treat that bot's queue as `unchecked reason=dispatch-failed` for
-  this iteration and continue — re-dispatch next iteration is safe
-  (handlers re-fetch open threads and skip resolved ones).
+  treat that bot's queue as having returned
+  `aborted reason=dispatch-failed` for this iteration — the existing
+  §7 condition 6 / §8 `partial` branches already handle an `aborted`
+  queue, so a persistent failure exits through them instead of
+  burning the stability cap — and continue; re-dispatch next
+  iteration is safe (handlers re-fetch open threads and skip
+  resolved ones).
 
 A bot whose §4 state is `absent`, `stuck`, `bypassed`, or `gave-up`
 usually produced no review for this head, so there is nothing to handle

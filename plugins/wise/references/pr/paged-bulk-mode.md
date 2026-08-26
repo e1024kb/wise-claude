@@ -331,7 +331,7 @@ what the handler will do once collection finishes.
 ### 4. Decision-string grammar
 
 The full grammar — token forms (`1F`, `2A`, `3S`, `4D`,
-omissions = implicit Skip), per-queue allowed letters, and every parse
+omissions = implicit Skip on queues whose allowed letters include `S`; on the Sonar queue (no `S`) an omission is a validation re-ask, per §B), per-queue allowed letters, and every parse
 error message — lives in
 `${CLAUDE_PLUGIN_ROOT}/references/pr/paged-bulk-details.md` §B. Read
 it the FIRST time §3c/§3d must parse a typed string (a run where the
