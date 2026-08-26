@@ -152,7 +152,7 @@ profiles:
   low:
     tuning:
       evidence: "sonnet / medium"
-      authoring: "sonnet / high"
+      authoring: "opus / high"
     step-preset: minimal
     team-mode: solo
   medium: {}
