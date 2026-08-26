@@ -72,10 +72,10 @@ never ran:
 - **`Task` available** (the standalone `/wise-pr-watch-auto`, which
   grants it, or any main-thread caller) — dispatch the panel as
   `code-review-pass.md` describes. Report `depth=panel`.
-- **`Task` unavailable** — degrade rather than abort. Work the same five
+- **`Task` unavailable** — degrade rather than abort. Work the same
   lenses **sequentially in this context**, reading the diff and the
   files each lens needs, then curate and apply exactly as the panel
-  path does. One context sees all five lenses instead of five
+  path does. One context works every lens instead of parallel
   independent ones, so it catches less; that is a real reduction in
   depth and it goes on the record. Report `depth=inline`.
 
@@ -147,7 +147,7 @@ REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<
 ```
 
 - `ran` — the branch was reviewed. `depth=panel` means the five-agent
-  panel ran; `depth=inline` means this context worked the five lenses
+  panel ran; `depth=inline` means this context worked the lenses
   sequentially because the caller has no `Task` tool. `committed=yes`
   means a fix commit was pushed (the caller must re-poll CI);
   `committed=no` means the branch reviewed clean and nothing moved.

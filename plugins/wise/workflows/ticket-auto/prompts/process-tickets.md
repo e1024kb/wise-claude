@@ -370,6 +370,9 @@ Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
 and follow it." with `pr_number=<n>`, `pr_url=<url>`,
 `current_branch=<branch>`, `project.path=$WT`,
 `max_fix_attempts=$MAX_FIX_ATTEMPTS` (resolved up front),
+`dispatch_mode=inline` (this watch loop already runs inside a Task
+subagent — subagents cannot spawn subagents, so the queue handlers
+must run inline; the explicit pin documents the constraint),
 `ticket_ref=<ticket_ref>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
 `config_prompt={{config_prompt}}`. It watches CI,
 auto-fixes failures, waits for CodeRabbit / Copilot to finish

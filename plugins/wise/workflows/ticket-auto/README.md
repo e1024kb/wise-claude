@@ -203,7 +203,7 @@ before giving up.
 out / errors / is rate-limited, CodeRabbit is bypassed / gives up — the
 phase does not park the PR for a human. It runs the local review
 fallback (`prompts/review-fallback-auto.md`), which drives the same
-high-depth 5-lens panel as `/wise-code-review-auto` over the branch
+reviewer panel as `/wise-code-review-auto` over the branch
 diff, commits and pushes what it finds, posts one audit comment naming
 the bot it stood in for, and lets the run keep going to green and merge.
 The verdict records both halves (`copilot=stuck reason=…`,

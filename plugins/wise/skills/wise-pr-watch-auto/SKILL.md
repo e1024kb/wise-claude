@@ -92,7 +92,11 @@ message pointing at `/wise-pr-create-auto`.
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/watch-pipelines-auto.md`
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path` (the toplevel), `max_fix_attempts` (the resolved value —
-explicit argument, else the profile's default), and `profile`.
+explicit argument, else the profile's default), `profile`, and
+`dispatch_mode=task` — this skill runs the loop at conductor level, so
+the bot-comment and Sonar handlers run as fresh `Task` subagents that
+return only their verdict lines, keeping the handler prose out of this
+conversation.
 
 ### 3. Relay the verdict
 
@@ -139,9 +143,11 @@ left open for a human.
   returns an explicit 404 for the project.
 - Stand down the moment a human comments on the PR.
 - Stop cleanly at the attempt cap and the stuck-loop safety catch.
-- `Task` is granted for one purpose: §4c's review fallback dispatches
-  the read-only reviewer panel with it when a bot is stuck. Nothing else
-  in the loop spawns subagents.
+- `Task` is granted for two purposes: the `dispatch_mode=task` queue
+  handlers (§5 bot comments, Sonar issues — one sequential subagent per
+  queue, verdict line back), and §4c's review fallback dispatching the
+  read-only reviewer panel when a bot is stuck. Nothing else in the
+  loop spawns subagents.
 - Never invoke another wise action skill (the fragment reads
   `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
   `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly —
