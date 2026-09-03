@@ -26,6 +26,12 @@ and `ticket-auto` stay one implementation.
   per-plan phase below so the guidance reaches the actual work; never
   prompt the user about anything it implies — predict the answer and
   proceed, taking the max-value option for anything it leaves open.
+- `opus_model` — the Opus model id this run dispatches wherever a
+  phase below says `model: <opus_model>`: `opus` (the alias, Opus 5)
+  at `medium` / `max`, **`claude-opus-4-8` under the `low` session
+  profile** (MUST — `low` never dispatches Opus 5; recorded by the
+  conductor at pre-flight). Empty or a raw un-rendered `{{…}}`
+  placeholder → `opus`.
 - `project.path` — absolute path to the base repo.
 - `project.name`, `project.kind`, `run.dir`, `workflow.dir` — run context.
 
@@ -256,7 +262,7 @@ Choose the entry phase (live state wins; consult the ledger only to break ties):
 ### 2. Re-plan from the file
 
 Dispatch a `Task` subagent — `subagent_type: wise:architect`,
-`model: opus`, reason at **high** effort (the re-plan is this run's
+`model: <opus_model>`, reason at **high** effort (the re-plan is this run's
 autonomous decision spine; `high` is Opus 5's policy ceiling — see
 `docs/wise/workflows.md` § Effort ceilings) — : "Read
 `{{workflow.dir}}/prompts/replan-from-file.md` and follow it." with
@@ -271,7 +277,7 @@ On success, checkpoint `last_phase=planned`. On failure → append
 ### 3. Implement
 
 Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
-`model: opus`, reason at **high** effort — : "Read
+`model: <opus_model>`, reason at **high** effort — : "Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md`
 and follow it." with `plan_path=$PLAN_PATH`, `worktree=$WT`,
 `project.kind=<plan_type>`, `config_prompt={{config_prompt}}`, and
@@ -294,14 +300,16 @@ Resolve `MAX_REVIEW_CYCLES` up front (default **10**; `config_prompt`
 may override it). Set `CYCLE=0`. Loop:
 
 1. **Review.** Dispatch a `Task` subagent — `subagent_type:
-   wise:code-reviewer`, `model: opus`, reason at **high** effort — : "Read
+   wise:code-reviewer`, `model: <opus_model>`, reason at **high** effort — : "Read
    `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
    and follow it." with `worktree=$WT`, **`fixer=delegate`**,
    `findings_file=$UNITS_DIR/$BR.findings.md`, `ticket_ref=<slug>` (from §1, the
    plan slug stands in as the change's ref), `plan_path=$PLAN_PATH` (from §1),
    and `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
    `origin/<base>..HEAD` (the pinned medium review pass — opus, the
-   3-lens set at high effort; pass **`profile=medium`**), WRITES its
+   3-lens set at high effort; pass **`profile=medium`** and
+   **`opus_model=<opus_model>`** — under `low` the gate's reviewers run
+   on Opus 4.8, never Opus 5), WRITES its
    bounded
    findings as a numbered block to `findings_file`, applies nothing, and returns
    `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> findings_file=<path>`.
@@ -312,7 +320,7 @@ may override it). Set `CYCLE=0`. Loop:
    - `verdict=clean` → the branch passes the gate. Checkpoint `last_phase=reviewed`,
      **leave the loop**, go to §5.
 2. **Fix.** `verdict=issues`: dispatch a `Task` subagent — `subagent_type:
-   wise:software-engineer`, `model: opus`, reason at **high** effort — :
+   wise:software-engineer`, `model: <opus_model>`, reason at **high** effort — :
    "Apply EXACTLY the review findings written in `<findings_file>` to the branch
    in `$WT`, nothing more. Make the concrete fix for each; respect the plan's
    deliberate decisions and the `config_prompt` guardrails; do not redesign or

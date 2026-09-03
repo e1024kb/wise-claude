@@ -79,14 +79,16 @@ in the same message as §1's probes; silent degrade to `medium`).
 The profile scales budget only — never the loop's gates, verdicts, or
 merge rules:
 
-| profile | max_fix_attempts default | fixer tier |
-|---|---|---|
-| `low` | 3 | prefer sonnet-grade focus |
-| `medium` | 10 | today's defaults |
-| `max` | 10 | today's defaults |
+| profile | max_fix_attempts default | fixer tier | Opus model (`opus_model`) |
+|---|---|---|---|
+| `low` | 3 | prefer sonnet-grade focus | `claude-opus-4-8` (MUST — never Opus 5) |
+| `medium` | 10 | today's defaults | `opus` |
+| `max` | 10 | today's defaults | `opus` |
 
-The §4c review fallback is NOT profile-scaled: always one universal
-reviewer at medium effort (see `code-review-pass.md` `panel=universal`).
+The §4c review fallback is NOT profile-scaled in effort: always one
+universal reviewer at medium effort (see `code-review-pass.md`
+`panel=universal`). Its model follows the last column: on `low` it runs
+on Opus 4.8 (`PROFILE_OPUS_MODEL` from the profile read).
 
 An explicit `max_fix_attempts` argument always beats the profile's
 default.
@@ -109,8 +111,9 @@ message pointing at `/wise-pr-create-auto`.
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/watch-pipelines-auto.md`
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path` (the toplevel), `max_fix_attempts` (the resolved value —
-explicit argument, else the profile's default), `profile`, and
-`dispatch_mode=task` — this skill runs the loop at conductor level, so
+explicit argument, else the profile's default), `profile`,
+`opus_model` (the table's last column — `claude-opus-4-8` on `low`,
+else `opus`), and `dispatch_mode=task` — this skill runs the loop at conductor level, so
 the bot-comment and Sonar handlers run as fresh `Task` subagents that
 return only their verdict lines, keeping the handler prose out of this
 conversation.

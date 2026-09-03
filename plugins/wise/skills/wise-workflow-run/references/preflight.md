@@ -205,7 +205,11 @@ fails — missing store = `medium`).
   `Defaults (as tuned) (Recommended)` / `Economy` (sonnet · high
   everywhere) / `Custom`, Level 2 per-group on Custom — and then §6b3
   as its own questionary. (This is the pre-profiles behavior,
-  unchanged, for user-authored workflows.)
+  unchanged, for user-authored workflows.) One addition: the session
+  profile from `profile-get` still governs the low-profile Opus rule —
+  record `run_profile <session level>` + `opus_model <id>`
+  (`claude-opus-4-8` on `low`, else `opus`) so a `low` session never
+  dispatches Opus 5 through a user-authored workflow either.
 
 - **`profiles` present → PROFILE-FIRST flow** (the bundled workflows):
 
@@ -234,6 +238,13 @@ fails — missing store = `medium`).
      `record-output "$STATE" <name> <value>` (matching §6b3's example);
      omitting `"$STATE"` is an argparse error and nothing persists:
      - `record-output "$STATE" run_profile <level>` — always.
+     - `record-output "$STATE" opus_model <id>` — always: `claude-opus-4-8`
+       when `<level>` is `low`, else `opus`. The low-profile Opus rule
+       (MUST): a `low` run never dispatches Opus 5 — prompts that
+       dispatch Opus-tier subagents themselves (`process-tickets.md`,
+       `process-plans.md`) read `{{opus_model}}`, and §10d passes
+       `--profile <level>` so `resolve-team` / `resolve-model` apply
+       the same swap to every step pin.
      - per `tuning` entry: `record-output "$STATE" tuning_<gid> "<model> / <effort>"`
        (or the literal `default`). An empty tuning map (the `medium`
        convention) records nothing — declared defaults stand.
@@ -267,12 +278,15 @@ fails — missing store = `medium`).
         `record-output "$STATE" team_mode <full|solo>`.
      Caps are NOT asked on Custom — declared defaults stand.
      Finish with `record-output "$STATE" run_profile custom` +
+     `record-output "$STATE" opus_model opus` (Custom is not `low` —
+     the per-step picks are the operator's own; an `Other` free-text
+     naming Opus 4.8 stands as typed) +
      `record-output "$STATE" tuning_summary …`.
 
 The per-group `tuning_<id>` / per-step `tuning_step_<id>` outputs are
 the machine channel (dispatch overrides, `{{tuning_<id>}}` /
 `{{cap_<name>}}` templates); `tuning_summary` is display-only. Log the
-result (`Pre-flight profile: low — sonnet tiers (opus planning/authoring), minimal research, solo panels.`). Dispatch precedence is §10d's job:
+result (`Pre-flight profile: low — sonnet tiers (Opus 4.8 planning/authoring, never Opus 5), minimal research, solo panels.`). Dispatch precedence is §10d's job:
 `tuning_step_<sid>` > `tuning_<gid>` > declared pins, and
 `team_mode=solo` adds `--team-mode solo` to every `resolve-team` call
 (when its JSON returns a `collapsed` key, append to the step prompt:

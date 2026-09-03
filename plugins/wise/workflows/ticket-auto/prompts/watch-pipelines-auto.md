@@ -38,9 +38,16 @@ Source of truth for the `/wise-pr-watch-auto` skill and the
 - `profile` — **optional** `low` / `medium` (default) / `max` — the
   session token-budget level. It scales only the model tier the fix
   subagent prompts request at `low` (prefer sonnet-grade focus); the
-  §4c review fallback is deliberately NOT profile-scaled (one
+  §4c review fallback is deliberately NOT profile-scaled in effort (one
   universal reviewer at medium effort, always). It never changes the
   loop's gates, verdicts, or merge rules.
+- `opus_model` — **optional** — the Opus model id for every Opus-tier
+  subagent this loop dispatches (the §4c fallback reviewer): `opus`
+  (default) or `claude-opus-4-8`. MUST be `claude-opus-4-8` when the
+  session / run budget profile is `low` — `low` never dispatches Opus 5
+  (`code-review-pass.md`'s low-profile Opus rule). A caller passing
+  `profile=low` without `opus_model` → treat `opus_model` as
+  `claude-opus-4-8`.
 - `dispatch_mode` — **optional** `inline` (default) / `task`. How the
   §5 bot-comment queue and the Sonar-issues section execute their
   handlers. `inline` = read the handler file and follow it in THIS
@@ -520,9 +527,10 @@ and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `stuck_bots=<bot>:<reason>[,<bot>:<reason>]` (built from
 the states above), `base=$BASE` (the **resolved** value, never the
 caller's possibly-unset `base`), and `ticket_ref` / `plan_path` /
-`config_prompt` when supplied. (No `profile` — the substitute review
-is one universal reviewer at medium effort, whatever the run's
-budget profile.)
+`config_prompt` when supplied, and `opus_model` (resolved as above —
+`claude-opus-4-8` on a `low` run). (No `profile` — the substitute
+review is one universal reviewer at medium effort, whatever the run's
+budget profile; only its model id follows the profile.)
 
 On **either** `ran` outcome, add the line's `applied=<n>` to
 `FALLBACK_APPLIED` (`FALLBACK_APPLIED=$((FALLBACK_APPLIED + <n>))`).

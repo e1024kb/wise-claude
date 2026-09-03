@@ -36,14 +36,26 @@ The panel is **always the 3-lens set** — (a) correctness & logic bugs,
 catch shipping-blockers. The caller passes a `profile` level (the
 session token-budget profile from `references/profile-read.md`, or a
 pinned value); it maps to the reasoning-effort directive each reviewer
-subagent gets. The reviewer **model is never downgraded** — effort is
-the budget knob:
+subagent gets. The reviewer **tier is never downgraded** (always
+Opus) — effort is the budget knob:
 
 | profile | lenses | per-reviewer effort directive | extra |
 |---|---|---|---|
 | `low` | 3 | `medium` | — |
 | **`medium`** (default) | 3 | `high` | — |
 | `max` | 3 | `high` | **verification pass** (below) |
+
+**Reviewer model — the low-profile Opus rule (MUST).** Every reviewer
+`Task` (lens panel, universal panel, and the `max` verification pass)
+is dispatched with `model: <opus_model>`, where `opus_model` is the
+caller's context value, defaulting to `opus`. Under the **`low`**
+session / run budget profile `opus_model` MUST be `claude-opus-4-8` —
+**`low` never dispatches Opus 5**. The rule is keyed by the budget
+profile of the session / run (`references/profile-read.md` emits it
+as `PROFILE_OPUS_MODEL`; a workflow run records it as the
+`opus_model` output), NOT by the `profile` effort argument above —
+`ticket-auto` pins the gate's effort to `medium` and still runs its
+reviewers on Opus 4.8 when the run profile is `low`.
 
 The effort directive is appended to each reviewer's prompt the same
 way workflow dispatch conveys effort (a prompt directive, best-effort).
@@ -59,7 +71,8 @@ gate, not more findings.
 There is a second shape for one caller only — **`panel=universal`**,
 used by the PR watcher's review fallback (`review-fallback-auto.md`):
 ONE reviewer subagent covering all three focus areas in a single
-read-only pass, at `medium` effort, profile-independent. The watcher's
+read-only pass, at `medium` effort, profile-independent in effort (its
+model still follows the low-profile Opus rule above). The watcher's
 fallback substitutes for a bot review of a branch that already passed
 the pre-push gate, so one universal reviewer is the right weight
 there; the lens panel stays the shape for the pre-push gate itself.
@@ -76,7 +89,8 @@ that deliberately.)
 2. **Dispatch the panel.** In a single message, dispatch the three
    reviewer `Task` subagents **in parallel** (or the one universal
    reviewer under `panel=universal`), each **read-only**
-   (`subagent_type: "Explore"` is a good fit). Give each its lens, the
+   (`subagent_type: "Explore"` is a good fit) and on `model: <opus_model>`
+   (`claude-opus-4-8` under `low` — see the rule above). Give each its lens, the
    diff range, and the worktree. Each returns a list of findings —
    `file:line`, a one-line description, and a severity
    (critical / warning / info). Reviewers **report only — they never
@@ -101,7 +115,8 @@ that deliberately.)
    `## Decisions Made` deliberately chose; note it as skipped.
 
 3b. **Verify (`max` profile only).** Dispatch one fresh read-only
-   subagent per kept finding — in a single parallel message — each
+   subagent per kept finding (on `model: <opus_model>`) — in a single
+   parallel message — each
    prompted to REFUTE its finding against the current code ("is this
    actually wrong as claimed? Default to refuted when the evidence is
    ambiguous."). A finding the checker refutes is dropped and counted

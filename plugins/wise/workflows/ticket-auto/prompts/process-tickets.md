@@ -26,6 +26,16 @@ worktree — fully autonomously, no prompts.
   below. A value of `default`, empty, or a raw un-rendered `{{…}}`
   placeholder → the written defaults stand for that phase. The REVIEW
   phase has no tuning value on purpose — its gate is pinned (§4).
+- `opus_model` — the Opus model id this run dispatches wherever a
+  phase below says `model: <opus_model>`: `opus` (the alias, Opus 5)
+  at `medium` / `max` / Custom, **`claude-opus-4-8` under the `low`
+  profile** (MUST — `low` never dispatches Opus 5; recorded by the
+  conductor at pre-flight from the picked level). Empty or a raw
+  un-rendered `{{…}}` placeholder → `opus`. It applies to every phase
+  that has no tuning value of its own (the review gate, the fixer) and
+  to a phase whose tuning value is `default`; a BINDING `<model> /
+  <effort>` tuning value already carries the right id (the engine
+  resolves `low` values under the same rule).
 - `cap.max_fix_attempts` / `cap.max_review_cycles` — optional cap
   overrides recorded by the profile questionary. A positive integer is
   BINDING at the head of the precedence chain below; empty or a raw
@@ -247,7 +257,7 @@ Choose the entry phase (live state wins; consult the ledger only to break ties):
 ### 2. Plan
 
 Dispatch a `Task` subagent — `subagent_type: wise:architect`,
-`model: opus`, reason at **high** effort (the plan is this run's autonomous
+`model: <opus_model>`, reason at **high** effort (the plan is this run's autonomous
 decision spine; `high` is Opus 5's policy ceiling — see
 `docs/wise/workflows.md` § Effort ceilings) — : "Read `{{workflow.dir}}/prompts/plan-ticket.md` and
 follow it." with context `ticket=<ticket>`, `worktree=$WT`,
@@ -269,10 +279,11 @@ before re-running this ticket. On any other failure → append
 ### 3. Implement
 
 Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
-`model: opus`, reason at **high** effort — : "Read
+`model: <opus_model>`, reason at **high** effort — : "Read
 `{{workflow.dir}}/prompts/implement-plan.md` and follow it." with
 `plan_path=$PLAN_PATH`, `worktree=$WT`, `project.kind=<ticket_type>`,
-`config_prompt={{config_prompt}}`, and `SUPERVISE=yes`. (Its own parallel
+`config_prompt={{config_prompt}}`, `opus_model=<opus_model>`, and
+`SUPERVISE=yes`. (Its own parallel
 per-task executors run **supervised** — background teammates a leader loop
 nudges if they hang or go idle mid-task, since this is an unattended run.) It
 returns `IMPLEMENT: waves=… tasks=… done=… failed=…`. If `done=0` → append
@@ -291,12 +302,14 @@ Resolve `MAX_REVIEW_CYCLES` up front — precedence:
 `config_prompt` override, else the default **10**. Set `CYCLE=0`. Loop:
 
 1. **Review.** Dispatch a `Task` subagent — `subagent_type:
-   wise:code-reviewer`, `model: opus`, reason at **high** effort — : "Read
+   wise:code-reviewer`, `model: <opus_model>`, reason at **high** effort — : "Read
    `{{workflow.dir}}/prompts/review-branch-auto.md` and follow it." with
    `worktree=$WT`, **`fixer=delegate`**, **`profile=medium`** (the review
    gate is pinned to the medium pass — opus, the 3-lens set at high
    effort — at every budget profile; it never follows the run's
-   profile),
+   profile), **`opus_model=<opus_model>`** (the one profile-dependent
+   thing about the gate: under `low` its reviewers run on Opus 4.8,
+   never Opus 5),
    `findings_file=$UNITS_DIR/$BR.findings.md`,
    `ticket_ref=<ticket_ref>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
    `config_prompt={{config_prompt}}`. In `fixer=delegate` it reviews
@@ -310,7 +323,7 @@ Resolve `MAX_REVIEW_CYCLES` up front — precedence:
    - `verdict=clean` → the branch passes the gate. Checkpoint `last_phase=reviewed`,
      **leave the loop**, go to §5.
 2. **Fix.** `verdict=issues`: dispatch a `Task` subagent — `subagent_type:
-   wise:software-engineer`, `model: opus`, reason at **high** effort — :
+   wise:software-engineer`, `model: <opus_model>`, reason at **high** effort — :
    "Apply EXACTLY the review findings written in `<findings_file>` to the branch
    in `$WT`, nothing more. Make the concrete fix for each; respect the plan's
    deliberate decisions and the `config_prompt` guardrails; do not redesign or

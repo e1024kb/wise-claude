@@ -48,6 +48,14 @@ calls `AskUserQuestion`.
   review gate never follows the run's budget profile down or up); the
   standalone skill resolves it from the session profile / its
   `--profile` flag.
+- `opus_model` — **optional** — the Opus model id the reviewer
+  subagents dispatch on: `opus` (default) or `claude-opus-4-8`. The
+  low-profile Opus rule (`code-review-pass.md`): under the `low`
+  session / run profile this MUST be `claude-opus-4-8` — `low` never
+  dispatches Opus 5. It is keyed by the budget profile of the SESSION /
+  RUN, not by the `profile` effort argument above (ticket-auto pins
+  that to `medium` and still passes `opus_model=claude-opus-4-8` on a
+  `low` run). The standalone skill derives it from the session profile.
 
 ## Procedure
 
@@ -72,8 +80,8 @@ review — emit the **mode-appropriate** clean result and stop: `fixer=self`
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` end to end
 over `RANGE`: dispatch the parallel 3-lens reviewer panel (read-only
-`Task` subagents — correctness, security, tests — each carrying the
-`profile`-mapped effort directive) and curate the
+`Task` subagents on `opus_model` — correctness, security, tests — each
+carrying the `profile`-mapped effort directive) and curate the
 high-confidence, **bounded** findings (concrete
 correctness / security / clear-quality; skip judgement-call refactors,
 behaviour changes, broad renames, new deps).

@@ -24,7 +24,10 @@ level="$(cat "${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile/${sid:-none}" 2>
 # substitution strips trailing newlines, and the case guard rejects
 # anything else anyway
 case "$level" in low|medium|max) ;; *) level=medium ;; esac
+# Low-profile Opus rule (MUST): `low` never dispatches Opus 5.
+case "$level" in low) opus_model=claude-opus-4-8 ;; *) opus_model=opus ;; esac
 echo "PROFILE_LEVEL=$level"
+echo "PROFILE_OPUS_MODEL=$opus_model"
 ```
 
 Pure shell on the happy path (env var + `cat`) so it works before
@@ -37,7 +40,16 @@ falls through to `medium` like everything else.
 - `PROFILE_LEVEL` scales **token budget only**: model tiers, optional
   research scope, reviewer effort, team size, and retry caps.
   Each consuming skill owns its concrete mapping table — this fragment
-  never prescribes one.
+  never prescribes one, with ONE exception, the low-profile Opus rule:
+- **MUST — `PROFILE_OPUS_MODEL` is the only Opus model id a consumer
+  may dispatch.** It is `opus` (the alias — the latest Opus, Opus 5) at
+  `medium` / `max` and `claude-opus-4-8` at `low`: under the `low`
+  profile wise NEVER dispatches Opus 5. Wherever a consumer's mapping
+  table says "opus" for a `Task` `model:` (a reviewer, a planner, a
+  fixer, a verification pass), pass `$PROFILE_OPUS_MODEL`, never the
+  literal alias. Sonnet / haiku tiers are unaffected. Workflow runs
+  carry the same value as the `opus_model` run output, and the engine
+  applies the same rule to every model resolved with `--profile low`.
 - The invariant every mapping honors: **profiles never change
   correctness rules** — commit conventions, dirty-tree refusals, the
   existence of review gates, push refusals are identical at every

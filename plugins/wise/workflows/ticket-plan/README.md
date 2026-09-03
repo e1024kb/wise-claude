@@ -139,7 +139,8 @@ All configuration happens at pre-flight, before the DAG launches:
 
 - **Budget profile & tuning** (`tuning: prompt` + the `profiles:`
   block) — ONE question: `Budget profile for this run?` — **low**
-  (sonnet evidence tier, opus/high authoring, minimal research preset, solo
+  (sonnet evidence tier, Opus 4.8/high authoring — `low` never
+  dispatches Opus 5 — minimal research preset, solo
   leads on the two panel steps), **medium** (the declared defaults),
   **max** (full research + full panels on opus), or **Custom
   (per-step)**. The session profile set by `/wise-profile`

@@ -20,11 +20,21 @@ trusting conversation memory). Precedence, most specific first:
 
 With a winning `<model> / <effort>` value, append it to the call —
 and, when the run recorded `team_mode=solo`, always add
-`--team-mode solo` (also on calls with no model override):
+`--team-mode solo` (also on calls with no model override). When the
+run recorded `run_profile` as `low` / `medium` / `max`, ALWAYS add
+`--profile <level>` too (on every `resolve-team` AND `resolve-model`
+call, override or not; `custom` / unset → omit the flag):
 
 ```bash
-python3 .../workflows.py resolve-team "$DEF" "<step.id>" --model <m> --effort <e> --team-mode <full|solo>
+python3 .../workflows.py resolve-team "$DEF" "<step.id>" --model <m> --effort <e> --team-mode <full|solo> --profile <low|medium|max>
 ```
+
+**Low-profile Opus rule (MUST).** `--profile low` makes the engine
+resolve every Opus-family pin — the `opus` alias, a `claude-opus-5*`
+id, a retired id, a tuning override — to `claude-opus-4-8`, with the
+swap in `reason` (`low profile: opus→claude-opus-4-8 (Opus 5 is never
+used at low)`). A `low` run never dispatches Opus 5. Pass the
+resolved `model` verbatim to `Task`; never re-substitute the alias.
 
 The model/effort override wins over the step's AND every team
 member's pinned model/effort (the engine notes `run tuning override`

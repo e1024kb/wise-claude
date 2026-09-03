@@ -200,7 +200,9 @@ subagents, subscription-covered — no extra API billing): `model:` is the
 real per-step knob (a retired model auto-falls-back to its alias with a
 notice), and `effort:` is a best-effort prompt directive clamped to the
 resolved model's capability and then to its policy ceiling (Opus 5 tops
-out at `high`; override with `WISE_EFFORT_CEILING`). Full reference:
+out at `high`; override with `WISE_EFFORT_CEILING`). Under the `low`
+session profile (`/wise-profile low`) every Opus-family pin resolves to
+`claude-opus-4-8` — a `low` run never dispatches Opus 5. Full reference:
 [`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort)
 and [Effort ceilings](../../docs/wise/workflows.md#effort-ceilings).
 
