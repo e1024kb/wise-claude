@@ -1993,6 +1993,7 @@ def cmd_resolve_model(pinned: str, effort: str = "",
     member's model through this same logic). `profile` is the run's
     budget level (`--profile`); `low` applies the low-profile Opus rule.
     """
+    profile = (profile or "").strip().lower()
     if profile and profile not in PROFILE_LEVELS:
         print(f"INVALID:profile-level:{profile}", file=sys.stderr)
         return 2
