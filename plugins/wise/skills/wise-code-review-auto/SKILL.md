@@ -59,16 +59,20 @@ In ONE message run `git rev-parse --show-toplevel` and — unless
 Use the toplevel as `worktree`. Resolve `base` from `$ARGUMENTS` (or let
 the fragment detect the default branch). Resolve `profile` as: the
 `--profile` argument if given, else the session profile, else `medium`.
+Resolve `opus_model` from that profile: `claude-opus-4-8` on `low`
+(MUST — `low` never dispatches Opus 5), else `opus`.
 
 ### 2. Follow the shared fragment
 
 Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
-and follow it end to end with `worktree`, `base`, and `profile`. The
+and follow it end to end with `worktree`, `base`, `profile`, and
+`opus_model`. The
 fragment reviews `origin/<base>..HEAD` at the profile's panel depth per
 `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` (always the
 3-lens set — correctness, security, tests; the profile sets each
 reviewer's effort — low -> medium, medium -> high — and `max` adds the
-per-finding verification pass; reviewer model never downgraded),
+per-finding verification pass; reviewer tier never downgraded — Opus
+at every level, Opus 4.8 rather than Opus 5 on `low`),
 applies the bounded findings, and commits them with
 `SIMPLIFY=no PUSH=no`.
 

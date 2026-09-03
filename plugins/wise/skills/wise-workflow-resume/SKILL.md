@@ -247,11 +247,13 @@ from the original run with no extra bookkeeping: steps the user
 deselected at step-select are already `skipped` in `state.yaml`
 (`reset-running` never touches terminal steps), and model/effort
 profile + tuning choices live in `state.outputs` — `run_profile`,
-`tuning_<group>`, per-step `tuning_step_<step-id>`, `team_mode`,
-`cap_<name>`, and `tuning_summary` — apply them at dispatch exactly
-as `wise-workflow-run`'s roster-resolution reference describes
-(precedence `tuning_step_*` > `tuning_<group>` > declared pins;
-`team_mode=solo` → `--team-mode solo` on every `resolve-team` call;
+`opus_model`, `tuning_<group>`, per-step `tuning_step_<step-id>`,
+`team_mode`, `cap_<name>`, and `tuning_summary` — apply them at
+dispatch exactly as `wise-workflow-run`'s roster-resolution reference
+describes (precedence `tuning_step_*` > `tuning_<group>` > declared
+pins; `run_profile` → `--profile <level>` on every `resolve-team` /
+`resolve-model` call, so a `low` run keeps dispatching Opus 4.8, never
+Opus 5; `team_mode=solo` → `--team-mode solo` on every `resolve-team` call;
 re-shell `get-tuning "$DEF"` once; read every choice from state, not
 from conversation memory). The profile questionary itself is never
 re-asked on resume.

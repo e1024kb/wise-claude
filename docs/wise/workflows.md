@@ -492,6 +492,18 @@ Before dispatch the conductor resolves the pinned model/effort via
   then to its policy ceiling — see [Effort ceilings](#effort-ceilings).
 - On a **live** "model unavailable" failure, the step retries once down a
   tier chain (`opus → sonnet → haiku`) before failing.
+- **Low-profile Opus rule (MUST)** — with `--profile low` (the conductor
+  passes the run's recorded `run_profile` on every `resolve-model` /
+  `resolve-team` call), every Opus-family pin — the `opus` alias, a
+  `claude-opus-5*` id, a retired id that substitutes to `opus`, a tuning
+  override — resolves to **`claude-opus-4-8`**, with the swap in
+  `reason` (`low profile: opus→claude-opus-4-8 (Opus 5 is never used at
+  low)`). A `low` run never dispatches Opus 5. Sonnet / haiku / fable
+  pins and `inherit` are untouched; a pin already on Opus 4.8 (or a
+  dated snapshot of it) stands. `get-profiles` applies the same rule to
+  a `profiles.low.tuning` value, so authoring `opus / high` under `low`
+  is equivalent to `claude-opus-4-8 / high`. The rule is not
+  env-tunable — it is part of what `low` means, not a ceiling.
 
 **Prefer aliases** (`opus`/`sonnet`/`haiku`/`fable`) in workflows — they
 auto-resolve to a maintained model and rarely retire, so they sidestep
@@ -794,6 +806,17 @@ bundled workflow so schema errors fail CI, and at run time an invalid
 block degrades to the legacy flow with a `WARN:` (never a blocked
 run). Dispatch precedence: `tuning_step_<sid>` > `tuning_<gid>` >
 declared pins.
+
+`low` carries one MUST rule on top of whatever the block declares:
+**a `low` run never dispatches Opus 5.** The conductor records
+`opus_model` (`claude-opus-4-8` on `low`, else `opus`) next to
+`run_profile` at pre-flight — prompts that dispatch Opus-tier subagents
+themselves read it as `{{opus_model}}` — and passes `--profile <level>`
+to every `resolve-team` / `resolve-model` call, so the engine swaps
+every Opus-family step pin to Opus 4.8 (see
+[Model availability and fallback](#model-availability-and-fallback)).
+The same rule reaches the standalone skills through
+`references/profile-read.md`'s `PROFILE_OPUS_MODEL`.
 
 ### Why pin
 

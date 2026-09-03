@@ -193,6 +193,7 @@ steps:
         plan_list:     {{plan_list}}
         plan_count:    {{plan_count}}
         config_prompt: {{config_prompt}}
+        opus_model:    {{opus_model}}
         project.path:  {{project.path}}
         project.name:  {{project.name}}
         project.kind:  {{project.kind}}

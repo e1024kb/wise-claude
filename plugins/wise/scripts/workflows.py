@@ -227,6 +227,15 @@ MODEL_EFFORT_CEILING = {
     "claude-opus-4-8": "xhigh",
 }
 
+# Low-profile Opus rule (MUST). Under the `low` token-budget profile wise
+# NEVER dispatches Opus 5: every Opus-family pin — the `opus` alias, a
+# `claude-opus-5*` id, a retired id that substitutes to `opus` — resolves
+# to Opus 4.8 instead. Enforced in `_resolve_model_dict` whenever the
+# caller passes `profile="low"` (get-profiles for the `low` level,
+# resolve-model / resolve-team via `--profile low`). Not an env-tunable:
+# the rule is part of what `low` means, not a ceiling to raise.
+LOW_PROFILE_OPUS_MODEL = "claude-opus-4-8"
+
 # One-hop fallback per alias family, used when a pinned model is unavailable.
 # Prefer aliases in authored workflows — they auto-resolve and rarely retire.
 MODEL_TIER_NEXT = {
@@ -955,7 +964,8 @@ def cmd_get_profiles(def_path: str) -> int:
     Output: `{"profiles": {"low": {"tuning": {gid: {model, effort, reason} |
     "default"}, "step-preset"?, "skip": [...], "team-mode"?, "caps": {...}},
     ...}}` — tuning values come back already resolved through
-    `_resolve_model_dict` (retired-id substitution + effort clamp).
+    `_resolve_model_dict` under their own level (retired-id substitution,
+    the low-profile Opus rule for `low`, effort clamp).
     `{"profiles": {}}` when the workflow declares no block. Structural
     errors exit 2 with an `INVALID:` line on stderr, mirroring
     `get-tuning` — the conductor treats that as "fall back to the legacy
@@ -1037,7 +1047,10 @@ def cmd_get_profiles(def_path: str) -> int:
                 print(f"INVALID:profile-tuning-bad-value:{level}:{gid}",
                       file=sys.stderr)
                 return 2
-            rm = _resolve_model_dict(model, effort)
+            # Resolved under the level itself, so `low` applies the
+            # low-profile Opus rule (an authored `opus / high` comes back
+            # as claude-opus-4-8, with the swap in `reason`).
+            rm = _resolve_model_dict(model, effort, level)
             res["tuning"][gid] = {
                 "model": rm["model"], "effort": rm["effort"],
                 "reason": rm["reason"],
@@ -1899,19 +1912,38 @@ def _cap_effort(model: str, effort: str):
     return ceiling, True
 
 
-def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
+def _low_profile_model(model: str, family: str) -> str:
+    """The model the low-profile Opus rule dispatches for `model`, or ''.
+
+    Non-empty only for an Opus-family pin that is not already Opus 4.8
+    (exact id or a dated snapshot of it) — `inherit`, sonnet, haiku,
+    fable, and unknown families are untouched.
+    """
+    if family != "opus":
+        return ""
+    m = (model or "").strip().lower()
+    if m == LOW_PROFILE_OPUS_MODEL or _is_snapshot_of(m, LOW_PROFILE_OPUS_MODEL):
+        return ""
+    return LOW_PROFILE_OPUS_MODEL
+
+
+def _resolve_model_dict(pinned: str, effort: str = "",
+                        profile: str = "") -> dict:
     """Resolve a pinned model+effort against availability + capability.
 
     Returns `{model, effort, fell_back, reason, next_fallback}`: substitutes a
-    known-retired id for its maintained alias, clamps the effort to what the
-    resolved model supports and then to that model's policy ceiling
-    (MODEL_EFFORT_CEILING — e.g. Opus 5 tops out at `high`), and hands back
-    `next_fallback` (the alias to retry with if the *live* dispatch still
-    reports the model unavailable). `reason` is the user-facing why, surfaced
-    in chat + the step log.
+    known-retired id for its maintained alias, applies the low-profile Opus
+    rule when `profile` is `low` (LOW_PROFILE_OPUS_MODEL — Opus 5 is never
+    dispatched under `low`), clamps the effort to what the resolved model
+    supports and then to that model's policy ceiling (MODEL_EFFORT_CEILING —
+    e.g. Opus 5 tops out at `high`), and hands back `next_fallback` (the
+    alias to retry with if the *live* dispatch still reports the model
+    unavailable). `reason` is the user-facing why, surfaced in chat + the
+    step log.
     """
     pinned = (pinned or "").strip()
     effort = (effort or "").strip()
+    profile = (profile or "").strip().lower()
     reasons: list[str] = []
     model = pinned or "inherit"
     fell_back = False
@@ -1922,6 +1954,12 @@ def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
         model, fell_back = repl, True
 
     family = _model_family(model)
+    if profile == "low":
+        low_model = _low_profile_model(model, family)
+        if low_model:
+            reasons.append(
+                f"low profile: {model}→{low_model} (Opus 5 is never used at low)")
+            model = low_model
     eff_out, changed = _downmap_effort(family, effort)
     if changed:
         if eff_out is None:
@@ -1946,14 +1984,20 @@ def _resolve_model_dict(pinned: str, effort: str = "") -> dict:
     }
 
 
-def cmd_resolve_model(pinned: str, effort: str = "") -> int:
+def cmd_resolve_model(pinned: str, effort: str = "",
+                      profile: str = "") -> int:
     """Resolve a single pinned model+effort; emit the JSON to stdout.
 
     The conductor calls this before dispatching a single-agent step. For a
     multi-agent step it calls `resolve-team` instead (which resolves every
-    member's model through this same logic).
+    member's model through this same logic). `profile` is the run's
+    budget level (`--profile`); `low` applies the low-profile Opus rule.
     """
-    print(json.dumps(_resolve_model_dict(pinned, effort), indent=2))
+    profile = (profile or "").strip().lower()
+    if profile and profile not in PROFILE_LEVELS:
+        print(f"INVALID:profile-level:{profile}", file=sys.stderr)
+        return 2
+    print(json.dumps(_resolve_model_dict(pinned, effort, profile), indent=2))
     return 0
 
 
@@ -1982,7 +2026,7 @@ def _normalize_member(item) -> dict:
 
 def cmd_resolve_team(def_path: str, step_id: str,
                      model_override: str = "", effort_override: str = "",
-                     team_mode: str = "full") -> int:
+                     team_mode: str = "full", profile: str = "") -> int:
     """Resolve a prompt step's `agent:` into a normalized, model-resolved team.
 
     Reads the step's `agent:` / `model:` / `effort:` from the definition and
@@ -1996,6 +2040,10 @@ def cmd_resolve_team(def_path: str, step_id: str,
     tier — and still goes through `_resolve_model_dict`, so retired-id
     substitution and the effort clamp apply to the override too. The
     substitution is surfaced via each member's `reason`.
+
+    `profile` (the `--profile` CLI flag) is the run's budget level; `low`
+    applies the low-profile Opus rule to every member (Opus-family pins
+    and overrides alike resolve to LOW_PROFILE_OPUS_MODEL, never Opus 5).
 
     `mode` ∈ {`unset`, `off`, `auto`, `single`, `team`}:
     - `unset`  — no `agent:`; the conductor applies the workflow `agents:` policy.
@@ -2016,6 +2064,10 @@ def cmd_resolve_team(def_path: str, step_id: str,
     step_model = str(step.get("model") or "").strip()
     step_effort = str(step.get("effort") or "").strip()
     errors: list[str] = []
+    profile = (profile or "").strip().lower()
+    if profile and profile not in PROFILE_LEVELS:
+        errors.append(f"--profile: unknown value '{profile}' (low|medium|max)")
+        profile = ""
 
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         mode, items = "unset", []
@@ -2060,7 +2112,7 @@ def cmd_resolve_team(def_path: str, step_id: str,
                 lead = role
         pin_model = model_override or m["model"] or step_model
         pin_effort = effort_override or m["effort"] or step_effort
-        rm = _resolve_model_dict(pin_model, pin_effort)
+        rm = _resolve_model_dict(pin_model, pin_effort, profile)
         reason = rm["reason"]
         if model_override or effort_override:
             reason = f"run tuning override; {reason}" if reason else "run tuning override"
@@ -2558,11 +2610,15 @@ def main() -> int:
     p = sub.add_parser("resolve-model")
     p.add_argument("pinned")
     p.add_argument("effort", nargs="?", default="")
+    p.add_argument("--profile", default="", dest="profile",
+                   help="run budget level (low|medium|max); low applies the low-profile Opus rule")
 
     p = sub.add_parser("resolve-team")
     p.add_argument("def_path"); p.add_argument("step_id")
     p.add_argument("--model", default="", dest="model_override")
     p.add_argument("--effort", default="", dest="effort_override")
+    p.add_argument("--profile", default="", dest="profile",
+                   help="run budget level (low|medium|max); low applies the low-profile Opus rule")
     p.add_argument("--team-mode", default="full", dest="team_mode",
                    choices=("full", "solo"))
 
@@ -2607,10 +2663,12 @@ def main() -> int:
         "supervise-config": lambda: cmd_supervise_config(),
         "list-defs": lambda: cmd_list_defs(),
         "list-agents": lambda: cmd_list_agents(),
-        "resolve-model": lambda: cmd_resolve_model(args.pinned, args.effort),
+        "resolve-model": lambda: cmd_resolve_model(
+            args.pinned, args.effort, args.profile),
         "resolve-team": lambda: cmd_resolve_team(
             args.def_path, args.step_id,
-            args.model_override, args.effort_override, args.team_mode),
+            args.model_override, args.effort_override, args.team_mode,
+            args.profile),
         "list-resumable-runs": lambda: cmd_list_resumable_runs(),
         "prune-runs": lambda: cmd_prune_runs(),
         "apply-worktree-include": lambda: cmd_apply_worktree_include(

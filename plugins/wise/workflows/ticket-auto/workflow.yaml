@@ -89,7 +89,9 @@ tuning:
   # is pinned to the medium review pass (opus, the 3-lens set — see
   # references/code-review-pass.md) at every budget profile. It never
   # follows the run's profile down (quality floor) or up (the gate's
-  # depth is a per-workflow policy, not a budget knob).
+  # depth is a per-workflow policy, not a budget knob). The one thing
+  # that DOES follow the profile is the Opus model id: under `low` the
+  # gate's reviewers run on Opus 4.8 (`opus_model`), never Opus 5.
 
 # Budget profiles (see docs/wise/workflows.md § Profiles). `medium` = the
 # declared defaults above; `low` trades depth for cost on the phases that
@@ -98,7 +100,13 @@ tuning:
 profiles:
   low:
     tuning:
-      plan: "opus / high"
+      # MUST: `low` never dispatches Opus 5 — the plan brain runs on
+      # Opus 4.8. The engine enforces the same rule on any Opus-family
+      # pin resolved under `low` (docs/wise/workflows.md § Profiles),
+      # and the conductor records `opus_model=claude-opus-4-8` so the
+      # phases process-tickets.md dispatches without a tuning group
+      # (review gate, fixer) follow it too.
+      plan: "claude-opus-4-8 / high"
       implement: "sonnet"
       watch: "sonnet"
     # No team-mode here: this workflow's phases dispatch single roster
@@ -325,6 +333,7 @@ steps:
         tuning.plan:      {{tuning_plan}}
         tuning.implement: {{tuning_implement}}
         tuning.watch:     {{tuning_watch}}
+        opus_model:       {{opus_model}}
         cap.max_fix_attempts:   {{cap_max_fix_attempts}}
         cap.max_review_cycles:  {{cap_max_review_cycles}}
         project.path:     {{project.path}}

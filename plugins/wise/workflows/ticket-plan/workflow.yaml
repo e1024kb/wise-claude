@@ -143,7 +143,9 @@ step-select:
       skip: [analyze-design, analyze-related, research-context, gaps]
 
 # Budget profiles (docs/wise/workflows.md § Profiles). `medium` = the
-# declared defaults; `low` = sonnet evidence tier + opus/high authoring
+# declared defaults; `low` = sonnet evidence tier + Opus 4.8/high
+# authoring (MUST: `low` never dispatches Opus 5 — the engine applies
+# the same rule to every Opus-family pin resolved under `low`)
 # + the minimal research preset + solo leads on the two panel steps
 # (codebase-audit, build-plan); `max` = full research + full panels on
 # opus. Budget only — flow modes, branch rules, and the plan's
@@ -152,7 +154,7 @@ profiles:
   low:
     tuning:
       evidence: "sonnet / medium"
-      authoring: "opus / high"
+      authoring: "claude-opus-4-8 / high"
     step-preset: minimal
     team-mode: solo
   medium: {}

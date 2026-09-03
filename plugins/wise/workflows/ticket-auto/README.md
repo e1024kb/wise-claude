@@ -97,19 +97,22 @@ keep the step's context bounded.
 `rename_session` `skip` — pre-flight collects the ticket list
 (required), an optional free-form `config_prompt`, and one **budget
 profile question** (`tuning: prompt` + the `profiles:` block):
-**low** (opus/high plan, sonnet implement/watch, fix cap 3, review-cycle cap 2),
+**low** (Opus 4.8/high plan — `low` never dispatches Opus 5 — sonnet implement/watch, fix cap 3, review-cycle cap 2),
 **medium** (the declared defaults — opus/high plan and
 implement+fix, sonnet watch), **max** (opus/high across phases), or
 **Custom** per phase group (plan / implement / watch). The session
 profile set by `/wise-profile` pre-answers it as the Recommended
 option. The groups are advisory (the phases dispatch inside
 `process-tickets`, not at the step level), so the choices reach the
-orchestrator as per-group `tuning_<group>` (+ `cap_<name>`) outputs,
-which every phase treats as binding. The **review gate is pinned at
-every profile**: the medium review pass — opus, the 3-lens set
-(correctness, security, tests) at high effort — never follows the
-budget down or up,
-so it has no tuning group and is never asked. After launch there are
+orchestrator as per-group `tuning_<group>` (+ `cap_<name>` and
+`opus_model`) outputs, which every phase treats as binding. The
+**review gate is pinned at every profile**: the medium review pass —
+opus, the 3-lens set (correctness, security, tests) at high effort —
+never follows the budget down or up, so it has no tuning group and is
+never asked. The one profile-dependent thing about any Opus-tier phase
+(plan, implement, fix, the review gate's reviewers) is the model id:
+on a `low` run they all dispatch `opus_model = claude-opus-4-8`, never
+Opus 5 (a MUST rule — see [Profiles](../../../../docs/wise/workflows.md#profiles)). After launch there are
 no `ask` / `approval` steps and no further questions. The review↔fix
 cycle cap and the CI-fix cap default to 10; precedence: profile
 `cap_*` value → `config_prompt` override → 10.

@@ -473,8 +473,12 @@ Code's tool-use docs). Per step type:
 dispatching a `type: prompt` step, resolve its roster binding in one call:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" resolve-team "$DEF" "<step.id>"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" resolve-team "$DEF" "<step.id>" [--profile <run_profile>]
 ```
+
+(`--profile <level>` whenever state recorded `run_profile` as
+`low` / `medium` / `max` — on `low` the engine swaps every Opus-family
+pin to `claude-opus-4-8`; a `low` run never dispatches Opus 5.)
 
 **Tuning override (only when the run recorded one).** Binding a
 recorded `tuning_<group>` choice at dispatch is defined in
@@ -503,7 +507,8 @@ Branch on `mode`:
   **no role has** (e.g. `TeamCreate`, a tracker MCP) fits none. **When no
   role both matches the intent and covers the required tools, fall back to
   `general-purpose`.** Resolve its model with `resolve-model
-  "<step.model or 'inherit'>" "<step.effort or ''>"`.
+  "<step.model or 'inherit'>" "<step.effort or ''>"` (plus
+  `--profile <run_profile>` when recorded, as for `resolve-team`).
 - **`mode: single`** → dispatch `members[0]` as one `wise:<role>` Task.
 - **`mode: team`** → dispatch every member and synthesize (team flow below).
 

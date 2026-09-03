@@ -55,7 +55,9 @@ codebase-context excerpt, `worktree`, `project.kind`, and — when non-empty —
 the `config_prompt` guidance (preferred skills / libraries, conventions,
 guardrails, files to avoid) appended to the shared spec. Each executor has
 **fresh context** — it sees only its task plus the shared spec, never the other
-tasks' transcripts. Every executor is dispatched with `model: opus` and told to
+tasks' transcripts. Every executor is dispatched with `model: <opus_model>`
+(the caller's `opus_model` context — `opus`, or `claude-opus-4-8` under the
+`low` profile, which never dispatches Opus 5; missing → `opus`) and told to
 reason at **high** effort — implementation runs on Opus, whichever dispatch
 mode below is used.
 

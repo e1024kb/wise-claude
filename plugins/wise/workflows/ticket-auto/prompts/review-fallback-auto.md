@@ -36,9 +36,14 @@ the verdict — it reviews, commits, pushes, and reports.
   passed straight through to the review pass so it weighs findings
   against the ticket's intent, the plan's `## Decisions Made`, and the
   operator's standing guardrails.
-- (The substitute review is deliberately profile-INDEPENDENT: one
-  universal reviewer at `medium` effort, whatever the run's budget
-  profile — see below. No `profile` input.)
+- (The substitute review is deliberately profile-INDEPENDENT in
+  effort: one universal reviewer at `medium` effort, whatever the
+  run's budget profile — see below. No `profile` input.)
+- `opus_model` — **optional** — the Opus model id the reviewer
+  dispatches on, passed straight through to the review pass: `opus`
+  (default) or `claude-opus-4-8`. MUST be `claude-opus-4-8` when the
+  session / run budget profile is `low` (`low` never dispatches Opus 5
+  — `code-review-pass.md`'s low-profile Opus rule).
 
 ## Procedure
 
@@ -54,7 +59,8 @@ required `base`, **`panel=universal`** (ONE reviewer subagent covering
 correctness, security, and test-coverage in a single read-only pass at
 `medium` effort — a substitute for a bot review of a branch that
 already passed the pre-push gate, so one universal reviewer is the
-right weight), plus `ticket_ref`, `plan_path`, and `config_prompt`
+right weight), `opus_model` (when supplied — `claude-opus-4-8` on a
+`low` run), plus `ticket_ref`, `plan_path`, and `config_prompt`
 when supplied. Verify `base` is non-empty first (see the context contract
 above) — a review of the wrong diff still satisfies the caller's merge
 gate, so this is the one input worth checking before the panel spins
@@ -65,22 +71,23 @@ in `panel=universal` shape — one read-only reviewer covering all three
 focus areas at `medium` effort — curates the concrete correctness /
 security / clear-quality findings, applies them, and commits.
 
-**Check `Task` first.** The panel is a parallel-subagent panel sized by
-`profile` — 3 lenses at `low`/`medium`, 5 lenses + a confidence pass at
-`max` — so it needs the `Task` tool. Not every caller has it: the `ticket-auto`
-/ `impl-plan-auto` watch step runs as `wise:software-engineer`, whose
-tool list is `Read, Write, Edit, Bash, Glob, Grep` — no `Task` — and a
-subagent cannot spawn subagents anyway. Do not report a panel that
-never ran:
+**Check `Task` first.** This fragment always calls `panel=universal` —
+ONE reviewer subagent covering all three focus areas in a single pass,
+never the profile-sized 3/5-lens table — so dispatching it needs the
+`Task` tool. Not every caller has it: the `ticket-auto` / `impl-plan-auto`
+watch step runs as `wise:software-engineer`, whose tool list is `Read,
+Write, Edit, Bash, Glob, Grep` — no `Task` — and a subagent cannot spawn
+subagents anyway. Do not report a dispatch that never happened:
 
 - **`Task` available** (the standalone `/wise-pr-watch-auto`, which
-  grants it, or any main-thread caller) — dispatch the panel as
-  `code-review-pass.md` describes. Report `depth=panel`.
+  grants it, or any main-thread caller) — dispatch the one universal
+  reviewer as `code-review-pass.md` describes. Report `depth=panel`.
 - **`Task` unavailable** — degrade rather than abort. Work the same
-  lenses **sequentially in this context**, reading the diff and the
-  files each lens needs, then curate and apply exactly as the panel
-  path does. One context works every lens instead of parallel
-  independent ones, so it catches less; that is a real reduction in
+  three focus areas **sequentially in this context** instead of inside
+  a dispatched subagent, reading the diff and the files each area
+  needs, then curate and apply exactly as the dispatched path does.
+  One context doing all three areas itself catches less than an
+  independent reviewer subagent would; that is a real reduction in
   depth and it goes on the record. Report `depth=inline`.
 
 Either way the review is genuine and its findings are applied. The
@@ -126,11 +133,11 @@ stepping in:
 ```bash
 NOTE_URL="$(gh pr comment <pr_number> --body "$(cat <<'EOF'
 wise: <stuck_bots, rendered as "Copilot (review timeout)" / "CodeRabbit (out of credits)">
-could not review this PR, so wise ran its own review panel over the
-branch diff instead (<lens count and names at this run's actual
-profile depth — "3 lenses: correctness, security, test coverage" at
-low/medium, "5 lenses: correctness, security, conventions,
-history/context, test coverage, plus a confidence-scoring pass" at max>).
+could not review this PR, so wise ran its own review over the
+branch diff instead (1 universal reviewer covering correctness,
+security, and test coverage at medium effort<, dispatched via Task | ,
+worked inline in this context> — <this run's actual `depth=panel` /
+`depth=inline`>).
 
 Result: <n> finding(s) applied, <m> skipped.
 EOF
@@ -152,9 +159,10 @@ REVIEW-FALLBACK: ran depth=<panel|inline> applied=<n> skipped=<m> committed=<yes
 REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<stuck_bots> [unpushed=<sha>]
 ```
 
-- `ran` — the branch was reviewed. `depth=panel` means the five-agent
-  panel ran; `depth=inline` means this context worked the lenses
-  sequentially because the caller has no `Task` tool. `committed=yes`
+- `ran` — the branch was reviewed. `depth=panel` means the one
+  universal reviewer subagent ran via `Task`; `depth=inline` means this
+  context worked the three focus areas itself because the caller has no
+  `Task` tool. `committed=yes`
   means a fix commit was pushed (the caller must re-poll CI);
   `committed=no` means the branch reviewed clean and nothing moved.
 - `failed` — the panel aborted or the push was rejected; no substitute
