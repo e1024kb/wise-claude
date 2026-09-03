@@ -280,7 +280,8 @@ Dispatch a `Task` subagent — `subagent_type: wise:software-engineer`,
 `model: <opus_model>`, reason at **high** effort — : "Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md`
 and follow it." with `plan_path=$PLAN_PATH`, `worktree=$WT`,
-`project.kind=<plan_type>`, `config_prompt={{config_prompt}}`, and
+`project.kind=<plan_type>`, `config_prompt={{config_prompt}}`,
+`opus_model=<opus_model>`, and
 `SUPERVISE=yes`. (Its own parallel per-task executors run **supervised** —
 background teammates a leader loop nudges if they hang or go idle mid-task,
 since this is an unattended run.) It returns
@@ -388,7 +389,9 @@ and follow it." with `pr_number=<n>`, `pr_url=<url>`,
 `dispatch_mode=inline` (this watch loop already runs inside a Task
 subagent — subagents cannot spawn subagents, so the queue handlers
 must run inline; the explicit pin documents the constraint),
-`ticket_ref=<slug>` (from §1), `plan_path=$PLAN_PATH` (from §1), and
+`ticket_ref=<slug>` (from §1), `plan_path=$PLAN_PATH` (from §1),
+`opus_model=<opus_model>` (its §4c fallback reviewer runs on Opus — Opus
+4.8 on a `low` run, never Opus 5), and
 `config_prompt={{config_prompt}}`. It watches CI, auto-fixes failures,
 waits for CodeRabbit / Copilot to finish reviewing, fixes or dismisses
 every bot comment, and — when the PR is fully resolved — merges it. A
