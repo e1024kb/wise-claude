@@ -546,10 +546,11 @@ effort, profile-independent (it substitutes for a bot review of a
 branch that already passed the pre-push gate) — commits what it
 finds, pushes, and
 posts one audit comment naming the bot it stood in for. It reports
-`depth=panel` when it could dispatch the parallel reviewer subagents and
-`depth=inline` when the caller has no `Task` tool and it worked the
-lenses sequentially instead — carry that value onto the §8 verdict so
-the report never implies a panel that did not run. Capture its
+`depth=panel` when it could dispatch the one universal reviewer subagent
+via `Task` and `depth=inline` when the caller has no `Task` tool and this
+context worked the three focus areas itself instead — carry that value
+onto the §8 verdict so the report never implies a dispatch that did not
+happen. Capture its
 final line:
 
 - `REVIEW-FALLBACK: ran … committed=no …` → `FALLBACK_STATE=ran`. The
