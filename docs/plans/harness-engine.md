@@ -12,7 +12,7 @@ Steps run by spawning vendor CLIs headless (`claude -p`, `codex exec`, `gemini -
 
 | # | Milestone | SP | Depends on | Gate | Status |
 |---|---|---|---|---|---|
-| M0 | Spike | 8 | — | all probes pass, transport confirmed | IN PROGRESS |
+| M0 | Spike | 8 | — | all probes pass, transport confirmed | DONE |
 | M1 | Engine core (library + CLI, no execution) | 17 | M0 | ported tests green on bun and node | TODO |
 | M2 | Execution: claude adapter, daemon, MCP | 16 | M1 | `wise_run` of example-workflow completes via MCP from Claude Code | TODO |
 | M3 | Conductor + ticket-plan end to end | 7 | M2 | ticket-plan on a real ticket, baseline recorded, Python deleted | TODO |
@@ -28,17 +28,17 @@ Goal: settle the last unknowns before writing engine code. Every task records it
 
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
-| M0.1 | `claude auth login` in a terminal (user), then rerun the child probe: `claude -p --output-format stream-json --json-schema … --model haiku --effort low` with a clean env | 1 | — | Result has `is_error: false`, `structured_output` matching the schema, non-empty `modelUsage`, `total_cost_usd`; `system/init` size and first-turn `input_tokens` recorded (Q6) | TODO |
-| M0.2 | `--input-format stream-json` with `-p`: keep stdin open, send a second user message mid-run, confirm it works together with `--json-schema` | 1 | M0.1 | Second message is answered in the same session; final result still schema-valid | TODO |
+| M0.1 | `claude auth login` in a terminal (user), then rerun the child probe: `claude -p --output-format stream-json --json-schema … --model haiku --effort low` with a clean env | 1 | — | Result has `is_error: false`, `structured_output` matching the schema, non-empty `modelUsage`, `total_cost_usd`; `system/init` size and first-turn `input_tokens` recorded (Q6) | DONE |
+| M0.2 | `--input-format stream-json` with `-p`: keep stdin open, send a second user message mid-run, confirm it works together with `--json-schema` | 1 | M0.1 | Second message is answered in the same session; final result still schema-valid | DONE |
 | M0.3 | `codex exec --json --output-schema --config model_reasoning_effort=high -s workspace-write` on bun under ChatGPT login, then resume the thread with a second call | 1 | — | JSON events parsed, schema output valid, no API key set, resume reuses the thread id | DONE |
 | M0.4 | `gemini -p --output-format json` and `grok -p --output-format json --always-approve --no-auto-update` under cached logins; check `-m`, `--effort`, usage fields | 1 | — | Both return JSON; table of supported flags and usage fields written to the design doc | DONE |
-| M0.5 | Minimal stdio MCP server in erasable TS, loaded into Claude Code with `--plugin-dir` via `.mcp.json`, one tool that blocks 4 minutes then returns | 2 | — | Tool call returns after 4 min; `MCP_TOOL_TIMEOUT` ceiling measured; result visible to the model | IN PROGRESS |
-| M0.6 | Child MCP injection: `claude -p --mcp-config <stdio server>`; child calls a `wise_report` tool during its turn | 1 | M0.1 | Daemon-side log shows the call with the step token; child's final result unaffected | TODO |
-| M0.7 | Record results, decide go / no-go per transport, and confirm or drop P8 (child channel) | 0.5 | M0.1-M0.6 | Design doc updated; plan revised if any probe failed | TODO |
+| M0.5 | Minimal stdio MCP server in erasable TS, loaded into Claude Code with `--plugin-dir` via `.mcp.json`, one tool that blocks 4 minutes then returns | 2 | — | Tool call returns after 4 min; `MCP_TOOL_TIMEOUT` ceiling measured; result visible to the model | DONE |
+| M0.6 | Child MCP injection: `claude -p --mcp-config <stdio server>`; child calls a `wise_report` tool during its turn | 1 | M0.1 | Daemon-side log shows the call with the step token; child's final result unaffected | DONE |
+| M0.7 | Record results, decide go / no-go per transport, and confirm or drop P8 (child channel) | 0.5 | M0.1-M0.6 | Design doc updated; plan revised if any probe failed | DONE |
 
 Gate M0: M0.1, M0.3, M0.5 pass. M0.2 and M0.6 failing downgrades P8 to answer-via-tool-result only.
 
-2026-09-05: M0.3 and M0.4 (grok half) passed, results in the design doc § Spike answers › M0 results. Gemini CLI is not installed on this machine, its probe moves to M5.3. M0.5 server built and loads via `--plugin-dir`; the live 4-min block, M0.1, M0.2, M0.6 wait on `claude auth login` in a terminal.
+2026-09-05: gate passed. All probes pass except the Gemini half of M0.4 (CLI installed, user login broken, probe moved to M5.3). Results and decisions D15-D18 in the design doc § Spike answers › M0 results. `wise_wait` default becomes 110 s (D17), P8 confirmed (D16), `--strict-mcp-config` on every Claude child (D18).
 
 ## M1 — Engine core
 
@@ -69,7 +69,7 @@ Goal: run a workflow through the daemon from Claude Code via MCP, Claude harness
 | M2.3 | Run executor inside the daemon: scheduler loop, step types `agent`, `bash`, `approval`, `ask`; gates park the run as `gated`; caps (`max_turns`, tokens); rate-limit backoff and `fallback` harness list | 3 | M2.1, M2.2 | `example-workflow` (migrated) runs to completion via the CLI; a gate parks and resumes on `answer` | TODO |
 | M2.4 | MCP server `wise-engine mcp`: six tools per P1, long-poll `wise_wait`, compact events only (E1); `plugins/wise/.mcp.json` declares it | 2 | M2.2 | From Claude Code: `wise_preflight` → `wise_run` → `wise_wait` loop → `wise_answer` on a gate → done, with no log text crossing the wire | TODO |
 | M2.5 | CLI client: `run`, `status`, `answer`, `cancel`, `resume`, `report` over the socket; auto-starts the daemon | 1 | M2.2 | Same run driven from a terminal without Claude Code | TODO |
-| M2.6 | Child channel (P8, confirm at M0.7): `wise-engine unit-mcp --token`, tools `wise_report`, `wise_ask`, `wise_context`, `wise_checkpoint`; per-step tokens; `step.progress` events throttled; stale nudge via `--input-format stream-json` for Claude, kill + cursor resume for others; harness tool `wise_nudge` | 3 | M2.3, M0.6 | Child progress visible in `wise_status`; a `wise_ask` in an interactive run surfaces as a gate; a stale child gets nudged then killed per policy | TODO |
+| M2.6 | Child channel (P8, confirmed at M0.7, D16): `wise-engine unit-mcp --token`, tools `wise_report`, `wise_ask`, `wise_context`, `wise_checkpoint`; per-step tokens; `step.progress` events throttled; stale nudge via `--input-format stream-json` for Claude, kill + cursor resume for others; harness tool `wise_nudge` | 3 | M2.3, M0.6 | Child progress visible in `wise_status`; a `wise_ask` in an interactive run surfaces as a gate; a stale child gets nudged then killed per policy | TODO |
 | M2.7 | Auth probe before run (`claude auth status`), `AUTH_REQUIRED` with login command; `/wise-init` and `bootstrap-deps.sh` updated: Node 24 minimum, bun preferred, `claude` login check | 1 | M2.2 | Logged-out state produces the exact login command in the harness, no run dir created | TODO |
 
 Gate M2: example-workflow completes from Claude Code via MCP, gate round trip works, daemon survives restart.
@@ -124,7 +124,7 @@ Gate M6: v5.0.0 released.
 
 ## Decisions carried into the plan
 
-D1 harness adapters on unmodified vendor CLIs · D2 no AI SDK · D3 `claude -p`, never `--bare`, never a re-implemented OAuth client · D4 `claude-session` as policy hedge only · D5 native headless mode, not ACP · D6 t3code as plumbing reference · D7 bun preferred, Node 24 supported · D8 erasable TS as source, no build · D9 tsgo, oxlint, oxfmt · D10 `node:test` · D11 engine emits questionary, harness asks · D12 per tuning group + profile · D13 daemon + MCP JSON-RPC · D14 orchestrators into engine · E1, E5, E7, E8, E9, E11, E12, E14 tokenomics rules. Pending: P8 child channel (decide at M0.7).
+D1 harness adapters on unmodified vendor CLIs · D2 no AI SDK · D3 `claude -p`, never `--bare`, never a re-implemented OAuth client · D4 `claude-session` as policy hedge only · D5 native headless mode, not ACP · D6 t3code as plumbing reference · D7 bun preferred, Node 24 supported · D8 erasable TS as source, no build · D9 tsgo, oxlint, oxfmt · D10 `node:test` · D11 engine emits questionary, harness asks · D12 per tuning group + profile · D13 daemon + MCP JSON-RPC · D14 orchestrators into engine · D15 three transports go, Gemini best effort · D16 P8 confirmed · D17 `wise_wait` default 110 s · D18 `--strict-mcp-config` per child, further trimming measured in M2.1 · E1, E5, E7, E8, E9, E11, E12, E14 tokenomics rules. Pending: none after M0.7.
 
 ## Stop conditions
 
