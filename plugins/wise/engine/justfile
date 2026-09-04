@@ -1,0 +1,27 @@
+# wise-engine task runner. `just check` = typecheck + lint + format check + tests.
+
+runner := if `command -v bun >/dev/null 2>&1 && echo yes || echo no` == "yes" { "bun" } else { "npm" }
+
+default: check
+
+install:
+    {{runner}} install
+
+typecheck:
+    {{runner}} run typecheck
+
+lint:
+    {{runner}} run lint
+
+fmt:
+    {{runner}} run fmt
+
+fmt-check:
+    {{runner}} run fmt:check
+
+# Tests on whichever runtime is present (bun runs node:test files natively).
+test:
+    {{ if runner == "bun" { "bun test test" } else { "npm test" } }}
+
+check: typecheck lint fmt-check test
+    @echo "wise-engine: all checks passed ({{runner}})"

@@ -1,0 +1,25 @@
+{
+  "name": "wise-engine",
+  "private": true,
+  "description": "wise harness-adapter workflow engine (TypeScript run as source on bun or Node 24)",
+  "type": "module",
+  "engines": { "node": ">=24", "bun": ">=1.2" },
+  "scripts": {
+    "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "lint": "oxlint src test",
+    "fmt": "oxfmt src test",
+    "fmt:check": "oxfmt --check src test",
+    "test": "node --test 'test/**/*.test.ts'",
+    "test:bun": "bun test test",
+    "check": "npm run typecheck && npm run lint && npm run fmt:check && npm test"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0"
+  }
+}
