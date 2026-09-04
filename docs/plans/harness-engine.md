@@ -12,7 +12,7 @@ Steps run by spawning vendor CLIs headless (`claude -p`, `codex exec`, `gemini -
 
 | # | Milestone | SP | Depends on | Gate | Status |
 |---|---|---|---|---|---|
-| M0 | Spike | 8 | — | all probes pass, transport confirmed | TODO |
+| M0 | Spike | 8 | — | all probes pass, transport confirmed | IN PROGRESS |
 | M1 | Engine core (library + CLI, no execution) | 17 | M0 | ported tests green on bun and node | TODO |
 | M2 | Execution: claude adapter, daemon, MCP | 16 | M1 | `wise_run` of example-workflow completes via MCP from Claude Code | TODO |
 | M3 | Conductor + ticket-plan end to end | 7 | M2 | ticket-plan on a real ticket, baseline recorded, Python deleted | TODO |
@@ -30,13 +30,15 @@ Goal: settle the last unknowns before writing engine code. Every task records it
 |---|---|---|---|---|---|
 | M0.1 | `claude auth login` in a terminal (user), then rerun the child probe: `claude -p --output-format stream-json --json-schema … --model haiku --effort low` with a clean env | 1 | — | Result has `is_error: false`, `structured_output` matching the schema, non-empty `modelUsage`, `total_cost_usd`; `system/init` size and first-turn `input_tokens` recorded (Q6) | TODO |
 | M0.2 | `--input-format stream-json` with `-p`: keep stdin open, send a second user message mid-run, confirm it works together with `--json-schema` | 1 | M0.1 | Second message is answered in the same session; final result still schema-valid | TODO |
-| M0.3 | `codex exec --json --output-schema --config model_reasoning_effort=high -s workspace-write` on bun under ChatGPT login, then resume the thread with a second call | 1 | — | JSON events parsed, schema output valid, no API key set, resume reuses the thread id | TODO |
-| M0.4 | `gemini -p --output-format json` and `grok -p --output-format json --always-approve --no-auto-update` under cached logins; check `-m`, `--effort`, usage fields | 1 | — | Both return JSON; table of supported flags and usage fields written to the design doc | TODO |
-| M0.5 | Minimal stdio MCP server in erasable TS, loaded into Claude Code with `--plugin-dir` via `.mcp.json`, one tool that blocks 4 minutes then returns | 2 | — | Tool call returns after 4 min; `MCP_TOOL_TIMEOUT` ceiling measured; result visible to the model | TODO |
+| M0.3 | `codex exec --json --output-schema --config model_reasoning_effort=high -s workspace-write` on bun under ChatGPT login, then resume the thread with a second call | 1 | — | JSON events parsed, schema output valid, no API key set, resume reuses the thread id | DONE |
+| M0.4 | `gemini -p --output-format json` and `grok -p --output-format json --always-approve --no-auto-update` under cached logins; check `-m`, `--effort`, usage fields | 1 | — | Both return JSON; table of supported flags and usage fields written to the design doc | DONE |
+| M0.5 | Minimal stdio MCP server in erasable TS, loaded into Claude Code with `--plugin-dir` via `.mcp.json`, one tool that blocks 4 minutes then returns | 2 | — | Tool call returns after 4 min; `MCP_TOOL_TIMEOUT` ceiling measured; result visible to the model | IN PROGRESS |
 | M0.6 | Child MCP injection: `claude -p --mcp-config <stdio server>`; child calls a `wise_report` tool during its turn | 1 | M0.1 | Daemon-side log shows the call with the step token; child's final result unaffected | TODO |
 | M0.7 | Record results, decide go / no-go per transport, and confirm or drop P8 (child channel) | 0.5 | M0.1-M0.6 | Design doc updated; plan revised if any probe failed | TODO |
 
 Gate M0: M0.1, M0.3, M0.5 pass. M0.2 and M0.6 failing downgrades P8 to answer-via-tool-result only.
+
+2026-09-05: M0.3 and M0.4 (grok half) passed, results in the design doc § Spike answers › M0 results. Gemini CLI is not installed on this machine, its probe moves to M5.3. M0.5 server built and loads via `--plugin-dir`; the live 4-min block, M0.1, M0.2, M0.6 wait on `claude auth login` in a terminal.
 
 ## M1 — Engine core
 

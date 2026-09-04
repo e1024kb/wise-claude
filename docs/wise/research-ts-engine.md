@@ -219,9 +219,21 @@ Q4. ACP transport. Answered, not adopted (D5). Servers: `npx @agentclientprotoco
 
 Q5. Child environment. Mostly answered. Headless without `--bare` loads user and project settings, marketplaces, plugins, skills, agents; `--plugin-dir` adds one inline. `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` are set for plugin components. The child's `session_id` is new, so `/wise-profile` state (keyed by session id) does not carry over; the engine passes the profile as an explicit input. `CLAUDE_CODE_SESSION_ID` inheritance for the child process itself is undocumented; the engine strips it.
 
-Remaining unverified: Codex and Claude cached-login reuse from a non-TTY child (documented, not probed here); current Gemini ACP auth behaviour (irrelevant under D5); `grok --effort` on the shipped binary.
+Remaining unverified: Claude cached-login reuse from a non-TTY child (Codex confirmed in M0.3); current Gemini ACP auth behaviour (irrelevant under D5). `grok --effort` confirmed in M0.4.
 
 Q6 (new). Stock cost of a `claude -p` child before any work: system prompt with the user's MCP servers, plugins, and skills loaded. Read `system/init` and first-turn `input_tokens` in the A1 rerun. Decides whether E6 trimming is worth doing.
+
+### M0 results (2026-09-05)
+
+Environment: node 24.18; bun, gemini, tsgo, oxlint, oxfmt, just not installed; codex-cli 0.149.0 logged in via ChatGPT; grok 1.0.5 with cached login; `claude auth status` → `loggedIn: false`, so M0.1, M0.2, M0.6 wait on `claude auth login`.
+
+M0.3 codex. Pass. `codex exec --json --output-schema schema.json -c model_reasoning_effort=low -s read-only --skip-git-repo-check -C .` with no `OPENAI_API_KEY` in env. Events: `thread.started` (`thread_id`), `turn.started`, `item.completed` with `item.type: agent_message` whose `text` is the schema-valid JSON, `turn.completed` with `usage {input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_output_tokens}`. Stock input 13.7k tokens. `codex exec resume <thread_id> --json --output-schema … "n = previous n + 1"` kept the thread id, returned n+1, 13.7k cached. Stdin must be closed (`</dev/null`), otherwise the CLI prints "Reading additional input from stdin..." and waits. Spawned from node; bun rerun folds into M1.1.
+
+M0.4 grok. Pass. Flags confirmed on the shipped 1.0.5 binary: `--json-schema <SCHEMA>` (implies json output), `--reasoning-effort <EFFORT>` with alias `--effort`, `--resume <id>`, `--continue`, `--session-id`, `--cwd`, `--permission-mode`, `--prompt-file`, `--prompt-json`, `--output-format plain | json | streaming-json (ACP session updates) | streaming-messages-json (Anthropic Messages wire NDJSON)`. JSON result: `text`, `stopReason`, `sessionId`, `requestId`, `thought`, `usage {input_tokens, cache_read_input_tokens, cache_creation_input_tokens, output_tokens, reasoning_tokens, total_tokens}`, `num_turns`, `total_cost_usd`, `modelUsage` per model, `structuredOutput`. Stock input 21.1k tokens; default model `grok-4.6-build`; resume kept the `sessionId` and honoured the schema. Closes the `grok --effort` unknown. Gemini not installed here; its probe moves to M5.3, which stays best effort.
+
+M0.5 MCP host. Partial. Server in erasable TS on `@modelcontextprotocol/sdk` runs as `node server.ts` with no build; a stdio client lists both tools and `wise_block` returns after the requested seconds. `claude --plugin-dir <dir> mcp list` reports `plugin:wise-spike:wise-spike … ✔ Connected` from a plugin `.mcp.json` using `${CLAUDE_PLUGIN_ROOT}` and an `env` block; the server log shows the injected token, so per-step env injection works at the plugin layer too. Docs (code.claude.com/docs/en/mcp): `MCP_TOOL_TIMEOUT` defaults to about 28 h, a per-server `timeout` in ms in `.mcp.json` overrides it; a call with no response and no progress notification aborts after an idle window of 30 min for stdio servers (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` disables); a main-conversation call that runs past 2 min moves to a background task. The live 4-min block inside a Claude turn waits on login.
+
+Consequence for P1 (decide at M0.7): `wise_wait` default 240 s crosses the 2-min move-to-background, so the result would arrive as a background-task notification rather than a tool result. Options: cap the default at 110 s, or keep 240 s and let the conductor treat the notification as the wake-up. Progress notifications from the daemon keep the idle window from firing either way.
 
 ## Sources
 
