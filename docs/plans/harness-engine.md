@@ -109,8 +109,8 @@ Gate M4: one ticket goes ticket → merged PR on the engine.
 
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
-| M5.1 | `codex` adapter: `codex exec --json`, `--output-schema`, `model_reasoning_effort`, sandbox mode from `mode`, thread resume cursor, `CODEX_HOME` passthrough | 2 | M2.1, M0.3 | Fixture and live smoke; `AUTH_REQUIRED` shows `codex login` | TODO |
-| M5.2 | `grok` adapter: `grok -p --output-format json`, `--always-approve`, `--no-auto-update`, effort if confirmed, schema-by-instruction fallback | 2 | M2.1, M0.4 | Same | TODO |
+| M5.1 | `codex` adapter: `codex exec --json`, `--output-schema`, `model_reasoning_effort`, sandbox mode from `mode`, thread resume cursor, `CODEX_HOME` passthrough | 2 | M2.1, M0.3 | Fixture and live smoke; `AUTH_REQUIRED` shows `codex login` | IN PROGRESS |
+| M5.2 | `grok` adapter: `grok -p --output-format json`, `--always-approve`, `--no-auto-update`, effort if confirmed, schema-by-instruction fallback | 2 | M2.1, M0.4 | Same | IN PROGRESS |
 | M5.3 | `gemini` adapter, best effort: `gemini -p --output-format json -m`, `--approval-mode yolo`, schema-by-instruction | 2 | M2.1, M0.4 | Same; documented as best-effort | TODO |
 | M5.4 | Fallback lists end to end: force a rate-limit classification on claude, observe routing to codex after first backoff, event `warn` emitted | 1 | M5.1 | Test with a fake adapter; live check once | TODO |
 | M5.5 | Cross-harness ticket-auto: plan on claude, implement on codex, review on claude, through one worktree | 2 | M4.5, M5.1 | Ticket reaches a PR; cursors and worktree handoff correct | TODO |
@@ -125,7 +125,7 @@ Gate M5: cross-harness run succeeds.
 | M6.1 | Usage accounting: per step, phase, pool, harness in the ledger; api-key runs priced via LiteLLM table; `/wise-report` and the workflow `report` step show totals | 2 | M4.5 | Report shows tokens by pool and harness for a real run | TODO |
 | M6.2 | Profile rule: `low` refuses `auth: api-key` steps unless `allow-api: true`; per-run token ceiling from `caps.tokens` parks the run at a gate | 1 | M2.3 | Tests; live check with a tiny ceiling | TODO |
 | M6.3 | Docs sync: `docs/wise/workflows.md` v2 schema, harness field, gate protocol, effort mapping; `skills-authoring.md`; workflow READMEs; `AGENTS.md`; validator runs `compile-check` on every bundled workflow | 3 | M4.4 | `validate_repo.py` green with the new gate | TODO |
-| M6.4 | `wise-engine migrate` for user-authored v1 workflows: `prompt` → `agent`, plain-enum `until` → `schema`, warnings otherwise | 2 | M1.2 | Round-trips the three bundled v1 files to the hand-migrated v2 result | TODO |
+| M6.4 | `wise-engine migrate` for user-authored v1 workflows: `prompt` → `agent`, plain-enum `until` → `schema`, warnings otherwise | 2 | M1.2 | Round-trips the three bundled v1 files to the hand-migrated v2 result | IN PROGRESS |
 | M6.5 | Release v5.0.0: `plugin.json` bump, changelog, prose-conductor fallback behind a flag for one release, removal ticket filed | 1 | M6.1-M6.4 | Tag pushed; marketplace pin updated | TODO |
 
 Gate M6: v5.0.0 released.
