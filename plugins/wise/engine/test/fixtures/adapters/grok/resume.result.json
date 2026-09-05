@@ -1,0 +1,31 @@
+{
+  "text": "{\"answer\":\"pong\",\"n\":43}",
+  "stopReason": "end_turn",
+  "sessionId": "01a06ead-86d2-7412-b4e2-ca1ef24f3925",
+  "requestId": "6b735ded-6cb1-4f5f-8c2b-6d3784a16d92",
+  "usage": {
+    "input_tokens": 21885,
+    "cache_read_input_tokens": 5760,
+    "cache_creation_input_tokens": 0,
+    "output_tokens": 14,
+    "reasoning_tokens": 0,
+    "total_tokens": 27659
+  },
+  "num_turns": 1,
+  "total_cost_usd": 0.00794478,
+  "total_cost_usd_ticks": 79447800,
+  "modelUsage": {
+    "grok-4.6-build": {
+      "inputTokens": 21885,
+      "outputTokens": 14,
+      "cacheReadInputTokens": 5760,
+      "cacheCreationInputTokens": 0,
+      "modelCalls": 1,
+      "costUSD": 0.00794478
+    }
+  },
+  "structuredOutput": {
+    "answer": "pong",
+    "n": 43
+  }
+}
