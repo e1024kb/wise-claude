@@ -10,8 +10,9 @@
 #
 #   1. python3 on PATH, with yaml + ulid + typing_extensions modules
 #      importable (needed by scripts/engine.py and scripts/workflows.py).
-#   2. node >= 22 on PATH (needed by any npx-driven MCP server wise
-#      may use).
+#   2. bun (preferred) or node >= 24 on PATH: the TypeScript workflow
+#      engine runs as source on either; node is also needed by any
+#      npx-driven MCP server wise may use.
 #   3. gh CLI on PATH and authenticated (needed by the wise-pr-*
 #      family of skills and the ticket-auto workflow for PR creation,
 #      reviewer requests, and CI check watching).
@@ -44,7 +45,7 @@ if [[ "${1:-}" == "--probe" ]]; then
   MODE="probe"
 fi
 
-NODE_REQUIRED_MAJOR=22
+NODE_REQUIRED_MAJOR=24
 
 # ---- Python -----------------------------------------------------------------
 

@@ -2,8 +2,8 @@
 name: wise-init
 description: >-
   First-time setup wizard — walk the user through installing wise's
-  system deps (Python 3 + pyyaml/ulid/typing_extensions, Node ≥22, gh
-  CLI + `gh auth login`, markitdown for file-to-markdown extraction)
+  system deps (Python 3 + pyyaml/ulid/typing_extensions, bun or Node ≥24,
+  the `claude` CLI login, gh CLI + `gh auth login`, markitdown for file-to-markdown extraction)
   and cache the probe results so workflow runs skip the live check.
   Idempotent — re-running only prompts for gaps.
   Invoked as `/wise-init` (bare alias) or `/wise:wise-init` (canonical).
@@ -51,8 +51,9 @@ it under 4 lines:
 
 ```
 First-time setup. I'll walk you through the system deps wise needs —
-Python 3, Node ≥22, the gh CLI (with auth), and markitdown (file →
-markdown text extraction). Re-runs are safe: I skip what's already
+Python 3, bun or Node ≥24 (the workflow engine runtime), the claude
+CLI login, the gh CLI (with auth), and markitdown (file → markdown text
+extraction). Re-runs are safe: I skip what's already
 installed. After this I cache the probe results so future workflow
 runs skip the live check.
 ```
@@ -163,26 +164,61 @@ Claude-side state:
 }
 ```
 
-### 3. Node ≥22
+### 3. Engine runtime: bun (preferred) or Node ≥24
 
-Same pattern as §2, but with `init.sh probe-node`. Bare keys
-`STATUS`, `BINARY`, `VERSION`, `MAJOR` → `NODE_STATUS`,
+**3a. Probe bun first.**
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-bun
+```
+
+Bare keys `STATUS`, `BINARY`, `VERSION` → `BUN_STATUS`, `BUN_BINARY`,
+`BUN_VERSION`.
+
+- **`BUN_STATUS=ok`:** print `bun <ver> ✓ at <binary>` and skip to §3c.
+- **`BUN_STATUS=missing`:** fall through to §3b; bun is optional when
+  Node ≥24 is present.
+
+**3b. Probe Node.** Same pattern as §2, with `init.sh probe-node`. Bare
+keys `STATUS`, `BINARY`, `VERSION`, `MAJOR` → `NODE_STATUS`,
 `NODE_BINARY`, `NODE_VERSION`, `NODE_MAJOR`.
 
 - **`NODE_STATUS=ok`:** print `Node <ver> ✓ at <binary>` and move on.
-- **`NODE_STATUS=too-old`:** `AskUserQuestion`:
-  - Question: `Detected Node <ver> at <binary>, but wise needs Node 22+. How would you like to upgrade?`
+- **`NODE_STATUS=too-old` or `missing` (and no bun):** `AskUserQuestion`:
+  - Question: `wise's workflow engine needs bun or Node 24+. Detected <ver or nothing>. How would you like to install a runtime?`
   - Options:
-    - `mise (recommended)` — description: `mise use -g node@22`
-    - `brew` — description: `brew install node@22 && brew link --overwrite --force node@22`
-    - `Manual` — description: `I'll upgrade Node myself — hold the wizard.`
+    - `bun (recommended)` — description: `brew install oven-sh/bun/bun`
+    - `mise` — description: `mise use -g node@24`
+    - `brew` — description: `brew install node@24 && brew link --overwrite --force node@24`
+    - `Manual` — description: `I'll install it myself — hold the wizard.`
   Same `Done — re-probe` loop as §2b.
-- **`NODE_STATUS=missing`:** same install options, but `brew install node` (no `@22` clause since there's nothing to upgrade from).
+
+**3c. Probe the claude CLI login.** The engine runs workflow steps as
+`claude -p` children under the user's subscription login. A desktop-app
+session does not log the terminal CLI in, so this is a common gap.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-claude-auth
+```
+
+Bare keys `STATUS`, `BINARY`, `METHOD` → `CLAUDE_AUTH_STATUS`,
+`CLAUDE_AUTH_BINARY`, `CLAUDE_AUTH_METHOD`.
+
+- **`CLAUDE_AUTH_STATUS=ok`:** print `claude login ✓ (<method>)`.
+- **`CLAUDE_AUTH_STATUS=logged-out`:** tell the user to run
+  `claude auth login` in a terminal (not inside this session), wait for
+  `Done — re-probe`, re-run the probe.
+- **`CLAUDE_AUTH_STATUS=missing`:** the `claude` binary is not on PATH;
+  print the install hint from https://code.claude.com/docs and stop the
+  wizard at this step (workflows cannot run without it).
 
 Record:
 
 ```json
-{"status": "ok" | "missing", "binary": "...", "version": "..."}
+{
+  "runtime": {"kind": "bun" | "node", "binary": "...", "version": "..."} | null,
+  "claude_auth": {"status": "ok" | "logged-out" | "missing", "method": "..."}
+}
 ```
 
 ### 4. gh CLI + auth
@@ -352,7 +388,8 @@ Print a one-block report:
 /wise-init complete.
 
   Python 3.12.5       ✓
-  Node 22.20.0        ✓
+  bun 1.4.1           ✓
+  claude login        ✓ (claude.ai)
   gh 2.54.0 (auth: your-username) ✓
   markitdown 0.1.3    ✓
 
