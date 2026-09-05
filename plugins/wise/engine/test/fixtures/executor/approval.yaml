@@ -1,0 +1,14 @@
+version: 2
+name: approval
+description: A bash step then an approval gate; drives reject, GATE_STALE and synchronous tests.
+preflight:
+  control-mode: interactive
+steps:
+  - id: prep
+    type: bash
+    run: echo prepared
+    outputs: [prep_out]
+  - id: approve
+    type: approval
+    message: "Ship {{prep_out}}?"
+    depends_on: [prep]

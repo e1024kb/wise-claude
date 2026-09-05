@@ -1,0 +1,6 @@
+version: 1
+name: broken
+steps:
+  - id: x
+    type: prompt
+    prompt: old

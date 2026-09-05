@@ -7,6 +7,8 @@ import { PROFILE_LEVELS } from "./types.ts";
 import type { Context, LocatedDef, ProfileLevel, ValidationIssue } from "./types.ts";
 import { pluginVersion, runtimeName } from "./version.ts";
 import { daemonCommand } from "./daemon.ts";
+import { clientCommand } from "./cli-client.ts";
+import { mcpCommand } from "./mcp.ts";
 
 const USAGE = `wise-engine <command> [options]
 
@@ -16,8 +18,14 @@ Commands:
   compile-check <workflow>...  validate definitions; exit 1 on any error
   migrate <workflow.yaml>      dry run: list v1 constructs with their v2 replacement
   list-defs                    bundled and user workflow definitions
+  run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v]
+                 [--profile low|medium|max] [--follow]
+                               start a run through the daemon (auto-started)
+  wait|status|answer|cancel|resume|report ...
+                               daemon client commands; see each command's --help
   daemon serve|start|stop|status
                                background daemon wise-engined
+  mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)
   version                      plugin version and runtime
   help                         this text
 
@@ -239,6 +247,16 @@ export async function main(
   const p = parseArgs(argv);
   try {
     switch (p.cmd) {
+      case "run":
+      case "wait":
+      case "status":
+      case "answer":
+      case "cancel":
+      case "resume":
+      case "report":
+        return await clientCommand(argv, io);
+      case "mcp":
+        return await mcpCommand(argv.slice(1), io);
       case "daemon":
         return await daemonCommand(argv.slice(1), io);
       case "preflight":

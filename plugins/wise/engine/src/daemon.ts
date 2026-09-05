@@ -52,6 +52,7 @@ import type {
 } from "./protocol.ts";
 import { domainError, RpcError, serveConnection } from "./rpc.ts";
 import type { CallContext, RpcHandlerMap } from "./rpc.ts";
+import type { Executor } from "./executor.ts";
 import type { RunStatus, RunSummary, State } from "./types.ts";
 import { pluginVersion } from "./version.ts";
 
@@ -826,9 +827,19 @@ export async function daemonCommand(argv: string[], io: DaemonIo): Promise<numbe
   try {
     switch (args.sub) {
       case "serve": {
+        // The executor (M2.3) is the default handler set; tests inject their own through `handlers`.
+        const { executorHandlers } = await import("./executor.ts");
+        let executor: Executor | undefined;
         let daemon: Daemon;
         try {
-          daemon = await startDaemon({ ...opts, log: (l) => io.out(`${utcNow()} ${l}\n`) });
+          daemon = await startDaemon({
+            ...opts,
+            log: (l) => io.out(`${utcNow()} ${l}\n`),
+            handlers: executorHandlers({ env }, (e) => {
+              executor = e;
+            }),
+            isBusy: () => executor?.isBusy() ?? false,
+          });
         } catch (err) {
           if (err instanceof DaemonError && err.code === "ALREADY_RUNNING") {
             io.err(`engined: ${err.message}\n`);
@@ -839,9 +850,11 @@ export async function daemonCommand(argv: string[], io: DaemonIo): Promise<numbe
         const onSignal = (): void => void daemon.close("signal");
         process.on("SIGTERM", onSignal);
         process.on("SIGINT", onSignal);
+        executor?.pickUp();
         const reason = await daemon.closed;
         process.off("SIGTERM", onSignal);
         process.off("SIGINT", onSignal);
+        executor?.stop();
         return reason === "signal" ? 130 : 0;
       }
       case "start": {
