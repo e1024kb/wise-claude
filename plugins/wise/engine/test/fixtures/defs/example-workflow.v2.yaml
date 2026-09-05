@@ -1,0 +1,131 @@
+version: 2
+name: example-workflow
+description: >-
+  Reference workflow that exercises every v2 step type and the parallel
+  wave dispatcher. Harmless to run: classifies the current project, runs a
+  fan-out wave of two agent prompts and three bash steps, asks one
+  question, then asks for approval. Hand-migrated from the v1 bundled
+  workflow for the M2 executor; M6.4 migrates the bundled copy.
+project-selection: current
+
+preflight:
+  control-mode: interactive
+  worktree: current
+
+tuning:
+  groups:
+    - id: classify
+      label: "Classification"
+      default: { harness: claude, model: haiku, effort: low }
+    - id: summarize
+      label: "Summaries"
+      default: { harness: claude, model: haiku, effort: low }
+      fallback: [codex]
+
+profiles:
+  low: {}
+  medium: {}
+  max:
+    tuning:
+      summarize: { model: sonnet, effort: medium }
+
+inputs:
+  - name: focus
+    prompt: "What should the summary focus on?"
+    optional: true
+    from-context: guidance
+
+steps:
+  - id: classify
+    type: agent
+    group: classify
+    prompt: |
+      The run is operating on the project {{project.name}} ({{project.kind}})
+      at {{project.path}}. Classify the project's kind. Do not use tools.
+    schema:
+      type: object
+      properties:
+        release_kind: { type: string, enum: [frontend, backend, fullstack, other] }
+      required: [release_kind]
+      additionalProperties: false
+    outputs: [release_kind]
+    max_turns: 2
+
+  - id: summarize-project
+    type: agent
+    group: summarize
+    prompt: |
+      In one short sentence, summarise what a {{release_kind}} project called
+      {{project.name}} typically does. Focus: {{focus}}. Reply with JSON only.
+    schema:
+      type: object
+      properties:
+        summary: { type: string }
+      required: [summary]
+      additionalProperties: false
+    outputs: [summary]
+    max_turns: 2
+    depends_on: [classify]
+
+  - id: pick-emoji
+    type: agent
+    group: summarize
+    prompt: |
+      Pick one emoji that best represents a {{release_kind}} project. Reply with JSON only.
+    schema:
+      type: object
+      properties:
+        project_emoji: { type: string }
+      required: [project_emoji]
+      additionalProperties: false
+    outputs: [project_emoji]
+    max_turns: 2
+    depends_on: [classify]
+
+  - id: echo-greeting
+    type: bash
+    run: |
+      sleep $((RANDOM % 3 + 1))
+      echo "hello from {{project.name}} (release kind {{release_kind}})"
+    timeout: 15
+    depends_on: [classify]
+
+  - id: echo-timestamp
+    type: bash
+    run: |
+      sleep $((RANDOM % 3 + 1))
+      date -u +%Y-%m-%dT%H:%M:%SZ
+    outputs: [stamp]
+    timeout: 15
+    depends_on: [classify]
+
+  - id: echo-pwd
+    type: bash
+    run: pwd
+    timeout: 15
+    depends_on: [classify]
+
+  - id: pick-next
+    type: ask
+    message: "Which improvement should the summary recommend next?"
+    options: [tests, docs, performance]
+    allow_text: true
+    output: next_focus
+    depends_on: [summarize-project]
+
+  - id: approve-summary
+    type: approval
+    message: |
+      Smoke test finished.
+      Project: {{project.name}} (kind: {{release_kind}}) {{project_emoji}}
+      Summary: {{summary}}
+      Next: {{next_focus}}
+      Approve to mark the run complete?
+    depends_on:
+      - summarize-project
+      - pick-emoji
+      - echo-greeting
+      - echo-timestamp
+      - echo-pwd
+      - pick-next
+    trigger-rule: all-success

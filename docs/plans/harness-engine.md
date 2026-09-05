@@ -14,7 +14,7 @@ Steps run by spawning vendor CLIs headless (`claude -p`, `codex exec`, `gemini -
 |---|---|---|---|---|---|
 | M0 | Spike | 8 | — | all probes pass, transport confirmed | DONE |
 | M1 | Engine core (library + CLI, no execution) | 17 | M0 | ported tests green on bun and node | DONE |
-| M2 | Execution: claude adapter, daemon, MCP | 16 | M1 | `wise_run` of example-workflow completes via MCP from Claude Code | TODO |
+| M2 | Execution: claude adapter, daemon, MCP | 16 | M1 | `wise_run` of example-workflow completes via MCP from Claude Code | IN PROGRESS |
 | M3 | Conductor + ticket-plan end to end | 7 | M2 | ticket-plan on a real ticket, baseline recorded, Python deleted | TODO |
 | M4 | `units.ts`: ticket-auto and impl-plan-auto | 12 | M3 | ticket-auto merges one ticket all-Claude | TODO |
 | M5 | Harnesses: codex, grok, gemini, fallback | 9 | M2 | cross-harness ticket-auto run | TODO |
@@ -66,8 +66,8 @@ Goal: run a workflow through the daemon from Claude Code via MCP, Claude harness
 
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
-| M2.1 | Adapter contract (P6) and `claude` adapter: clean-env spawn, `stream-json` parsing to normalised events, `--json-schema`, usage extraction, cursor (`session_id`), exit classification (`ok`, `error`, `rate_limited`, `auth`, `timeout`, `max_turns`), raw NDJSON log | 3 | M1 | Adapter tests with recorded fixtures from M0.1; live smoke on haiku | TODO |
-| M2.2 | Daemon `wise-engined`: socket JSON-RPC server (P1 methods), flock single instance, version handshake, idle exit, detached start, pgid tracking, crash recovery resetting `running` → `pending` | 3 | M1.5 | Two clients cannot start two daemons; kill -9 then restart resumes a run from the ledger | TODO |
+| M2.1 | Adapter contract (P6) and `claude` adapter: clean-env spawn, `stream-json` parsing to normalised events, `--json-schema`, usage extraction, cursor (`session_id`), exit classification (`ok`, `error`, `rate_limited`, `auth`, `timeout`, `max_turns`), raw NDJSON log | 3 | M1 | Adapter tests with recorded fixtures from M0.1; live smoke on haiku | IN PROGRESS |
+| M2.2 | Daemon `wise-engined`: socket JSON-RPC server (P1 methods), flock single instance, version handshake, idle exit, detached start, pgid tracking, crash recovery resetting `running` → `pending` | 3 | M1.5 | Two clients cannot start two daemons; kill -9 then restart resumes a run from the ledger | IN PROGRESS |
 | M2.3 | Run executor inside the daemon: scheduler loop, step types `agent`, `bash`, `approval`, `ask`; gates park the run as `gated`; caps (`max_turns`, tokens); rate-limit backoff and `fallback` harness list | 3 | M2.1, M2.2 | `example-workflow` (migrated) runs to completion via the CLI; a gate parks and resumes on `answer` | TODO |
 | M2.4 | MCP server `wise-engine mcp`: six tools per P1, long-poll `wise_wait`, compact events only (E1); `plugins/wise/.mcp.json` declares it | 2 | M2.2 | From Claude Code: `wise_preflight` → `wise_run` → `wise_wait` loop → `wise_answer` on a gate → done, with no log text crossing the wire | TODO |
 | M2.5 | CLI client: `run`, `status`, `answer`, `cancel`, `resume`, `report` over the socket; auto-starts the daemon | 1 | M2.2 | Same run driven from a terminal without Claude Code | TODO |
