@@ -54,6 +54,7 @@ export function buildArgv(req: RunReq): string[] {
   if (req.max_turns !== undefined) argv.push("--max-turns", String(req.max_turns));
   if (typeof req.resume === "string" && req.resume.length > 0) argv.push("--resume", req.resume);
   argv.push("--permission-mode", MODE_MAP[req.mode]);
+  for (const dir of req.add_dirs ?? []) argv.push("--add-dir", dir);
   argv.push(
     "--strict-mcp-config",
     "--mcp-config",
@@ -243,6 +244,11 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
       const cursor = (result && str(result.session_id)) ?? snap.session_id;
       if (cursor !== undefined) res.cursor = cursor;
       if (verdict.error !== undefined) res.error = verdict.error;
+      if (snap.denials.length > 0) {
+        res.warnings = [
+          `${snap.denials.length} permission denial(s): ${snap.denials.slice(0, 3).join(", ")}`,
+        ];
+      }
       return res;
     },
   };

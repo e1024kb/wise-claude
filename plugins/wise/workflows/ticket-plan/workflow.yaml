@@ -195,7 +195,11 @@ steps:
       Confirm this session can reach the **{{tracker_slug}}** tracker
       before fetching ticket `{{ticket_ref}}`.
 
-      Probe for an integration: a tracker MCP, or a CLI (`command -v
+      First call the `wise_context` tool with key `ticket`. When it
+      returns an entry with a body, the conductor already pasted the
+      ticket: access is `ok`, stop here, probe nothing.
+
+      Otherwise probe for an integration: a tracker MCP, or a CLI (`command -v
       gh`, `command -v glab`, etc.). MCP tools are not pre-granted; a
       one-time permission prompt on first use is expected.
 
@@ -225,12 +229,13 @@ steps:
     type: agent
     model: sonnet
     prompt: |
-      Fetch ticket `{{ticket_ref}}` from the {{tracker_slug}} tracker
-      using whatever access `ensure-access` established (the tracker's
-      MCP, its CLI, or the user's manual paste). If the run context
-      already carries the ticket body (the `ticket` entry, readable
-      with the `wise_context` tool), normalise from that instead of
-      fetching again.
+      First call the `wise_context` tool with key `ticket`. When it
+      returns an entry with a body, normalise from that and fetch
+      nothing. Otherwise fetch ticket `{{ticket_ref}}` from the
+      {{tracker_slug}} tracker with the access `ensure-access`
+      established (the tracker's MCP, its CLI, or the user's manual
+      paste). Do not search for tools or skills; use only what is named
+      here.
 
       Normalise the result into this tracker-agnostic shape; omit any
       field the tracker does not have rather than faking it:
@@ -253,7 +258,8 @@ steps:
       Persist the normalised ticket for the later steps (they run as
       isolated children that cannot see this step's output): first
       `mkdir -p "{{run.dir}}/research"`, then write the full normalised
-      ticket to `{{run.dir}}/research/ticket.md`. The file is the
+      ticket to `{{run.dir}}/research/ticket.md` with the Write tool.
+      The run directory is writable for this session. The file is the
       channel; every later step reads it.
 
       If the fetch fails, stop and surface the error; do NOT invent a
@@ -782,7 +788,9 @@ steps:
     type: agent
     model: sonnet
     prompt: |
-      Print the closing summary:
+      Print the closing summary. Link the ticket only with the `url`
+      from the run context `ticket` entry (`wise_context` key
+      `ticket`); never invent a tracker URL.
 
         Ticket:  {{tracker_slug}}:{{ticket_ref}}
         Branch:  {{work_branch}}

@@ -408,6 +408,7 @@ test("parser: permission denials fill an empty text and stay ok", () => {
   const { res, snap } = parseAll(stream);
   assert.equal(res.exit, "ok");
   assert.equal(res.text, 'permission denied: Bash({"command":"rm -rf /"})');
+  assert.deepEqual(res.warnings, ['1 permission denial(s): Bash({"command":"rm -rf /"})']);
   assert.deepEqual(snap.denials, ['Bash({"command":"rm -rf /"})']);
   // Non-empty text is left alone.
   const withText = parseAll(
@@ -639,4 +640,12 @@ test("buildArgv: model inherit or empty omits --model", () => {
     assert.equal(argv.includes("--model"), false, `model=${JSON.stringify(model)}`);
   }
   assert.ok(buildArgv({ ...BASE_REQ, model: "sonnet" }).includes("--model"));
+});
+
+test("buildArgv: add_dirs become --add-dir pairs after the permission mode", () => {
+  const argv = buildArgv({ ...BASE_REQ, add_dirs: ["/tmp/run-a", "/tmp/run-b"] });
+  const i = argv.indexOf("--add-dir");
+  assert.ok(i > argv.indexOf("--permission-mode"));
+  assert.deepEqual(argv.slice(i, i + 4), ["--add-dir", "/tmp/run-a", "--add-dir", "/tmp/run-b"]);
+  assert.equal(buildArgv(BASE_REQ).includes("--add-dir"), false);
 });

@@ -431,6 +431,8 @@ export type RunReq = {
   env?: Record<string, string>;
   /** Engine-provided MCP servers for the child (D18: Claude runs with `--strict-mcp-config`). */
   mcp_config?: { mcpServers: Record<string, unknown> };
+  /** Extra directories the child may read and write (Claude `--add-dir`); the run dir always. */
+  add_dirs?: string[];
   /** Per-step token the child channel (P8) presents back to the daemon. */
   step_token?: string;
 };

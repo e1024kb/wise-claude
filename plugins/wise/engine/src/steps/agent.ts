@@ -109,6 +109,7 @@ export function buildRunReq(input: AgentStepInput): RunReq {
         : (input.defaultTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS),
     auth: step.auth ?? "subscription",
     step_token: input.stepToken,
+    add_dirs: [input.runDir],
   };
   if (resolved.effort !== "" && effortFor(resolved.harness, resolved.effort) !== undefined) {
     req.effort = resolved.effort as Effort;
