@@ -241,13 +241,16 @@ const DESCRIPTIONS: Record<McpToolName, string> = {
   wise_preflight:
     "Call before wise_run. Returns the workflow's questionary {workflow, version, questions, defaults}: " +
     "render questions to the user (skip locked ones and ones the session profile already answers), " +
-    "then pass the answers to wise_run. Read-only, starts nothing.",
+    "then pass the answers to wise_run. requires_missing lists plugin:<name> / tool:<name> the workflow " +
+    "declares but the machine lacks; wise_run refuses with REQUIRES_MISSING until they are installed. " +
+    "Read-only, starts nothing.",
   wise_run:
     "Start a workflow run; returns {run_id, status} at once, then loop on wise_wait. " +
     "answers: question id -> value from wise_preflight. context: build it from what this conversation " +
     "already knows (ticket refs with title and body, operator guidance, decisions made, links); child " +
     "agents never see the transcript, so anything missing here they must refetch. inputs: workflow inputs by name. " +
-    "AUTH_REQUIRED errors carry login_cmd: show it to the user verbatim.",
+    "AUTH_REQUIRED errors carry login_cmd: show it to the user verbatim. MISSING_ANSWERS lists required " +
+    "questions or inputs left without a value (ask the user, then retry).",
   wise_wait:
     "Long-poll a run. Blocks until a new event past `after`, an open gate, the run ending, or timeout_ms " +
     `(default ${WAIT_DEFAULT_MS}, max ${WAIT_MAX_MS}), then returns {events, status, gate?, done}. ` +

@@ -50,7 +50,7 @@ import { usageTokens, usageTotal } from "../src/ledger.ts";
 import { RPC_INVALID_PARAMS } from "../src/protocol.ts";
 import { domainCode, domainError } from "../src/rpc.ts";
 import type { CallContext, RpcError } from "../src/rpc.ts";
-import type { Event, RunRes, State } from "../src/types.ts";
+import type { Context, Event, RunRes, State } from "../src/types.ts";
 import { fakeAdapter, pause, schemaAnswer, usage } from "./fixtures/executor/fake.ts";
 import type { FakeAdapter } from "./fixtures/executor/fake.ts";
 import { heldStarter } from "./fixtures/executor/held.ts";
@@ -1173,6 +1173,78 @@ describe("executor", () => {
   );
 
   // ---- usage accounting and ceilings (M6.1, M6.2) --------------------------------------------------
+
+  test("requires: preflight lists missing tools and run refuses with REQUIRES_MISSING before any run dir", async () => {
+    const r = mkRoot();
+    const exec = make(r);
+    const pre = await exec.handlers.preflight({ workflow: "requires-missing", cwd: r.cwd }, ctx);
+    assert.deepEqual(pre.requires_missing, ["tool:wise-no-such-tool-xyz"]);
+    const refused = await attempt(() =>
+      exec.handlers.run(
+        { workflow: "requires-missing", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(refused), "REQUIRES_MISSING");
+    assert.deepEqual((refused as RpcError).data, {
+      code: "REQUIRES_MISSING",
+      missing: ["tool:wise-no-such-tool-xyz"],
+    });
+    assert.deepEqual(r.rt.listRunDirs(), [], "nothing created");
+  });
+
+  test("requires: an injected probe that passes lets the run start", async () => {
+    const r = mkRoot();
+    const exec = make(r, { probeRequires: () => ({ ok: true, missing: [] }) });
+    const pre = await exec.handlers.preflight({ workflow: "requires-missing", cwd: r.cwd }, ctx);
+    assert.deepEqual(pre.requires_missing, []);
+    const { run_id } = await exec.handlers.run(
+      { workflow: "requires-missing", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      ctx,
+    );
+    const state = await untilStatus(r, run_id, ["completed", "failed"]);
+    assert.equal(state.status, "completed");
+    exec.stop();
+  });
+
+  test("inputs: a required input without answer, explicit value or context fails with MISSING_ANSWERS", async () => {
+    const r = mkRoot();
+    const exec = make(r);
+    const refused = await attempt(() =>
+      exec.handlers.run(
+        { workflow: "required-input", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(refused), "MISSING_ANSWERS");
+    const data = (refused as RpcError).data as { missing: string[]; questions: { id: string }[] };
+    assert.deepEqual(data.missing, ["input.ticket"]);
+    assert.deepEqual(
+      data.questions.map((q) => q.id),
+      ["input.ticket"],
+    );
+    assert.deepEqual(r.rt.listRunDirs(), [], "nothing created");
+
+    // The same input from the run context, from `inputs`, or from an `input.<name>` answer starts the run.
+    const starts: Array<{
+      answers: Record<string, string>;
+      context: Context;
+      inputs: Record<string, string>;
+    }> = [
+      { answers: {}, context: { ticket: [{ ref: "LEC-1", title: "t", body: "b" }] }, inputs: {} },
+      { answers: {}, context: {}, inputs: { ticket: "LEC-2" } },
+      { answers: { "input.ticket": "LEC-3" }, context: {}, inputs: {} },
+    ];
+    for (const params of starts) {
+      const { run_id } = await exec.handlers.run(
+        { workflow: "required-input", cwd: r.cwd, ...params },
+        ctx,
+      );
+      const state = await untilStatus(r, run_id, ["completed", "failed"]);
+      assert.equal(state.status, "completed");
+    }
+    exec.stop();
+  });
 
   test("M6.2 low profile refuses api-key steps without allow-api before any run dir exists", async () => {
     const r = mkRoot();

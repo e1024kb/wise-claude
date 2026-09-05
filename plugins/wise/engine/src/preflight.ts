@@ -226,3 +226,31 @@ export function applyAnswers(def: WorkflowDef, answers: Answers): Applied {
 
   return { profile, tuning, enabledSteps, inputs, caps: { ...profileDef?.caps } };
 }
+
+// ---- answers -----------------------------------------------------------------------------------
+
+export type FilledAnswers = { answers: Answers; inputs: Record<string, string>; missing: string[] };
+
+/**
+ * Explicit answers win; every unanswered, non-locked question falls back to its default. A
+ * non-optional question left without a value is reported in `missing`.
+ */
+export function fillAnswers(questions: Question[], given: Answers): FilledAnswers {
+  const answers: Answers = { ...given };
+  const missing: string[] = [];
+  for (const q of questions) {
+    if (q.locked) continue;
+    if (answers[q.id] !== undefined) continue;
+    if (q.default !== undefined) {
+      answers[q.id] = q.default;
+      continue;
+    }
+    if (q.kind === "text" && q.optional) continue;
+    missing.push(q.id);
+  }
+  const inputs: Record<string, string> = {};
+  for (const [id, value] of Object.entries(answers)) {
+    if (id.startsWith("input.") && typeof value === "string") inputs[id.slice(6)] = value;
+  }
+  return { answers, inputs, missing };
+}

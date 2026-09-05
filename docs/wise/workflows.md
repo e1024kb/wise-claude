@@ -156,9 +156,10 @@ requires:
   tools: [gh, codex]          # binaries on PATH
 ```
 
-The v1 list form (`- plugin: x`) is an error. `probeRequires` in
-`defs.ts` implements the check; nothing calls it at run start in this
-build, so the block is declarative.
+The v1 list form (`- plugin: x`) is an error. `wise_preflight` returns
+the unmet entries as `requires_missing` (`plugin:<name>`,
+`tool:<name>`); `wise_run` refuses with `REQUIRES_MISSING` while any
+is unmet, before the auth probes and before a run directory exists.
 
 ### `preflight`
 
@@ -799,8 +800,8 @@ descriptions the model reads are in `engine/src/mcp.ts`.
 
 | Tool | Params | Returns |
 |---|---|---|
-| `wise_preflight` | `workflow`, `cwd`, `profile?` | `{workflow, version, questions, defaults}`. Read-only. |
-| `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs`, `profile?` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `AUTH_REQUIRED {login_cmd}`, `MISSING_ANSWERS`. |
+| `wise_preflight` | `workflow`, `cwd`, `profile?` | `{workflow, version, questions, defaults, requires_missing}`. Read-only. |
+| `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs`, `profile?` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `PROFILE_REFUSES_API {steps[]}`, `AUTH_REQUIRED {login_cmd}`. |
 | `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
 | `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |
 | `wise_status` | `run_id?` | One `RunSummary` (`run_id, workflow, status, started_at, last_activity_at, completed_at?, cwd, gate?, children?, usage_total?`) or every run, newest activity first. |

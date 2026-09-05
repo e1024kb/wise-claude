@@ -36,7 +36,7 @@ import {
 import type { ChannelTimers, ChildTracker, StaleWatch } from "./channel.ts";
 import { clearChild, ledgerHandlers, readChild, recordChild } from "./daemon.ts";
 import type { DaemonHandlers, DaemonRuntime, Handler } from "./daemon.ts";
-import { defaultRoots, loadAndValidate, locateDef } from "./defs.ts";
+import { defaultRoots, loadAndValidate, locateDef, probeRequires } from "./defs.ts";
 import type { DefRoots } from "./defs.ts";
 import {
   appendEvent,
@@ -57,7 +57,7 @@ import {
 } from "./ledger.ts";
 import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
-import { applyAnswers, buildQuestionary, resolveFromContext } from "./preflight.ts";
+import { applyAnswers, buildQuestionary, fillAnswers, resolveFromContext } from "./preflight.ts";
 import { priceUsage } from "./pricing.ts";
 import { isProfileLevel } from "./profile.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
@@ -199,6 +199,8 @@ export type ExecutorOptions = {
   concurrency?: ConcurrencyOverrides;
   backoffMs?: (attempt: number) => number;
   detectProject?: (cwd: string) => Project;
+  /** `requires` probe; default `probeRequires` over installed plugins and PATH. */
+  probeRequires?: (def: WorkflowDef) => { ok: boolean; missing: string[] };
   /** Agent / bash wall clock when the step has no `timeout`; default 30 min. */
   defaultTimeoutMs?: number;
   channel?: ChannelOptions;
@@ -496,6 +498,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
   const caps = loadCaps(opts.configPath ?? defaultConfigPath(env), opts.concurrency);
   const backoffMs = opts.backoffMs ?? defaultBackoffMs;
   const projectOf = opts.detectProject ?? detectProject;
+  const requiresOf = opts.probeRequires ?? ((def: WorkflowDef) => probeRequires(def));
   const ledger = ledgerHandlers(rt);
   const timers = opts.channel?.timers ?? realTimers;
   const channel: ChannelConfig | undefined =
@@ -1453,6 +1456,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       version: def.version,
       questions: q.questions,
       defaults: q.defaults,
+      requires_missing: requiresOf(def).missing,
     };
   };
 
@@ -1507,6 +1511,34 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       }
     }
 
+    // `requires` and required inputs are checked before the auth probes and before any run dir.
+    const requires = requiresOf(def);
+    if (!requires.ok) {
+      throw domainError(
+        "REQUIRES_MISSING",
+        `workflow requires ${requires.missing.join(", ")}; install them and retry`,
+        { missing: requires.missing },
+      );
+    }
+    const inputs = { ...applied.inputs, ...explicitInputs };
+    // E1: an input left empty by the harness still takes its `from-context` value from the run context.
+    for (const input of def.inputs ?? []) {
+      const path = input["from-context"];
+      if (!path || inputs[input.name]) continue;
+      const fromContext = resolveFromContext(path, context);
+      if (fromContext !== undefined) inputs[input.name] = fromContext;
+    }
+    const questionary = buildQuestionary(def, { profile: applied.profile });
+    const missing = fillAnswers(questionary.questions, answers).missing.filter(
+      (id) => !(id.startsWith("input.") && inputs[id.slice(6)]),
+    );
+    if (missing.length > 0) {
+      throw domainError("MISSING_ANSWERS", `missing required answers: ${missing.join(", ")}`, {
+        missing,
+        questions: questionary.questions.filter((q) => missing.includes(q.id)),
+      });
+    }
+
     // R1: nothing is created until every harness the run needs answers its auth probe.
     await probeHarnesses(collectNeeds(def, applied.enabledSteps, resolved), getAdapter);
 
@@ -1531,14 +1563,6 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       }
     }
     writeState(runDir, state);
-    const inputs = { ...applied.inputs, ...explicitInputs };
-    // E1: an input left empty by the harness still takes its `from-context` value from the run context.
-    for (const input of def.inputs ?? []) {
-      const path = input["from-context"];
-      if (!path || inputs[input.name]) continue;
-      const fromContext = resolveFromContext(path, context);
-      if (fromContext !== undefined) inputs[input.name] = fromContext;
-    }
     startRun(runDir, {
       project: projectOf(cwd),
       inputs,

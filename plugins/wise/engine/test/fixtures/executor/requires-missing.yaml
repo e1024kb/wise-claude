@@ -1,0 +1,9 @@
+version: 2
+name: requires-missing
+description: Declares a tool that is not on PATH; run and preflight report it.
+requires:
+  tools: [wise-no-such-tool-xyz]
+steps:
+  - id: only
+    type: bash
+    run: echo ok

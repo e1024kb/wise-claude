@@ -74,7 +74,13 @@ function freshFake(): Fake {
   return {
     calls: [],
     waits: [],
-    preflight: { workflow: "wf", version: 2, questions: QUESTIONS, defaults: {} },
+    preflight: {
+      workflow: "wf",
+      version: 2,
+      questions: QUESTIONS,
+      defaults: {},
+      requires_missing: [],
+    },
     fail: {},
   };
 }

@@ -1,0 +1,11 @@
+version: 2
+name: required-input
+description: One required text input without a default; run refuses to start without it.
+inputs:
+  - name: ticket
+    prompt: "Ticket?"
+    from-context: ticket[].ref
+steps:
+  - id: only
+    type: bash
+    run: echo "{{ticket}}"

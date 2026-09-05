@@ -48,6 +48,10 @@ toplevel, else pwd.
   `${CLAUDE_PLUGIN_ROOT}/references/legacy-conductor/run.md` from its
   §1 instead of the rest of this file. Any other issue: list
   `path: message (hint)` and stop.
+- `requires_missing` non-empty: print one line per entry
+  (`plugin:<name>` needs `/plugin install`, `tool:<name>` needs the
+  binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
+  until they are installed.
 
 Render `questions` with one composite AskUserQuestion (four questions
 per call at most): `choice` single-select with the default option
@@ -64,7 +68,9 @@ body, url}` for tickets already fetched, `guidance` (operator text),
 include what they need, nothing they could not otherwise see.
 
 `wise_run {workflow, cwd, answers, context, inputs, profile?}` returns
-`run_id`. Print `Run <run_id> started (<workflow>).`
+`run_id`. Print `Run <run_id> started (<workflow>).` `MISSING_ANSWERS`
+lists required questions or inputs still without a value: ask them
+with AskUserQuestion and call `wise_run` again.
 
 ## 4. Wait loop
 

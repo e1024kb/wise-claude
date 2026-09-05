@@ -240,7 +240,13 @@ describe("daemon", () => {
       handlers: (rt) => {
         seenRuntimeVersion = rt.version;
         return {
-          preflight: (p) => ({ workflow: p.workflow, version: 2, questions: [], defaults: {} }),
+          preflight: (p) => ({
+            workflow: p.workflow,
+            version: 2,
+            questions: [],
+            defaults: {},
+            requires_missing: [],
+          }),
         };
       },
     });

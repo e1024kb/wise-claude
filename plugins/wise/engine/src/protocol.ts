@@ -86,6 +86,8 @@ export type PreflightResult = {
   version: number;
   questions: Question[];
   defaults: Answers;
+  /** `requires.plugins` / `requires.tools` not found, as `plugin:<name>` / `tool:<name>`. */
+  requires_missing: string[];
 };
 
 export type RunParams = {

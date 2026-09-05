@@ -2,6 +2,7 @@
 // daemon socket. Follows the same loop a conductor does (P7): preflight -> run -> wait/answer.
 // JSON by default, `--text` for a human rendering. Wired into cli.ts by the owner.
 
+import { fillAnswers } from "./preflight.ts";
 import { createInterface } from "node:readline";
 import type { Interface } from "node:readline";
 import { connect, ConnectError, ensureDaemon } from "./client.ts";
@@ -10,7 +11,7 @@ import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "./protocol.ts";
 import type { ReportResult, RunParams, StatusResult, WaitResult } from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
 import { PROFILE_LEVELS } from "./types.ts";
-import type { Answers, Context, Event, Gate, Question, RunSummary, Usage } from "./types.ts";
+import type { Answers, Context, Event, Gate, RunSummary, Usage } from "./types.ts";
 
 export const CLIENT_USAGE = `wise-engine <command> [options]
 
@@ -319,31 +320,8 @@ class LineSource {
 
 // ---- answers ---------------------------------------------------------------------------------------
 
-export type FilledAnswers = { answers: Answers; inputs: Record<string, string>; missing: string[] };
-
-/**
- * Explicit answers win; every unanswered, non-locked question falls back to its default. A
- * non-optional question left without a value is reported in `missing`.
- */
-export function fillAnswers(questions: Question[], given: Answers): FilledAnswers {
-  const answers: Answers = { ...given };
-  const missing: string[] = [];
-  for (const q of questions) {
-    if (q.locked) continue;
-    if (answers[q.id] !== undefined) continue;
-    if (q.default !== undefined) {
-      answers[q.id] = q.default;
-      continue;
-    }
-    if (q.kind === "text" && q.optional) continue;
-    missing.push(q.id);
-  }
-  const inputs: Record<string, string> = {};
-  for (const [id, value] of Object.entries(answers)) {
-    if (id.startsWith("input.") && typeof value === "string") inputs[id.slice(6)] = value;
-  }
-  return { answers, inputs, missing };
-}
+export { fillAnswers } from "./preflight.ts";
+export type { FilledAnswers } from "./preflight.ts";
 
 // ---- connection --------------------------------------------------------------------------------
 

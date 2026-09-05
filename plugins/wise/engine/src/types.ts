@@ -202,6 +202,8 @@ export const ERROR_CODES = [
   "ALREADY_RUNNING",
   "TOKEN_INVALID",
   "PROFILE_REFUSES_API",
+  "MISSING_ANSWERS",
+  "REQUIRES_MISSING",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

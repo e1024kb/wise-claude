@@ -62,6 +62,7 @@ function fakeHandlers(calls: Call[]): Partial<DaemonHandlers> {
         version: 2,
         questions: [{ id: "profile", kind: "choice", label: "Profile" }],
         defaults: { profile: "medium" },
+        requires_missing: [],
       };
     },
     run: (params) => {
@@ -222,6 +223,7 @@ describe("mcp", () => {
         version: 2,
         questions: [{ id: "profile", kind: "choice", label: "Profile" }],
         defaults: { profile: "medium" },
+        requires_missing: [],
       };
       assert.equal(textOf(res), JSON.stringify(expected));
       assert.deepEqual(res.structuredContent, expected);
