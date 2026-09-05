@@ -6,6 +6,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { exitAfterClose, watchHost } from "./host-watch.ts";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type {
   CallToolResult,
@@ -446,10 +447,24 @@ export async function serveStdio(opts: McpServerOptions = {}): Promise<number> {
   // oxlint-disable-next-line unicorn/prefer-add-event-listener
   server.server.onclose = () => {
     onclose?.();
+    stop();
     resolve(0);
   };
-  await server.connect(new StdioServerTransport());
-  return promise;
+  const transport = new StdioServerTransport();
+  // The SDK transport never sees stdin EOF or a dead parent; without this the server outlives
+  // its host as an orphan and Bun spins on the closed pipe.
+  const stop = watchHost({
+    stdin: process.stdin,
+    stdout: process.stdout,
+    ppid: () => process.ppid,
+    onGone: () => {
+      transport.close().catch(() => {});
+    },
+  });
+  await server.connect(transport);
+  const code = await promise;
+  exitAfterClose(code);
+  return code;
 }
 
 // ---- CLI: `wise-engine mcp [options]` --------------------------------------------------------------------
