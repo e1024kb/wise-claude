@@ -279,7 +279,11 @@ export function startClaude(
   onEvent: (e: RawEvent) => void,
   opts: StartOpts = {},
 ): ClaudeRun {
-  // Every user message written to stdin owes one `result`; stdin ends when none is outstanding.
+  // Every user message written to stdin owes one `result`, except that the CLI folds a message
+  // arriving mid-turn into the running turn and answers both with ONE result. So the CLI's own
+  // `queued_turn_count` on the result is the truth about what is still pending; the per-message
+  // counter is only the fallback for a result without it. Stdin ends when nothing is pending;
+  // the CLI exits on EOF.
   let outstanding = 0;
   let stdinOpen = true;
   const proc = spawnClean(opts.bin ?? CLAUDE_BIN, buildArgv(req), {
@@ -294,8 +298,12 @@ export function startClaude(
   };
   const parser = createStreamParser({
     pool: req.auth,
-    onResult: () => {
-      outstanding = Math.max(0, outstanding - 1);
+    onResult: (result) => {
+      const queued = result.queued_turn_count;
+      outstanding =
+        typeof queued === "number" && Number.isFinite(queued)
+          ? Math.max(0, queued)
+          : Math.max(0, outstanding - 1);
       if (outstanding === 0) endStdin();
     },
   });

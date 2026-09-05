@@ -494,6 +494,40 @@ const ECHO_SCRIPT = `
   process.stdin.on("end", () => process.exit(0));
 `;
 
+/** Like ECHO_SCRIPT, but folds every line buffered so far into ONE turn (one result, queued 0). */
+const COALESCE_SCRIPT = `
+  process.stdout.write(JSON.stringify({ type: "system", subtype: "init", session_id: "fake-sess", tools: [] }) + "\\n");
+  let buf = ""; let n = 0;
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (c) => {
+    buf += c;
+    const lines = buf.split("\\n"); buf = lines.pop();
+    const texts = lines.filter(Boolean).map((l) => JSON.parse(l).message.content[0].text);
+    if (texts.length === 0) return;
+    n += 1;
+    process.stdout.write(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "got " + texts.join("+") }] } }) + "\\n");
+    process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, stop_reason: "tool_use", queued_turn_count: 0, session_id: "fake-sess", result: "got " + texts.join("+"), num_turns: n, total_cost_usd: 0.01, usage: { input_tokens: texts.length, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) + "\\n");
+  });
+  process.stdin.on("end", () => process.exit(0));
+`;
+
+test("startClaude: a nudge the CLI folds into the running turn (one result, queued_turn_count 0) still ends stdin", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "wise-fake-claude-"));
+  const script = join(scratch, "coalesce.cjs");
+  writeFileSync(script, COALESCE_SCRIPT);
+  const { bin, dir } = fakeBin(`exec "${process.execPath}" "${script}"`);
+  const run = startClaude({ ...BASE_REQ, prompt: "ping", cwd: dir, timeout_ms: 10_000 }, () => {}, {
+    bin,
+    parentEnv: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+  });
+  run.nudge("again"); // written before the fake reads: both lines land in one turn
+  const res = await run.done;
+  assert.equal(res.exit, "ok", res.error);
+  assert.equal(res.text, "got ping+again");
+  assert.equal(run.snapshot().results, 1);
+  assert.throws(() => run.nudge("late"), /stdin is closed/);
+});
+
 test("startClaude: fake binary round-trips prompt and nudge over stdin", async () => {
   // The stand-in drops the claude argv and runs the echo script instead.
   const scratch = mkdtempSync(join(tmpdir(), "wise-fake-claude-"));
