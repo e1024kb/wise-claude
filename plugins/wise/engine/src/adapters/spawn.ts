@@ -8,7 +8,12 @@ import type { ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import type { Env } from "../paths.ts";
 
-/** Parent variables every child may inherit. */
+/**
+ * Parent variables every child may inherit: the shell basics, then what git, ssh, gpg, gh and
+ * the network stack need to reach a remote from a clean env (without `SSH_AUTH_SOCK` every
+ * `git@github.com` call fails with "Permission denied (publickey)"; the phase runners hit that
+ * first, at `claim`). Vendor tokens stay out: gh reads its own keyring through HOME.
+ */
 export const PASSTHROUGH_VARS = [
   "HOME",
   "PATH",
@@ -18,6 +23,26 @@ export const PASSTHROUGH_VARS = [
   "TMPDIR",
   "SHELL",
   "USER",
+  // git over ssh, ssh signing, gpg signing
+  "SSH_AUTH_SOCK",
+  "SSH_AGENT_PID",
+  "GIT_SSH",
+  "GIT_SSH_COMMAND",
+  "GIT_CONFIG_GLOBAL",
+  "GNUPGHOME",
+  "GPG_TTY",
+  // gh host and config dir (never GH_TOKEN)
+  "GH_HOST",
+  "GH_CONFIG_DIR",
+  // proxies and trust store
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
 ] as const;
 
 /** Variables no child may ever inherit, whatever the allowlist says. */

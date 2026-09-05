@@ -536,10 +536,16 @@ warning on the result.
 ### Child environment
 
 Children start from an empty environment plus `HOME`, `PATH`, `LANG`,
-`LC_ALL`, `TERM`, `TMPDIR`, `SHELL`, `USER`, every `XDG_*`, the
-harness config-dir variable when set, the key variable only under
-`api-key`, and the engine channel variables. `CLAUDECODE`,
-`CLAUDE_CODE_*` and `CLAUDE_*SESSION*` are never inherited.
+`LC_ALL`, `TERM`, `TMPDIR`, `SHELL`, `USER`, every `XDG_*`, what git
+and gh need to reach a remote (`SSH_AUTH_SOCK`, `SSH_AGENT_PID`,
+`GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_CONFIG_GLOBAL`, `GNUPGHOME`,
+`GPG_TTY`, `GH_HOST`, `GH_CONFIG_DIR`, the `*_PROXY` variables,
+`SSL_CERT_FILE`, `SSL_CERT_DIR`; never `GH_TOKEN`), the harness
+config-dir variable when set, the key variable only under `api-key`,
+and the engine channel variables. `CLAUDECODE`, `CLAUDE_CODE_*` and
+`CLAUDE_*SESSION*` are never inherited. The same allowlist applies to
+bash steps and to the engine's own git and gh calls in the unit
+phases.
 
 ### Fallback and rate limits
 

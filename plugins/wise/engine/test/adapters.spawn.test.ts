@@ -43,6 +43,10 @@ test("cleanEnv: allowlist, XDG_*, keep, secrets, blocked names, extra on top", (
     CLAUDE_FOO_SESSION_BAR: "s3",
     AWS_SECRET: "nope",
     EDITOR: "vim",
+    SSH_AUTH_SOCK: "/run/agent.sock",
+    GIT_SSH_COMMAND: "ssh -i /k",
+    HTTPS_PROXY: "http://proxy:3128",
+    GH_TOKEN: "gho_secret",
   };
   const table: {
     name: string;
@@ -63,6 +67,9 @@ test("cleanEnv: allowlist, XDG_*, keep, secrets, blocked names, extra on top", (
         USER: "u",
         XDG_DATA_HOME: "/x/data",
         XDG_CONFIG_HOME: "/x/cfg",
+        SSH_AUTH_SOCK: "/run/agent.sock",
+        GIT_SSH_COMMAND: "ssh -i /k",
+        HTTPS_PROXY: "http://proxy:3128",
       },
     },
     {
@@ -100,6 +107,9 @@ test("cleanEnv: allowlist, XDG_*, keep, secrets, blocked names, extra on top", (
         TMPDIR: "/t",
         SHELL: "/bin/zsh",
         USER: "u",
+        SSH_AUTH_SOCK: "/run/agent.sock",
+        GIT_SSH_COMMAND: "ssh -i /k",
+        HTTPS_PROXY: "http://proxy:3128",
         XDG_DATA_HOME: "/x/data",
         XDG_CONFIG_HOME: "/x/cfg",
       },
@@ -116,7 +126,9 @@ test("cleanEnv: allowlist, XDG_*, keep, secrets, blocked names, extra on top", (
   for (const row of table) {
     assert.deepEqual(cleanEnv(row.opts), row.expect, row.name);
   }
-  assert.equal(PASSTHROUGH_VARS.length, 8);
+  assert.equal(PASSTHROUGH_VARS.length, 25);
+  assert.ok(PASSTHROUGH_VARS.includes("SSH_AUTH_SOCK"), "git over ssh needs the agent socket");
+  assert.ok(!(PASSTHROUGH_VARS as readonly string[]).includes("GH_TOKEN"), "tokens never pass");
 });
 
 test("isBlockedVar", () => {
