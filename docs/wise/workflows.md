@@ -580,7 +580,7 @@ Children in flight are capped globally and per harness: global 4,
 ## Pre-flight questionary
 
 `wise_preflight {workflow, cwd, profile?}` returns `{workflow, version,
-questions, defaults}`. Question ids double as answer keys.
+questions, defaults, requires_missing}`. Question ids double as answer keys.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # PLAN — wise Harness Engine
 
-Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D19, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
+Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D20, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
 
 Created 2026-09-05 on branch `research/ts-engine-ai-sdk` at df467c6. Each milestone ends with a gate; a gate that fails stops the next milestone until the plan is revised.
 
@@ -105,6 +105,8 @@ Gate M3: ticket-plan works from Claude Code on the new engine, Python removed.
 
 Gate M4: one ticket goes ticket → merged PR on the engine.
 
+2026-09-05: M4.1-M4.4 closed on fixtures (units pipelines, ticket-auto and impl-plan-auto v2); the gate waits for M4.5, a real ticket from the desktop app.
+
 ## M5 — More harnesses
 
 | Id | Task | SP | Deps | Acceptance | Status |
@@ -118,6 +120,8 @@ Gate M4: one ticket goes ticket → merged PR on the engine.
 
 Gate M5: cross-harness run succeeds.
 
+2026-09-05: M5.1-M5.4 closed; codex and grok validated live, claude → codex fallback routed live, gemini best effort (login broken on this machine). The gate waits for M5.5, which needs M4.5.
+
 ## M6 — Product
 
 | Id | Task | SP | Deps | Acceptance | Status |
@@ -129,6 +133,8 @@ Gate M5: cross-harness run succeeds.
 | M6.5 | Release v5.0.0: `plugin.json` bump, changelog, prose-conductor fallback behind a flag for one release, removal ticket filed | 1 | M6.1-M6.4 | Tag pushed; marketplace pin updated | TODO |
 
 Gate M6: v5.0.0 released.
+
+2026-09-05: M6.1-M6.4 closed (usage views, pricing, low-profile rule, ceiling gate, docs sync, migrate); design doc § Spike answers › M4-M6 build report, D20. M6.5 release waits for M3.3, M3.4 and the user.
 
 ## Decisions carried into the plan
 
