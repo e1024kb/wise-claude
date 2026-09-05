@@ -18,7 +18,13 @@ import type { WorkflowDef } from "../src/types.ts";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKFLOWS = join(HERE, "..", "..", "workflows");
 /** Every bundled workflow is v2 since M4.4; the two `units` workflows carry per-phase tiers. */
-const BUNDLED_V2 = ["ticket-plan", "example-workflow", "ticket-auto", "impl-plan-auto"];
+const BUNDLED_V2 = [
+  "ticket-plan",
+  "example-workflow",
+  "ticket-auto",
+  "impl-plan-auto",
+  "code-review",
+];
 const UNITS_WORKFLOWS = ["ticket-auto", "impl-plan-auto"];
 const OPUS_5 = /^(opus|claude-opus-5)/;
 

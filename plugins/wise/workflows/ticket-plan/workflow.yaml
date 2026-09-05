@@ -801,9 +801,9 @@ steps:
           failed={{impl_failed}}. Confirm the work landed as per-task
           commits on `{{work_branch}}` (nothing pushed), then point at
           the natural next steps:
-            - Review the branch:  /wise-code-review-auto
-              (the panel is always 3 lenses: correctness, security,
-              tests; the session profile sets each reviewer's effort)
+            - Review the branch:  /wise-workflow-run code-review
+              (three reviewers, a curator, an optional verifier and a
+              fixer; harness, model and effort per agent at pre-flight)
             - Open a PR:          /wise-pr-create
           If any task came back `failed`, tell the user to inspect those
           commits before reviewing.

@@ -60,8 +60,8 @@ Current actions (all standalone):
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
 - `/wise-profile` — set the session's token-budget profile
   (`low|medium|max`, default `medium` = the standard behavior). Stored
-  per session; profile-sensitive skills (`wise-code-review-auto`,
-  `wise-pr-watch-auto`) read it via `references/profile-read.md` and
+  per session; profile-sensitive skills (`wise-pr-watch-auto`)
+  read it via `references/profile-read.md` and
   degrade silently to `medium`. Workflows never read it: the engine's
   pre-flight asks harness, model and effort per tuning group instead.
   Budget only — model tiers, optional-step scope, panel size, retry
@@ -100,14 +100,15 @@ Current actions (all standalone):
   + commits + pushes.
 - `/wise-pr-create-auto`, `/wise-pr-request-review-auto`,
   `/wise-pr-watch-auto`, `/wise-implement-plan-auto`,
-  `/wise-code-review-auto`, `/wise-simplify-auto` — the autonomous
-  (`-auto`) building blocks: decision-free, `AskUserQuestion`-free
-  variants of the PR / implement / quality steps, each a thin reader
-  of a shared fragment or reference. `/wise-simplify-auto` (the
-  lightweight per-commit tier — the `code-simplifier` agent) and
-  `/wise-code-review-auto` (the heavyweight branch gate — a high-depth
-  panel of reviewer subagents) are the two quality passes; the
-  `ticket-auto` workflow follows the same fragments / references.
+  `/wise-simplify-auto` — the autonomous (`-auto`) building blocks:
+  decision-free, `AskUserQuestion`-free variants of the PR / implement /
+  quality steps, each a thin reader of a shared fragment or reference.
+  `/wise-simplify-auto` (the lightweight per-commit tier — the
+  `code-simplifier` agent) and the `code-review` workflow (the
+  heavyweight branch gate — three reviewer children, a curator, an
+  optional verifier and a fixer, each with its own tuning group) are
+  the two quality passes; the `ticket-auto` workflow's engine-side
+  review phase follows the same discipline.
 - `/wise-supervise` — attach a watchdog / supervisor loop to a running
   team of background agents and keep them on task: probe each member,
   nudge the idle-but-unfinished or off-goal ones, escalate the
@@ -264,7 +265,6 @@ plugins/wise/
     ├── wise-implement-plan-auto/          # autonomously implement a PLAN-*.md
     │   ├── SKILL.md
     │   └── agents/executor.md            # fresh-context per-task executor persona
-    ├── wise-code-review-auto/SKILL.md     # autonomous high-depth branch code-review (no prompts)
     ├── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
     ├── wise-supervise/SKILL.md            # attach the watchdog loop to a running team of background agents
     ├── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
@@ -438,7 +438,8 @@ one-liners below are the rule, not the argument for it.
   `wise-workflow-run` / `-resume` / `-list` / `-status`), and the two
   quality passes `simplify-pass.md` (read by the commit routine, the
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
-  (read by `review-branch-auto.md` and `wise-code-review-auto`), the
+  (the discipline the `code-review` workflow's prompts and the PR
+  watcher's review fallback follow), the
   verified status report `report-pass.md` (read by `/wise-report`;
   parameterized by `SCOPE` / `MODE` / `SAVE` so every caller runs the
   identical routine), the watchdog routine `supervise-loop.md` (read

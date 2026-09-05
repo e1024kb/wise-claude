@@ -11,15 +11,16 @@ below). It is the heavyweight tier of the plugin's two-tier quality
 model; the lightweight simplify tier already ran on each individual
 commit.
 
-Source of truth for the `/wise-code-review-auto` skill and the
-`ticket-auto` workflow's review step. It is decision-free — it NEVER
+Prose form of the gate, read by the PR watcher's review fallback
+(`review-fallback-auto.md`); the standalone gate is the `code-review`
+workflow (`workflows/code-review/`). It is decision-free — it NEVER
 calls `AskUserQuestion`.
 
 ## Context the caller supplies
 
 - `worktree` — absolute path to the git working tree to review (a ticket
   worktree, when called from `ticket-auto`; the repo toplevel for the
-  standalone skill).
+  review fallback).
 - `base` — **optional** base branch to diff against. When absent, detect
   the repo's default branch (below).
 - `ticket_ref`, `plan_path` — **optional** context; when supplied, weigh
@@ -35,7 +36,7 @@ calls `AskUserQuestion`.
   flag anything that violates a stated guardrail, and do not "fix"
   something the guidance deliberately chose.
 - `fixer` — **optional** `self` (default) or `delegate`. `self` (the
-  standalone `/wise-code-review-auto` skill) → the review panel applies its
+  review fallback) → the review panel applies its
   own bounded fixes and commits them, exactly as before. `delegate`
   (`ticket-auto`'s review↔fix loop) → the panel REPORTS its bounded findings
   and a verdict but applies NOTHING; the caller hands the fixing to a separate
@@ -46,8 +47,7 @@ calls `AskUserQuestion`.
   per-finding verification pass (each kept finding adversarially
   re-checked before apply). `ticket-auto` always pins `medium` (the
   review gate never follows the run's budget profile down or up); the
-  standalone skill resolves it from the session profile / its
-  `--profile` flag.
+  review fallback pins it too.
 - `opus_model` — **optional** — the Opus model id the reviewer
   subagents dispatch on: `opus` (default) or `claude-opus-4-8`. The
   low-profile Opus rule (`code-review-pass.md`): under the `low`
@@ -55,7 +55,7 @@ calls `AskUserQuestion`.
   dispatches Opus 5. It is keyed by the budget profile of the SESSION /
   RUN, not by the `profile` effort argument above (ticket-auto pins
   that to `medium` and still passes `opus_model=claude-opus-4-8` on a
-  `low` run). The standalone skill derives it from the session profile.
+  `low` run). The review fallback derives it from the session profile.
 
 ## Procedure
 

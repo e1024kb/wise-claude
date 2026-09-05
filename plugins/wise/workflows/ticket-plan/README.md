@@ -152,11 +152,9 @@ engine builds the questionary from the definition's `tuning:` /
   its own). Deselected steps are pre-marked `skipped` in run state;
   the `none-failed` trigger-rules above keep the DAG flowing past
   them.
-- **Review depth** - the review panel any follow-up
-  `/wise-code-review-auto` runs is always the 3-lens set (correctness,
-  security, tests); that skill reads the session profile from
-  `/wise-profile` for each reviewer's effort, so there is no review
-  question here.
+- **Review depth** - the follow-up branch review is the `code-review`
+  workflow, which asks harness, model and effort per reviewer at its
+  own pre-flight, so there is no review question here.
 - **Flow modes** (text inputs with a `validate:` regex, defaults
   pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
   (**auto** / ask), `branch_mode` (**auto** / current / ask), and
@@ -188,7 +186,7 @@ until `setup`).
 | `refine-plan` | `agent` | `when: review_mode == 'ask' && user_comments != '' && user_comments != 'Accept the plan as-is'` - folds the comments in and overwrites the plan once. Acts as `architect`; `authoring` tuning group. |
 | `setup` | `agent` | Acts on the pre-flight `branch_mode` / `implement_mode`: creates the ticket branch off the repo's default branch or switches to it automatically (`auto`, dirty-tree refused before any checkout), stays put (`current`), or asks through `wise_ask` (branch, then base branch) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `sonnet`, `mode: full-access` for the git operations. Emits `work_branch` + `implement_choice`. |
 | `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. `authoring` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
-| `finalize` | `agent` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-code-review-auto` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
+| `finalize` | `agent` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-workflow-run code-review` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
 
 Roles are folded into each prompt (v2 has no roster routing or agent
 teams): `analyze-design` acts as `ux-designer`, `codebase-audit` as

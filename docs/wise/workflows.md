@@ -882,7 +882,7 @@ workflow has no `approval` step that needs a human. The repo validator
 (`python3 scripts/validate_repo.py`) runs `compile-check` on every
 bundled `version: 2` definition. Bundled workflows:
 `example-workflow` (every step type), `ticket-plan`, `ticket-auto`,
-`impl-plan-auto` (see their READMEs).
+`impl-plan-auto`, `code-review` (see their READMEs).
 
 ## Migration from v1
 

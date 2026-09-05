@@ -49,7 +49,7 @@ to print the full command catalog.
   PR`) and it classifies the request and offers the matching command.
 - **Autonomous `-auto` building blocks** — decision-free, prompt-free
   variants (`/wise-pr-create-auto`, `/wise-implement-plan-auto`,
-  `/wise-code-review-auto`, …) used by the unattended pipelines.
+  `/wise-simplify-auto`, …) used by the unattended pipelines.
 
 ### Workflows (multi-step, multi-agent)
 
@@ -60,9 +60,12 @@ to print the full command catalog.
   implement → review → PR → watch → merge.
 - **`ticket-plan`** — autonomous planning you review and adjust before you
   implement.
+- **`code-review`** — the pre-push branch gate: three parallel reviewers,
+  a curator, an optional verification pass, and a fixer that commits the
+  kept findings, with harness, model and effort chosen per agent.
 
 Workflows are YAML v2 definitions (`agent`, `bash`, `approval`, `ask`,
-`units` steps, tuning groups, budget profiles). The engine under
+`units` steps, tuning groups asked in stages). The engine under
 `plugins/wise/engine` runs them as a per-user daemon and talks to Claude
 Code through the plugin's `wise-engine` MCP server; the conversation
 only answers pre-flight questions and gates.

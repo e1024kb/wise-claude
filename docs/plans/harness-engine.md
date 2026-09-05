@@ -130,11 +130,14 @@ Gate M5: cross-harness run succeeds.
 | M6.2 | Profile rule: `low` refuses `auth: api-key` steps unless `allow-api: true`; per-run token ceiling from `caps.tokens` parks the run at a gate | 1 | M2.3 | Tests; live check with a tiny ceiling | DONE |
 | M6.3 | Docs sync: `docs/wise/workflows.md` v2 schema, harness field, gate protocol, effort mapping; `skills-authoring.md`; workflow READMEs; `AGENTS.md`; validator runs `compile-check` on every bundled workflow | 3 | M4.4 | `validate_repo.py` green with the new gate | DONE |
 | M6.4 | `wise-engine migrate` for user-authored v1 workflows: `prompt` → `agent`, plain-enum `until` → `schema`, warnings otherwise | 2 | M1.2 | Round-trips the three bundled v1 files to the hand-migrated v2 result | DONE |
+| M6.6 | `code-review` workflow replaces the `/wise-code-review-auto` skill: three reviewer steps (correctness, security, tests) in one wave, a curator, an optional `verify` pass (step-select), a fixer in `apply` mode or a findings file in `report` mode; one tuning group per agent so harness, model and effort are pre-flight choices | 2 | M6.1 | `compile-check` green; bundled tests count it; skill, README rows and cross-references removed | DONE |
 | M6.5 | Release v5.0.0: `plugin.json` bump, changelog, prose-conductor fallback behind a flag for one release, removal ticket filed | 1 | M6.1-M6.4 | Tag pushed; marketplace pin updated | TODO |
 
 Gate M6: v5.0.0 released.
 
 2026-09-05: M6.1-M6.4 closed (usage views, pricing, low-profile rule, ceiling gate, docs sync, migrate); design doc § Spike answers › M4-M6 build report, D20. M6.5 release waits for M3.3, M3.4 and the user.
+
+2026-09-05: M6.6 done: the `code-review` workflow replaces `/wise-code-review-auto` (six tuning groups, `verify` optional, `apply` / `report` modes).
 
 2026-09-05: pre-flight reworked per D21: staged harness -> model -> effort questions from the `src/models.ts` catalog, the budget profile dropped from workflows (`/wise-profile` remains a skill-side budget). Docs, skills and workflow READMEs synced.
 

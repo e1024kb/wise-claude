@@ -3,9 +3,12 @@
 Single source of truth for **how** the plugin runs its heavyweight
 branch gate. Read by:
 
-- `workflows/ticket-auto/prompts/review-branch-auto.md` — the autonomous
-  pre-push gate in the `ticket-auto` pipeline.
-- `skills/wise-code-review-auto/SKILL.md` — the standalone building block.
+- `workflows/code-review/workflow.yaml` — the standalone pre-push gate:
+  the lenses, curation, verification and bounded apply below as engine
+  steps, harness / model / effort per agent chosen at pre-flight.
+- `workflows/ticket-auto/prompts/review-branch-auto.md` — the prose
+  form, read by the PR watcher's review fallback
+  (`review-fallback-auto.md`).
 
 This is the **heavy tier** of the two-tier quality model: it runs
 **once** over a whole branch, after every change is committed but

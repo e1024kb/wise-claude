@@ -25,7 +25,7 @@ lightweight per-commit cleanup; it is wired into the commit routine
 (per task). This skill exposes it as a **standalone, decision-free
 building block**: run the pass, then commit the result — no prompts. The
 heavier multi-agent code-review branch gate is the other tier
-(`/wise-code-review-auto`).
+(the `code-review` workflow: `/wise-workflow-run code-review`).
 
 (Close cousin of `/wise-commit`, which also simplifies-then-commits via
 its `SIMPLIFY=yes` default; this skill makes the simplify step the

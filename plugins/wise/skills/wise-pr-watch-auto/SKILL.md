@@ -69,8 +69,7 @@ Read `$ARGUMENTS` and split into whitespace-separated tokens:
 
   A typo here must not silently fall through to the session or
   `medium` default and change the fallback depth / attempt cap without
-  the operator noticing (the same validation
-  `/wise-code-review-auto` applies to its own `--profile` argument).
+  the operator noticing.
 
 Resolve `profile`: the `--profile` argument if given, else the session
 profile via `${CLAUDE_PLUGIN_ROOT}/references/profile-read.md` (read it
@@ -171,5 +170,5 @@ left open for a human.
 - Never invoke another wise action skill (the fragment reads
   `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
   `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly —
-  the review fallback runs `/wise-code-review-auto`'s *fragment*, not
-  the skill).
+  the review fallback runs the `review-branch-auto.md` *fragment*, not
+  the `code-review` workflow).
