@@ -1,8 +1,9 @@
 // `codex` harness adapter (research-ts-engine.md P6, D15, D19; M0.3 event shapes).
 // Runs `codex exec --json --output-schema <file>` (or `codex exec resume <thread>`) on the
 // unmodified binary. The prompt is a positional argument and stdin is closed at once (the CLI
-// otherwise waits on it). There is no open stdin, so a running child cannot be nudged: the
-// engine kills and resumes via the thread id instead (D16).
+// otherwise waits on it); a prompt over `PROMPT_ARGV_MAX` bytes travels on stdin instead, with
+// `-` in its place, so E5 diffs never hit ARG_MAX. Stdin carries nothing else, so a running
+// child cannot be nudged: the engine kills and resumes via the thread id instead (D16).
 
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -54,6 +55,13 @@ export function composePrompt(req: Pick<RunReq, "prompt" | "system">): string {
   return req.system === undefined ? req.prompt : `${req.system}\n\n${req.prompt}`;
 }
 
+/** Prompts above this many bytes go over stdin (`codex exec -`) instead of argv. */
+export const PROMPT_ARGV_MAX = 100_000;
+
+export function promptViaStdin(prompt: string): boolean {
+  return Buffer.byteLength(prompt, "utf8") > PROMPT_ARGV_MAX;
+}
+
 export function buildArgv(req: RunReq, opts: ArgvOpts = {}): string[] {
   const resume = typeof req.resume === "string" && req.resume.length > 0 ? req.resume : undefined;
   const argv = resume === undefined ? ["exec"] : ["exec", "resume", resume];
@@ -80,8 +88,61 @@ export function buildArgv(req: RunReq, opts: ArgvOpts = {}): string[] {
     if (opts.schemaPath === undefined) throw new Error("codex: schema given without schemaPath");
     argv.push("--output-schema", opts.schemaPath);
   }
-  argv.push(composePrompt(req));
+  const prompt = composePrompt(req);
+  argv.push(promptViaStdin(prompt) ? "-" : prompt);
   return argv;
+}
+
+/**
+ * Codex validates `--output-schema` in OpenAI strict mode: every object needs
+ * `additionalProperties: false` and a `required` list naming every property. Workflow schemas
+ * are written for Claude's lenient `--json-schema`, so the adapter tightens a copy: a property
+ * the author left optional becomes required but nullable, which keeps its meaning.
+ */
+export function strictSchema(schema: JsonSchema): JsonSchema {
+  return tighten(schema) as JsonSchema;
+}
+
+function tighten(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(tighten);
+  if (!isRec(node)) return node;
+  const out: Rec = {};
+  for (const [k, v] of Object.entries(node)) {
+    if (k === "properties" || k === "$defs" || k === "definitions") {
+      out[k] = isRec(v)
+        ? Object.fromEntries(Object.entries(v).map(([n, s]) => [n, tighten(s)]))
+        : v;
+    } else if (k === "items" || k === "anyOf" || k === "oneOf" || k === "allOf" || k === "not") {
+      out[k] = tighten(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  const props = isRec(out.properties) ? out.properties : undefined;
+  if (out.type === "object" || props !== undefined) {
+    if (out.additionalProperties === undefined) out.additionalProperties = false;
+    if (props !== undefined) {
+      const required = new Set(
+        Array.isArray(out.required) ? out.required.filter((r) => typeof r === "string") : [],
+      );
+      for (const [name, spec] of Object.entries(props)) {
+        if (required.has(name)) continue;
+        required.add(name);
+        props[name] = nullable(spec);
+      }
+      out.required = Object.keys(props).filter((n) => required.has(n));
+    }
+  }
+  return out;
+}
+
+/** Allow `null` for a property that was optional before `tighten` made it required. */
+function nullable(spec: unknown): unknown {
+  if (!isRec(spec)) return spec;
+  const t = spec.type;
+  if (typeof t === "string" && t !== "null") return { ...spec, type: [t, "null"] };
+  if (Array.isArray(t) && !t.includes("null")) return { ...spec, type: [...t, "null"] };
+  return spec;
 }
 
 /** Write the schema to a fresh temp dir; `cleanup` removes the dir. */
@@ -283,15 +344,19 @@ export function startCodex(
   onEvent: (e: RawEvent) => void,
   opts: StartOpts = {},
 ): CodexRun {
-  const schemaFile = req.schema === undefined ? undefined : writeSchemaFile(req.schema);
+  const schemaFile =
+    req.schema === undefined ? undefined : writeSchemaFile(strictSchema(req.schema));
   const argv = buildArgv(req, schemaFile ? { schemaPath: schemaFile.path } : {});
   const proc = spawnClean(opts.bin ?? CODEX_BIN, argv, {
     cwd: req.cwd,
     env: childEnv(req, opts.parentEnv),
     timeoutMs: req.timeout_ms,
   });
-  // Codex reads stdin until EOF when it is a pipe: close it before the first byte.
-  proc.stdin.end();
+  // Codex reads stdin until EOF when it is a pipe: close it before the first byte, or hand it
+  // the whole prompt when argv would be too large.
+  const prompt = composePrompt(req);
+  if (promptViaStdin(prompt)) proc.stdin.end(prompt);
+  else proc.stdin.end();
   const parser = createStreamParser({ pool: req.auth, expectJson: req.schema !== undefined });
   proc.stdout.on("data", (chunk: string) => {
     for (const ev of parser.feed(chunk)) onEvent(ev);

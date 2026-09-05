@@ -7,8 +7,17 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { adapterFor, claudeAdapter, hasAdapter, startClaude } from "./adapters/index.ts";
-import { collectNeeds, LOGIN_CMDS, probeHarnesses } from "./auth.ts";
+import {
+  adapterFor,
+  claudeAdapter,
+  codexAdapter,
+  grokAdapter,
+  hasAdapter,
+  startClaude,
+  startCodex,
+  startGrok,
+} from "./adapters/index.ts";
+import { collectNeeds, LOGIN_CMDS, probeHarnesses, probeOne } from "./auth.ts";
 import {
   answerFromDecisions,
   clipReportData,
@@ -64,6 +73,7 @@ import type {
   AgentStep,
   Answers,
   AskStep,
+  AuthMode,
   BashStep,
   Context,
   Gate,
@@ -303,9 +313,8 @@ type LiveRun = {
   stopped: boolean;
   children: Map<string, Child>;
   tokens: Map<string, string>;
-  /** Harness a step moved to after a rate limit (E12). */
-  harnessOverride: Map<string, Harness>;
-  triedHarnesses: Map<string, Set<Harness>>;
+  /** E12 fallback harnesses probed lazily, keyed `<harness>/<auth>`; `failed` ones are skipped. */
+  fallbackAuth: Map<string, "pending" | "ok" | "failed">;
   /** Live status per running agent child (P8). */
   trackers: Map<string, ChildTracker>;
   staleWatches: Map<string, StaleWatch>;
@@ -314,7 +323,8 @@ type LiveRun = {
   asks: Map<string, PendingAsk>;
 };
 
-type Park = { until: number; attempts: number; timer: NodeJS.Timeout };
+/** A rate-limited harness: no dispatch until `until` (engine clock), backoff grows per attempt. */
+type Park = { until: number; attempts: number; timer: unknown };
 
 function emit(live: LiveRun, ev: Omit<EventInput, "run_id">): void {
   appendEvent(live.runDir, { run_id: live.runId, ...ev });
@@ -336,8 +346,7 @@ function makeLive(
     stopped: false,
     children: new Map(),
     tokens: new Map(),
-    harnessOverride: new Map(),
-    triedHarnesses: new Map(),
+    fallbackAuth: new Map(),
     trackers: new Map(),
     staleWatches: new Map(),
     staleKilled: new Set(),
@@ -427,15 +436,35 @@ function validated(located: LocatedDef): WorkflowDef {
   return result.def;
 }
 
-/** The run's planned resolution for a step, with any E12 fallback harness applied. */
-function plannedResolution(live: LiveRun, state: State, step: AgentStep): Resolved {
-  const planned = state.resolved[step.id] ?? {
-    harness: step.harness ?? "claude",
-    model: step.model ?? "inherit",
-    effort: step.effort ?? "",
+/** The run's planned resolution for a step (its primary harness). */
+function plannedResolution(state: State, step: AgentStep): Resolved {
+  return (
+    state.resolved[step.id] ?? {
+      harness: step.harness ?? "claude",
+      model: step.model ?? "inherit",
+      effort: step.effort ?? "",
+    }
+  );
+}
+
+/** E12: the step's own fallback list, else its tuning group's. */
+function fallbackList(live: LiveRun, step: AgentStep): Harness[] {
+  const group = live.def.tuning?.groups.find((g) => g.id === step.group);
+  return step.fallback ?? group?.fallback ?? [];
+}
+
+/**
+ * Resolution for a fallback harness: the planned model belongs to the primary harness, so the
+ * fallback runs its own default (`inherit`); effort carries over (`buildRunReq` drops it where
+ * the harness has no effort control).
+ */
+function fallbackResolution(primary: Resolved, harness: Harness): Resolved {
+  return {
+    harness,
+    model: "inherit",
+    effort: primary.effort,
+    reason: `fallback from ${primary.harness} (rate limited): model inherit`,
   };
-  const override = live.harnessOverride.get(step.id);
-  return override ? { ...planned, harness: override } : planned;
 }
 
 // ---- executor ----------------------------------------------------------------------------------------
@@ -469,9 +498,11 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
           harness,
         });
       }
-      // The real Claude adapter exposes pid and stdin through `startClaude`; fakes and other
-      // harnesses only give a result promise.
+      // The real adapters expose pid, kill and snapshot through their starters (Claude adds
+      // nudge over its open stdin); fakes only give a result promise.
       if (adapter === claudeAdapter) return startClaude(req, onEvent);
+      if (adapter === codexAdapter) return startCodex(req, onEvent);
+      if (adapter === grokAdapter) return startGrok(req, onEvent);
       return { done: adapter.run(req, onEvent) };
     });
 
@@ -533,9 +564,13 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
 
   // ---- scheduling -----------------------------------------------------------------------------------
 
-  const harnessFree = (h: Harness): boolean => {
+  const isParked = (h: Harness): boolean => {
     const park = parked.get(h);
-    if (park && Date.now() < park.until) return false;
+    return park !== undefined && timers.now() < park.until;
+  };
+
+  const harnessFree = (h: Harness): boolean => {
+    if (isParked(h)) return false;
     return inFlight[h] < (caps.harness[h] ?? 1) && inFlightGlobal < caps.global;
   };
 
@@ -622,8 +657,8 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
         if (step.type === "bash") {
           dispatchBash(live, state, step);
         } else if (step.type === "agent") {
-          const harness = plannedResolution(live, state, step).harness;
-          if (harnessFree(harness)) dispatchAgent(live, state, step);
+          const pick = pickHarness(live, state, step);
+          if (pick) dispatchAgent(live, state, step, pick);
         } else {
           dispatchUnits(live, state, step);
         }
@@ -899,9 +934,78 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     );
   }
 
-  function dispatchAgent(live: LiveRun, state: State, def: AgentStep): void {
-    const resolved = plannedResolution(live, state, def);
+  /**
+   * E12 harness choice for a ready agent step. The primary harness is used whenever it is not
+   * parked (a full cap means wait, not fall back). While it is parked, the fallback list is
+   * tried in order: an adapter that exists, passes its lazy auth probe and has a free slot wins.
+   * Nothing eligible means the step waits for whichever backoff expires first.
+   */
+  function pickHarness(live: LiveRun, state: State, step: AgentStep): Resolved | undefined {
+    const primary = plannedResolution(state, step);
+    if (!isParked(primary.harness)) return harnessFree(primary.harness) ? primary : undefined;
+    for (const h of fallbackList(live, step)) {
+      if (h === primary.harness) continue;
+      if (!fallbackReady(live, step, primary.harness, h, step.auth ?? "subscription")) continue;
+      if (harnessFree(h)) return fallbackResolution(primary, h);
+    }
+    return undefined;
+  }
+
+  /**
+   * A fallback harness is usable once its adapter exists and its auth probe passed. The probe
+   * runs once per run and harness, on first use; the step keeps waiting on its primary harness
+   * meanwhile, and a failed probe is warned once and skipped for the rest of the run.
+   */
+  function fallbackReady(
+    live: LiveRun,
+    step: AgentStep,
+    primary: Harness,
+    h: Harness,
+    auth: AuthMode,
+  ): boolean {
+    const key = `${h}/${auth}`;
+    const known = live.fallbackAuth.get(key);
+    if (known !== undefined) return known === "ok";
+    if (!getAdapter(h)) {
+      live.fallbackAuth.set(key, "failed");
+      emit(live, {
+        type: "warn",
+        step: step.id,
+        message: `${step.id}: no adapter for fallback ${h}; waiting for ${primary}`,
+      });
+      return false;
+    }
+    live.fallbackAuth.set(key, "pending");
+    void probeOne(h, auth, getAdapter).then((probe) => {
+      if (live.stopped) return;
+      live.fallbackAuth.set(key, probe.ok ? "ok" : "failed");
+      if (!probe.ok) {
+        emit(live, {
+          type: "warn",
+          step: step.id,
+          harness: h,
+          message: `${step.id}: fallback ${h} not logged in; run \`${probe.login_cmd}\`; waiting for ${primary}`,
+        });
+      }
+      schedule(live);
+    });
+    return false;
+  }
+
+  function dispatchAgent(live: LiveRun, state: State, def: AgentStep, resolved: Resolved): void {
     const harness = resolved.harness;
+    const planned = plannedResolution(state, def).harness;
+    if (harness !== planned) {
+      emit(live, {
+        type: "warn",
+        step: def.id,
+        harness,
+        message: `${def.id} falls back to ${harness}`,
+      });
+    }
+    // A stored cursor belongs to the harness of the attempt that produced it; never hand a
+    // Claude session id to codex or the other way round.
+    const cursorHarness = readState(live.runDir).steps[def.id]?.resolved?.harness;
     const stepRunId = startStep(live.runDir, def.id);
     updateStep(live.runDir, def.id, { resolved });
     const fresh = readState(live.runDir);
@@ -915,13 +1019,10 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     };
     if (resolved.effort !== "") started.effort = resolved.effort;
     appendEvent(live.runDir, started);
-    const tried = live.triedHarnesses.get(step.id) ?? new Set<Harness>();
-    tried.add(harness);
-    live.triedHarnesses.set(step.id, tried);
 
     const token = randomToken();
     live.tokens.set(step.id, token);
-    const cursor = fresh.steps[step.id]?.cursor;
+    const cursor = cursorHarness === harness ? fresh.steps[step.id]?.cursor : undefined;
     inFlight[harness] += 1;
     inFlightGlobal += 1;
     let release = (): void => {
@@ -1062,16 +1163,16 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     foldUsage(live, step.id, harness, outcome.usage);
     for (const w of outcome.warnings)
       emit(live, { type: "warn", step: step.id, message: headline(w) });
-    const cursorPatch = outcome.cursor !== undefined ? { cursor: outcome.cursor } : {};
+    const patch = { harness, ...(outcome.cursor !== undefined ? { cursor: outcome.cursor } : {}) };
     if (live.staleKilled.delete(step.id)) {
       // E8: the cursor is kept so a `resume: unit` step picks the session back up.
-      failStep(live, step.id, "stale", "failed: stale (no activity, killed)", cursorPatch);
+      failStep(live, step.id, "stale", "failed: stale (no activity, killed)", patch);
       return;
     }
     switch (outcome.exit) {
       case "ok":
         completeStep(live, step.id, outcome.verdict, outcome.outputs, {
-          ...cursorPatch,
+          ...patch,
           usage: outcome.usage,
         });
         return;
@@ -1082,7 +1183,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
         authFailed(live, step, harness, resolved, outcome.error ?? "not logged in");
         return;
       default:
-        failStep(live, step.id, outcome.error ?? outcome.exit, outcome.verdict, cursorPatch);
+        failStep(live, step.id, outcome.error ?? outcome.exit, outcome.verdict, patch);
     }
   }
 
@@ -1108,7 +1209,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     stepId: string,
     verdict: string,
     outputs: Record<string, unknown>,
-    extra: { cursor?: unknown; usage?: Usage } = {},
+    extra: { cursor?: unknown; usage?: Usage; harness?: Harness } = {},
   ): void {
     const state = readState(live.runDir);
     const step = state.steps[stepId];
@@ -1127,6 +1228,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const compact = eventOutputs(outputs);
     if (compact) ev.outputs = compact;
     if (extra.usage) ev.usage = extra.usage;
+    if (extra.harness) ev.harness = extra.harness;
     emit(live, ev);
   }
 
@@ -1135,7 +1237,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     stepId: string,
     error: string,
     verdict: string = headline(`failed: ${error}`),
-    extra: { cursor?: unknown } = {},
+    extra: { cursor?: unknown; harness?: Harness } = {},
   ): void {
     updateStep(live.runDir, stepId, {
       status: "failed",
@@ -1144,24 +1246,28 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       completed_at: utcNow(),
       ...(extra.cursor !== undefined ? { cursor: extra.cursor } : {}),
     });
-    emit(live, { type: "step.done", step: stepId, verdict });
+    const ev: Omit<EventInput, "run_id"> = { type: "step.done", step: stepId, verdict };
+    if (extra.harness) ev.harness = extra.harness;
+    emit(live, ev);
   }
 
   // ---- rate limits and auth (E12, P5) ------------------------------------------------------------------
 
+  /**
+   * Park the harness for the next backoff step and re-queue the step. The following scheduler
+   * pass routes it to a fallback harness (`pickHarness`) or leaves it waiting for the park to end.
+   */
   function rateLimited(live: LiveRun, step: AgentStep, harness: Harness, error: string): void {
     const previous = parked.get(harness);
     const attempts = (previous?.attempts ?? 0) + 1;
     const delay = backoffMs(attempts);
-    if (previous) clearTimeout(previous.timer);
-    const timer = setTimeout(() => {
-      const park = parked.get(harness);
-      if (park && park.timer === timer) parked.delete(harness);
+    if (previous) timers.clearTimeout(previous.timer);
+    const park: Park = { until: timers.now() + delay, attempts, timer: undefined };
+    park.timer = timers.setTimeout(() => {
+      if (parked.get(harness) === park) parked.delete(harness);
       scheduleAll();
     }, delay);
-    timer.unref?.();
-    parked.set(harness, { until: Date.now() + delay, attempts, timer });
-    // Back to pending: the next wave re-offers the step once the harness (or a fallback) is free.
+    parked.set(harness, park);
     updateStep(live.runDir, step.id, { status: "pending", error: headline(error) });
     emit(live, {
       type: "warn",
@@ -1171,26 +1277,6 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
         `rate limited on ${harness}; backoff ${Math.round(delay / 1000)}s: ${error}`,
       ),
     });
-    const group = live.def.tuning?.groups.find((g) => g.id === step.group);
-    const fallback = step.fallback ?? group?.fallback ?? [];
-    const tried = live.triedHarnesses.get(step.id) ?? new Set<Harness>([harness]);
-    const next = fallback.find((h) => !tried.has(h));
-    if (next === undefined) return;
-    if (getAdapter(next)) {
-      live.harnessOverride.set(step.id, next);
-      emit(live, {
-        type: "warn",
-        step: step.id,
-        harness: next,
-        message: `${step.id} falls back to ${next}`,
-      });
-    } else {
-      emit(live, {
-        type: "warn",
-        step: step.id,
-        message: `${step.id}: no adapter for fallback ${next}; waiting for ${harness}`,
-      });
-    }
   }
 
   function authFailed(
@@ -1636,7 +1722,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       for (const child of live.children.values()) child.kill?.("SIGTERM");
       dropLive(live);
     }
-    for (const park of parked.values()) clearTimeout(park.timer);
+    for (const park of parked.values()) timers.clearTimeout(park.timer);
     parked.clear();
   };
 

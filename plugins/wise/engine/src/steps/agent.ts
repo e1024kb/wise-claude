@@ -29,13 +29,18 @@ export function headline(text: string, max: number = VERDICT_MAX): string {
   return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
 }
 
-/** A started harness child. `startClaude` returns a superset; other adapters give `done` only. */
+/**
+ * A started harness child. The real starters (`startClaude`, `startCodex`, `startGrok`) give
+ * pid, kill and snapshot; only Claude has an open stdin for `nudge`. Fakes may give `done` only.
+ */
 export type AgentHandle = {
   pid?: number;
   done: Promise<RunRes>;
   /** Mid-run user message (Claude only, M2.6). */
   nudge?: (text: string) => void;
   kill?: (signal?: NodeJS.Signals) => void;
+  /** Live counters from the vendor stream (per-harness shape). */
+  snapshot?: () => unknown;
 };
 
 export type AgentStarter = (

@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,8 +21,11 @@ import {
   grokAdapter,
   PERMISSION_MAP,
   probeAuth,
+  PROMPT_ARGV_MAX,
+  promptViaFile,
   RATE_LIMIT_RE,
   startGrok,
+  writePromptFile,
 } from "../src/adapters/grok.ts";
 import type { SpawnExit } from "../src/adapters/spawn.ts";
 import type { RawEvent, RunReq } from "../src/types.ts";
@@ -119,6 +129,24 @@ test("buildArgv: effort, schema inline, max_turns, resume, rules, allow, inherit
   }
   assert.equal(buildArgv({ ...BASE_REQ, resume: { s: 1 } }).includes("--resume"), false);
   assert.equal(buildArgv({ ...BASE_REQ, resume: "" }).includes("--resume"), false);
+});
+
+test("buildArgv: a prompt over PROMPT_ARGV_MAX bytes goes through --prompt-file, at the cap it stays on -p", () => {
+  const atCap = "x".repeat(PROMPT_ARGV_MAX);
+  const overCap = `${atCap}y`;
+  assert.equal(promptViaFile(atCap), false);
+  assert.equal(promptViaFile(overCap), true);
+  assert.equal(promptViaFile("é".repeat(PROMPT_ARGV_MAX / 2 + 1)), true);
+  assert.deepEqual(buildArgv({ ...BASE_REQ, prompt: atCap }).slice(0, 2), ["-p", atCap]);
+  const big = buildArgv({ ...BASE_REQ, prompt: overCap }, { promptPath: "/tmp/p.md" });
+  assert.deepEqual(big.slice(0, 2), ["--prompt-file", "/tmp/p.md"]);
+  assert.equal(big.includes("-p"), false);
+  assert.equal(big.includes(overCap), false);
+  assert.throws(() => buildArgv({ ...BASE_REQ, prompt: overCap }), /promptPath/);
+  const written = writePromptFile(overCap);
+  assert.equal(readFileSync(written.path, "utf8"), overCap);
+  written.cleanup();
+  assert.equal(existsSync(written.path), false);
 });
 
 test("effortMap follows the shared per-harness table", () => {
@@ -355,6 +383,37 @@ test("startGrok: fake binary sees argv and a closed stdin; pretty JSON result pa
   });
   assert.ok(events.length > 1);
   assert.equal(run.snapshot().result, true);
+});
+
+test("startGrok: a large prompt is read from --prompt-file and the temp file is removed on exit", async () => {
+  const script = `
+    const fs = require("node:fs");
+    const args = process.argv.slice(2);
+    const i = args.indexOf("--prompt-file");
+    const body = i >= 0 ? fs.readFileSync(args[i + 1], "utf8") : "";
+    process.stdout.write(JSON.stringify({
+      text: "ok", stopReason: "end_turn", sessionId: "big-sess",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      structuredOutput: { argv: args, bytes: Buffer.byteLength(body), head: body.slice(0, 8) },
+    }, null, 2) + "\\n");
+  `;
+  const scratch = mkdtempSync(join(tmpdir(), "wise-fake-grok-"));
+  const file = join(scratch, "big.cjs");
+  writeFileSync(file, script);
+  const { bin, dir } = fakeBin(`exec "${process.execPath}" "${file}" "$@"`);
+  const prompt = `BIGPROMPT${"z".repeat(PROMPT_ARGV_MAX)}`;
+  const run = startGrok({ ...BASE_REQ, cwd: dir, prompt, schema: SCHEMA }, () => {}, {
+    bin,
+    parentEnv: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+  });
+  const res = await run.done;
+  assert.equal(res.exit, "ok", res.error);
+  const echoed = res.json as { argv: string[]; bytes: number; head: string };
+  assert.equal(echoed.argv[0], "--prompt-file");
+  assert.equal(echoed.argv.includes("-p"), false);
+  assert.equal(echoed.bytes, Buffer.byteLength(prompt));
+  assert.equal(echoed.head, "BIGPROMP");
+  assert.equal(existsSync(echoed.argv[1] ?? ""), false, "prompt temp file removed after exit");
 });
 
 test("startGrok: timeout kills the child; kill() settles as error; non-string cursor warns", async () => {

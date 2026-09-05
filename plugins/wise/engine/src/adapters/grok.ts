@@ -3,9 +3,11 @@
 // Headless grok prints one JSON document on stdout when the turn ends (pretty-printed, so it
 // spans lines); the parser buffers stdout and reads the document at exit, falling back to the
 // last JSON line for NDJSON output formats. No open stdin, so no nudge: kill + `--resume`.
+// A prompt over `PROMPT_ARGV_MAX` bytes is written to a temp file and passed with
+// `--prompt-file` so E5 diffs never hit ARG_MAX.
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { effortFor } from "../resolve.ts";
 import type {
@@ -43,8 +45,27 @@ const ERROR_TEXT_MAX = 500;
 
 // ---- argv ---------------------------------------------------------------------------------------
 
-export function buildArgv(req: RunReq): string[] {
-  const argv = ["-p", req.prompt, "--output-format", "json", "--no-auto-update", "--cwd", req.cwd];
+/** Prompts above this many bytes go through `--prompt-file` instead of `-p`. */
+export const PROMPT_ARGV_MAX = 100_000;
+
+export function promptViaFile(prompt: string): boolean {
+  return Buffer.byteLength(prompt, "utf8") > PROMPT_ARGV_MAX;
+}
+
+export type ArgvOpts = {
+  /** Path of the prompt file written for this run; required when the prompt is over the cap. */
+  promptPath?: string;
+};
+
+export function buildArgv(req: RunReq, opts: ArgvOpts = {}): string[] {
+  const argv: string[] = [];
+  if (promptViaFile(req.prompt)) {
+    if (opts.promptPath === undefined) throw new Error("grok: large prompt without promptPath");
+    argv.push("--prompt-file", opts.promptPath);
+  } else {
+    argv.push("-p", req.prompt);
+  }
+  argv.push("--output-format", "json", "--no-auto-update", "--cwd", req.cwd);
   argv.push(...PERMISSION_MAP[req.mode]);
   for (const rule of req.allowed_tools ?? []) argv.push("--allow", rule);
   if (req.model && req.model !== "inherit") argv.push("-m", req.model);
@@ -56,6 +77,23 @@ export function buildArgv(req: RunReq): string[] {
   // `--rules` appends to the system prompt; `--system-prompt-override` would replace it.
   if (req.system !== undefined) argv.push("--rules", req.system);
   return argv;
+}
+
+/** Write the prompt to a fresh temp dir; `cleanup` removes the dir. */
+export function writePromptFile(prompt: string): { path: string; cleanup(): void } {
+  const dir = mkdtempSync(join(tmpdir(), "wise-grok-"));
+  const path = join(dir, "prompt.md");
+  writeFileSync(path, prompt);
+  return {
+    path,
+    cleanup: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // Best effort.
+      }
+    },
+  };
 }
 
 export function childEnv(
@@ -250,7 +288,9 @@ export function startGrok(
   onEvent: (e: RawEvent) => void,
   opts: StartOpts = {},
 ): GrokRun {
-  const proc = spawnClean(opts.bin ?? GROK_BIN, buildArgv(req), {
+  const promptFile = promptViaFile(req.prompt) ? writePromptFile(req.prompt) : undefined;
+  const argv = buildArgv(req, promptFile ? { promptPath: promptFile.path } : {});
+  const proc = spawnClean(opts.bin ?? GROK_BIN, argv, {
     cwd: req.cwd,
     env: childEnv(req, opts.parentEnv),
     timeoutMs: req.timeout_ms,
@@ -261,6 +301,7 @@ export function startGrok(
     for (const ev of parser.feed(chunk)) onEvent(ev);
   });
   const done = proc.exited.then((exit) => {
+    promptFile?.cleanup();
     const res = parser.finish(exit);
     if (req.resume !== undefined && typeof req.resume !== "string") {
       res.warnings = [...(res.warnings ?? []), "ignored non-string resume cursor"];

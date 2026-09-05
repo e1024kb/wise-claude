@@ -13,9 +13,12 @@ import {
   createStreamParser,
   effortMap,
   probeAuth,
+  PROMPT_ARGV_MAX,
+  promptViaStdin,
   RATE_LIMIT_RE,
   SANDBOX_MAP,
   startCodex,
+  strictSchema,
   writeSchemaFile,
 } from "../src/adapters/codex.ts";
 import type { SpawnExit } from "../src/adapters/spawn.ts";
@@ -145,8 +148,62 @@ test("buildArgv: resume form uses config overrides instead of exec-only flags", 
   assert.equal(buildArgv({ ...BASE_REQ, resume: "" })[1], "--json");
 });
 
+test("buildArgv: a prompt over PROMPT_ARGV_MAX bytes becomes `-` (stdin), at the cap it stays on argv", () => {
+  const atCap = "x".repeat(PROMPT_ARGV_MAX);
+  const overCap = `${atCap}y`;
+  assert.equal(promptViaStdin(atCap), false);
+  assert.equal(promptViaStdin(overCap), true);
+  // Bytes, not characters: multi-byte text crosses the cap sooner.
+  assert.equal(promptViaStdin("é".repeat(PROMPT_ARGV_MAX / 2 + 1)), true);
+  assert.equal(buildArgv({ ...BASE_REQ, prompt: atCap }).at(-1), atCap);
+  assert.equal(buildArgv({ ...BASE_REQ, prompt: overCap }).at(-1), "-");
+  // The system text counts too, and the resume form takes `-` as well.
+  const system = "s".repeat(PROMPT_ARGV_MAX);
+  assert.equal(buildArgv({ ...BASE_REQ, prompt: "p", system }).at(-1), "-");
+  const resumed = buildArgv({ ...BASE_REQ, prompt: overCap, resume: THREAD });
+  assert.deepEqual(resumed.slice(0, 3), ["exec", "resume", THREAD]);
+  assert.equal(resumed.at(-1), "-");
+});
+
 test("effortMap follows the shared per-harness table", () => {
   for (const e of ["low", "medium", "high", "xhigh", "max"] as const) assert.equal(effortMap(e), e);
+});
+
+test("strictSchema: objects get additionalProperties false and every property required; optional ones become nullable", () => {
+  // The fixture is already strict: unchanged.
+  assert.deepEqual(strictSchema(SCHEMA), SCHEMA);
+  const lenient = {
+    type: "object",
+    properties: {
+      answer: { type: "string" },
+      n: { type: "integer" },
+      tags: { type: "array", items: { type: "object", properties: { k: { type: "string" } } } },
+      pick: { anyOf: [{ type: "object", properties: { a: { type: "number" } }, required: ["a"] }] },
+      maybe: { type: ["string", "integer"] },
+      opt: { type: "object", properties: { x: { type: "boolean" } }, additionalProperties: true },
+    },
+    required: ["answer"],
+  };
+  const strict = strictSchema(lenient) as Record<string, unknown>;
+  assert.deepEqual(strict.required, ["answer", "n", "tags", "pick", "maybe", "opt"]);
+  assert.equal(strict.additionalProperties, false);
+  const props = strict.properties as Record<string, Record<string, unknown>>;
+  assert.deepEqual(props.answer, { type: "string" });
+  assert.deepEqual(props.n, { type: ["integer", "null"] });
+  assert.deepEqual(props.maybe, { type: ["string", "integer", "null"] });
+  // Nested objects are tightened too; an explicit additionalProperties is left alone.
+  const items = (props.tags?.items ?? {}) as Record<string, unknown>;
+  assert.equal(items.additionalProperties, false);
+  assert.deepEqual(items.required, ["k"]);
+  assert.deepEqual((items.properties as Record<string, unknown>).k, { type: ["string", "null"] });
+  const alts = (props.pick?.anyOf ?? []) as unknown[];
+  const alt = (alts[0] ?? {}) as Record<string, unknown>;
+  assert.equal(alt.additionalProperties, false);
+  assert.deepEqual(alt.required, ["a"]);
+  assert.equal(props.opt?.additionalProperties, true);
+  // The input is not mutated.
+  assert.deepEqual(lenient.required, ["answer"]);
+  assert.equal("additionalProperties" in lenient, false);
 });
 
 test("writeSchemaFile: writes the schema, cleanup removes the temp dir", () => {
@@ -436,6 +493,34 @@ test("startCodex: fake binary sees argv, schema file, closed stdin; temp schema 
   });
   assert.equal(events.length, 4);
   assert.equal(run.snapshot().completed, 1);
+});
+
+test("startCodex: a large prompt travels on stdin with `-` on argv", async () => {
+  const script = `
+    const fs = require("node:fs");
+    const args = process.argv.slice(2);
+    const stdin = fs.readFileSync(0, "utf8");
+    const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+    out({ type: "thread.started", thread_id: "big-thread" });
+    out({ type: "turn.started" });
+    out({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ last: args.at(-1), stdinBytes: Buffer.byteLength(stdin), stdinHead: stdin.slice(0, 8) }) } });
+    out({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+  `;
+  const scratch = mkdtempSync(join(tmpdir(), "wise-fake-codex-"));
+  const file = join(scratch, "big.cjs");
+  writeFileSync(file, script);
+  const { bin, dir } = fakeBin(`exec "${process.execPath}" "${file}" "$@"`);
+  const prompt = `BIGPROMPT${"z".repeat(PROMPT_ARGV_MAX)}`;
+  const run = startCodex({ ...BASE_REQ, cwd: dir, prompt, schema: SCHEMA }, () => {}, {
+    bin,
+    parentEnv: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+  });
+  const res = await run.done;
+  assert.equal(res.exit, "ok", res.error);
+  const echoed = res.json as { last: string; stdinBytes: number; stdinHead: string };
+  assert.equal(echoed.last, "-");
+  assert.equal(echoed.stdinBytes, Buffer.byteLength(prompt));
+  assert.equal(echoed.stdinHead, "BIGPROMP");
 });
 
 test("startCodex: timeout kills the child; kill() settles as error; non-string cursor warns", async () => {

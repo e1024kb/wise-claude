@@ -1,6 +1,8 @@
 // Auth probe (P5, plan M2.7): every harness a run needs is probed before a run dir exists.
-// `claude` goes through the adapter's `probeAuth`; harnesses without an adapter yet (M5)
-// fail closed with `AUTH_REQUIRED` and the login command to show the user.
+// Each harness goes through its adapter's `probeAuth`; harnesses without an adapter fail closed
+// with `AUTH_REQUIRED` and the login command to show the user. E12 fallback harnesses are not
+// part of the up-front set: the executor probes them lazily on first use (`probeOne`) and skips
+// a logged-out fallback with a `warn` instead of failing the run.
 
 import { domainError } from "./rpc.ts";
 import type { RpcError } from "./rpc.ts";
@@ -52,6 +54,26 @@ export function authRequired(harness: Harness, loginCmd: string, detail?: string
     `${harness}: not logged in${detail ? ` (${detail})` : ""}; run \`${loginCmd}\``,
     { harness, login_cmd: loginCmd },
   );
+}
+
+export type ProbeOutcome = { ok: boolean; login_cmd: string; detail?: string };
+
+/** One probe that never throws: a missing adapter or a probe error is a failed outcome. */
+export async function probeOne(
+  harness: Harness,
+  auth: AuthMode,
+  lookup: AdapterLookup,
+): Promise<ProbeOutcome> {
+  const adapter = lookup(harness);
+  if (!adapter) {
+    return { ok: false, login_cmd: LOGIN_CMDS[harness], detail: "no adapter in this build" };
+  }
+  try {
+    const probe = await adapter.probeAuth(auth);
+    return { ok: probe.ok, login_cmd: probe.login_cmd ?? LOGIN_CMDS[harness] };
+  } catch (err) {
+    return { ok: false, login_cmd: LOGIN_CMDS[harness], detail: (err as Error).message };
+  }
 }
 
 /**
