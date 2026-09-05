@@ -295,6 +295,25 @@ Behaviour worth recording:
 
 Deferred from M2, carried into later milestones: `--settings` trimming measurement (D18) not yet done; `--max-budget-usd` under `auth: api-key` (E11) not wired; `units` steps fail with "units steps arrive in M4"; `wise_context` resolves `state.context`, outputs and inputs only (ticket bodies arrive with M3.2's `Context`); a child-ask gate orphaned by a daemon restart returns `GATE_STALE` on `answer` and needs `resume`.
 
+### M3 live smoke (2026-09-05)
+
+`ticket-plan` v2 driven end to end by the engine on a synthetic ticket (WISE-1, body pasted into `context.ticket`), profile `low`, both tuning groups `economy`, step-select reduced to `analyze-related`, `implement_mode: plan-only`, cwd a scratch clone so `setup` could create its branch. Three runs, each about $2-3 of subscription usage as reported by the children:
+
+| Run | Wall | Child output tokens | Child cost (reported) | Outcome |
+|---|---|---|---|---|
+| 1 | 8 m 36 s | 29.3k | $3.31 | `completed` but hollow: `codebase-audit` and `present-plan` blocked (run dir outside the cwd sandbox), `fetch-ticket` spent 32 turns and returned no file. |
+| 2 | 8 m 51 s | 26.0k | $2.86 | run dir fixed via `--add-dir`; audit and plan written. `ensure-access` aborted and `fetch-ticket` empty: the child was permission-denied on `wise_context` and on `Bash`, visible now as `warn` events (`N permission denial(s)`). |
+| 3 | 5 m 22 s | 22.4k | $2.09 | Clean. Ticket normalised from context, audit (9 reusable assets), `PLAN-WISE-1.md` with two waves, testing and validation sections, branch `WISE-1` created, zero denials. |
+
+Findings and the decision they forced:
+
+- D19. Headless children get explicit grants. `claude -p` cannot answer a permission prompt, so anything not pre-granted is silently denied and the child improvises around it. Every Claude child now runs with `--add-dir <run dir>` (the run directory is the channel between steps) and `--allowedTools mcp__<engine server>,<step allowed_tools>`. YAML v2 gains `allowed_tools: [rule, ...]` on any step (Claude permission rule syntax, e.g. `Bash(git:*)`, `WebSearch`); `mode` keeps its meaning (`auto` = acceptEdits) and grants add to it. `bypassPermissions` stays reserved for `mode: full-access`.
+- Prompt hygiene matters more than model tier: telling `ensure-access` and `fetch-ticket` to read `wise_context("ticket")` first cut those two steps from 46 turns and 2.0M cache-read tokens to 3 turns and 60k.
+- Per-step `usage` folds `cache_read` correctly; the `step.progress` token figure is cumulative context, useful as a pace signal, not a cost.
+- Child usage is dominated by cache reads (1.9M of 2.2M tokens in run 3), so the 27k stock prompt (D18) is paid on every turn of every child; `--settings` trimming remains the lever to measure.
+
+Open for M3.3 proper: a real ticket from the user's tracker fetched by the desktop conductor, the prose-conductor baseline on the same ticket, and the desktop-app acceptance of the rewritten SKILLs (permission prompts for the prefixed `wise_*` tools on first use are expected).
+
 ## Sources
 
 - Anthropic legal and compliance: https://code.claude.com/docs/en/legal-and-compliance
