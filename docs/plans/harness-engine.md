@@ -98,9 +98,9 @@ Gate M3: ticket-plan works from Claude Code on the new engine, Python removed.
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
 | M4.1 | `units.ts` skeleton and the no-model phases: `claim`, `worktree`, `push`, `pr`, `request-review`, `cleanup` as code over `git` and `gh`; `UnitLedger` per P4; idempotent claim rules | 3 | M2.3 | Unit tests with a temp git repo; second run adopts, foreign worktree is skipped | DONE |
-| M4.2 | Model phases: `plan`, `implement`, `review` ↔ `fix` loop, `watch`; prompts moved from `prompts/*.md` into engine prompt templates with schemas; caps enforced by the engine (fix commits counted) | 3 | M4.1 | Each phase runs against a fixture repo on haiku; review loop converges or pushes with `converged: false` | IN PROGRESS |
-| M4.3 | `ticket-auto` v2 with a `units` step; delete `process-tickets.md`; README regenerated | 2 | M4.2 | `compile-check` passes; README flow diagram matches | TODO |
-| M4.4 | `impl-plan-auto` v2 on the `plan` pipeline; delete `process-plans.md` | 2 | M4.2 | Same as M4.3 | TODO |
+| M4.2 | Model phases: `plan`, `implement`, `review` ↔ `fix` loop, `watch`; prompts moved from `prompts/*.md` into engine prompt templates with schemas; caps enforced by the engine (fix commits counted) | 3 | M4.1 | Each phase runs against a fixture repo on haiku; review loop converges or pushes with `converged: false` | DONE |
+| M4.3 | `ticket-auto` v2 with a `units` step; delete `process-tickets.md`; README regenerated | 2 | M4.2 | `compile-check` passes; README flow diagram matches | IN PROGRESS |
+| M4.4 | `impl-plan-auto` v2 on the `plan` pipeline; delete `process-plans.md` | 2 | M4.2 | Same as M4.3 | IN PROGRESS |
 | M4.5 | End-to-end ticket-auto on one ticket, all Claude, from Claude Code; `report` step consumes `UnitRow[]` as data | 2 | M4.3, M3.2 | PR merged or left open with the correct verdict; usage by phase in the report | TODO |
 
 Gate M4: one ticket goes ticket → merged PR on the engine.
@@ -112,7 +112,7 @@ Gate M4: one ticket goes ticket → merged PR on the engine.
 | M5.1 | `codex` adapter: `codex exec --json`, `--output-schema`, `model_reasoning_effort`, sandbox mode from `mode`, thread resume cursor, `CODEX_HOME` passthrough | 2 | M2.1, M0.3 | Fixture and live smoke; `AUTH_REQUIRED` shows `codex login` | DONE |
 | M5.2 | `grok` adapter: `grok -p --output-format json`, `--always-approve`, `--no-auto-update`, effort if confirmed, schema-by-instruction fallback | 2 | M2.1, M0.4 | Same | DONE |
 | M5.3 | `gemini` adapter, best effort: `gemini -p --output-format json -m`, `--approval-mode yolo`, schema-by-instruction | 2 | M2.1, M0.4 | Same; documented as best-effort | TODO |
-| M5.4 | Fallback lists end to end: force a rate-limit classification on claude, observe routing to codex after first backoff, event `warn` emitted | 1 | M5.1 | Test with a fake adapter; live check once | TODO |
+| M5.4 | Fallback lists end to end: force a rate-limit classification on claude, observe routing to codex after first backoff, event `warn` emitted | 1 | M5.1 | Test with a fake adapter; live check once | IN PROGRESS |
 | M5.5 | Cross-harness ticket-auto: plan on claude, implement on codex, review on claude, through one worktree | 2 | M4.5, M5.1 | Ticket reaches a PR; cursors and worktree handoff correct | TODO |
 | M5.6 | `claude-session` adapter via the native Workflow tool (policy hedge, D4) | 3 | M2.3 | Postponed unless R2 materialises | DROPPED unless needed |
 
