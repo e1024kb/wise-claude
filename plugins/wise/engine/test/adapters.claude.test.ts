@@ -584,11 +584,14 @@ test("probeAuth: subscription parses `claude auth status` JSON", async () => {
   );
 });
 
-test("registry: claude is registered, others raise HARNESS_UNAVAILABLE", () => {
+test("registry: claude, codex, grok are registered; gemini raises HARNESS_UNAVAILABLE", () => {
   assert.equal(adapterFor("claude"), claudeAdapter);
   assert.equal(claudeAdapter.id, "claude");
-  assert.equal(hasAdapter("claude"), true);
-  for (const h of ["codex", "gemini", "grok"] as const) {
+  for (const h of ["claude", "codex", "grok"] as const) {
+    assert.equal(hasAdapter(h), true, h);
+    assert.equal(adapterFor(h).id, h);
+  }
+  for (const h of ["gemini"] as const) {
     assert.equal(hasAdapter(h), false);
     assert.throws(
       () => adapterFor(h),

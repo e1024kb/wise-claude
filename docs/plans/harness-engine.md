@@ -109,8 +109,8 @@ Gate M4: one ticket goes ticket → merged PR on the engine.
 
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
-| M5.1 | `codex` adapter: `codex exec --json`, `--output-schema`, `model_reasoning_effort`, sandbox mode from `mode`, thread resume cursor, `CODEX_HOME` passthrough | 2 | M2.1, M0.3 | Fixture and live smoke; `AUTH_REQUIRED` shows `codex login` | IN PROGRESS |
-| M5.2 | `grok` adapter: `grok -p --output-format json`, `--always-approve`, `--no-auto-update`, effort if confirmed, schema-by-instruction fallback | 2 | M2.1, M0.4 | Same | IN PROGRESS |
+| M5.1 | `codex` adapter: `codex exec --json`, `--output-schema`, `model_reasoning_effort`, sandbox mode from `mode`, thread resume cursor, `CODEX_HOME` passthrough | 2 | M2.1, M0.3 | Fixture and live smoke; `AUTH_REQUIRED` shows `codex login` | DONE |
+| M5.2 | `grok` adapter: `grok -p --output-format json`, `--always-approve`, `--no-auto-update`, effort if confirmed, schema-by-instruction fallback | 2 | M2.1, M0.4 | Same | DONE |
 | M5.3 | `gemini` adapter, best effort: `gemini -p --output-format json -m`, `--approval-mode yolo`, schema-by-instruction | 2 | M2.1, M0.4 | Same; documented as best-effort | TODO |
 | M5.4 | Fallback lists end to end: force a rate-limit classification on claude, observe routing to codex after first backoff, event `warn` emitted | 1 | M5.1 | Test with a fake adapter; live check once | TODO |
 | M5.5 | Cross-harness ticket-auto: plan on claude, implement on codex, review on claude, through one worktree | 2 | M4.5, M5.1 | Ticket reaches a PR; cursors and worktree handoff correct | TODO |

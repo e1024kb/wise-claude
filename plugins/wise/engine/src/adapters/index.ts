@@ -2,6 +2,8 @@
 
 import type { Adapter, ErrorCode, Harness } from "../types.ts";
 import { claudeAdapter } from "./claude.ts";
+import { codexAdapter } from "./codex.ts";
+import { grokAdapter } from "./grok.ts";
 
 export class AdapterError extends Error {
   readonly code: ErrorCode;
@@ -12,8 +14,11 @@ export class AdapterError extends Error {
   }
 }
 
+// gemini stays absent until M5.3 (best effort).
 const ADAPTERS: Partial<Record<Harness, Adapter>> = {
   claude: claudeAdapter,
+  codex: codexAdapter,
+  grok: grokAdapter,
 };
 
 export function hasAdapter(harness: Harness): boolean {
@@ -30,4 +35,8 @@ export function adapterFor(harness: Harness): Adapter {
 
 export { claudeAdapter, startClaude } from "./claude.ts";
 export type { ClaudeRun } from "./claude.ts";
+export { codexAdapter, startCodex } from "./codex.ts";
+export type { CodexRun } from "./codex.ts";
+export { grokAdapter, startGrok } from "./grok.ts";
+export type { GrokRun } from "./grok.ts";
 export { cleanEnv, spawnClean } from "./spawn.ts";
