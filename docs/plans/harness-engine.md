@@ -13,7 +13,7 @@ Steps run by spawning vendor CLIs headless (`claude -p`, `codex exec`, `gemini -
 | # | Milestone | SP | Depends on | Gate | Status |
 |---|---|---|---|---|---|
 | M0 | Spike | 8 | — | all probes pass, transport confirmed | DONE |
-| M1 | Engine core (library + CLI, no execution) | 17 | M0 | ported tests green on bun and node | IN PROGRESS |
+| M1 | Engine core (library + CLI, no execution) | 17 | M0 | ported tests green on bun and node | DONE |
 | M2 | Execution: claude adapter, daemon, MCP | 16 | M1 | `wise_run` of example-workflow completes via MCP from Claude Code | TODO |
 | M3 | Conductor + ticket-plan end to end | 7 | M2 | ticket-plan on a real ticket, baseline recorded, Python deleted | TODO |
 | M4 | `units.ts`: ticket-auto and impl-plan-auto | 12 | M3 | ticket-auto merges one ticket all-Claude | TODO |
@@ -47,18 +47,18 @@ Goal: `plugins/wise/engine/` as a library plus a non-executing CLI, with the Pyt
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
 | M1.1 | Scaffold: `package.json` (bun and node scripts), `tsconfig` with `erasableSyntaxOnly`, `allowImportingTsExtensions`, `verbatimModuleSyntax`, `noEmit`; `tsgo`, `oxlint`, `oxfmt` as dev deps; `just check` runs typecheck, lint, format check, tests; `engine.sh` picks bun else node; one smoke test | 2 | M0 | `just check` green on bun and on node 24 from a clean clone; no `dist/` | DONE |
-| M1.2 | `defs`: YAML v2 loader, validator, locate with user-root shadowing, folder and flat form; v1 detection with migration hints per P2 | 3 | M1.1 | Bundled workflows fail validation with precise v1 hints until migrated; unit tests for every P2 field | IN PROGRESS |
-| M1.3 | `resolve`: model families, capability and policy effort clamps, `WISE_EFFORT_CEILING`, retired-id swap, low-profile Opus rule, team resolution, per-harness effort map (P6) | 3 | M1.1 | `test_effort_ceiling`, `test_low_profile_model`, `test_tuning` ported 1:1 and green | IN PROGRESS |
-| M1.4 | `scheduler`: waves from `depends_on`, all five trigger rules, `when:` as a real expression evaluator (`==`, `!=`, `&&`, `\|\|`, parentheses, unset handling) | 2 | M1.1 | `test_scheduler` ported; new tests for compound expressions | IN PROGRESS |
-| M1.5 | `ledger`: run dir resolution (XDG), `state.json` atomic write, `events.jsonl` with `seq`, `units/*.json`, history cap prune, worktree-include copy | 2 | M1.1 | `test_state_lifecycle`, `test_prune_runs`, `test_worktree_include` ported | IN PROGRESS |
-| M1.6 | `preflight`: questionary spec (`Question[]`, defaults) from profiles, tuning groups, step-select, inputs with `from-context` | 2 | M1.2 | `test_profile`, remaining `test_tuning` cases ported; spec snapshot test for ticket-plan | IN PROGRESS |
-| M1.7 | `render`: `{{…}}` templating with `project.*`, `run.*`, `workflow.dir`, outputs | 1 | M1.5 | `test_render` ported | IN PROGRESS |
-| M1.8 | CLI skeleton: `wise-engine preflight <wf>`, `compile-check <wf>`, `migrate <yaml>` (dry run) | 1 | M1.2, M1.6 | Commands run on bun and node; JSON output validated against P1 types | TODO |
-| M1.9 | Parity report: table Python test → node:test, all 240 accounted for (ported, merged, or dropped with reason) | 1 | M1.2-M1.8 | Report in the design doc; `test_hook_contract`, `test_neutralization`, `test_robustness` decisions listed | TODO |
+| M1.2 | `defs`: YAML v2 loader, validator, locate with user-root shadowing, folder and flat form; v1 detection with migration hints per P2 | 3 | M1.1 | Bundled workflows fail validation with precise v1 hints until migrated; unit tests for every P2 field | DONE |
+| M1.3 | `resolve`: model families, capability and policy effort clamps, `WISE_EFFORT_CEILING`, retired-id swap, low-profile Opus rule, team resolution, per-harness effort map (P6) | 3 | M1.1 | `test_effort_ceiling`, `test_low_profile_model`, `test_tuning` ported 1:1 and green | DONE |
+| M1.4 | `scheduler`: waves from `depends_on`, all five trigger rules, `when:` as a real expression evaluator (`==`, `!=`, `&&`, `\|\|`, parentheses, unset handling) | 2 | M1.1 | `test_scheduler` ported; new tests for compound expressions | DONE |
+| M1.5 | `ledger`: run dir resolution (XDG), `state.json` atomic write, `events.jsonl` with `seq`, `units/*.json`, history cap prune, worktree-include copy | 2 | M1.1 | `test_state_lifecycle`, `test_prune_runs`, `test_worktree_include` ported | DONE |
+| M1.6 | `preflight`: questionary spec (`Question[]`, defaults) from profiles, tuning groups, step-select, inputs with `from-context` | 2 | M1.2 | `test_profile`, remaining `test_tuning` cases ported; spec snapshot test for ticket-plan | DONE |
+| M1.7 | `render`: `{{…}}` templating with `project.*`, `run.*`, `workflow.dir`, outputs | 1 | M1.5 | `test_render` ported | DONE |
+| M1.8 | CLI skeleton: `wise-engine preflight <wf>`, `compile-check <wf>`, `migrate <yaml>` (dry run) | 1 | M1.2, M1.6 | Commands run on bun and node; JSON output validated against P1 types | DONE |
+| M1.9 | Parity report: table Python test → node:test, all 240 accounted for (ported, merged, or dropped with reason) | 1 | M1.2-M1.8 | Report in the design doc; `test_hook_contract`, `test_neutralization`, `test_robustness` decisions listed | DONE |
 
 Gate M1: `just check` green on both runtimes, parity report complete.
 
-2026-09-05: M1.1 scaffold landed at `plugins/wise/engine/` (bun 1.4.1 and node 24.18 both green via the npm scripts; `just` itself is not installed on the dev machine, root `justfile` gained `engine-check`).
+2026-09-05: M1.1 scaffold landed at `plugins/wise/engine/` (bun 1.4.1 and node 24.18 both green via the npm scripts; `just` itself is not installed on the dev machine, root `justfile` gained `engine-check`). Gate passed the same day: 276 tests green on bun 1.4.1 and node 24.18, parity report in the design doc § Spike answers › M1 parity report (122 ported 1:1, 18 merged, 4 dropped by v2 design, 10 kept in pytest outside the engine).
 
 ## M2 — Execution
 

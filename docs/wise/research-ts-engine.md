@@ -248,6 +248,31 @@ M0.7 verdict (2026-09-05). Gate M0 passed: M0.1, M0.3, M0.5 pass, M0.2 and M0.6 
 - D17. `wise_wait` default drops from 240 s to 110 s (cap stays 600 s) so a default call returns before the host moves it to a background task at 2 min. The daemon sends MCP progress notifications every 30 s during a wait, which keeps the 30-min stdio idle abort away for long explicit waits. If a wait is moved to the background anyway, the conductor treats the task notification as the wake-up and calls `wise_wait` again.
 - D18 (E6 revisited). Stock child cost is 27.2k prompt tokens with 215 tools, 24 plugins, 102 skills and three user hooks, so trimming is worth doing but stays moderate: every Claude child runs with `--strict-mcp-config` and the engine's config only (proven in M0.6, removes the user's MCP servers); `--settings` to drop plugins, skills and hooks is measured in M2.1 and adopted only if it cuts the prompt by more than a third without breaking the wise skills the steps rely on.
 
+### M1 parity report (2026-09-05)
+
+Engine core landed in `plugins/wise/engine/` (`src/types.ts`, `paths.ts`, `defs.ts`, `preflight.ts`, `profile.ts`, `resolve.ts`, `scheduler.ts`, `ledger.ts`, `render.ts`, `cli.ts`). 276 `node:test` tests, green under `bun test` and `node --test` on node 24. Python suite: 154 test functions, 240 collected ids. Disposition of every Python test:
+
+| Disposition | Count (functions) | Detail |
+|---|---|---|
+| Ported 1:1, same name | 122 | Includes the four parametrised families (`test_ceiling_table` 16, `test_trigger_rule_truth_table` 22, `test_next_wave_when_*` 12, `test_get_*_invalid` 26) as per-row tests. |
+| Ported under another name or merged | 18 | `test_plugin_data_root_*` (3) into `pluginDataRoot` tests in ledger and profile; `test_session_id_*` (3) into `currentSessionId` tests in profile; `test_installed_plugins_*` (3) into two `installedPlugins` tests in defs; `test_init_state_rejects_*` (4) into `initState` id validation in ledger and `validateDef` in defs; `test_write_log_*` (3) into log path tests in ledger; `test_save_yaml_*` (2) into the atomic-write test in ledger. |
+| Dropped, v2 design | 4 | `test_next_wave_rejects_*` (2): the compiler rejects bad step ids before scheduling, `nextWave` trusts a validated def. `test_list_inputs_default_must_be_an_option`, `test_list_inputs_malformed_option_rejected`: v2 has no choice inputs, `options:` is a v1 hint. |
+| Kept in pytest, outside the engine | 10 | `test_hook_contract` (4, shell hook), `test_compact_ledger_*` (2, `insights.py`), `test_save_registry_*` (1, `init-registry.py`), `test_worker_heartbeat_*` (3, v1 supervised-worker watchdog; deleted with `workflows.py` at M3.4). |
+
+Behaviour changes recorded by the port (all intended):
+
+- Errors are thrown (`LedgerError`, `ResolveError` with `exitCode`) instead of exit codes and stderr; the CLI maps them. Notices come back as arrays.
+- `when:` is a real expression (`==`, `!=`, `&&`, `||`, `!`, parentheses); unparseable expressions stay truthy with a `warnings` entry. A v1 list form is accepted and AND-ed by the scheduler, and flagged as a v1 hint by the compiler.
+- `failed` runs are resumable and never pruned (`TERMINAL_RUN` = completed, cancelled), as in v1.
+- Invalid preflight values are compile errors, not warn-and-fallback.
+- `{{run.dir}}` renders only when the caller passes the run dir; `state.inputs` and `state.outputs` are merged for templating with outputs winning.
+- Model-family tables stay Claude-specific in `resolve`; `effortFor(harness, effort)` carries the P6 mapping and adapters apply it.
+- `syntheticSessionId`, XDG roots and cwd slug live once in `paths.ts`; the slug realpaths the nearest existing ancestor like Python's non-strict `Path.resolve()`.
+
+CLI (M1.8): `wise-engine preflight <wf> [--profile] [--context <json>]` emits the P1 `{workflow, version, questions, defaults}` shape; `compile-check <wf>...` exits 1 with per-issue v1 hints (all four bundled workflows fail until M6.4 migrates them); `migrate <yaml>` is a dry run listing v1 to v2 changes; `list-defs`; `version`. `<wf>` is a name resolved through user then bundled roots, or a path.
+
+Gate M1 passed. Open for M2: `Question.optional` added to types for skippable inputs; `State.run_dir` not added (render takes the dir as a parameter).
+
 ## Sources
 
 - Anthropic legal and compliance: https://code.claude.com/docs/en/legal-and-compliance
