@@ -76,7 +76,7 @@ below.
 
 | Invocation | Description |
 |---|---|
-| `/wise-init` | First-time setup wizard - walks you through installing bun or Node 24 (the engine runtime), the `claude` CLI login, the `gh` CLI, markitdown and Python, then caches the probe results. Re-run any time your environment changes or after `/plugin install wise@…` (which wipes the cache by design). |
+| `/wise-init` | First-time setup wizard - walks you through installing bun or Node 24 (the engine runtime), the `claude` CLI login, the `gh` CLI, markitdown and Python, replaces a daemon left on an older engine build, checks git over ssh from the engine's child environment, then caches the probe results. Re-run any time your environment changes or after `/plugin install wise@…` (which wipes the cache by design). |
 | `/wise-skills-create <skill-name>` | Scaffold a new action or reference skill via Claude Code's `skill-creator`. Marketplace-repo only. |
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |

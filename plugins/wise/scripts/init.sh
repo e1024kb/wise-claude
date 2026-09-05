@@ -50,6 +50,17 @@
 #         AUTHENTICATED=true|false       (when STATUS=ok)
 #         LOGIN=<gh login>|              (when AUTHENTICATED=true)
 #
+#   probe-git-ssh [host]
+#       Emits:
+#         STATUS=ok|denied|unreachable|missing-ssh|unknown
+#         AGENT=set|unset                (SSH_AUTH_SOCK in this shell)
+#         HOST=<host>                    (default github.com)
+#         DETAIL=<first line ssh printed>
+#       Runs `ssh -T git@<host>` under the same clean environment the
+#       engine gives its children (HOME, PATH, SSH_AUTH_SOCK only), so
+#       `denied` means every engine git call over ssh fails the same way
+#       (a key that only lives in the agent, or no agent at all).
+#
 #   probe-markitdown
 #       Emits:
 #         STATUS=ok|missing
@@ -251,6 +262,40 @@ probe_gh() {
   fi
 }
 
+# ---- git over ssh ---------------------------------------------------------
+
+probe_git_ssh() {
+  local host="${1:-github.com}"
+  echo "HOST=$host"
+  if ! command -v ssh >/dev/null 2>&1; then
+    echo "STATUS=missing-ssh"
+    echo "AGENT=$([[ -n "${SSH_AUTH_SOCK:-}" ]] && echo set || echo unset)"
+    echo "DETAIL="
+    return 0
+  fi
+  local agent=unset
+  [[ -n "${SSH_AUTH_SOCK:-}" ]] && agent=set
+  echo "AGENT=$agent"
+  # The engine's child env, reduced to what ssh reads (adapters/spawn.ts PASSTHROUGH_VARS).
+  local -a clean=(env -i "HOME=$HOME" "PATH=$PATH")
+  [[ $agent == set ]] && clean+=("SSH_AUTH_SOCK=$SSH_AUTH_SOCK")
+  local out
+  out="$("${clean[@]}" ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+    -T "git@$host" 2>&1 || true)"
+  local first
+  first="$(printf '%s\n' "$out" | head -n 1)"
+  echo "DETAIL=$first"
+  if printf '%s' "$out" | grep -qi 'successfully authenticated'; then
+    echo "STATUS=ok"
+  elif printf '%s' "$out" | grep -qi 'permission denied'; then
+    echo "STATUS=denied"
+  elif printf '%s' "$out" | grep -qiE 'could not resolve|connection (timed out|refused)|network is unreachable|operation timed out'; then
+    echo "STATUS=unreachable"
+  else
+    echo "STATUS=unknown"
+  fi
+}
+
 # ---- markitdown -----------------------------------------------------------
 
 find_uv() {
@@ -337,6 +382,7 @@ case "${1:-}" in
   probe-bun)        probe_bun ;;
   probe-claude-auth) probe_claude_auth ;;
   probe-gh)         probe_gh ;;
+  probe-git-ssh)    probe_git_ssh "${2:-}" ;;
   probe-markitdown) probe_markitdown ;;
   *)
     cat <<'USAGE' >&2
@@ -348,6 +394,7 @@ Subcommands:
   probe-bun         Probe for bun (preferred engine runtime).
   probe-claude-auth Probe the claude CLI login used by engine children.
   probe-gh          Probe for the gh CLI + its auth state.
+  probe-git-ssh     Probe git over ssh (ssh -T git@github.com) from the engine's child env.
   probe-markitdown  Probe for the markitdown converter + uv installer.
 
 Output format: KEY=VALUE lines. Callers can `source` the output
