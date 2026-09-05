@@ -63,7 +63,7 @@ export const TERMINAL_RUN: ReadonlySet<RunStatus> = new Set(["completed", "cance
 
 export type QuestionOption = { value: string; label: string; description?: string };
 export type Question = {
-  /** "profile" | "tuning.<group>" | "step-select" | "input.<name>" */
+  /** "profile" | "tuning.<group>" | "harness.<group>" | "step-select" | "input.<name>" */
   id: string;
   kind: "choice" | "multi" | "text";
   label: string;
@@ -155,9 +155,15 @@ export type ChildProgress = {
   step: string;
   turn: number;
   tool?: string;
+  /** What the last tool touched: a path, a command, a pattern (one line, clipped). */
+  detail?: string;
+  /** Headline of the child's latest assistant text (clipped). */
+  text?: string;
   tokens: number;
   last_activity: string;
   reports: number;
+  /** Milliseconds since the tracker (the child) started. */
+  elapsed_ms?: number;
 };
 
 export type Gate = {

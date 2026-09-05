@@ -459,6 +459,11 @@ function ceilingStep(live: LiveRun, state: State): number | undefined {
   return live.def.profiles?.[state.profile]?.caps?.tokens ?? state.caps.tokens;
 }
 
+/** `step.started` carries the step's `description` as `message` so a conductor can say what runs. */
+function describe(step: { description?: string }): { message?: string } {
+  return step.description ? { message: headline(step.description) } : {};
+}
+
 /** The run's planned resolution for a step (its primary harness). */
 function plannedResolution(state: State, step: AgentStep): Resolved {
   return (
@@ -851,7 +856,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const stepRunId = startStep(live.runDir, def.id);
     const fresh = readState(live.runDir);
     const step = renderStep(def, fresh, live.workflowDir, live.runDir) as BashStep;
-    emit(live, { type: "step.started", step: step.id });
+    emit(live, { type: "step.started", step: step.id, ...describe(def) });
     let handle: ReturnType<typeof startBashStep>;
     try {
       handle = startBashStep(step, {
@@ -885,7 +890,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const stepRunId = startStep(live.runDir, def.id);
     const fresh = readState(live.runDir);
     const step = renderStep(def, fresh, live.workflowDir, live.runDir) as UnitsStep;
-    emit(live, { type: "step.started", step: step.id });
+    emit(live, { type: "step.started", step: step.id, ...describe(def) });
     if (step.items.includes("{{")) {
       failStep(live, step.id, `items template unresolved: ${headline(step.items, 80)}`);
       return;
@@ -1041,6 +1046,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       step: step.id,
       harness,
       model: resolved.model,
+      ...describe(def),
     };
     if (resolved.effort !== "") started.effort = resolved.effort;
     appendEvent(live.runDir, started);
@@ -1443,14 +1449,34 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
 
   // ---- handlers ---------------------------------------------------------------------------------------
 
-  const preflight: Handler<"preflight"> = (params) => {
+  /**
+   * Harnesses a `harness.<group>` question may offer: every harness some unlocked tuning group
+   * does not already default to, with an adapter and a subscription login. Groups all defaulting
+   * to the same harness probe nothing for it (the Claude probe runs `claude auth status`).
+   */
+  async function readyHarnesses(def: WorkflowDef): Promise<Harness[]> {
+    const groups = (def.tuning?.groups ?? []).filter((g) => !g.locked);
+    const out: Harness[] = [];
+    for (const h of HARNESSES) {
+      if (!groups.some((g) => (g.default.harness ?? "claude") !== h)) continue;
+      if (!getAdapter(h)) continue;
+      const probe = await probeOne(h, "subscription", getAdapter);
+      if (probe.ok) out.push(h);
+    }
+    return out;
+  }
+
+  const preflight: Handler<"preflight"> = async (params) => {
     const rec = asRecord(params, "preflight");
     const workflow = requireString(rec, "workflow", "preflight");
     requireString(rec, "cwd", "preflight");
     const profile = optionalProfile(rec, "preflight");
     const located = locate(workflow);
     const def = validated(located);
-    const q = buildQuestionary(def, profile !== undefined ? { profile } : {});
+    const q = buildQuestionary(def, {
+      ...(profile !== undefined ? { profile } : {}),
+      harnesses: await readyHarnesses(def),
+    });
     return {
       workflow: located.name,
       version: def.version,

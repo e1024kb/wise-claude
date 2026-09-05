@@ -259,6 +259,54 @@ describe("executor", () => {
     assert.ok(issues.some((i) => i.path === "version"));
   });
 
+  test("preflight: harness.<group> questions list the other logged-in adapters; run resolves the group onto it", async () => {
+    const r = mkRoot();
+    const claude = claudeFake();
+    const codex = fakeAdapter("codex", (req) => schemaAnswer(req), { loggedIn: true });
+    const grok = fakeAdapter("grok", (req) => schemaAnswer(req), { loggedIn: false });
+    const exec = make(r, { adapters: { claude, codex, grok } });
+    const pre = await exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd }, ctx);
+    assert.deepEqual(
+      pre.questions.map((q) => q.id),
+      [
+        "profile",
+        "tuning.classify",
+        "harness.classify",
+        "tuning.summarize",
+        "harness.summarize",
+        "input.focus",
+      ],
+    );
+    const hq = pre.questions.find((q) => q.id === "harness.classify");
+    assert.deepEqual(
+      hq?.options?.map((o) => o.value),
+      ["default", "codex"],
+    );
+    // grok is not logged in, so not offered; every group defaults to claude, so claude is not probed.
+    assert.deepEqual(grok.probes, ["subscription"]);
+    assert.deepEqual(claude.probes, []);
+
+    const { run_id } = await exec.handlers.run(
+      {
+        workflow: EXAMPLE,
+        cwd: r.cwd,
+        answers: { "harness.classify": "codex" },
+        context: {},
+        inputs: { focus: "x" },
+      },
+      ctx,
+    );
+    const state = readState(r.rt.requireRunDir(run_id));
+    assert.deepEqual(state.resolved.classify, {
+      harness: "codex",
+      model: "inherit",
+      effort: "low",
+    });
+    assert.equal(state.resolved["summarize-project"]?.harness, "claude");
+    await until(() => codex.calls.length === 1, "codex dispatch of classify");
+    await exec.handlers.cancel({ run_id }, ctx);
+  });
+
   test("session profile param: preflight presets the profile default, run uses it when unanswered", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });

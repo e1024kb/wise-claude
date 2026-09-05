@@ -3,10 +3,11 @@
 // (cmd_get_preflight, cmd_get_tuning, cmd_get_step_select, cmd_get_profiles,
 // cmd_list_inputs) onto the v2 shape. Pure: no I/O.
 
-import { PROFILE_LEVELS } from "./types.ts";
+import { HARNESSES, PROFILE_LEVELS } from "./types.ts";
 import type {
   Answers,
   Context,
+  Harness,
   ProfileLevel,
   Question,
   QuestionOption,
@@ -27,7 +28,14 @@ export type QuestionaryCtx = {
   context?: Context;
   profile?: ProfileLevel;
   installedPlugins?: ReadonlySet<string>;
+  /**
+   * Harnesses ready to run (adapter present, logged in). When given, every unlocked tuning group
+   * gets a `harness.<group>` question offering the ready harnesses other than the group's default.
+   */
+  harnesses?: readonly Harness[];
 };
+
+const isHarness = (v: string): v is Harness => (HARNESSES as readonly string[]).includes(v);
 
 /** `claude / opus / high` style summary of a tuning value; `inherit` when empty. */
 export function describeTuning(value: TuningDefault): string {
@@ -88,6 +96,32 @@ function tuningQuestion(group: TuningGroup): Question {
   return q;
 }
 
+/**
+ * `harness.<group>`: which CLI runs the group's steps. Picking a non-default harness keeps the
+ * group's effort and runs the harness's own default model (a Claude model pin means nothing to
+ * codex). `undefined` when no other harness is ready.
+ */
+function harnessQuestion(group: TuningGroup, ready: readonly Harness[]): Question | undefined {
+  const current = group.default.harness ?? "claude";
+  const others = ready.filter((h) => h !== current);
+  if (others.length === 0) return undefined;
+  const options: QuestionOption[] = [
+    { value: KEEP_DEFAULT, label: `Keep default (${current})` },
+    ...others.map((h) => ({
+      value: h,
+      label: h,
+      description: `run these steps on ${h} (its default model, same effort)`,
+    })),
+  ];
+  return {
+    id: `harness.${group.id}`,
+    kind: "choice",
+    label: `Which CLI runs: ${group.label ?? group.id}?`,
+    options,
+    default: KEEP_DEFAULT,
+  };
+}
+
 /** Step ids the user may switch off: `step-select.optional`, else every `optional: true` step. */
 export function optionalStepIds(def: WorkflowDef): string[] {
   const declared = def["step-select"]?.optional;
@@ -135,7 +169,8 @@ export function resolveFromContext(path: string, context: Context | undefined): 
 
 /**
  * Build the questionary in order: `profile`, one `tuning.<group>` per group (locked groups
- * carry `locked: true` and only the default option), `step-select` when the workflow has
+ * carry `locked: true` and only the default option) each followed by its `harness.<group>`
+ * question when `ctx.harnesses` offers an alternative, `step-select` when the workflow has
  * optional steps, and `input.<name>` per declared input with `from-context` pre-fill.
  */
 export function buildQuestionary(def: WorkflowDef, ctx: QuestionaryCtx = {}): Questionary {
@@ -147,7 +182,12 @@ export function buildQuestionary(def: WorkflowDef, ctx: QuestionaryCtx = {}): Qu
   };
 
   push(profileQuestion(def, ctx.profile));
-  for (const group of def.tuning?.groups ?? []) push(tuningQuestion(group));
+  for (const group of def.tuning?.groups ?? []) {
+    push(tuningQuestion(group));
+    if (group.locked || ctx.harnesses === undefined) continue;
+    const hq = harnessQuestion(group, ctx.harnesses);
+    if (hq) push(hq);
+  }
   const optional = optionalStepIds(def);
   if (optional.length) push(stepSelectQuestion(def, optional));
   for (const input of listInputs(def)) {
@@ -187,7 +227,9 @@ function answerList(value: string | string[] | undefined): string[] | undefined 
 
 /**
  * Merge answers into run parameters. Precedence per group: an explicit preset answer (unlocked
- * groups only) > `profiles.<level>.tuning.<group>` > `group.default`. Steps not selected in
+ * groups only) > `profiles.<level>.tuning.<group>` > `group.default`; a `harness.<group>` answer
+ * naming another harness then replaces the harness and resets the model to `inherit`, keeping
+ * the effort (a Claude pin never reaches codex). Steps not selected in
  * `step-select` are disabled; every non-optional step is always enabled. Model / effort
  * clamping is `resolve`'s job, not done here.
  */
@@ -206,6 +248,16 @@ export function applyAnswers(def: WorkflowDef, answers: Answers): Applied {
     if (!group.locked && answer !== undefined && answer !== KEEP_DEFAULT) {
       const preset = (group.options ?? []).find((o) => o.id === answer);
       if (preset) value = { ...value, ...preset.value };
+    }
+    const harness = answerString(answers[`harness.${group.id}`]);
+    if (
+      !group.locked &&
+      harness !== undefined &&
+      harness !== KEEP_DEFAULT &&
+      isHarness(harness) &&
+      harness !== (value.harness ?? "claude")
+    ) {
+      value = { ...value, harness, model: "inherit" };
     }
     tuning[group.id] = value;
   }

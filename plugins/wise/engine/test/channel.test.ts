@@ -158,10 +158,10 @@ describe("channel", () => {
     feed(assistant("Edit"), 29_000);
     feed(raw({ type: "result", usage: { input_tokens: 40_000, output_tokens: 2000 } }), 1000);
     assert.deepEqual(emitted, [
-      "turn 1, tool Read, 1k tokens",
-      "turn 3, tool Edit, 3k tokens",
-      "turn 6, tool Edit, 3k tokens",
-      "turn 7, tool Edit, 42k tokens",
+      "turn 1, tool Read, 1k tokens, 1s",
+      "turn 3, tool Edit, 3k tokens, 3s",
+      "turn 6, tool Edit, 3k tokens, 39s: ...",
+      "turn 7, tool Edit, 42k tokens, 1m09s: ...",
     ]);
     const snap = tracker.snapshot();
     assert.equal(snap.turn, 7);
@@ -171,11 +171,55 @@ describe("channel", () => {
     assert.equal(snap.last_activity, new Date(t.now()).toISOString());
     tracker.report();
     assert.equal(tracker.snapshot().reports, 1);
-    assert.equal(progressLine(tracker.snapshot()), "turn 7, tool Edit, 42k tokens, 1 report");
+    assert.equal(
+      progressLine(tracker.snapshot()),
+      "turn 7, tool Edit, 42k tokens, 1 report, 1m09s: ...",
+    );
     assert.equal(
       progressLine({ step: "s", turn: 0, tokens: 12, last_activity: "", reports: 0 }),
       "turn 0, 12 tokens",
     );
+  });
+
+  test("tracker: tool detail and latest text; a detail change emits at most once per detailGapMs", () => {
+    const t = fakeTimers();
+    const tracker = createChildTracker({
+      step: "work",
+      throttleMs: 30_000,
+      detailGapMs: 5_000,
+      now: t.now,
+    });
+    const emitted: string[] = [];
+    const use = (name: string, input: Record<string, unknown>, text?: string): RawEvent =>
+      raw({
+        type: "assistant",
+        message: {
+          content: [...(text ? [{ type: "text", text }] : []), { type: "tool_use", name, input }],
+        },
+      });
+    const feed = (e: RawEvent, afterMs: number): void => {
+      t.advance(afterMs);
+      const p = tracker.ingest(e);
+      if (p) emitted.push(progressLine(p));
+    };
+    feed(use("Read", { file_path: "src/a.ts" }, "Looking at the parser.\nMore."), 1000);
+    feed(use("Read", { file_path: "src/b.ts" }), 1000); // detail changed, gap too short
+    feed(use("Read", { file_path: "src/c.ts" }), 5000); // detail changed, gap ok
+    feed(
+      use("Bash", { command: `git log --oneline -5\nwith a second line ${"x".repeat(100)}` }),
+      1000,
+    );
+    feed(use("Grep", { pattern: "foo" }, ""), 1000);
+    assert.deepEqual(emitted, [
+      "turn 1, tool Read src/a.ts, 0 tokens, 1s: Looking at the parser. More.",
+      "turn 3, tool Read src/c.ts, 0 tokens, 7s: Looking at the parser. More.",
+      `turn 4, tool Bash git log --oneline -5 with a second line ${"x".repeat(39)}…, 0 tokens, 8s: Looking at the parser. More.`,
+      "turn 5, tool Grep foo, 0 tokens, 9s: Looking at the parser. More.",
+    ]);
+    const snap = tracker.snapshot();
+    assert.equal(snap.detail, "foo");
+    assert.equal(snap.text, "Looking at the parser. More.");
+    assert.equal(snap.elapsed_ms, 9000);
   });
 
   test("stale watch: nudge after one idle window, kill after another; activity resets; asks pause it", () => {
@@ -383,7 +427,7 @@ describe("channel", () => {
     const progress = readEvents(runDir).filter((e) => e.type === "step.progress");
     assert.deepEqual(
       progress.map((e) => e.message),
-      ["turn 1, tool Read, 0 tokens", "turn 4, tool Read, 0 tokens"],
+      ["turn 1, tool Read, 0 tokens, 0s", "turn 4, tool Read, 0 tokens, 35s: still"],
     );
     assert.ok(progress.every((e) => e.step === "answer" && e.kind === undefined));
 
@@ -393,9 +437,11 @@ describe("channel", () => {
         step: "answer",
         turn: 4,
         tool: "Read",
+        text: "still",
         tokens: 0,
         last_activity: new Date(t.now()).toISOString(),
         reports: 0,
+        elapsed_ms: 35_000,
       },
     ]);
     const all = (await exec.handlers.status({}, ctx)) as RunSummary[];

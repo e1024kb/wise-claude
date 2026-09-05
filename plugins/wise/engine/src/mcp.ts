@@ -241,7 +241,8 @@ const DESCRIPTIONS: Record<McpToolName, string> = {
   wise_preflight:
     "Call before wise_run. Returns the workflow's questionary {workflow, version, questions, defaults}: " +
     "render questions to the user (skip locked ones and ones the session profile already answers), " +
-    "then pass the answers to wise_run. requires_missing lists plugin:<name> / tool:<name> the workflow " +
+    "then pass the answers to wise_run. harness.<group> questions appear when another logged-in CLI " +
+    "(codex, grok, gemini) could run that group's steps. requires_missing lists plugin:<name> / tool:<name> the workflow " +
     "declares but the machine lacks; wise_run refuses with REQUIRES_MISSING until they are installed. " +
     "Read-only, starts nothing.",
   wise_run:

@@ -625,6 +625,67 @@ test("applyAnswers: profile override sits over the group default, preset answer 
   });
 });
 
+test("harness.<group>: offered per unlocked group only when another harness is ready", () => {
+  const def = extendedTicketPlan();
+  const none = buildQuestionary(def).questions.map((q) => q.id);
+  assert.ok(!none.some((id) => id.startsWith("harness.")));
+  const onlyClaude = buildQuestionary(def, { harnesses: ["claude"] }).questions.map((q) => q.id);
+  assert.ok(!onlyClaude.some((id) => id.startsWith("harness.")));
+  const qs = buildQuestionary(def, { harnesses: ["claude", "codex", "grok"] }).questions;
+  const ids = qs.map((q) => q.id);
+  assert.deepEqual(
+    ids.filter((id) => id.startsWith("tuning.") || id.startsWith("harness.")),
+    [
+      "tuning.evidence",
+      "harness.evidence",
+      "tuning.authoring",
+      "harness.authoring",
+      "tuning.presentation", // locked: no harness question
+    ],
+  );
+  const hq = qs.find((q) => q.id === "harness.evidence");
+  assert.equal(hq?.kind, "choice");
+  assert.equal(hq?.default, "default");
+  assert.match(hq?.label ?? "", /^Which CLI runs: Evidence/);
+  assert.deepEqual(
+    hq?.options?.map((o) => o.value),
+    ["default", "codex", "grok"],
+  );
+  assert.equal(hq?.options?.[0]?.label, "Keep default (claude)");
+});
+
+test("applyAnswers: harness.<group> swaps the harness, resets the model, keeps the effort", () => {
+  const def = extendedTicketPlan();
+  const swapped = applyAnswers(def, { profile: "low", "harness.evidence": "codex" });
+  assert.deepEqual(swapped.tuning.evidence, {
+    harness: "codex",
+    model: "inherit",
+    effort: "medium",
+  });
+  assert.deepEqual(swapped.tuning.authoring, {
+    harness: "claude",
+    model: "claude-opus-4-8",
+    effort: "high",
+  });
+  const kept = applyAnswers(def, { "harness.evidence": "default" });
+  assert.deepEqual(kept.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
+  const same = applyAnswers(def, { "harness.evidence": "claude" });
+  assert.deepEqual(same.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
+  const unknown = applyAnswers(def, { "harness.evidence": "bard" });
+  assert.deepEqual(unknown.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
+  const locked = applyAnswers(def, { "harness.presentation": "codex" });
+  assert.equal(locked.tuning.presentation?.harness, "claude");
+  const withPreset = applyAnswers(def, {
+    "tuning.authoring": "economy",
+    "harness.authoring": "grok",
+  });
+  assert.deepEqual(withPreset.tuning.authoring, {
+    harness: "grok",
+    model: "inherit",
+    effort: "high",
+  });
+});
+
 test("applyAnswers: locked groups ignore answers, invalid profile falls back", () => {
   const def = extendedTicketPlan();
   const applied = applyAnswers(def, { profile: "turbo", "tuning.presentation": "economy" });

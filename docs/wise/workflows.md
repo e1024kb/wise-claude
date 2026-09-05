@@ -586,6 +586,7 @@ questions, defaults, requires_missing}`. Question ids double as answer keys.
 |---|---|---|---|
 | `profile` | `choice` | declared `profiles` levels, else `low`, `medium`, `max` | session profile if offered, else `medium`, else the first |
 | `tuning.<group>` | `choice` | `default` ("Keep default (<harness / model / effort>)") plus each `options[].id`; `locked: true` when the group is locked | `default` |
+| `harness.<group>` | `choice` | `default` ("Keep default (<harness>)") plus every other harness with an adapter and a subscription login; follows its `tuning.<group>`; absent for locked groups and when no other harness is ready | `default` |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `text` | | context value, else `default`, else empty when optional |
 
@@ -594,6 +595,11 @@ questions, the `profile` question when the session profile is known,
 and inputs filled positionally, then calls `wise_run {workflow, cwd,
 answers, context, inputs, profile?}`. Answers, inputs, context and the
 resolved caps are persisted in `state.json`, so resume never re-asks.
+
+A `harness.<group>` answer other than `default` runs the group's steps
+on that harness with `model: inherit` (the harness's own default; a
+Claude pin means nothing to codex) and the group's effort. Steps that
+pin `harness:` themselves (and the `skill:` sugar) are unaffected.
 
 `context` is what the children may not refetch from the transcript:
 `ticket[] {ref, title?, body?, url?}`, `guidance`, `decisions
@@ -626,8 +632,8 @@ resumed `running` step goes back to `pending` and keeps its cursor.
 | Type | When |
 |---|---|
 | `run.started` | Verdict `<name> profile=<p> control=<mode> steps=<enabled>/<total>`. |
-| `step.started` | Carries harness, model, effort for agent steps. |
-| `step.progress` | Live child status `turn N, tool X, Nk tokens`, throttled to one per 30 s, and child `wise_report` lines (`kind` progress \| blocker \| decision \| finding). |
+| `step.started` | Carries harness, model, effort for agent steps; `message` is the step's `description` when it has one. |
+| `step.progress` | Live child status `turn N, tool X <target>, Nk tokens, <elapsed>: <latest assistant text>`, emitted when the tool changes, when its target changes (at most one per 5 s), else one per 30 s; and child `wise_report` lines (`kind` progress \| blocker \| decision \| finding). |
 | `step.done` | Verdict plus clipped primitive outputs. |
 | `unit.phase`, `unit.done` | `units` steps: phase start with harness and model; unit verdict and reason. |
 | `usage` | Tokens folded into `state.usage` per pool, harness and step. |

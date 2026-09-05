@@ -58,7 +58,10 @@ per call at most): `choice` single-select with the default option
 first, `multi` multiSelect with defaults listed first, `text` free text
 with the default offered. Skip `locked: true` questions, `profile` when
 known, and `input.<name>` filled positionally. Key answers by
-question id.
+question id. Ask every remaining question, including each
+`harness.<group>` one (which CLI runs that group's steps: claude,
+codex, grok or gemini; only logged-in CLIs are offered); never answer
+one for the user or drop it to save a call.
 
 ## 3. Context and start
 
@@ -79,17 +82,31 @@ last `seq` seen (0 first). Never poll faster than the wait returns. If
 the host moves a wait to a background task, its notification is the
 wake-up: call again with the same `after`.
 
-One line per event, never raw step output:
+The user follows the run through these lines and nothing else, so
+print them for EVERY `wise_wait` return before calling the next wait;
+never fold several returns into one summary line and never skip
+`step.progress` events. One line per event, never raw step output:
 
 - `run.started`: the verdict.
-- `step.started`: `> <step> (<harness> <model> <effort>)`.
-- `step.progress`: `  <step>: <message>`.
+- `step.started`: `> <step> (<harness> <model> <effort>): <message>`;
+  `message` is the step's description, print it when present.
+- `step.progress` without `kind`: `  <step>: <message>`; the message
+  is `turn N, tool <Tool> <target>, <tokens>, <elapsed>: <what the
+  child last said>`. Print it as is.
+- `step.progress` with `kind` (a child `wise_report`):
+  `  <step> <kind>: <message>`.
 - `step.done`: `ok <step>: <verdict>`.
 - `warn`: `warn <step>: <message>`.
 - `usage`: print nothing; add to running totals (input, output,
   cache_read, cache_write, cost_usd).
 - `unit.phase` / `unit.done`: `<unit> <phase>` / `<unit>: <verdict>`.
 - `gate.opened` / `gate.answered`: `gate <step> opened` / `answered`.
+- A wait that returns no events (timeout): one line
+  `  waiting: <running steps> (<time since their step.started>)`.
+
+When you act on the run yourself (a nudge, fetching something a step
+lost, a second run), say what you are doing and why in one line before
+the tool call, and what came back after it.
 
 `gate` present: AskUserQuestion with `gate.message` and `gate.options`
 (free text when `allow_text`), then `wise_answer {run_id, gate_id,

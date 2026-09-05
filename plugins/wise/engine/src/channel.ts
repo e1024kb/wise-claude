@@ -46,11 +46,59 @@ function usageTokens(u: unknown): number {
   return total;
 }
 
-function toolUses(message: unknown): string[] {
-  if (!isRec(message) || !Array.isArray(message.content)) return [];
-  return message.content
-    .filter((b): b is Rec => isRec(b) && b.type === "tool_use")
-    .map((b) => (typeof b.name === "string" ? b.name : "?"));
+const DETAIL_MAX = 80;
+const TEXT_MAX = 100;
+
+/** Input keys that say what a tool touched, in preference order (Claude Code tool shapes). */
+const DETAIL_KEYS = [
+  "file_path",
+  "path",
+  "notebook_path",
+  "command",
+  "pattern",
+  "query",
+  "url",
+  "skill",
+  "description",
+  "prompt",
+];
+
+function firstLine(text: string, max: number): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+/** `{name, detail?}` of the last `tool_use` block, `detail` = the most telling input value. */
+function lastToolUse(message: unknown): { name: string; detail?: string } | undefined {
+  if (!isRec(message) || !Array.isArray(message.content)) return undefined;
+  const uses = message.content.filter((b): b is Rec => isRec(b) && b.type === "tool_use");
+  const last = uses[uses.length - 1];
+  if (!last) return undefined;
+  const out: { name: string; detail?: string } = {
+    name: typeof last.name === "string" ? last.name : "?",
+  };
+  if (isRec(last.input)) {
+    for (const key of DETAIL_KEYS) {
+      const v = last.input[key];
+      if (typeof v === "string" && v.trim()) {
+        out.detail = firstLine(v, DETAIL_MAX);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Headline of the last `text` block of an assistant message, or `undefined`. */
+function lastText(message: unknown): string | undefined {
+  if (!isRec(message) || !Array.isArray(message.content)) return undefined;
+  const texts = message.content.filter(
+    (b): b is Rec => isRec(b) && b.type === "text" && typeof b.text === "string",
+  );
+  const last = texts[texts.length - 1];
+  if (!last) return undefined;
+  const line = firstLine(last.text as string, TEXT_MAX);
+  return line || undefined;
 }
 
 export type ChildTracker = {
@@ -64,20 +112,34 @@ export type ChildTracker = {
   lastActivityMs: () => number;
 };
 
-export type TrackerOpts = { step: string; throttleMs?: number; now?: () => number };
+export type TrackerOpts = {
+  step: string;
+  throttleMs?: number;
+  /** Minimum gap between two emits triggered by a detail (not tool) change; default 5 000. */
+  detailGapMs?: number;
+  now?: () => number;
+};
+
+export const DETAIL_GAP_MS = 5_000;
 
 /**
- * Derives turn count, last tool, tokens so far and last activity from the raw stream. Emits at most
- * one progress snapshot per `throttleMs` per step, or at once when the tool name changes.
+ * Derives turn count, last tool and what it touched, latest assistant text, tokens so far and
+ * last activity from the raw stream. Emits a progress snapshot at once when the tool name
+ * changes, when the tool's target changes (at most one per `detailGapMs`), and otherwise at most
+ * once per `throttleMs` per step.
  */
 export function createChildTracker(opts: TrackerOpts): ChildTracker {
   const now = opts.now ?? (() => Date.now());
   const throttleMs = opts.throttleMs ?? PROGRESS_THROTTLE_MS;
+  const detailGapMs = opts.detailGapMs ?? DETAIL_GAP_MS;
   let turn = 0;
   let tool: string | undefined;
+  let detail: string | undefined;
+  let text: string | undefined;
   let tokens = 0;
   let reports = 0;
-  let lastActivity = now();
+  const started = now();
+  let lastActivity = started;
   let lastEmit = lastActivity;
 
   const snapshot = (): ChildProgress => {
@@ -87,8 +149,11 @@ export function createChildTracker(opts: TrackerOpts): ChildTracker {
       tokens,
       last_activity: new Date(lastActivity).toISOString(),
       reports,
+      elapsed_ms: lastActivity - started,
     };
     if (tool !== undefined) snap.tool = tool;
+    if (detail !== undefined) snap.detail = detail;
+    if (text !== undefined) snap.text = text;
     return snap;
   };
 
@@ -97,11 +162,17 @@ export function createChildTracker(opts: TrackerOpts): ChildTracker {
       lastActivity = now();
       const parsed = e.parsed;
       if (!isRec(parsed)) return undefined;
-      const before = tool;
+      const beforeTool = tool;
+      const beforeDetail = detail;
       if (parsed.type === "assistant") {
         turn += 1;
-        const uses = toolUses(parsed.message);
-        if (uses.length > 0) tool = uses[uses.length - 1];
+        const use = lastToolUse(parsed.message);
+        if (use) {
+          tool = use.name;
+          detail = use.detail;
+        }
+        const t = lastText(parsed.message);
+        if (t !== undefined) text = t;
         if (isRec(parsed.message)) tokens += usageTokens(parsed.message.usage);
       } else if (parsed.type === "result") {
         // Cumulative totals from the harness win over the per-turn sum.
@@ -109,8 +180,10 @@ export function createChildTracker(opts: TrackerOpts): ChildTracker {
       } else if (parsed.usage !== undefined) {
         tokens += usageTokens(parsed.usage);
       }
-      const changed = tool !== before;
-      if (!changed && lastActivity - lastEmit < throttleMs) return undefined;
+      const since = lastActivity - lastEmit;
+      const toolChanged = tool !== beforeTool;
+      const detailChanged = !toolChanged && detail !== beforeDetail && since >= detailGapMs;
+      if (!toolChanged && !detailChanged && since < throttleMs) return undefined;
       lastEmit = lastActivity;
       return snapshot();
     },
@@ -130,13 +203,26 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 }
 
-/** One-line rendering for the `step.progress` event: `turn 14, tool Edit, 48k tokens`. */
+function fmtElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
+}
+
+/**
+ * One-line rendering for the `step.progress` event:
+ * `turn 14, tool Edit src/x.ts, 48k tokens, 1 report, 2m10s: <latest assistant text>`.
+ */
 export function progressLine(p: ChildProgress): string {
   const parts = [`turn ${p.turn}`];
-  if (p.tool !== undefined) parts.push(`tool ${p.tool}`);
+  if (p.tool !== undefined) parts.push(`tool ${p.tool}${p.detail ? ` ${p.detail}` : ""}`);
   parts.push(`${fmtTokens(p.tokens)} tokens`);
   if (p.reports > 0) parts.push(`${p.reports} report${p.reports === 1 ? "" : "s"}`);
-  return parts.join(", ");
+  if (p.elapsed_ms !== undefined) parts.push(fmtElapsed(p.elapsed_ms));
+  const line = parts.join(", ");
+  return p.text ? `${line}: ${p.text}` : line;
 }
 
 // ---- stale watchdog ------------------------------------------------------------------------------------
