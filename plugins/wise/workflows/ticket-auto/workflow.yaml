@@ -184,7 +184,8 @@ steps:
     # Copilot is attached with `gh pr edit --add-reviewer`; the watch
     # pass triggers CodeRabbit by comment when the repo has it.
     reviewers: [copilot-pull-request-reviewer]
-    # E8: the fixer resumes the reviewer's session inside a review cycle.
+    # E8: the fixer resumes the reviewer's session inside a review cycle
+    # (same harness only; a different CLI starts the fixer clean).
     resume: unit
     when: "access == 'ok'"
     depends_on: [ensure-access]

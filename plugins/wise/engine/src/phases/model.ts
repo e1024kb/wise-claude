@@ -523,11 +523,24 @@ export const fixPhase: PhaseRunner = async (ctx): Promise<PhaseResult> => {
           : "bot review comments",
     instructions: FIX_INSTRUCTIONS[req.source],
   };
+  // A session cursor belongs to the harness that minted it: `grok --resume <codex id>` dies on a
+  // remote 404. When the review and fix groups resolve to different CLIs, start the fixer clean.
+  let cursor = req.cursor;
+  if (cursor !== undefined && req.source === "review") {
+    const reviewer = resolvedFor(ctx, "review").harness;
+    const fixer = resolvedFor(ctx, "fix").harness;
+    if (reviewer !== fixer) {
+      ctx.log(
+        `fix: fresh session (review ran on ${reviewer}, fix on ${fixer}; a session cannot cross harnesses)`,
+      );
+      cursor = undefined;
+    }
+  }
   const run = await runChild(
     ctx,
     "fix",
     renderPhasePrompt(ctx.config.pipeline, "fix", vars),
-    req.cursor,
+    cursor,
   );
   const failed = childFailure(ctx, "fix", run);
   if (failed) return failed;

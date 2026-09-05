@@ -284,7 +284,7 @@ Common fields (`StepBase` and `StepOverrides`):
 | `auth` | agent, units | `subscription` (default) \| `api-key`. |
 | `fallback` | agent, units | Harness list, overrides the group's. |
 | `mode` | agent, units | `approval-required` \| `auto` (default) \| `full-access`. |
-| `resume` | agent, units | `fresh` (default) \| `unit`. `unit` resumes the previous attempt's session cursor. |
+| `resume` | agent, units | `fresh` (default) \| `unit`. `unit` resumes the previous attempt's session cursor. A cursor never crosses harnesses: a `units` fixer whose group resolves to a different CLI than the reviewer's starts clean (logged as `fix: fresh session`). |
 | `max_turns` | agent, units | Passed to Claude and grok `--max-turns`. |
 | `timeout` | agent, bash, units | Seconds. Default 1800 for agent and bash; per-phase defaults for units. |
 | `stale_after` | agent, units | Idle seconds before the stale policy acts. Default 600. |
@@ -396,7 +396,7 @@ pipelines](#unit-pipelines).
 | `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. |
 | `reviewers` | GitHub logins for `gh pr edit --add-reviewer`. |
 | `parallel` | Positive int. Git operations are serialised per step. |
-| `resume` | `unit` reuses cursors inside a review / fix cycle; `fresh` (default) starts each child clean. |
+| `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (a different CLI cannot resume the session, so the fixer starts clean); `fresh` (default) starts each child clean. |
 
 Outputs: `{units: UnitRow[]}` (`{{units}}` renders the rows as JSON).
 Verdict: `units=N merged=N open=N failed=N skipped=N`.

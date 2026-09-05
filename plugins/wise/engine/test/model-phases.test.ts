@@ -1,7 +1,15 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { PLUGIN_ROOT } from "../src/version.ts";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -358,6 +366,32 @@ describe("model phases", () => {
     const wt = join(f.runDir, "worktrees", "PROJ-1");
     assert.equal(existsSync(wt), false, "merged worktree removed");
     assert.match(git(f.pair.clone, ["log", "--oneline", "origin/PROJ-1"]), /fix: finding 1/);
+  });
+
+  test("`resume: unit` across harnesses: the fixer starts clean when review ran on another CLI", async () => {
+    const f = fixture();
+    f.state.resolved["process.review"] = {
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      effort: "medium",
+    };
+    f.state.resolved["process.fix"] = { harness: "grok", model: "grok-4.6", effort: "high" };
+    const s = scriptedStarter({
+      plan: planReady,
+      implement: implementCommit,
+      review: reviewOnce,
+      fix: fixCommit,
+      watch: watchGreen,
+    });
+    const res = await runUnitsStep(withAgent(f, s.starter, { step: { ...STEP, resume: "unit" } }));
+    assert.equal(res.outputs.units[0]?.verdict, "merged");
+    const fix = s.ofPhase("fix")[0];
+    assert.equal(fix?.req.resume, undefined, "a codex cursor never reaches grok --resume");
+    assert.match(
+      readFileSync(res.log, "utf8"),
+      /fix: fresh session \(review ran on codex, fix on grok/,
+      "the fresh start is logged with both harnesses",
+    );
   });
 
   test("default `resume: fresh`: the fixer gets no cursor", async () => {
