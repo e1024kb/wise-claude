@@ -64,10 +64,12 @@ returned twice.
 Render each batch with one composite AskUserQuestion (four questions
 per call at most): `choice` single-select with the default option
 first, `multi` multiSelect with defaults listed first, `text` free text
-with the default offered. A `choice` with more than four options does
-not fit AskUserQuestion: print it as a numbered list (`1. Fable 5.1 -
-latest Fable`, default marked) and take the number or the value as the
-answer. Skip `locked: true` questions and `input.<name>` filled
+with the default offered. Every question goes through the picker, never
+a printed list. A `choice` with more than four options: the first four
+(default first) are the picker's options, the rest are named in the
+question text (`Other: <label> (<value>), ...`) and reach you through
+the picker's Other field as a label or value; map that text back to the
+option's value. Skip `locked: true` questions and `input.<name>` filled
 positionally. Key answers by question id. Ask every question returned;
 never answer one for the user or drop it to save a call.
 

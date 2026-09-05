@@ -591,8 +591,9 @@ The catalog (2026-09-05): claude `claude-fable-5-1`, `claude-opus-5`,
 `gpt-5.6-luna`, `gpt-5.5` (low, medium, high); grok `grok-4.6`; gemini
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-The conductor renders the questions with `AskUserQuestion` (a question
-with more than four options goes out as a numbered list), skips
+The conductor renders every question with `AskUserQuestion` (a choice
+with more than four options shows the first four and names the rest in
+the question text, answered through the Other field), skips
 `locked: true` questions and inputs filled positionally, then calls
 `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run`
 completes the answers itself (defaults for every stage still open), so
