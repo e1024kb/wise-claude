@@ -1,8 +1,18 @@
 // wise-engine CLI: definition commands (M1.8), daemon client commands, and the two stdio MCP
 // servers (`mcp` for the harness, `unit-mcp` for a child).
-import { existsSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { defaultRoots, listDefs, loadDef, locateDef, validateDef } from "./defs.ts";
+import { migrateDef, renderDef } from "./migrate.ts";
+import type { MigrationNote } from "./migrate.ts";
 import { buildQuestionary } from "./preflight.ts";
 import { PROFILE_LEVELS } from "./types.ts";
 import type { Context, LocatedDef, ProfileLevel, ValidationIssue } from "./types.ts";
@@ -18,7 +28,10 @@ Commands:
   preflight <workflow> [--profile low|medium|max] [--context <json>]
                               questionary spec: {workflow, version, questions, defaults}
   compile-check <workflow>...  validate definitions; exit 1 on any error
-  migrate <workflow.yaml>      dry run: list v1 constructs with their v2 replacement
+  migrate <workflow.yaml> [--write] [--out <path>]
+                               rewrite a v1 workflow as v2; dry run unless --write (in place,
+                               original kept as <file>.v1.bak) or --out; exit 1 if the result
+                               still has validation errors
   list-defs                    bundled and user workflow definitions
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v]
                  [--profile low|medium|max] [--follow]
@@ -203,6 +216,11 @@ function cmdCompileCheck(p: Parsed, io: Io): number {
   return failed ? 1 : 0;
 }
 
+/**
+ * `migrate <file> [--write] [--out <path>]`: rewrite a v1 workflow as v2 (M6.4). Dry run by
+ * default; `--write` replaces the file after copying it to `<file>.v1.bak`, `--out` writes
+ * elsewhere. Exit 0 when the result validates without errors, 1 when it does not.
+ */
 function cmdMigrate(p: Parsed, io: Io): number {
   const ref = p.positional[0];
   if (!ref) {
@@ -214,28 +232,69 @@ function cmdMigrate(p: Parsed, io: Io): number {
     io.err(`migrate: workflow not found: ${ref}\n`);
     return 2;
   }
-  const { def, issues } = validateDef(loadDef(located.path), located.path);
-  const hints = issues.filter((i) => i.hint);
+  const source = readFileSync(located.path, "utf8");
+  const raw: unknown = parseYaml(source) ?? {};
+  const alreadyV2 =
+    typeof raw === "object" && raw !== null && (raw as { version?: unknown }).version === 2;
+  const { def, notes } = migrateDef(raw, located.path);
+  const yaml = renderDef(def);
+  const { def: valid, issues } = validateDef(def, located.path);
+  const write = p.flags.write === true;
+  const outFlag = str(p.flags.out);
+  const written: string[] = [];
+  let backup: string | null = null;
+  if (!alreadyV2) {
+    if (/^\s*#/m.test(source)) {
+      notes.push({
+        path: "",
+        kind: "manual",
+        message: "comments in the source file are not carried over; copy the ones that still apply",
+      });
+    }
+    if (write) {
+      backup = `${located.path}.v1.bak`;
+      if (existsSync(backup)) {
+        notes.push({ path: "", kind: "warning", message: `kept the existing backup ${backup}` });
+      } else copyFileSync(located.path, backup);
+      writeFileSync(located.path, yaml);
+      written.push(located.path);
+    }
+    if (outFlag !== undefined) {
+      const outPath = resolve(outFlag);
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, yaml);
+      written.push(outPath);
+    }
+  }
+  const errors = issues.filter((i) => i.level === "error");
   const result = {
     workflow: located.name,
     path: located.path,
-    already_v2: Boolean(def) && hints.length === 0,
-    dry_run: true,
-    changes: hints.map((i) => ({ path: i.path, from: i.message, to: i.hint })),
-    blocking: issues.filter((i) => i.level === "error" && !i.hint),
+    already_v2: alreadyV2,
+    dry_run: written.length === 0,
+    ok: Boolean(valid),
+    written,
+    backup,
+    notes,
+    issues,
+    yaml,
   };
-  emit(io, p, result, () =>
-    result.already_v2
-      ? `${located.path}: already v2, nothing to migrate`
-      : [
-          `${located.path}: ${result.changes.length} change(s) (dry run, nothing written)`,
-          ...result.changes.map((c) => `  ${c.path}: ${c.from}\n    -> ${c.to}`),
-          ...(result.blocking.length
-            ? ["  blocking (no automatic migration):", ...result.blocking.map(formatIssue)]
-            : []),
-        ].join("\n"),
-  );
-  return 0;
+  emit(io, p, result, () => {
+    if (alreadyV2) return `${located.path}: already v2, nothing to migrate`;
+    const count = (kind: MigrationNote["kind"]) => notes.filter((n) => n.kind === kind).length;
+    const where = written.length
+      ? `written to ${written.join(", ")}${backup ? ` (backup ${backup})` : ""}`
+      : "dry run, nothing written (use --write or --out)";
+    return [
+      `${located.path}: migrated to v2, ${count("rewritten")} rewritten, ${count("warning")} warning(s), ${count("manual")} manual; ${where}`,
+      ...notes.map((n) => `  ${n.kind.toUpperCase()} ${n.path}: ${n.message}`),
+      errors.length
+        ? `  result still has ${errors.length} validation error(s):`
+        : "  result validates with no errors",
+      ...errors.map(formatIssue),
+    ].join("\n");
+  });
+  return valid ? 0 : 1;
 }
 
 function cmdListDefs(p: Parsed, io: Io): number {

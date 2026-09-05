@@ -94,13 +94,13 @@ test("compile-check --text renders one line per issue", async () => {
   assert.match(r.out, /->/);
 });
 
-test("migrate is a dry run listing v1 -> v2 changes; v2 input reports already_v2", async () => {
-  const v1 = await run(["migrate", join(BUNDLED, "ticket-auto", "workflow.yaml")]);
+test("migrate is a dry run listing v1 -> v2 notes; v2 input reports already_v2", async () => {
+  const v1 = await run(["migrate", join(HERE, "fixtures", "migrate", "ticket-plan.v1.yaml")]);
   assert.equal(v1.code, 0, v1.err);
-  const j = JSON.parse(v1.out) as { dry_run: boolean; already_v2: boolean; changes: unknown[] };
+  const j = JSON.parse(v1.out) as { dry_run: boolean; already_v2: boolean; notes: unknown[] };
   assert.equal(j.dry_run, true);
   assert.equal(j.already_v2, false);
-  assert.ok(j.changes.length > 0);
+  assert.ok(j.notes.length > 0);
   const v2 = await run(["migrate", FIXTURE]);
   assert.equal((JSON.parse(v2.out) as { already_v2: boolean }).already_v2, true);
 });
