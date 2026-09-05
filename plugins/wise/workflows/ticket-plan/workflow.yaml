@@ -49,25 +49,39 @@ preflight:
   control-mode: interactive
   worktree: current
 
-# Model/effort tuning groups the pre-flight questionary offers (one
-# question per group). A step bound to a group via `group:` takes the
-# group's harness/model/effort as answered at pre-flight (harness, then
-# model from the engine's catalog, then effort); a step that pins `model:` itself is not tunable (the
-# mechanical sonnet steps below, where an override buys nothing).
+# Tuning groups the pre-flight questionary offers: one per model step, so
+# harness, model and effort are chosen step by step (harness, then model
+# from the engine's catalog, then effort). A step binds via `group:`; a
+# step that pins `model:` itself is not tunable (the mechanical sonnet
+# steps below, where an override buys nothing).
 # Model tiering (opus = the latest Opus, Opus 5): the plan-authoring
-# steps (gap-analysis, build-plan, refine-plan, implement) run on opus at
-# `effort: xhigh`, which Opus 5's policy ceiling resolves to `high` (see
-# docs/wise/workflows.md, Effort ceilings); the evidence steps
-# (analyze-design's design spec, research-context's grill Context
-# Dossier, codebase-audit) run on opus at `effort: high`; sonnet for
-# every other step.
+# steps (gap-analysis, build-plan, refine-plan, implement) default to
+# opus at `effort: xhigh`, which Opus 5's policy ceiling resolves to
+# `high` (see docs/wise/workflows.md, Effort ceilings); the evidence
+# steps (analyze-design, research-context, codebase-audit) default to
+# opus at `effort: high`; sonnet for every other step.
 tuning:
   groups:
-    - id: evidence
-      label: "Evidence & research (design spec, deep-dive sweep, codebase audit)"
+    - id: analyze-design
+      label: "Design spec"
       default: { harness: claude, model: opus, effort: high }
-    - id: authoring
-      label: "Plan authoring (gap analysis, build plan, refine, implement)"
+    - id: research-context
+      label: "Deep-dive sweep"
+      default: { harness: claude, model: opus, effort: high }
+    - id: codebase-audit
+      label: "Codebase audit"
+      default: { harness: claude, model: opus, effort: high }
+    - id: gap-analysis
+      label: "Gap analysis"
+      default: { harness: claude, model: opus, effort: xhigh }
+    - id: build-plan
+      label: "Build plan"
+      default: { harness: claude, model: opus, effort: xhigh }
+    - id: refine-plan
+      label: "Refine plan"
+      default: { harness: claude, model: opus, effort: xhigh }
+    - id: implement
+      label: "Implement"
       default: { harness: claude, model: opus, effort: xhigh }
 
 # All flow decisions are collected UP FRONT as inputs so the run can
@@ -253,7 +267,7 @@ steps:
 
   - id: analyze-design
     type: agent
-    group: evidence
+    group: analyze-design
     description: "Design analysis (Figma / design links)"
     prompt: |
       Act as the wise `ux-designer` role (see
@@ -311,7 +325,7 @@ steps:
 
   - id: research-context
     type: agent
-    group: evidence
+    group: research-context
     description: "Deep-dive context sweep (grill research)"
     prompt: |
       Read ${CLAUDE_PLUGIN_ROOT}/references/grill/research-sources.md
@@ -368,7 +382,7 @@ steps:
 
   - id: codebase-audit
     type: agent
-    group: evidence
+    group: codebase-audit
     prompt: |
       Act as the wise `software-engineer` role leading the audit and
       cover the `architect` lens too (structural / pattern-level reuse;
@@ -408,7 +422,7 @@ steps:
 
   - id: gap-analysis
     type: agent
-    group: authoring
+    group: gap-analysis
     description: "Gap analysis + blueprint + gap questions"
     prompt: |
       Act as the wise `architect` role (see
@@ -488,7 +502,7 @@ steps:
 
   - id: build-plan
     type: agent
-    group: authoring
+    group: build-plan
     prompt: |
       Act as the wise `architect` role leading a cross-functional
       planning pass and cover the `product-manager` (scope /
@@ -630,7 +644,7 @@ steps:
 
   - id: refine-plan
     type: agent
-    group: authoring
+    group: refine-plan
     # Both must hold: guarding on review_mode first avoids the unset-var
     # trap (an unset user_comments satisfies != '' on its own). The
     # accept option's text also counts as "no comments".
@@ -733,7 +747,7 @@ steps:
 
   - id: implement
     type: agent
-    group: authoring
+    group: implement
     # Implementation commits need unattended git access.
     mode: full-access
     when: "implement_choice == 'yes'"

@@ -137,14 +137,15 @@ All configuration happens at pre-flight, before the DAG launches. The
 engine builds the questionary from the definition's `tuning:` /
 `step-select:` / `inputs:` blocks and the conductor asks it in stages:
 
-- **Tuning** - per group, **evidence** (design spec, deep-dive sweep,
-  codebase audit; default `claude-opus-5 / high`) and **authoring**
-  (gap analysis, build plan, refine, implement; default `claude-opus-5
-  / high`): which CLI runs it (asked only when another CLI is logged
-  in), then which model from the engine's catalog for that CLI, then
-  the effort that model takes. The answers bind every step in the
-  group at dispatch; the sonnet steps pin their model and are not
-  tunable.
+- **Tuning** - one group per model step: design spec
+  (`analyze-design`), deep-dive sweep (`research-context`), codebase
+  audit (`codebase-audit`), gap analysis, build plan, refine plan,
+  implement. Per group: which CLI runs it (asked only when another CLI
+  is logged in), then which model from the engine's catalog for that
+  CLI, then the effort that model takes. Defaults: `claude-opus-5 /
+  high` for all seven (the authoring four declare `xhigh`, which Opus
+  5's ceiling resolves to `high`). The sonnet steps pin their model
+  and are not tunable.
 - **Stage selection** - one multi-select over the optional research
   stages: design analysis, related tickets & docs, deep-dive sweep,
   gap analysis (the `resolve-gaps` question follows gap analysis on
@@ -195,13 +196,13 @@ teams): `analyze-design` acts as `ux-designer`, `codebase-audit` as
 `build-plan` / `refine-plan` as `architect` (build-plan also covers
 the product-manager / software-engineer / qa-engineer lenses).
 
-**Model tiering** (`opus` = the latest Opus, Opus 5) comes from the two
-tuning groups: `authoring` (gap-analysis, build-plan, refine-plan,
-implement) defaults to `opus / xhigh`, which Opus 5's policy ceiling
-resolves to `high` (see
+**Model tiering** (`opus` = the latest Opus, Opus 5) comes from the
+seven per-step tuning groups: `gap-analysis`, `build-plan`,
+`refine-plan` and `implement` default to `opus / xhigh`, which Opus 5's
+policy ceiling resolves to `high` (see
 [Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings));
-`evidence` (analyze-design, research-context, codebase-audit) defaults
-to `opus / high`; every other step pins `sonnet`. The pre-flight
+`analyze-design`, `research-context` and `codebase-audit` default to
+`opus / high`; every other step pins `sonnet`. The pre-flight
 answers override the group defaults at dispatch. See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 

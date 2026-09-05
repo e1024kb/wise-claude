@@ -20,10 +20,18 @@ async function run(argv: string[]): Promise<{ code: number; out: string; err: st
 
 test("preflight on a v2 file emits the P1 questionary shape", async () => {
   // Harness answers settle the first stage whatever CLIs this machine has logged in.
+  const groups = [
+    "analyze-design",
+    "research-context",
+    "codebase-audit",
+    "gap-analysis",
+    "build-plan",
+    "refine-plan",
+    "implement",
+  ];
   const answers = {
-    "harness.evidence": "claude",
-    "harness.authoring": "claude",
-    "model.evidence": "claude-sonnet-5",
+    ...Object.fromEntries(groups.map((g) => [`harness.${g}`, "claude"])),
+    "model.analyze-design": "claude-sonnet-5",
   };
   const r = await run(["preflight", FIXTURE, "--answers", JSON.stringify(answers)]);
   assert.equal(r.code, 0, r.err);
@@ -47,10 +55,10 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
   // The answered model unlocks its effort stage; the other group is still at its model stage.
   assert.deepEqual(
     j.questions.slice(0, 2).map((q) => q.id),
-    ["effort.evidence", "model.authoring"],
+    ["effort.analyze-design", "model.research-context"],
   );
-  assert.equal(j.defaults["effort.evidence"], "medium");
-  assert.equal(j.defaults["model.authoring"], "claude-opus-5");
+  assert.equal(j.defaults["effort.analyze-design"], "medium");
+  assert.equal(j.defaults["model.research-context"], "claude-opus-5");
 });
 
 test("preflight --context pre-fills inputs from ticket refs", async () => {
