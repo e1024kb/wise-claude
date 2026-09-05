@@ -837,3 +837,14 @@ test("every bundled v1 workflow fails validation with at least one migration hin
   assert.match(hintsOf("ticket-auto"), /steps\[5\]\.type: use `type: units`/);
   assert.match(hintsOf("impl-plan-auto"), /preflight\.rename_session: drop it/);
 });
+
+test("allowed_tools: list of non-empty strings, rejected otherwise", () => {
+  const base = {
+    name: "at",
+    version: 2,
+    steps: [{ id: "a", type: "agent", prompt: "x", allowed_tools: ["Bash(git:*)"] }],
+  };
+  assert.equal(validateDef(base, "t.yaml").issues.filter((i) => i.level === "error").length, 0);
+  const bad = { ...base, steps: [{ ...base.steps[0], allowed_tools: ["", 3] }] };
+  assert.ok(validateDef(bad, "t.yaml").issues.some((i) => i.path.endsWith("allowed_tools")));
+});

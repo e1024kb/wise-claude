@@ -186,6 +186,7 @@ steps:
       required: [tracker_slug, ticket_ref, current_branch]
       additionalProperties: false
     outputs: [tracker_slug, ticket_ref, current_branch]
+    allowed_tools: ["Bash(git:*)", "Bash(command:*)", "Bash(ls:*)", "Bash(cat:*)"]
     depends_on: []
 
   - id: ensure-access
@@ -223,6 +224,7 @@ steps:
       required: [access]
       additionalProperties: false
     outputs: [access]
+    allowed_tools: ["Bash(command:*)", "WebSearch"]
     depends_on: [detect-context]
 
   - id: fetch-ticket
@@ -276,6 +278,7 @@ steps:
       required: [ticket_path, ticket_type]
       additionalProperties: false
     outputs: [ticket_path, ticket_type]
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)"]
     depends_on: [ensure-access]
 
   - id: analyze-design
@@ -307,6 +310,7 @@ steps:
       If the ticket type is `backend` (it is `{{ticket_type}}`), or
       there are no design links, write nothing and reply with exactly
       `NO-DESIGN`.
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)"]
     depends_on: [fetch-ticket]
 
   - id: analyze-related
@@ -332,6 +336,7 @@ steps:
 
       If nothing could be fetched, write nothing and reply with exactly
       `NO-RELATED`.
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)"]
     depends_on: [fetch-ticket]
 
   - id: research-context
@@ -388,6 +393,7 @@ steps:
       required: [dossier_path, lexicon, sources_unavailable]
       additionalProperties: false
     outputs: [dossier_path]
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(wc:*)", "WebSearch", "WebFetch"]
     depends_on: [fetch-ticket]
 
   - id: codebase-audit
@@ -427,6 +433,7 @@ steps:
 
       Reply with a one-line verdict: the path written and the number
       of reusable assets found.
+    allowed_tools: ["Bash(git:*)", "Bash(ls:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
     depends_on: [fetch-ticket]
 
   - id: gap-analysis
@@ -479,6 +486,7 @@ steps:
       required: [readiness, open_questions]
       additionalProperties: false
     outputs: [readiness, open_questions]
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)"]
     depends_on:
       - analyze-design
       - analyze-related
@@ -602,6 +610,7 @@ steps:
     # The evidence steps are direct deps (not just transitive through
     # gap-analysis) so the plan still waits on, and consolidates,
     # whatever evidence ran when the gap stage was deselected.
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)"]
     depends_on:
       - analyze-design
       - analyze-related
@@ -631,6 +640,7 @@ steps:
       to adjust the plan in the next step or accept it as-is; if it is
       `auto`, note the plan is accepted as presented and can be
       adjusted later by editing the file or re-running.
+    allowed_tools: ["Bash(cat:*)"]
     depends_on: [build-plan]
 
   - id: review-comments
@@ -671,6 +681,7 @@ steps:
       `{{plan_path}}` with the revised plan: same section structure,
       same heading. Then give the user a 2-4 line summary of what
       changed. One revision pass only.
+    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)"]
     depends_on: [review-comments]
 
   - id: setup
@@ -822,5 +833,6 @@ steps:
 
       Suggest `/rename {{ticket_ref}}_ticket-plan` as a command the
       user can run to label this session for /resume's picker.
+    allowed_tools: ["Bash(git:*)"]
     depends_on: [setup, implement]
     trigger-rule: all-done

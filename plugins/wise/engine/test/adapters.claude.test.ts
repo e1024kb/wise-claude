@@ -649,3 +649,16 @@ test("buildArgv: add_dirs become --add-dir pairs after the permission mode", () 
   assert.deepEqual(argv.slice(i, i + 4), ["--add-dir", "/tmp/run-a", "--add-dir", "/tmp/run-b"]);
   assert.equal(buildArgv(BASE_REQ).includes("--add-dir"), false);
 });
+
+test("buildArgv: engine MCP server and step rules are pre-granted via --allowedTools", () => {
+  const req = {
+    ...BASE_REQ,
+    mcp_config: { mcpServers: { "wise-engine": { command: "bash" } } },
+    allowed_tools: ["Bash(git:*)", "Bash(mkdir:*)"],
+  };
+  const argv = buildArgv(req);
+  const i = argv.indexOf("--allowedTools");
+  assert.ok(i > 0);
+  assert.equal(argv[i + 1], "mcp__wise-engine,Bash(git:*),Bash(mkdir:*)");
+  assert.equal(buildArgv(BASE_REQ).includes("--allowedTools"), false);
+});

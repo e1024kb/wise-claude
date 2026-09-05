@@ -111,6 +111,7 @@ export function buildRunReq(input: AgentStepInput): RunReq {
     step_token: input.stepToken,
     add_dirs: [input.runDir],
   };
+  if (step.allowed_tools !== undefined) req.allowed_tools = step.allowed_tools;
   if (resolved.effort !== "" && effortFor(resolved.harness, resolved.effort) !== undefined) {
     req.effort = resolved.effort as Effort;
   }

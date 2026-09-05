@@ -55,6 +55,13 @@ export function buildArgv(req: RunReq): string[] {
   if (typeof req.resume === "string" && req.resume.length > 0) argv.push("--resume", req.resume);
   argv.push("--permission-mode", MODE_MAP[req.mode]);
   for (const dir of req.add_dirs ?? []) argv.push("--add-dir", dir);
+  // Headless children cannot answer permission prompts: pre-grant the engine's own MCP server
+  // and whatever the step declared.
+  const allowed = [
+    ...Object.keys(req.mcp_config?.mcpServers ?? {}).map((name) => `mcp__${name}`),
+    ...(req.allowed_tools ?? []),
+  ];
+  if (allowed.length > 0) argv.push("--allowedTools", allowed.join(","));
   argv.push(
     "--strict-mcp-config",
     "--mcp-config",

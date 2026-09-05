@@ -243,6 +243,8 @@ export type StepOverrides = {
   timeout?: number;
   /** Idle seconds before the stale policy acts (nudge, then kill); default 600. */
   stale_after?: number;
+  /** Harness permission rules granted to the child (Claude `--allowedTools`, e.g. `Bash(git:*)`). */
+  allowed_tools?: string[];
 };
 
 export type StepBase = StepOverrides & {
@@ -433,6 +435,8 @@ export type RunReq = {
   mcp_config?: { mcpServers: Record<string, unknown> };
   /** Extra directories the child may read and write (Claude `--add-dir`); the run dir always. */
   add_dirs?: string[];
+  /** Permission rules pre-granted to the child; the engine MCP server is always added. */
+  allowed_tools?: string[];
   /** Per-step token the child channel (P8) presents back to the daemon. */
   step_token?: string;
 };

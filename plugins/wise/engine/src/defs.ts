@@ -641,6 +641,7 @@ const STEP_BASE_KEYS = [
   "max_turns",
   "timeout",
   "stale_after",
+  "allowed_tools",
 ] as const;
 const STEP_KEYS: Record<StepType, readonly string[]> = {
   agent: [...STEP_BASE_KEYS, "prompt", "skill", "schema", "outputs", "until"],
@@ -779,6 +780,12 @@ function validateStepBase(
     if (typeof step.stale_after === "number" && step.stale_after > 0) {
       base.stale_after = step.stale_after;
     } else iss.error(`${p}.stale_after`, "stale_after must be a positive number of seconds");
+  }
+  if (step.allowed_tools !== undefined) {
+    const list = step.allowed_tools;
+    if (Array.isArray(list) && list.every((v) => typeof v === "string" && v.trim())) {
+      base.allowed_tools = list as string[];
+    } else iss.error(`${p}.allowed_tools`, "allowed_tools must be a list of non-empty strings");
   }
   return base;
 }
