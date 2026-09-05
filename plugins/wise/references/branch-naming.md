@@ -2,8 +2,10 @@
 
 Single source of truth for naming the git branch a piece of ticket work lives
 on. Read by every workflow / skill that creates, switches to, or suggests a
-ticket-scoped branch — `ticket-plan`, `ticket-auto` (`process-tickets.md`), and
-the PR helpers' protected-branch suggestions.
+ticket-scoped branch - `ticket-plan`, the engine's unit pipelines behind
+`ticket-auto` / `impl-plan-auto` (`engine/src/phases/common.ts`,
+`ticketBranch` / `planBranch`), and the PR helpers' protected-branch
+suggestions.
 
 ## The rule
 

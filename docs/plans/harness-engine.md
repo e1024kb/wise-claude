@@ -124,7 +124,7 @@ Gate M5: cross-harness run succeeds.
 |---|---|---|---|---|---|
 | M6.1 | Usage accounting: per step, phase, pool, harness in the ledger; api-key runs priced via LiteLLM table; `/wise-report` and the workflow `report` step show totals | 2 | M4.5 | Report shows tokens by pool and harness for a real run | IN PROGRESS |
 | M6.2 | Profile rule: `low` refuses `auth: api-key` steps unless `allow-api: true`; per-run token ceiling from `caps.tokens` parks the run at a gate | 1 | M2.3 | Tests; live check with a tiny ceiling | IN PROGRESS |
-| M6.3 | Docs sync: `docs/wise/workflows.md` v2 schema, harness field, gate protocol, effort mapping; `skills-authoring.md`; workflow READMEs; `AGENTS.md`; validator runs `compile-check` on every bundled workflow | 3 | M4.4 | `validate_repo.py` green with the new gate | IN PROGRESS |
+| M6.3 | Docs sync: `docs/wise/workflows.md` v2 schema, harness field, gate protocol, effort mapping; `skills-authoring.md`; workflow READMEs; `AGENTS.md`; validator runs `compile-check` on every bundled workflow | 3 | M4.4 | `validate_repo.py` green with the new gate | DONE |
 | M6.4 | `wise-engine migrate` for user-authored v1 workflows: `prompt` → `agent`, plain-enum `until` → `schema`, warnings otherwise | 2 | M1.2 | Round-trips the three bundled v1 files to the hand-migrated v2 result | DONE |
 | M6.5 | Release v5.0.0: `plugin.json` bump, changelog, prose-conductor fallback behind a flag for one release, removal ticket filed | 1 | M6.1-M6.4 | Tag pushed; marketplace pin updated | TODO |
 

@@ -1,17 +1,17 @@
 <!-- Keep this catalog in sync with agents/*.md. One row per file; the
-     "When auto picks it" cell mirrors each role's frontmatter `description`
-     for human reference. The conductor's `agent: auto` routing matches the
-     step intent against the frontmatter `description` (read via
-     `workflows.py list-agents`), NOT this table. -->
+     "When to pick it" cell mirrors each role's frontmatter `description`
+     for human reference. Claude picks a subagent by that frontmatter
+     `description`, NOT by this table. -->
 
 # wise agent roster
 
 `wise` ships a roster of **SDLC role subagents** under
 [`agents/`](agents/). Each file is a real Claude Code plugin subagent —
 once the plugin is installed they appear in `/agents` and are invocable
-as `subagent_type: wise:<name>` (e.g. `wise:architect`). They give the
-workflow engine a library of reusable expert personas to dispatch
-`prompt` steps to, instead of the generic `general-purpose` worker.
+as `subagent_type: wise:<name>` (e.g. `wise:architect`). They give a
+Claude session, and every Claude child the workflow engine spawns, a
+library of reusable expert personas to delegate to instead of the
+generic `general-purpose` worker.
 
 These plugin-level roster agents are distinct from the **skill-local**
 agents that `wise-prd-architect`, `wise-trd-architect`, and
@@ -21,7 +21,7 @@ shared across every workflow.
 
 ## The roster
 
-| Agent (`wise:<id>`) | Role | Default effort | When `auto` picks it |
+| Agent (`wise:<id>`) | Role | Default effort | When to pick it |
 |---|---|---|---|
 | `wise:ceo` | Chief Executive — vision, prioritization, go/no-go | high | Business framing, cross-initiative prioritization, a go/no-go decision. |
 | `wise:cto` | Chief Technology Officer — tech strategy, arbiter | high | Build-vs-buy, tech-stack direction, technical-risk calls, cross-team architecture disputes. |
@@ -37,77 +37,58 @@ shared across every workflow.
 | `wise:technical-writer` | Tech Writer — docs, guides, references | low | READMEs, API docs, how-to guides, changelogs, doc comments. |
 | `wise:code-reviewer` | Code Reviewer — diff/branch review | high | Reviewing a diff or branch for correctness/security/quality before it ships. |
 
-`model` is `inherit` for every roster agent — they follow the session
-model (or a workflow step's `model:` override). `effort` is the agent's
-default reasoning level, set to match the role's cognitive load; a
-workflow step's `effort:` can nudge it per invocation.
+`model` is `inherit` for every roster agent - they follow the model of
+the session or harness child that spawns them. `effort` is the agent's
+default reasoning level, set to match the role's cognitive load.
 
 ## Using the roster in workflows
 
-A workflow `prompt` step binds to the roster via a scalar (one role) or a
-list (a team), see
-[`docs/wise/workflows.md`](../../docs/wise/workflows.md) for the full schema:
+The YAML v2 engine has no `agent:` step field: every `agent` step is one
+headless harness child (`claude -p`, `codex exec`, ...) that runs the
+step's `prompt`. A Claude child can delegate to a roster role with its
+own `Task` / `Agent` tool, so a workflow uses the roster through the
+prompt:
 
 ```yaml
-# workflow-level default — opt every prompt step into auto-selection
-agents: auto
-
 steps:
   - id: design
-    type: prompt
-    agent: architect          # force a specific role
-    effort: high
+    type: agent
+    group: authoring
     prompt: |
-      Design the …
+      Act as the wise `architect` agent (see
+      ${CLAUDE_PLUGIN_ROOT}/agents/architect.md). Design the ...
+      Return the fields directly: design_path.
+    schema:
+      type: object
+      properties: { design_path: { type: string } }
+      required: [design_path]
+      additionalProperties: false
+    outputs: [design_path]
+    allowed_tools: [Task, Agent]
 
-  - id: research
-    type: prompt
-    agent: auto               # let the conductor pick the best-fit role
+  - id: review
+    type: agent
+    group: review
     prompt: |
-      Investigate …
-
-  - id: raw-step
-    type: prompt
-    agent: off                # plain general-purpose subagent (no persona)
-    prompt: |
-      …
-
-  - id: review                # a TEAM — several roles at once, then synthesized
-    type: prompt
-    model: sonnet             # shared default for members that don't override
-    agent:
-      - role: architect
-        lead: true            # integrates the panel before final synthesis
-        model: opus           # per-member override
-      - role: security-engineer
-        effort: high
-      - qa-engineer           # bare string → inherits step model/effort
-    prompt: |
-      Review the change for …
+      Run three reviewers in parallel with the Task tool, one each as
+      wise:code-reviewer, wise:security-engineer and wise:qa-engineer,
+      then merge their findings into one verdict: ship | block.
+    allowed_tools: [Task, Agent]
 ```
 
-- **`agent: <role>`** → dispatched as `subagent_type: wise:<role>`.
-- **`agent: auto`** → the conductor reads this roster (via
-  `scripts/workflows.py list-agents`) and routes the step to the role
-  whose description best matches the step's intent, falling back to
-  `general-purpose` when nothing fits.
-- **`agent: off`** (or omitted, when the workflow's `agents:` policy is
-  `off`) → the generic `general-purpose` subagent, exactly as before.
-- **`agent: [ … ]`** (a list) → a **team**: every member runs as a parallel
-  `wise:<role>` subagent, an optional single `lead` integrates the peers'
-  drafts, and the conductor **synthesizes** one step result. `auto`/`off` are
-  scalar-only — not valid team members. Per-member `model`/`effort` override
-  the step-level ones; a bare-string member inherits them.
+- The step's `group` (or `harness` / `model` / `effort`) decides which
+  harness and model run the child; the role card decides the persona
+  the child adopts or delegates to. `wise-engine migrate` rewrites a v1
+  `agent: <role>` into the "Act as the wise `<role>` agent" prefix and
+  folds a v1 team into its lead plus lenses with a MANUAL note.
+- Subagents a Claude child spawns need the `Task` / `Agent` permission
+  rules in `allowed_tools`; the engine pre-grants them for the `units`
+  step's `implement` and `review` phases.
+- Non-Claude harnesses (`codex`, `grok`, `gemini`) have no plugin
+  subagents; the prompt text is the only persona they see.
 
-`agent:`, `model:`, and `effort:` apply to **`prompt` steps only** —
-`interactive` steps run inline in the conductor (its own model), and
-`skill` steps run under the invoked skill's own frontmatter. Steps run
-**in-conversation** (`Task` subagents, subscription-covered — no
-subprocess backend): `model:` is a real per-call override (the primary
-knob), and `effort:` is conveyed as a prompt directive (best-effort, may
-be ignored today). A pinned model that has retired auto-falls-back to its
-alias with a notice. See
-[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort).
+See [`docs/wise/workflows.md`](../../docs/wise/workflows.md) for the
+step schema.
 
 ## Adding or editing a role
 
@@ -117,5 +98,4 @@ alias with a notice. See
    `mcpServers`, or `permissionMode`. Keep `model: inherit`.
 2. Add or update the row in the table above — the "When `auto` picks it"
    cell is the routing hint the conductor reads.
-3. Run `python3 scripts/workflows.py list-agents` to confirm it parses,
-   and `just check` before committing.
+3. Run `just check` before committing.

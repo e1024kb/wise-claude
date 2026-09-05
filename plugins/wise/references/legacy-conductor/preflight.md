@@ -241,8 +241,9 @@ fails — missing store = `medium`).
      - `record-output "$STATE" opus_model <id>` — always: `claude-opus-4-8`
        when `<level>` is `low`, else `opus`. The low-profile Opus rule
        (MUST): a `low` run never dispatches Opus 5 — prompts that
-       dispatch Opus-tier subagents themselves (`process-tickets.md`,
-       `process-plans.md`) read `{{opus_model}}`, and §10d passes
+       dispatch Opus-tier subagents themselves (the v1 `-auto`
+       orchestrator prompts, removed in plan M4.3 / M4.4) read
+       `{{opus_model}}`, and §10d passes
        `--profile <level>` so `resolve-team` / `resolve-model` apply
        the same swap to every step pin.
      - per `tuning` entry: `record-output "$STATE" tuning_<gid> "<model> / <effort>"`

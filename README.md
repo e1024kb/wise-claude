@@ -1,7 +1,7 @@
 # wise-claude
 
-> A coding copilot for **Claude Code** — flat `/wise-*` skills, a
-> multi-agent workflow engine, and autonomous git / PR / ticket-planning
+> A coding copilot for **Claude Code** - flat `/wise-*` skills, a
+> multi-harness workflow engine, and autonomous git / PR / ticket-planning
 > pipelines.
 
 ![version](https://img.shields.io/badge/version-4.0.0-blue)
@@ -9,8 +9,9 @@
 ![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 
 `wise-claude` is the Claude Code plugin marketplace that hosts the
-**`wise`** copilot: flat `/wise-*` skills, multi-agent **workflows**, and
-an SDLC **agent roster** (CEO / CTO / architect / engineer / QA /
+**`wise`** copilot: flat `/wise-*` skills, YAML **workflows** run by a
+TypeScript engine that drives `claude`, `codex`, `grok` and `gemini`
+headless, and an SDLC **agent roster** (CEO / CTO / architect / engineer / QA /
 security / SRE / …) that take everyday engineering chores off your
 plate — drafting commits, opening and shepherding PRs, planning tickets,
 authoring PRDs/TRDs, auditing a scope into an executable backlog. Reach
@@ -60,6 +61,12 @@ to print the full command catalog.
 - **`ticket-plan`** — autonomous planning you review and adjust before you
   implement.
 
+Workflows are YAML v2 definitions (`agent`, `bash`, `approval`, `ask`,
+`units` steps, tuning groups, budget profiles). The engine under
+`plugins/wise/engine` runs them as a per-user daemon and talks to Claude
+Code through the plugin's `wise-engine` MCP server; the conversation
+only answers pre-flight questions and gates.
+
 See the [plugin README](plugins/wise/README.md) for the full command
 reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 `/wise` dispatcher, and the skill-authoring guides.
@@ -68,7 +75,13 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 
 - **Claude Code**.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
-- **Python 3** (with `pyyaml` + `python-ulid`) for the workflow engine.
+- **bun** or **Node 24+** for the workflow engine (`plugins/wise/engine`,
+  TypeScript run as source, no build), and `claude auth login` so the
+  engine can spawn `claude -p` under your subscription. `codex`, `grok`
+  and `gemini` are optional extra harnesses.
+- **Python 3** (with `pyyaml` + `python-ulid`) for `/wise-workflow-list`,
+  `/wise-workflow-create`, `/wise-workflow-remove` and the legacy v1
+  conductor; removed in plan M3.4.
 - The `wise-init` skill probes these and walks you through anything
   missing.
 
@@ -77,7 +90,7 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 ```
 wise-claude/
 ├── .claude-plugin/marketplace.json      # Claude Code marketplace index → plugins/wise
-├── plugins/wise/                        # the wise plugin (skills, agents, workflows, engine)
+├── plugins/wise/                        # the wise plugin (skills, agents, workflows, engine/)
 ├── scripts/validate_repo.py             # structural validation
 ├── docs/wise/                           # workflow engine + authoring reference
 ├── justfile                             # task runner (validate / test / check)
