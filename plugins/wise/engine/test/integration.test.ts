@@ -1,4 +1,4 @@
-// Cross-module tests ported from test_tuning.py (get-profiles low rule) and
+// Cross-module tests: the bundled workflows against the model catalog and resolve, plus
 // test_neutralization.py (off-Claude resume via the synthetic session id).
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,6 +8,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDef, validateDef } from "../src/defs.ts";
 import { applyAnswers } from "../src/preflight.ts";
+import { catalogFor } from "../src/models.ts";
 import { LOW_PROFILE_OPUS_MODEL, resolveModelDict } from "../src/resolve.ts";
 import { findRunsBySession, initState, startRun, updateRun } from "../src/ledger.ts";
 import { syntheticSessionId } from "../src/profile.ts";
@@ -28,12 +29,8 @@ function bundledDef(name: string): WorkflowDef {
   return def;
 }
 
-function fixtureDef(): WorkflowDef {
-  return bundledDef("ticket-plan");
-}
-
-function resolvedModels(def: WorkflowDef, profile: string): Record<string, string> {
-  const applied = applyAnswers(def, { profile });
+function resolvedModels(def: WorkflowDef): Record<string, string> {
+  const applied = applyAnswers(def, {});
   const out: Record<string, string> = {};
   for (const [group, t] of Object.entries(applied.tuning)) {
     out[group] = resolveModelDict(t.model ?? "", t.effort ?? "", applied.profile).model;
@@ -41,9 +38,9 @@ function resolvedModels(def: WorkflowDef, profile: string): Record<string, strin
   return out;
 }
 
-/** `<step>.<phase>` -> resolved model for every `units` step of `def` under `profile`. */
-function resolvedPhaseModels(def: WorkflowDef, profile: string): Record<string, string> {
-  const applied = applyAnswers(def, { profile });
+/** `<step>.<phase>` -> resolved model for every `units` step of `def` at the defaults. */
+function resolvedPhaseModels(def: WorkflowDef): Record<string, string> {
+  const applied = applyAnswers(def, {});
   const out: Record<string, string> = {};
   for (const step of def.steps) {
     if (step.type !== "units") continue;
@@ -53,64 +50,49 @@ function resolvedPhaseModels(def: WorkflowDef, profile: string): Record<string, 
   return out;
 }
 
-test("test_get_profiles_low_applies_rule", () => {
-  const def = fixtureDef();
-  const models = resolvedModels(def, "low");
-  // `evidence` is pinned to sonnet by the low profile; `authoring` is Opus and must be 4.8.
-  assert.equal(models.evidence, "sonnet");
-  assert.equal(models.authoring, LOW_PROFILE_OPUS_MODEL);
-});
-
-test("test_get_profiles_low_explicit_4_8_is_a_noop", () => {
-  const def = fixtureDef();
-  const low = def.profiles?.low;
-  assert.ok(low?.tuning?.authoring);
-  assert.equal(low.tuning.authoring.model, LOW_PROFILE_OPUS_MODEL);
+test("the low-profile Opus rule still resolves when asked for directly", () => {
+  // `resolve.ts` keeps the rule for callers that pass a profile; workflows always pass `medium`.
+  assert.equal(resolveModelDict("opus", "high", "low").model, LOW_PROFILE_OPUS_MODEL);
   const r = resolveModelDict(LOW_PROFILE_OPUS_MODEL, "high", "low");
   assert.equal(r.model, LOW_PROFILE_OPUS_MODEL);
   assert.equal(r.reason, undefined);
+  assert.equal(resolveModelDict("claude-opus-5", "high", "medium").model, "claude-opus-5");
 });
 
-test("test_bundled_low_profiles_never_resolve_to_opus_5", () => {
+test("bundled workflows: every unlocked group resolves to a catalog id of its harness", () => {
   for (const name of BUNDLED_V2) {
     const def = bundledDef(name);
-    for (const [group, model] of Object.entries(resolvedModels(def, "low"))) {
-      assert.ok(!OPUS_5.test(model), `${name}.${group} resolved to ${model} under low`);
-    }
-    for (const [key, model] of Object.entries(resolvedPhaseModels(def, "low"))) {
-      assert.ok(!OPUS_5.test(model), `${name} unit phase ${key} resolved to ${model} under low`);
-    }
-    for (const [group, model] of Object.entries(resolvedModels(def, "medium"))) {
+    const applied = applyAnswers(def, {});
+    for (const group of def.tuning?.groups ?? []) {
+      const t = applied.tuning[group.id];
+      assert.ok(t, `${name}.${group.id}`);
+      const harness = t.harness ?? "claude";
+      const ids = catalogFor(harness).map((m) => m.id);
       assert.ok(
-        model === "opus" || model === "sonnet" || model === "haiku",
-        `${name}.${group}: medium keeps aliases, got ${model}`,
+        ids.includes(t.model ?? ""),
+        `${name}.${group.id}: ${t.model} not in ${harness} catalog`,
       );
+      assert.ok(!OPUS_5.test(t.model ?? "") || t.model === "claude-opus-5", `${name}.${group.id}`);
+    }
+    for (const [group, model] of Object.entries(resolvedModels(def))) {
+      assert.ok(model.startsWith("claude-"), `${name}.${group}: resolved ${model}`);
     }
   }
 });
 
-test("units workflows: low pins Opus 4.8 for plan and review, sonnet for implement, fix and watch", () => {
+test("units workflows: plan, implement, review and fix run on Opus 5, watch on Sonnet 5; every cap is set", () => {
   for (const name of UNITS_WORKFLOWS) {
     const def = bundledDef(name);
-    const low = resolvedPhaseModels(def, "low");
-    assert.equal(low["process.plan"], LOW_PROFILE_OPUS_MODEL, name);
-    assert.equal(low["process.review"], LOW_PROFILE_OPUS_MODEL, name);
-    assert.equal(low["process.implement"], "sonnet", name);
-    assert.equal(low["process.fix"], "sonnet", `${name}: fix follows the implement group`);
-    assert.equal(low["process.watch"], "sonnet", name);
-    const medium = resolvedPhaseModels(def, "medium");
+    const models = resolvedPhaseModels(def);
     for (const phase of ["plan", "implement", "review", "fix"]) {
-      assert.equal(medium[`process.${phase}`], "opus", `${name}.${phase} under medium`);
+      assert.equal(models[`process.${phase}`], "claude-opus-5", `${name}.${phase}`);
     }
-    assert.equal(medium["process.watch"], "sonnet", name);
-    // Every cap the step names is set by every declared profile.
+    assert.equal(models["process.watch"], "claude-sonnet-5", name);
     const step = def.steps.find((s) => s.id === "process");
     assert.ok(step && step.type === "units");
-    for (const level of ["low", "medium", "max"] as const) {
-      const caps = applyAnswers(def, { profile: level }).caps;
-      for (const cap of step.caps ?? []) {
-        assert.ok(caps[cap] !== undefined, `${name}: cap ${cap} unset under ${level}`);
-      }
+    const caps = applyAnswers(def, {}).caps;
+    for (const cap of step.caps ?? []) {
+      assert.ok(caps[cap] !== undefined, `${name}: cap ${cap} unset`);
     }
   }
 });

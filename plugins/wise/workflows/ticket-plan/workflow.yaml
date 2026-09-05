@@ -1,7 +1,7 @@
 version: 2
 name: ticket-plan
 description: >-
-  Tracker ticket -> pre-flight config (budget profile, model/effort tuning,
+  Tracker ticket -> pre-flight config (harness/model/effort per group,
   research stages, flow modes) -> parallel research -> autonomous
   consolidated plan -> optional review -> setup. All choices are collected
   up front; with the autonomous flow modes selected the run proceeds
@@ -26,7 +26,7 @@ project-selection: current
 # chat output is never visible to a later step.
 #
 # ALL user decisions are front-loaded to pre-flight, ticket-auto-style:
-# the profile / tuning / step-select questionary the engine builds from
+# the tuning / step-select questionary the engine builds from
 # the blocks below, plus four flow-mode inputs (gap_mode / review_mode /
 # branch_mode / implement_mode). With the default modes the run is fully
 # autonomous after launch: gap questions proceed on their stated
@@ -51,8 +51,8 @@ preflight:
 
 # Model/effort tuning groups the pre-flight questionary offers (one
 # question per group). A step bound to a group via `group:` takes the
-# group's harness/model/effort as resolved by the profile and the user's
-# tuning answer; a step that pins `model:` itself is not tunable (the
+# group's harness/model/effort as answered at pre-flight (harness, then
+# model from the engine's catalog, then effort); a step that pins `model:` itself is not tunable (the
 # mechanical sonnet steps below, where an override buys nothing).
 # Model tiering (opus = the latest Opus, Opus 5): the plan-authoring
 # steps (gap-analysis, build-plan, refine-plan, implement) run on opus at
@@ -66,39 +66,9 @@ tuning:
     - id: evidence
       label: "Evidence & research (design spec, deep-dive sweep, codebase audit)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "sonnet at medium effort"
-          value: { model: sonnet, effort: medium }
     - id: authoring
       label: "Plan authoring (gap analysis, build plan, refine, implement)"
       default: { harness: claude, model: opus, effort: xhigh }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "Opus 4.8 at high effort"
-          value: { model: claude-opus-4-8, effort: high }
-
-# Budget profiles (docs/wise/workflows.md, Profiles). `medium` = the
-# declared defaults; `low` = sonnet evidence tier + Opus 4.8/high
-# authoring (MUST: `low` never dispatches Opus 5; the engine applies the
-# same rule to every Opus-family pin resolved under `low`); `max` = opus
-# for evidence and authoring. Budget only: flow modes, branch rules, and
-# the plan's structure are identical at every level. Research stages are
-# chosen in the step-select question, not by the profile.
-profiles:
-  low:
-    description: "sonnet evidence, Opus 4.8 authoring"
-    tuning:
-      evidence: { model: sonnet, effort: medium }
-      authoring: { model: claude-opus-4-8, effort: high }
-  medium: {}
-  max:
-    description: "opus at high effort for evidence and authoring"
-    tuning:
-      evidence: { model: opus, effort: high }
-      authoring: { model: opus, effort: high }
 
 # All flow decisions are collected UP FRONT as inputs so the run can
 # proceed autonomously afterwards. Every mode keeps an `ask` escape hatch

@@ -102,7 +102,7 @@ describe("units", () => {
     for (const r of roots) rmSync(r, { recursive: true, force: true });
   });
 
-  test("configFor: caps resolved from the profile, default reviewers", () => {
+  test("configFor: caps from the run state, default reviewers", () => {
     const h = harness();
     const cfg = configFor(STEP, h.state);
     assert.deepEqual(cfg.caps, { max_fix_attempts: 3, max_review_cycles: 2 });
@@ -350,7 +350,7 @@ describe("units", () => {
         {
           workflow: "units-two",
           cwd: pair.clone,
-          answers: { profile: "low", "input.tickets": "PROJ-1, PROJ-2" },
+          answers: { "input.tickets": "PROJ-1, PROJ-2" },
           context: { ticket: [{ ref: "PROJ-1", title: "First" }] },
           inputs: {},
         },
@@ -401,11 +401,7 @@ describe("units", () => {
       assert.ok(planEv?.model, "phase event names the model");
       assert.ok(types.includes("unit.done:PROJ-1") && types.includes("unit.done:PROJ-2"));
       assert.equal(types.at(-1), "run.done");
-      assert.equal(
-        readUnit(runDir, "PROJ-1")?.caps?.max_fix_attempts,
-        3,
-        "low profile caps stored",
-      );
+      assert.equal(readUnit(runDir, "PROJ-1")?.caps?.max_fix_attempts, 3, "declared caps stored");
       assert.equal(existsSync(join(runDir, "worktrees", "PROJ-2")), false, "merged: cleaned");
     },
   );

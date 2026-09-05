@@ -1,12 +1,15 @@
 // Pre-flight questionary (D11/D12): the engine builds the questions, the harness asks them.
-// Port of the tuning / step-select / profiles / inputs semantics of workflows.py
-// (cmd_get_preflight, cmd_get_tuning, cmd_get_step_select, cmd_get_profiles,
-// cmd_list_inputs) onto the v2 shape. Pure: no I/O.
+// Per unlocked tuning group the questions come in stages, each unlocked by the answer before it:
+// `harness.<group>` (which ready CLI), then `model.<group>` (that harness's catalog), then
+// `effort.<group>` (that model's efforts). `step-select` and `input.<name>` are stage-free.
+// The conductor calls `preflight` again with the answers so far until no new question appears.
+// Pure: no I/O.
 
-import { HARNESSES, PROFILE_LEVELS } from "./types.ts";
+import { HARNESSES } from "./types.ts";
 import type {
   Answers,
   Context,
+  Effort,
   Harness,
   ProfileLevel,
   Question,
@@ -16,21 +19,18 @@ import type {
   TuningGroup,
   WorkflowDef,
 } from "./types.ts";
-import { PROFILE_DEFAULT, isProfileLevel } from "./profile.ts";
+import { PROFILE_DEFAULT } from "./profile.ts";
 import { listInputs } from "./defs.ts";
-
-/** The `tuning.<group>` answer that keeps the group's (profile-adjusted) default. */
-export const KEEP_DEFAULT = "default";
+import { catalogFor, catalogModel, defaultEffort, defaultModel } from "./models.ts";
+import type { CatalogModel } from "./models.ts";
 
 export type Questionary = { questions: Question[]; defaults: Answers };
 
 export type QuestionaryCtx = {
   context?: Context;
-  profile?: ProfileLevel;
-  installedPlugins?: ReadonlySet<string>;
   /**
-   * Harnesses ready to run (adapter present, logged in). When given, every unlocked tuning group
-   * gets a `harness.<group>` question offering the ready harnesses other than the group's default.
+   * Harnesses ready to run besides a group's default (adapter present, logged in). Any of them
+   * puts a `harness.<group>` question on every unlocked group; none leaves the default harness.
    */
   harnesses?: readonly Harness[];
 };
@@ -43,84 +43,117 @@ export function describeTuning(value: TuningDefault): string {
   return parts.length ? parts.join(" / ") : "inherit";
 }
 
-/** Profile levels a workflow offers: the declared ones, else all three. */
-export function profileLevels(def: WorkflowDef): ProfileLevel[] {
-  const declared = PROFILE_LEVELS.filter((level) => def.profiles?.[level] !== undefined);
-  return declared.length ? declared : [...PROFILE_LEVELS];
+function answerString(value: string | string[] | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value.join(", ") : value;
+}
+function answerList(value: string | string[] | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  return Array.isArray(value)
+    ? value
+    : value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
 }
 
-const PROFILE_BLURB: Record<ProfileLevel, string> = {
-  low: "cheapest tiers, fewer retries",
-  medium: "the workflow's declared defaults",
-  max: "highest tiers, widest scope",
+// ---- per-group stages --------------------------------------------------------------------------------
+
+/** The group's declared value with the workflow's `profiles.medium` tuning folded in. */
+function groupBase(def: WorkflowDef, group: TuningGroup): TuningDefault {
+  return { ...group.default, ...def.profiles?.[PROFILE_DEFAULT]?.tuning?.[group.id] };
+}
+
+type Stage = {
+  base: TuningDefault;
+  /** Set once the harness is known: answered, or no question asked. */
+  harness?: Harness;
+  /** Set once the model is known. */
+  model?: CatalogModel;
+  effort?: Effort;
+  questions: Question[];
 };
 
-function profileQuestion(def: WorkflowDef, wanted: ProfileLevel | undefined): Question {
-  const levels = profileLevels(def);
-  const options: QuestionOption[] = levels.map((level) => ({
-    value: level,
-    label: level,
-    description: def.profiles?.[level]?.description ?? PROFILE_BLURB[level],
-  }));
-  const fallback = levels.includes(PROFILE_DEFAULT) ? PROFILE_DEFAULT : (levels[0] as ProfileLevel);
-  const chosen = wanted !== undefined && levels.includes(wanted) ? wanted : fallback;
-  return {
-    id: "profile",
-    kind: "choice",
-    label: "Budget profile for this run?",
-    options,
-    default: chosen,
-  };
-}
-
-function tuningQuestion(group: TuningGroup): Question {
-  const options: QuestionOption[] = [
-    { value: KEEP_DEFAULT, label: `Keep default (${describeTuning(group.default)})` },
-  ];
-  if (!group.locked) {
-    for (const preset of group.options ?? []) {
-      const option: QuestionOption = { value: preset.id, label: preset.label ?? preset.id };
-      option.description =
-        preset.description ?? describeTuning({ ...group.default, ...preset.value });
-      options.push(option);
-    }
-  }
-  const q: Question = {
-    id: `tuning.${group.id}`,
-    kind: "choice",
-    label: group.label ?? group.id,
-    options,
-    default: KEEP_DEFAULT,
-  };
-  if (group.locked) q.locked = true;
-  return q;
-}
-
 /**
- * `harness.<group>`: which CLI runs the group's steps. Picking a non-default harness keeps the
- * group's effort and runs the harness's own default model (a Claude model pin means nothing to
- * codex). `undefined` when no other harness is ready.
+ * Walk one unlocked group's stages against the answers so far. Each stage either records its
+ * value (answered, or nothing to ask) and moves on, or emits its question and stops.
  */
-function harnessQuestion(group: TuningGroup, ready: readonly Harness[]): Question | undefined {
-  const current = group.default.harness ?? "claude";
-  const others = ready.filter((h) => h !== current);
-  if (others.length === 0) return undefined;
-  const options: QuestionOption[] = [
-    { value: KEEP_DEFAULT, label: `Keep default (${current})` },
-    ...others.map((h) => ({
+function stageGroup(
+  def: WorkflowDef,
+  group: TuningGroup,
+  answers: Answers,
+  ready: readonly Harness[] | undefined,
+): Stage {
+  const base = groupBase(def, group);
+  const label = group.label ?? group.id;
+  const stage: Stage = { base, questions: [] };
+  const defaultHarness: Harness = base.harness ?? "claude";
+
+  // The default harness is always offered (the run's auth probe checks it); `ready` adds the rest.
+  const offered: Harness[] = [defaultHarness, ...(ready ?? []).filter((h) => h !== defaultHarness)];
+  const harnessAnswer = answerString(answers[`harness.${group.id}`]);
+  if (harnessAnswer !== undefined && isHarness(harnessAnswer)) {
+    stage.harness = harnessAnswer;
+  } else if (offered.length > 1) {
+    const options: QuestionOption[] = offered.map((h) => ({
       value: h,
       label: h,
-      description: `run these steps on ${h} (its default model, same effort)`,
-    })),
-  ];
-  return {
-    id: `harness.${group.id}`,
-    kind: "choice",
-    label: `Which CLI runs: ${group.label ?? group.id}?`,
-    options,
-    default: KEEP_DEFAULT,
-  };
+      description: h === defaultHarness ? "the workflow's default" : `run these steps on ${h}`,
+    }));
+    stage.questions.push({
+      id: `harness.${group.id}`,
+      kind: "choice",
+      label: `Which CLI runs: ${label}?`,
+      options,
+      default: defaultHarness,
+    });
+    return stage;
+  } else {
+    stage.harness = defaultHarness;
+  }
+  const harness = stage.harness;
+
+  // A pin from another harness means nothing here; the catalog's first entry stands in.
+  const pinned = harness === defaultHarness ? base.model : undefined;
+  const modelAnswer = catalogModel(harness, answerString(answers[`model.${group.id}`]));
+  const catalog = catalogFor(harness);
+  if (modelAnswer) {
+    stage.model = modelAnswer;
+  } else if (catalog.length > 1) {
+    stage.questions.push({
+      id: `model.${group.id}`,
+      kind: "choice",
+      label: `Which ${harness} model: ${label}?`,
+      options: catalog.map((m) => ({ value: m.id, label: m.label, description: m.description })),
+      default: defaultModel(harness, pinned).id,
+    });
+    return stage;
+  } else {
+    stage.model = defaultModel(harness, pinned);
+  }
+  const model = stage.model;
+
+  // The effort scale is wise-wide, so the declared effort stands whichever harness was picked.
+  const effortAnswer = answerString(answers[`effort.${group.id}`]);
+  const wanted = base.effort;
+  if (effortAnswer !== undefined && (model.efforts as readonly string[]).includes(effortAnswer)) {
+    stage.effort = effortAnswer as Effort;
+  } else if (model.efforts.length > 1) {
+    stage.questions.push({
+      id: `effort.${group.id}`,
+      kind: "choice",
+      label: `Effort for ${model.label}: ${label}?`,
+      options: model.efforts.map((e) => ({ value: e, label: e })),
+      default: defaultEffort(model, wanted) as string,
+    });
+  } else {
+    const e = defaultEffort(model, wanted);
+    if (e !== undefined) stage.effort = e;
+  }
+  return stage;
 }
+
+// ---- step-select / inputs ----------------------------------------------------------------------------
 
 /** Step ids the user may switch off: `step-select.optional`, else every `optional: true` step. */
 export function optionalStepIds(def: WorkflowDef): string[] {
@@ -167,26 +200,31 @@ export function resolveFromContext(path: string, context: Context | undefined): 
   return undefined;
 }
 
+// ---- the questionary ---------------------------------------------------------------------------------
+
 /**
- * Build the questionary in order: `profile`, one `tuning.<group>` per group (locked groups
- * carry `locked: true` and only the default option) each followed by its `harness.<group>`
- * question when `ctx.harnesses` offers an alternative, `step-select` when the workflow has
- * optional steps, and `input.<name>` per declared input with `from-context` pre-fill.
+ * Build the questionary for the answers given so far, in order: per unlocked tuning group the
+ * next unanswered stage (`harness.<group>` when two or more harnesses are ready, `model.<group>`,
+ * `effort.<group>`; a stage with one possible value is skipped), `step-select` when the workflow
+ * has optional steps, and `input.<name>` per declared input with `from-context` pre-fill.
+ * Locked groups ask nothing. Answered questions are not repeated.
  */
-export function buildQuestionary(def: WorkflowDef, ctx: QuestionaryCtx = {}): Questionary {
+export function buildQuestionary(
+  def: WorkflowDef,
+  ctx: QuestionaryCtx = {},
+  answers: Answers = {},
+): Questionary {
   const questions: Question[] = [];
   const defaults: Answers = {};
   const push = (q: Question): void => {
+    if (answers[q.id] !== undefined) return;
     questions.push(q);
     if (q.default !== undefined) defaults[q.id] = q.default;
   };
 
-  push(profileQuestion(def, ctx.profile));
   for (const group of def.tuning?.groups ?? []) {
-    push(tuningQuestion(group));
-    if (group.locked || ctx.harnesses === undefined) continue;
-    const hq = harnessQuestion(group, ctx.harnesses);
-    if (hq) push(hq);
+    if (group.locked) continue;
+    for (const q of stageGroup(def, group, answers, ctx.harnesses).questions) push(q);
   }
   const optional = optionalStepIds(def);
   if (optional.length) push(stepSelectQuestion(def, optional));
@@ -203,62 +241,45 @@ export function buildQuestionary(def: WorkflowDef, ctx: QuestionaryCtx = {}): Qu
 }
 
 export type Applied = {
+  /** Always `medium`: the workflow's declared defaults. Budget profiles no longer reach workflows. */
   profile: ProfileLevel;
-  /** Effective tuning per group: preset answer over profile override over group default. */
+  /** Effective tuning per group: the staged answers over the group default. */
   tuning: Record<string, TuningDefault>;
   enabledSteps: Set<string>;
   inputs: Record<string, string>;
   caps: Record<string, number>;
 };
 
-function answerString(value: string | string[] | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  return Array.isArray(value) ? value.join(", ") : value;
-}
-function answerList(value: string | string[] | undefined): string[] | undefined {
-  if (value === undefined) return undefined;
-  return Array.isArray(value)
-    ? value
-    : value
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-}
-
 /**
- * Merge answers into run parameters. Precedence per group: an explicit preset answer (unlocked
- * groups only) > `profiles.<level>.tuning.<group>` > `group.default`; a `harness.<group>` answer
- * naming another harness then replaces the harness and resets the model to `inherit`, keeping
- * the effort (a Claude pin never reaches codex). Steps not selected in
- * `step-select` are disabled; every non-optional step is always enabled. Model / effort
- * clamping is `resolve`'s job, not done here.
+ * Merge answers into run parameters. Per unlocked group the `harness.<group>` answer (else the
+ * group's default harness), the `model.<group>` answer (else the default's catalog entry, else
+ * the catalog's first model) and the `effort.<group>` answer (else the model's default for the
+ * group's effort) replace the declared value; a model without effort control drops the effort.
+ * Locked groups keep their declared value. Steps not selected in `step-select` are disabled;
+ * every non-optional step is always enabled. Retired-id and ceiling clamping is `resolve`'s job.
  */
 export function applyAnswers(def: WorkflowDef, answers: Answers): Applied {
-  const levels = profileLevels(def);
-  const wanted = answerString(answers.profile);
-  const fallback = levels.includes(PROFILE_DEFAULT) ? PROFILE_DEFAULT : (levels[0] as ProfileLevel);
-  const profile: ProfileLevel =
-    wanted !== undefined && isProfileLevel(wanted) && levels.includes(wanted) ? wanted : fallback;
+  const profile: ProfileLevel = PROFILE_DEFAULT;
   const profileDef = def.profiles?.[profile];
 
   const tuning: Record<string, TuningDefault> = {};
   for (const group of def.tuning?.groups ?? []) {
-    let value: TuningDefault = { ...group.default, ...profileDef?.tuning?.[group.id] };
-    const answer = answerString(answers[`tuning.${group.id}`]);
-    if (!group.locked && answer !== undefined && answer !== KEEP_DEFAULT) {
-      const preset = (group.options ?? []).find((o) => o.id === answer);
-      if (preset) value = { ...value, ...preset.value };
+    if (group.locked) {
+      tuning[group.id] = groupBase(def, group);
+      continue;
     }
-    const harness = answerString(answers[`harness.${group.id}`]);
-    if (
-      !group.locked &&
-      harness !== undefined &&
-      harness !== KEEP_DEFAULT &&
-      isHarness(harness) &&
-      harness !== (value.harness ?? "claude")
-    ) {
-      value = { ...value, harness, model: "inherit" };
-    }
+    const stage = stageGroup(def, group, answers, undefined);
+    const harness = stage.harness ?? stage.base.harness ?? "claude";
+    const model =
+      stage.model ??
+      defaultModel(
+        harness,
+        harness === (stage.base.harness ?? "claude") ? stage.base.model : undefined,
+      );
+    const effort = stage.effort ?? defaultEffort(model, stage.base.effort);
+    const value: TuningDefault = { ...stage.base, harness, model: model.id };
+    if (effort !== undefined) value.effort = effort;
+    else delete value.effort;
     tuning[group.id] = value;
   }
 
@@ -305,4 +326,37 @@ export function fillAnswers(questions: Question[], given: Answers): FilledAnswer
     if (id.startsWith("input.") && typeof value === "string") inputs[id.slice(6)] = value;
   }
   return { answers, inputs, missing };
+}
+
+export type CompletedAnswers = FilledAnswers & {
+  /** Every question the staged walk produced, in the order it appeared. */
+  questions: Question[];
+};
+
+/**
+ * Run the staged questionary to the end without a user: build, fill defaults, rebuild with the
+ * new answers, until no question is left unanswered. What `wise_run` does with the conductor's
+ * answers (a partially answered stage takes its defaults) and what the CLI does with `--answers`.
+ */
+export function completeAnswers(
+  def: WorkflowDef,
+  ctx: QuestionaryCtx,
+  given: Answers,
+): CompletedAnswers {
+  let answers: Answers = { ...given };
+  const seen = new Map<string, Question>();
+  let missing: string[] = [];
+  let inputs: Record<string, string> = {};
+  // Every pass answers at least one more question or ends; the group count bounds the passes.
+  for (let pass = 0; pass < 3 * (def.tuning?.groups.length ?? 0) + 2; pass++) {
+    const q = buildQuestionary(def, ctx, answers);
+    for (const question of q.questions) seen.set(question.id, question);
+    const filled = fillAnswers(q.questions, answers);
+    missing = filled.missing;
+    inputs = filled.inputs;
+    const grew = Object.keys(filled.answers).length > Object.keys(answers).length;
+    answers = filled.answers;
+    if (!grew) break;
+  }
+  return { answers, inputs, missing, questions: [...seen.values()] };
 }

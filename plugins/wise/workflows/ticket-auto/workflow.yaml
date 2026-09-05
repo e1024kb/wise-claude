@@ -6,7 +6,7 @@ description: >-
   through a review / fix loop, pushes, opens a PR, requests the bot
   reviews, watches CI and the bots, fixes what they raise, and merges
   once the PR is green and quiet. No prompts after launch: pre-flight
-  asks the budget profile, the per-phase tuning and the inputs. One
+  asks the per-phase harness, model and effort, and the inputs. One
   worktree + branch + PR per ticket; a merged PR loses its worktree and
   local branch, anything else stays open for a human with the worktree
   kept for inspection.
@@ -20,8 +20,8 @@ project-selection: current
 # review, merge) and cleanup run as code; the five model phases spawn
 # one harness child each from the engine's prompt templates under
 # engine/src/prompts/units/. This file declares only what the engine
-# cannot know: the phase -> tuning-group binding, the caps per budget
-# profile, the reviewers, the intake and the report.
+# cannot know: the phase -> tuning-group binding, the unit caps, the
+# reviewers, the intake and the report.
 #
 # control-mode: synchronous, no gates. worktree: current, the units step
 # creates one worktree per ticket under the run directory itself.
@@ -37,77 +37,28 @@ tuning:
     - id: plan
       label: "Plan phase (architect, the run's decision-maker)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "Opus 4.8 at high effort"
-          value: { model: claude-opus-4-8, effort: high }
     - id: implement
       label: "Implement + fix phases (engineer executors)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "sonnet at high effort"
-          value: { model: sonnet, effort: high }
     - id: review
       label: "Review gate (3 lenses: correctness, security, tests)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "Opus 4.8 at medium effort"
-          value: { model: claude-opus-4-8, effort: medium }
     - id: watch
       label: "CI + bot-review watch pass"
       default: { harness: claude, model: sonnet, effort: medium }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "sonnet at low effort"
-          value: { model: sonnet, effort: low }
 
-# Budget profiles (docs/wise/workflows.md, Profiles). `medium` = the
-# declared defaults. `low` MUST never dispatch Opus 5: plan and review
-# pin Opus 4.8, implement drops to sonnet; the engine applies the same
-# rule to any Opus pin resolved under `low`. Caps are read by the
-# `units` step: review cycles before pushing anyway, fix rounds in the
-# watch loop, watch wall clock and poll, and the consecutive green
-# passes required before merging. `max` adds the adversarial
-# verification pass to every review.
+# Caps the `units` step reads (docs/wise/workflows.md, `profiles`): review
+# cycles before pushing anyway, fix rounds in the watch loop, watch wall
+# clock and poll, and the consecutive green passes required before
+# merging. Only `medium` is applied; pre-flight picks harness, model and
+# effort per tuning group from the engine's model catalog instead of a
+# budget profile.
 profiles:
-  low:
-    description: "Opus 4.8 plan and review, sonnet implement, tight caps"
-    tuning:
-      plan: { model: claude-opus-4-8, effort: high }
-      implement: { model: sonnet, effort: high }
-      review: { model: claude-opus-4-8, effort: medium }
-      watch: { model: sonnet, effort: low }
-    caps:
-      max_review_cycles: 2
-      max_fix_attempts: 3
-      watch_minutes: 30
-      watch_poll_seconds: 60
-      watch_stable_passes: 2
   medium:
-    description: "opus plan, implement and review; sonnet watch"
     caps:
       max_review_cycles: 3
       max_fix_attempts: 5
       watch_minutes: 60
-      watch_poll_seconds: 60
-      watch_stable_passes: 2
-  max:
-    description: "opus everywhere but watch, verified reviews, widest caps"
-    tuning:
-      plan: { model: opus, effort: high }
-      implement: { model: opus, effort: high }
-      review: { model: opus, effort: high }
-      watch: { model: sonnet, effort: medium }
-    caps:
-      max_review_cycles: 5
-      max_fix_attempts: 10
-      watch_minutes: 120
       watch_poll_seconds: 60
       watch_stable_passes: 2
 

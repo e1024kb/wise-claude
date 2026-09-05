@@ -8,7 +8,6 @@ import type {
   ErrorCode,
   Event,
   Gate,
-  ProfileLevel,
   Question,
   ReportKind,
   Resolved,
@@ -79,8 +78,8 @@ export type HelloResult = { version: string; pid: number; started_at: string };
 export type ShutdownParams = { when?: "idle" | "now" };
 export type ShutdownResult = { accepted: true; active_runs: number };
 
-/** `profile`: the harness session's token-budget level; presets the `profile` question's default. */
-export type PreflightParams = { workflow: string; cwd: string; profile?: ProfileLevel };
+/** `answers`: the answers so far; the next stage of each tuning group is built from them. */
+export type PreflightParams = { workflow: string; cwd: string; answers?: Answers };
 export type PreflightResult = {
   workflow: string;
   version: number;
@@ -96,8 +95,6 @@ export type RunParams = {
   answers: Answers;
   context: Context;
   inputs: Record<string, string>;
-  /** Session profile used when `answers.profile` is absent (the daemon has no session id). */
-  profile?: ProfileLevel;
 };
 export type RunResult = { run_id: string; status: "running" };
 

@@ -1,6 +1,6 @@
 # PLAN — wise Harness Engine
 
-Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D20, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
+Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D21, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
 
 Created 2026-09-05 on branch `research/ts-engine-ai-sdk` at df467c6. Each milestone ends with a gate; a gate that fails stops the next milestone until the plan is revised.
 
@@ -136,9 +136,11 @@ Gate M6: v5.0.0 released.
 
 2026-09-05: M6.1-M6.4 closed (usage views, pricing, low-profile rule, ceiling gate, docs sync, migrate); design doc § Spike answers › M4-M6 build report, D20. M6.5 release waits for M3.3, M3.4 and the user.
 
+2026-09-05: pre-flight reworked per D21: staged harness -> model -> effort questions from the `src/models.ts` catalog, the budget profile dropped from workflows (`/wise-profile` remains a skill-side budget). Docs, skills and workflow READMEs synced.
+
 ## Decisions carried into the plan
 
-D1 harness adapters on unmodified vendor CLIs · D2 no AI SDK · D3 `claude -p`, never `--bare`, never a re-implemented OAuth client · D4 `claude-session` as policy hedge only · D5 native headless mode, not ACP · D6 t3code as plumbing reference · D7 bun preferred, Node 24 supported · D8 erasable TS as source, no build · D9 tsgo, oxlint, oxfmt · D10 `node:test` · D11 engine emits questionary, harness asks · D12 per tuning group + profile · D13 daemon + MCP JSON-RPC · D14 orchestrators into engine · D15 three transports go, Gemini best effort · D16 P8 confirmed · D17 `wise_wait` default 110 s · D18 `--strict-mcp-config` per child, further trimming measured in M2.1 · E1, E5, E7, E8, E9, E11, E12, E14 tokenomics rules. Pending: none after M0.7.
+D1 harness adapters on unmodified vendor CLIs · D2 no AI SDK · D3 `claude -p`, never `--bare`, never a re-implemented OAuth client · D4 `claude-session` as policy hedge only · D5 native headless mode, not ACP · D6 t3code as plumbing reference · D7 bun preferred, Node 24 supported · D8 erasable TS as source, no build · D9 tsgo, oxlint, oxfmt · D10 `node:test` · D11 engine emits questionary, harness asks · D12 per tuning group (profile half superseded by D21) · D21 staged harness/model/effort questionary from a model catalog, no workflow profile · D13 daemon + MCP JSON-RPC · D14 orchestrators into engine · D15 three transports go, Gemini best effort · D16 P8 confirmed · D17 `wise_wait` default 110 s · D18 `--strict-mcp-config` per child, further trimming measured in M2.1 · E1, E5, E7, E8, E9, E11, E12, E14 tokenomics rules. Pending: none after M0.7.
 
 ## Stop conditions
 

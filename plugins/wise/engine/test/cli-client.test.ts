@@ -23,14 +23,14 @@ type Fake = {
 
 const QUESTIONS: Question[] = [
   {
-    id: "profile",
+    id: "model.plan",
     kind: "choice",
-    label: "Budget profile?",
+    label: "Which claude model: Plan?",
     options: [
-      { value: "low", label: "low" },
-      { value: "medium", label: "medium" },
+      { value: "claude-opus-5", label: "Opus 5" },
+      { value: "claude-sonnet-5", label: "Sonnet 5" },
     ],
-    default: "medium",
+    default: "claude-opus-5",
   },
   {
     id: "tuning.plan",
@@ -250,14 +250,14 @@ describe("cli-client", () => {
     assert.equal(t.out, "");
   });
 
-  test("run: --profile and --input fill answers, defaults fill the rest, locked stay untouched", async () => {
+  test("run: --answers and --input fill answers, defaults fill the rest, locked stay untouched", async () => {
     const r = await run([
       "run",
       "wf",
       "--cwd",
       "/tmp/x",
-      "--profile",
-      "low",
+      "--answers",
+      '{"model.plan":"claude-sonnet-5"}',
       "--input",
       "ticket=LEC-1",
       "--context",
@@ -275,35 +275,42 @@ describe("cli-client", () => {
     };
     assert.equal(params.workflow, "wf");
     assert.equal(params.cwd, "/tmp/x");
-    assert.deepEqual(params.answers, { profile: "low", "input.ticket": "LEC-1" });
+    assert.deepEqual(params.answers, { "model.plan": "claude-sonnet-5", "input.ticket": "LEC-1" });
     assert.deepEqual(params.inputs, { ticket: "LEC-1" });
     assert.equal(params.context.guidance, "be brief");
     const j = JSON.parse(r.out) as { run_id: string; status: string };
     assert.equal(j.run_id, RUN_ID);
     assert.equal(j.status, "running");
-    const pre = calls("preflight")[0]?.params as { workflow: string; cwd: string };
-    assert.deepEqual(pre, { workflow: "wf", cwd: "/tmp/x" });
+    // Staged: the first call carries the given answers; nothing was filled in, so no second pass.
+    const pres = calls("preflight").map(
+      (c) => c.params as { workflow: string; cwd: string; answers: unknown },
+    );
+    assert.deepEqual(pres[0], {
+      workflow: "wf",
+      cwd: "/tmp/x",
+      answers: { "model.plan": "claude-sonnet-5", "input.ticket": "LEC-1" },
+    });
+    assert.equal(pres.length, 1);
   });
 
-  test("run: --answers merges (explicit beats default), bad JSON and bad --profile exit 64", async () => {
+  test("run: --answers merges (explicit beats default), bad JSON exits 64", async () => {
     const r = await run(["run", "wf", "--answers", '{"input.ticket":"LEC-2","input.notes":"n"}']);
     assert.equal(r.code, 0, r.err);
     const params = calls("run")[0]?.params as { answers: Record<string, unknown> };
     assert.deepEqual(params.answers, {
-      profile: "medium",
+      "model.plan": "claude-opus-5",
       "input.ticket": "LEC-2",
       "input.notes": "n",
     });
     assert.equal((await run(["run", "wf", "--answers", "{nope"])).code, 64);
-    assert.equal((await run(["run", "wf", "--profile", "turbo"])).code, 64);
     assert.equal((await run(["run", "wf", "--input", "novalue"])).code, 64);
   });
 
   test("fillAnswers: unit semantics", () => {
     const f = fillAnswers(QUESTIONS, {});
     assert.deepEqual(f.missing, ["input.ticket"]);
-    assert.deepEqual(f.answers, { profile: "medium" });
-    const g = fillAnswers(QUESTIONS, { "input.ticket": "X", profile: "low" });
+    assert.deepEqual(f.answers, { "model.plan": "claude-opus-5" });
+    const g = fillAnswers(QUESTIONS, { "input.ticket": "X", "model.plan": "claude-sonnet-5" });
     assert.deepEqual(g.missing, []);
     assert.deepEqual(g.inputs, { ticket: "X" });
     assert.equal(g.answers["tuning.plan"], undefined);

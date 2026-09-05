@@ -63,7 +63,7 @@ export const TERMINAL_RUN: ReadonlySet<RunStatus> = new Set(["completed", "cance
 
 export type QuestionOption = { value: string; label: string; description?: string };
 export type Question = {
-  /** "profile" | "tuning.<group>" | "harness.<group>" | "step-select" | "input.<name>" */
+  /** "harness.<group>" | "model.<group>" | "effort.<group>" | "step-select" | "input.<name>" */
   id: string;
   kind: "choice" | "multi" | "text";
   label: string;
@@ -207,7 +207,6 @@ export const ERROR_CODES = [
   "NOT_IMPLEMENTED",
   "ALREADY_RUNNING",
   "TOKEN_INVALID",
-  "PROFILE_REFUSES_API",
   "MISSING_ANSWERS",
   "REQUIRES_MISSING",
 ] as const;

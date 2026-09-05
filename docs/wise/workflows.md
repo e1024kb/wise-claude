@@ -2,7 +2,8 @@
 
 A workflow is a YAML v2 definition the wise engine runs: a DAG of steps
 (`agent`, `bash`, `approval`, `ask`, `units`) with a pre-flight
-questionary (budget profile, per-group tuning, optional steps, inputs).
+questionary (harness, model and effort per tuning group, optional
+steps, inputs).
 The engine is TypeScript under `plugins/wise/engine`, run as source on
 bun or Node 24 (`engine/engine.sh`). It runs as a per-user daemon
 (`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
@@ -44,7 +45,7 @@ run `/wise-init`, then retry.
 | Daemon socket | `$XDG_RUNTIME_DIR/wise/engined.sock`, else `<data root>/engined.sock` |
 | Daemon lock and log | `<data root>/engined.lock`, `<data root>/engined.log` (rotated at 10 MB to `.1`) |
 | Engine config | `$XDG_CONFIG_HOME/wise/engine.json`, else `~/.config/wise/engine.json` |
-| Session profile | `<data root>/profile/<session-id>` (one word, written by `/wise-profile`) |
+| Session profile | `<data root>/profile/<session-id>` (one word, written by `/wise-profile`; read by skills, never by workflows) |
 
 Layouts per root: folder form `<name>/workflow.yaml` (preferred, may
 ship `README.md`, `prompts/`, `templates/` addressed via
@@ -72,7 +73,7 @@ v1 error.
 | `preflight` | no | `{control-mode, worktree}` pins. |
 | `requires` | no | `{plugins: [...], tools: [...]}`. |
 | `tuning` | no | `{groups: [...]}`. |
-| `profiles` | no | Mapping keyed `low` \| `medium` \| `max`. |
+| `profiles` | no | Mapping keyed `low` \| `medium` \| `max`; only `medium` is applied. |
 | `inputs` | no | List of input definitions. |
 | `step-select` | no | `{prompt?, optional?: [step ids]}`. |
 | `steps` | yes | List of steps. |
@@ -96,11 +97,8 @@ tuning:
       fallback: [codex]
 
 profiles:
-  low: {}
-  medium: {}
-  max:
-    tuning:
-      classify: { model: opus, effort: medium }
+  medium:
+    caps: { max_review_cycles: 3 }
 
 inputs:
   - name: focus
@@ -174,8 +172,10 @@ overrides the pin when the conductor passes one.
 
 ### `tuning`
 
-One question per group at pre-flight. A step binds with `group: <id>`;
-`units` steps bind phases through `groups:`.
+Three staged questions per unlocked group at pre-flight (harness,
+model, effort; see [Pre-flight questionary](#pre-flight-questionary)).
+A step binds with `group: <id>`; `units` steps bind phases through
+`groups:`.
 
 ```yaml
 tuning:
@@ -186,11 +186,6 @@ tuning:
       default: { harness: claude, model: opus, effort: high }   # mapping, required
       fallback: [codex, grok]        # harnesses tried after a rate limit
       locked: true                   # no question; default stands
-      options:                       # presets offered as choices
-        - id: economy                # `default` is reserved
-          label: "Economy"
-          description: "Opus 4.8 at high"
-          value: { model: claude-opus-4-8, effort: high }
 ```
 
 | Field | Notes |
@@ -198,48 +193,36 @@ tuning:
 | `default` | `{harness?, model?, effort?}`. A string (`"opus / high"`) is a v1 error. |
 | `fallback` | Harness list. Used when the primary is parked by a rate limit; a fallback runs with `model: inherit`. |
 | `locked` | Question emitted with `locked: true`; the conductor skips it. |
-| `options[].value` | Full or partial `{harness, model, effort}` merged over the profile value. |
+| `options` | Parsed and ignored: pre-flight offers the engine's model catalog instead of presets. |
 | `steps` | v1 error. Bind from the step with `group:`. |
-| `allow-api` | Landing in the same release (plan M6.2): lets the `low` profile run this group's `auth: api-key` steps. |
 
-Resolution per step: preset answer (unlocked group) > profile tuning
-for the group > group default. A step's own `harness` / `model` /
-`effort` override the group.
+Resolution per step: pre-flight answers for an unlocked group (harness,
+model, effort) > `profiles.medium.tuning` for the group > group
+default. A step's own `harness` / `model` / `effort` override the
+group.
 
 ### `profiles`
 
-Budget levels the questionary offers. Keys are a subset of `low`,
-`medium`, `max`; the profile question lists the declared levels, or all
-three when the block is absent.
+Kept for the `caps` a `units` step reads. Pre-flight no longer asks a
+budget level: the run is fixed to `medium`, and the model and effort
+come from the questionary. `low` and `max` still parse and are ignored.
 
 ```yaml
 profiles:
-  low:
-    description: "sonnet evidence, Opus 4.8 authoring"   # replaces the level blurb
+  medium:
     tuning:
-      authoring: { model: claude-opus-4-8, effort: high } # group id -> partial default
-    caps:                                                 # positive ints, CAP_RE ^[a-z][a-z0-9_]*$
-      max_review_cycles: 2
-  medium: {}                                              # the declared defaults
-  max:
-    tuning:
-      authoring: { model: opus, effort: high }
-    caps: { max_review_cycles: 5 }
+      authoring: { effort: high }   # group id -> partial default, merged over the group's
+    caps:                           # positive ints, CAP_RE ^[a-z][a-z0-9_]*$
+      max_review_cycles: 3
+      tokens: 2000000               # per-run ceiling; see the gate below
 ```
 
-Default blurbs: `low` "cheapest tiers, fewer retries", `medium` "the
-workflow's declared defaults", `max` "highest tiers, widest scope". The
-default answer is the session profile when offered, else `medium`,
-else the first declared level. v1 keys `step-preset`, `skip`,
-`team-mode` and the tuning value `"default"` are errors.
+v1 keys `step-preset`, `skip`, `team-mode` and the tuning value
+`"default"` are errors.
 
 `caps` land in `state.caps`; a `units` step reads the names it lists.
-`low` carries one rule the engine applies itself: every Opus-family pin
-resolves to `claude-opus-4-8` (see [Model and effort
-resolution](#model-and-effort-resolution)). Landing in the same release
-(M6.2): `low` refuses `auth: api-key` steps unless `allow-api: true`,
-and `caps.tokens` sets a per-run token ceiling that parks the run at a
-gate (`Gate.ceiling = {used, limit}`).
+`caps.tokens` sets a per-run token ceiling that parks the run at a gate
+(`Gate.ceiling = {used, limit}`).
 
 ### `inputs`
 
@@ -449,7 +432,7 @@ primary := '(' or ')' | 'text' | "text" | number | true | false | identifier
 ```
 
 Identifiers are dotted names resolved against `outputs`, `inputs`,
-`answers` (a bare name is looked up in that order; `answers.profile`,
+`answers` (a bare name is looked up in that order; `answers.gap_mode`,
 `inputs.gap_mode` address one root). An unset identifier is undefined:
 `==` against anything is false, `!=` is true. Numbers and booleans
 compare with strings by text. Truthy: non-empty string, non-zero
@@ -509,10 +492,10 @@ fails `wise_run` with `AUTH_REQUIRED` and `login_cmd`.
 
 1. Retired id swap: a known retired full id (`claude-opus-4-1-20250805`
    and the like) becomes its alias, with `reason`.
-2. Low-profile Opus rule: under `low`, every Opus-family pin (`opus`, a
-   `claude-opus-5*` id, a swapped retired id, a tuning override)
-   resolves to `claude-opus-4-8`. A pin already on Opus 4.8 stands. Not
-   env-tunable.
+2. Low-profile Opus rule: dormant for workflows. The run profile is
+   fixed to `medium`, so the rule that sends every Opus-family pin to
+   `claude-opus-4-8` under `low` never fires; `resolve.ts` keeps it for
+   callers that pass `low`.
 3. Capability clamp (`MODEL_EFFORT_SUPPORT`): `opus`, `fable`, `sonnet`
    take every effort; `haiku` has none, the effort is dropped.
 4. Policy ceiling (`MODEL_EFFORT_CEILING`): `opus` and `claude-opus-5`
@@ -580,27 +563,47 @@ Children in flight are capped globally and per harness: global 4,
 
 ## Pre-flight questionary
 
-`wise_preflight {workflow, cwd, profile?}` returns `{workflow, version,
-questions, defaults, requires_missing}`. Question ids double as answer keys.
+`wise_preflight {workflow, cwd, answers?}` returns `{workflow, version,
+questions, defaults, requires_missing}`. Question ids double as answer
+keys. The questionary is staged: the answers so far decide which
+questions come next, so the conductor calls it again with everything
+answered until `questions` is empty. An answered question is never
+repeated.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|
-| `profile` | `choice` | declared `profiles` levels, else `low`, `medium`, `max` | session profile if offered, else `medium`, else the first |
-| `tuning.<group>` | `choice` | `default` ("Keep default (<harness / model / effort>)") plus each `options[].id`; `locked: true` when the group is locked | `default` |
-| `harness.<group>` | `choice` | `default` ("Keep default (<harness>)") plus every other harness with an adapter and a subscription login; follows its `tuning.<group>`; absent for locked groups and when no other harness is ready | `default` |
+| `harness.<group>` | `choice` | the group's default harness first, then every other harness with an adapter and a subscription login | the group's default harness |
+| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/src/models.ts`) | the group's pinned model when the catalog has it, else the catalog's first entry |
+| `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `text` | | context value, else `default`, else empty when optional |
 
-The conductor renders them with `AskUserQuestion`, skips locked
-questions, the `profile` question when the session profile is known,
-and inputs filled positionally, then calls `wise_run {workflow, cwd,
-answers, context, inputs, profile?}`. Answers, inputs, context and the
+Per unlocked group the stages run in order: `harness.<group>` only when
+more than one harness is offered, then `model.<group>` only when the
+catalog has more than one entry, then `effort.<group>` only when the
+model takes more than one effort. A skipped stage takes its default. A
+locked group asks nothing and runs its default. `step-select` and
+`input.<name>` are stage-free and appear on the first call.
+
+The catalog (2026-09-05): claude `claude-fable-5-1`, `claude-opus-5`,
+`claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
+`claude-haiku-4-5` (medium); codex `gpt-6-astra`, `gpt-5.6-sol`,
+`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); grok `grok-4.6`; gemini
+`gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
+
+The conductor renders the questions with `AskUserQuestion` (a question
+with more than four options goes out as a numbered list), skips
+`locked: true` questions and inputs filled positionally, then calls
+`wise_run {workflow, cwd, answers, context, inputs}`. `wise_run`
+completes the answers itself (defaults for every stage still open), so
+a partial answer set starts a run; only a required input without a
+value fails with `MISSING_ANSWERS`. Answers, inputs, context and the
 resolved caps are persisted in `state.json`, so resume never re-asks.
 
-A `harness.<group>` answer other than `default` runs the group's steps
-on that harness with `model: inherit` (the harness's own default; a
-Claude pin means nothing to codex) and the group's effort. Steps that
-pin `harness:` themselves (and the `skill:` sugar) are unaffected.
+A `harness.<group>` answer other than the default runs the group's
+steps on that harness with the model and effort chosen from its
+catalog. Steps that pin `harness:` themselves (and the `skill:` sugar)
+are unaffected.
 
 `context` is what the children may not refetch from the transcript:
 `ticket[] {ref, title?, body?, url?}`, `guidance`, `decisions
@@ -632,7 +635,7 @@ resumed `running` step goes back to `pending` and keeps its cursor.
 
 | Type | When |
 |---|---|
-| `run.started` | Verdict `<name> profile=<p> control=<mode> steps=<enabled>/<total>`. |
+| `run.started` | Verdict `<name> control=<mode> steps=<enabled>/<total>`. |
 | `step.started` | Carries harness, model, effort for agent steps; `message` is the step's `description` when it has one. |
 | `step.progress` | Live child status `turn N, tool X <target>, Nk tokens, <elapsed>: <latest assistant text>`, emitted when the tool changes, when its target changes (at most one per 5 s), else one per 30 s; and child `wise_report` lines (`kind` progress \| blocker \| decision \| finding). |
 | `step.done` | Verdict plus clipped primitive outputs. |
@@ -784,9 +787,10 @@ plan, and paths. Structured results:
 | `watch_poll_seconds` | 60 | sleep between watch passes. |
 | `watch_stable_passes` | 2 | consecutive green-and-covered passes before merging. |
 
-A cap applies only when the step lists it in `caps` and the profile
-sets it; otherwise the default. Watch loop per pass: `merged` ->
-`merged`; human comment or `needs-human` -> `human-intervention`;
+A cap applies only when the step lists it in `caps` and
+`profiles.medium.caps` sets it; otherwise the default. Watch loop per
+pass: `merged` -> `merged`; human comment or `needs-human` ->
+`human-intervention`;
 `blocked` -> `blocked`; red CI or open bot reviews -> fix and push (a
 fix without a commit -> `partial`); a requested bot silent for 15
 minutes on the same head -> one substitute universal review per head;
@@ -807,8 +811,8 @@ descriptions the model reads are in `engine/src/mcp.ts`.
 
 | Tool | Params | Returns |
 |---|---|---|
-| `wise_preflight` | `workflow`, `cwd`, `profile?` | `{workflow, version, questions, defaults, requires_missing}`. Read-only. |
-| `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs`, `profile?` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `PROFILE_REFUSES_API {steps[]}`, `AUTH_REQUIRED {login_cmd}`. |
+| `wise_preflight` | `workflow`, `cwd`, `answers?` | `{workflow, version, questions, defaults, requires_missing}`. Read-only; call again with the answers so far until `questions` is empty. |
+| `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `AUTH_REQUIRED {login_cmd}`. |
 | `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
 | `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |
 | `wise_status` | `run_id?` | One `RunSummary` (`run_id, workflow, status, started_at, last_activity_at, completed_at?, cwd, gate?, children?, usage_total?`) or every run, newest activity first. |
@@ -829,11 +833,11 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 
 | Command | Purpose |
 |---|---|
-| `preflight <workflow> [--profile low\|medium\|max] [--context <json>]` | The questionary spec. |
+| `preflight <workflow> [--answers <json>] [--context <json>]` | The questionary spec for the answers so far. |
 | `compile-check <workflow>...` | Validate definitions; exit 1 on any error. Issues carry `path`, `level`, `message`, `hint`. |
 | `migrate <workflow.yaml> [--write] [--out <path>]` | Rewrite v1 as v2. Dry run by default; `--write` keeps `<file>.v1.bak`; exit 1 when the result still has errors. |
 | `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |
-| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--profile] [--follow] [--timeout-ms]` | Start a run through the daemon. `--follow` streams events and answers gates from stdin. |
+| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--follow] [--timeout-ms]` | Start a run through the daemon. `--follow` streams events and answers gates from stdin. |
 | `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
 | `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. |
 | `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
@@ -855,7 +859,7 @@ codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
 | `WISE_EFFORT_CEILING` | Policy ceiling overrides. |
 | `WISE_RUN_HISTORY_CAP` | Terminal runs kept per cwd, default 25. |
 | `WISE_SESSION_STALE_SECS` | Seconds since `last_activity_at` after which a non-terminal run tagged with the same harness session counts as abandoned rather than a conflict, default 1800. |
-| `CLAUDE_CODE_SESSION_ID`, `WISE_SESSION_ID` | Session id for the profile store (else newest transcript, else `local-<cwd-slug>`). |
+| `CLAUDE_CODE_SESSION_ID`, `WISE_SESSION_ID` | Session id the profile store is keyed on (else newest transcript, else `local-<cwd-slug>`); skills only. |
 | `WISE_STEP_TOKEN`, `WISE_ENGINE_SOCKET`, `WISE_DATA_ROOT` | Set by the engine in every child for `unit-mcp`. |
 
 ## Authoring

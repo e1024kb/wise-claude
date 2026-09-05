@@ -37,74 +37,28 @@ tuning:
     - id: plan
       label: "Re-plan phase (architect, re-plans the seed at HEAD)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "Opus 4.8 at high effort"
-          value: { model: claude-opus-4-8, effort: high }
     - id: implement
       label: "Implement + fix phases (engineer executors)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "sonnet at high effort"
-          value: { model: sonnet, effort: high }
     - id: review
       label: "Review gate (3 lenses: correctness, security, tests)"
       default: { harness: claude, model: opus, effort: high }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "Opus 4.8 at medium effort"
-          value: { model: claude-opus-4-8, effort: medium }
     - id: watch
       label: "CI + bot-review watch pass"
       default: { harness: claude, model: sonnet, effort: medium }
-      options:
-        - id: economy
-          label: "Economy"
-          description: "sonnet at low effort"
-          value: { model: sonnet, effort: low }
 
-# Budget profiles (docs/wise/workflows.md, Profiles). `medium` = the
-# declared defaults. `low` MUST never dispatch Opus 5: re-plan and
-# review pin Opus 4.8, implement drops to sonnet. Caps are read by the
-# `units` step; `max` adds the adversarial verification pass to every
-# review.
+# Caps the `units` step reads (docs/wise/workflows.md, `profiles`): review
+# cycles before pushing anyway, fix rounds in the watch loop, watch wall
+# clock and poll, and the consecutive green passes required before
+# merging. Only `medium` is applied; pre-flight picks harness, model and
+# effort per tuning group from the engine's model catalog instead of a
+# budget profile.
 profiles:
-  low:
-    description: "Opus 4.8 re-plan and review, sonnet implement, tight caps"
-    tuning:
-      plan: { model: claude-opus-4-8, effort: high }
-      implement: { model: sonnet, effort: high }
-      review: { model: claude-opus-4-8, effort: medium }
-      watch: { model: sonnet, effort: low }
-    caps:
-      max_review_cycles: 2
-      max_fix_attempts: 3
-      watch_minutes: 30
-      watch_poll_seconds: 60
-      watch_stable_passes: 2
   medium:
-    description: "opus re-plan, implement and review; sonnet watch"
     caps:
       max_review_cycles: 3
       max_fix_attempts: 5
       watch_minutes: 60
-      watch_poll_seconds: 60
-      watch_stable_passes: 2
-  max:
-    description: "opus everywhere but watch, verified reviews, widest caps"
-    tuning:
-      plan: { model: opus, effort: high }
-      implement: { model: opus, effort: high }
-      review: { model: opus, effort: high }
-      watch: { model: sonnet, effort: medium }
-    caps:
-      max_review_cycles: 5
-      max_fix_attempts: 10
-      watch_minutes: 120
       watch_poll_seconds: 60
       watch_stable_passes: 2
 

@@ -10,14 +10,13 @@ import type { Client, ClientOptions } from "./client.ts";
 import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "./protocol.ts";
 import type { ReportResult, RunParams, StatusResult, WaitResult } from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
-import { PROFILE_LEVELS } from "./types.ts";
 import type { Answers, Context, Event, Gate, RunSummary, Usage } from "./types.ts";
 
 export const CLIENT_USAGE = `wise-engine <command> [options]
 
 Commands:
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input name=value ...]
-                 [--profile low|medium|max] [--follow] [--timeout-ms <n>]
+                 [--follow] [--timeout-ms <n>]
                               preflight, fill answers, start a run; --follow streams events and
                               answers gates from stdin (approve|reject, an option value, or text)
   wait <run_id> [--after <seq>] [--timeout-ms <n>]
@@ -417,13 +416,8 @@ async function follow(f: Follow): Promise<number> {
 async function cmdRun(p: Parsed, io: ClientIo, out: Out): Promise<number> {
   const workflow = requireArg(p, 0, "workflow");
   const cwd = str(p, "cwd") ?? process.cwd();
-  const profile = str(p, "profile");
-  if (profile !== undefined && !(PROFILE_LEVELS as readonly string[]).includes(profile)) {
-    throw new UsageError(`--profile must be one of ${PROFILE_LEVELS.join("|")}`);
-  }
   const given: Answers = { ...jsonFlag<Answers>(p, "answers") };
   const context: Context = jsonFlag<Context>(p, "context") ?? {};
-  if (profile !== undefined) given.profile = profile;
   for (const pair of strings(p, "input")) {
     const eq = pair.indexOf("=");
     if (eq <= 0) throw new UsageError(`--input expects name=value, got '${pair}'`);
@@ -434,8 +428,19 @@ async function cmdRun(p: Parsed, io: ClientIo, out: Out): Promise<number> {
   const client = await open(p, io);
   const stdin = new LineSource(io.stdin ?? process.stdin);
   try {
-    const pre = await client.call("preflight", { workflow, cwd });
-    const filled = fillAnswers(pre.questions, given);
+    // Staged questionary: each pass fills the defaults of the questions the answers so far open,
+    // until a pass adds nothing (every stage settled, or only answerless questions remain).
+    // A required input is stage-free, so a missing one ends the loop at once.
+    let pre = await client.call("preflight", { workflow, cwd, answers: given });
+    let filled = fillAnswers(pre.questions, given);
+    let known = Object.keys(given).length;
+    for (let pass = 0; pass < 32 && filled.missing.length === 0; pass++) {
+      const count = Object.keys(filled.answers).length;
+      if (count === known) break;
+      known = count;
+      pre = await client.call("preflight", { workflow, cwd, answers: filled.answers });
+      filled = fillAnswers(pre.questions, filled.answers);
+    }
     if (filled.missing.length) {
       const questions = pre.questions.filter((q) => filled.missing.includes(q.id));
       out.error(

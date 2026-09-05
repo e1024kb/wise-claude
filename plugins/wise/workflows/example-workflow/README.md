@@ -10,7 +10,7 @@ Reference `version: 2` workflow that exercises every step type the TS
 engine runs (`agent`, `bash`, `ask`, `approval`; `units` is the
 engine-side ticket / plan loop and has no place in a smoke test), the
 parallel-wave dispatcher, the pre-flight questionary (two tuning
-groups, three profiles, one `from-context` input) and structured
+groups asked in stages, one `from-context` input) and structured
 `schema:` outputs. Harmless to run: it classifies the current project,
 runs five parallel fan-out steps that either prompt a harness child or
 `echo` under a randomised sleep, asks one question, and asks for
@@ -25,7 +25,7 @@ schema change, or a dep upgrade.
   run this, see if anything regressed.
 - As a reference when authoring a new workflow: the YAML exercises
   parallel waves (same `depends_on`), `schema:` + `outputs:` capture,
-  tuning groups with a profile override, an `ask` gate, and an
+  tuning groups with a fallback harness, an `ask` gate, and an
   approval gate.
 
 ## When not to use
@@ -63,11 +63,12 @@ caps concurrent harness children). `pick-next` then parks the run as
 an `ask` gate, `approve-summary` as an `approval` gate; in
 `synchronous` control mode both are answered automatically.
 
-Pre-flight asks the budget profile, one question per tuning group
-(`classify`: haiku / low; `summarize`: haiku / low, with `codex` as
-fallback harness), and the optional `focus` input (pre-filled from the
-run context's `guidance` when present). The `max` profile moves the
-`summarize` group to `sonnet / medium`.
+Pre-flight asks, per tuning group (`classify`, `summarize`; both default
+to `claude-haiku-4-5`, `summarize` with `codex` as fallback harness),
+which CLI runs it when more than one is logged in, then which model
+from the engine's catalog, then the effort that model takes; and the
+optional `focus` input (pre-filled from the run context's `guidance`
+when present).
 
 ## Steps
 

@@ -34,7 +34,6 @@ import type {
 } from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
 import type { CallOptions } from "./rpc.ts";
-import { PROFILE_LEVELS } from "./types.ts";
 import type { Context } from "./types.ts";
 import { pluginVersion } from "./version.ts";
 
@@ -187,16 +186,15 @@ const contextSchema = z
     "What the conversation already knows and the run needs. Children never see this transcript.",
   );
 
-const profileSchema = z
-  .enum(PROFILE_LEVELS)
-  .optional()
-  .describe(
-    "The session's token-budget profile (/wise-profile), when known. The daemon cannot read it itself.",
-  );
 const preflightShape = {
   workflow: z.string().describe("Workflow name or path to its YAML."),
   cwd: z.string().describe("Absolute path of the target project."),
-  profile: profileSchema,
+  answers: answersSchema
+    .optional()
+    .describe(
+      "Answers collected so far (question id -> value). Pass them back to get the next stage: " +
+        "harness.<group> unlocks model.<group>, which unlocks effort.<group>.",
+    ),
 };
 const runShape = {
   workflow: z.string().describe("Workflow name or path to its YAML."),
@@ -204,7 +202,6 @@ const runShape = {
   answers: answersSchema.default({}),
   context: contextSchema.default({}),
   inputs: z.record(z.string()).default({}).describe("Workflow inputs by name."),
-  profile: profileSchema,
 };
 const resumeShape = { run_id: z.string() };
 const waitShape = {
@@ -239,12 +236,14 @@ const nudgeShape = {
 
 const DESCRIPTIONS: Record<McpToolName, string> = {
   wise_preflight:
-    "Call before wise_run. Returns the workflow's questionary {workflow, version, questions, defaults}: " +
-    "render questions to the user (skip locked ones and ones the session profile already answers), " +
-    "then pass the answers to wise_run. harness.<group> questions appear when another logged-in CLI " +
-    "(codex, grok, gemini) could run that group's steps. requires_missing lists plugin:<name> / tool:<name> the workflow " +
-    "declares but the machine lacks; wise_run refuses with REQUIRES_MISSING until they are installed. " +
-    "Read-only, starts nothing.",
+    "Call before wise_run, in a loop. Returns the questions the answers so far leave open " +
+    "{workflow, version, questions, defaults}: ask them, then call again with every answer collected " +
+    "until questions is empty, then wise_run. Per tuning group the stages are harness.<group> (which " +
+    "logged-in CLI: claude, codex, grok, gemini; only asked when two or more are ready), model.<group> " +
+    "(that harness's model catalog) and effort.<group> (that model's efforts; skipped when it has one " +
+    "or none). step-select and input.<name> come with the first call. requires_missing lists " +
+    "plugin:<name> / tool:<name> the workflow declares but the machine lacks; wise_run refuses with " +
+    "REQUIRES_MISSING until they are installed. Read-only, starts nothing.",
   wise_run:
     "Start a workflow run; returns {run_id, status} at once, then loop on wise_wait. " +
     "answers: question id -> value from wise_preflight. context: build it from what this conversation " +
@@ -374,7 +373,7 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
 
   register(server, "wise_preflight", preflightShape, async (args) => {
     const params: PreflightParams = { workflow: args.workflow, cwd: args.cwd };
-    if (args.profile !== undefined) params.profile = args.profile;
+    if (args.answers !== undefined) params.answers = args.answers;
     return forward("preflight", params);
   });
 
@@ -386,7 +385,6 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
       context: args.context as Context,
       inputs: args.inputs,
     };
-    if (args.profile !== undefined) params.profile = args.profile;
     return forward("run", params);
   });
 

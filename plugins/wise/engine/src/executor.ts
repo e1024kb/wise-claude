@@ -57,9 +57,13 @@ import {
 } from "./ledger.ts";
 import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
-import { applyAnswers, buildQuestionary, fillAnswers, resolveFromContext } from "./preflight.ts";
+import {
+  applyAnswers,
+  buildQuestionary,
+  completeAnswers,
+  resolveFromContext,
+} from "./preflight.ts";
 import { priceUsage } from "./pricing.ts";
-import { isProfileLevel } from "./profile.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
 import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
 import { renderStep } from "./render.ts";
@@ -85,13 +89,11 @@ import type {
   Gate,
   Harness,
   LocatedDef,
-  ProfileLevel,
   Project,
   ReportKind,
   Resolved,
   RunSummary,
   State,
-  Step,
   UnitsStep,
   Usage,
   WorkflowDef,
@@ -248,30 +250,6 @@ function optionalRecord(rec: Rec, key: string, method: string): Rec {
   if (v === undefined || v === null) return {};
   if (!isRec(v)) throw new RpcError(RPC_INVALID_PARAMS, `${method}: ${key} must be an object`);
   return v;
-}
-
-/** `profile` param: the harness session's level, or undefined. Anything else is invalid params. */
-function optionalProfile(rec: Rec, method: string): ProfileLevel | undefined {
-  const v = rec.profile;
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "string" || !isProfileLevel(v)) {
-    throw new RpcError(RPC_INVALID_PARAMS, `${method}: profile must be low | medium | max`);
-  }
-  return v;
-}
-
-/** A step may run under `auth: api-key` at the `low` profile only with `allow-api` (M6.2). */
-export function apiKeyStepsRefused(def: WorkflowDef, enabled: ReadonlySet<string>): string[] {
-  const groups = new Map((def.tuning?.groups ?? []).map((g) => [g.id, g]));
-  const refused: string[] = [];
-  for (const step of def.steps as Step[]) {
-    if (!enabled.has(step.id) || step.auth !== "api-key") continue;
-    const allowed =
-      step["allow-api"] === true ||
-      (step.group !== undefined && groups.get(step.group)?.["allow-api"] === true);
-    if (!allowed) refused.push(step.id);
-  }
-  return refused;
 }
 
 /** Primitive outputs only, strings clipped, for the compact `step.done` event (E1). */
@@ -454,7 +432,7 @@ function validated(located: LocatedDef): WorkflowDef {
   return result.def;
 }
 
-/** The profile's declared `caps.tokens`: the amount a ceiling approval raises the ceiling by. */
+/** The workflow's declared `caps.tokens`: the amount a ceiling approval raises the ceiling by. */
 function ceilingStep(live: LiveRun, state: State): number | undefined {
   return live.def.profiles?.[state.profile]?.caps?.tokens ?? state.caps.tokens;
 }
@@ -1256,14 +1234,14 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     if (limit === undefined || state.status !== "running" || state.gate) return;
     const used = usageTokens(usageTotal(state.usage));
     if (used < limit) return;
-    const message = `Run used ${used} tokens, ceiling ${limit} for profile ${state.profile}. Continue?`;
+    const message = `Run used ${used} tokens, ceiling ${limit}. Continue?`;
     if (live.controlMode === "synchronous") {
       emit(live, {
         type: "warn",
         step: stepId,
         message: headline(`ceiling: ${message} no (synchronous)`),
       });
-      failRun(live, `ceiling: used ${used} tokens, ceiling ${limit} for profile ${state.profile}`);
+      failRun(live, `ceiling: used ${used} tokens, ceiling ${limit}`);
       return;
     }
     const gate: Gate = {
@@ -1278,7 +1256,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     emit(live, { type: "gate.opened", step: stepId, verdict: headline(gate.message) });
   }
 
-  /** Answer to a ceiling gate: approve raises the ceiling by the profile's amount, reject fails. */
+  /** Answer to a ceiling gate: approve raises the ceiling by the declared amount, reject fails. */
   function answerCeiling(live: LiveRun, gate: Gate, value: string | string[]): { accepted: true } {
     const text = (Array.isArray(value) ? value.join(", ") : value).trim();
     if (text !== "approve" && text !== "reject") {
@@ -1292,7 +1270,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       emit(live, { type: "gate.answered", step: gate.step, verdict: "rejected: ceiling" });
       failRun(
         live,
-        `ceiling: used ${gate.ceiling?.used ?? 0} tokens, ceiling ${gate.ceiling?.limit ?? 0} for profile ${state.profile}, rejected`,
+        `ceiling: used ${gate.ceiling?.used ?? 0} tokens, ceiling ${gate.ceiling?.limit ?? 0}, rejected`,
       );
       return { accepted: true };
     }
@@ -1453,13 +1431,10 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const rec = asRecord(params, "preflight");
     const workflow = requireString(rec, "workflow", "preflight");
     requireString(rec, "cwd", "preflight");
-    const profile = optionalProfile(rec, "preflight");
+    const answers = { ...(optionalRecord(rec, "answers", "preflight") as Answers) };
     const located = locate(workflow);
     const def = validated(located);
-    const q = buildQuestionary(def, {
-      ...(profile !== undefined ? { profile } : {}),
-      harnesses: await readyHarnesses(def, getAdapter),
-    });
+    const q = buildQuestionary(def, { harnesses: await readyHarnesses(def, getAdapter) }, answers);
     return {
       workflow: located.name,
       version: def.version,
@@ -1473,28 +1448,17 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const rec = asRecord(params, "run");
     const workflow = requireString(rec, "workflow", "run");
     const cwd = requireString(rec, "cwd", "run");
-    const answers = { ...(optionalRecord(rec, "answers", "run") as Answers) };
+    const given = { ...(optionalRecord(rec, "answers", "run") as Answers) };
     const context = optionalRecord(rec, "context", "run") as Context;
     const explicitInputs = optionalRecord(rec, "inputs", "run") as Record<string, string>;
-    // The session profile stands in for an unanswered `profile` question (the conductor skips it).
-    const sessionProfile = optionalProfile(rec, "run");
-    if (answers.profile === undefined && sessionProfile !== undefined)
-      answers.profile = sessionProfile;
 
     const located = locate(workflow);
     const def = validated(located);
+    // A stage the conductor never reached takes its defaults; the completed set is what resume sees.
+    const completed = completeAnswers(def, {}, given);
+    const answers = completed.answers;
     const applied = applyAnswers(def, answers);
     const controlMode = controlModeOf(def, answers);
-    if (applied.profile === "low") {
-      const refused = apiKeyStepsRefused(def, applied.enabledSteps);
-      if (refused.length > 0) {
-        throw domainError(
-          "PROFILE_REFUSES_API",
-          `profile low refuses auth: api-key on ${refused.join(", ")}; set allow-api: true on the step or its tuning group, or pick another profile`,
-          { profile: applied.profile, steps: refused },
-        );
-      }
-    }
 
     const resolved: Record<string, Resolved> = {};
     for (const step of def.steps) {
@@ -1537,14 +1501,13 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       const fromContext = resolveFromContext(path, context);
       if (fromContext !== undefined) inputs[input.name] = fromContext;
     }
-    const questionary = buildQuestionary(def, { profile: applied.profile });
-    const missing = fillAnswers(questionary.questions, answers).missing.filter(
+    const missing = completed.missing.filter(
       (id) => !(id.startsWith("input.") && inputs[id.slice(6)]),
     );
     if (missing.length > 0) {
       throw domainError("MISSING_ANSWERS", `missing required answers: ${missing.join(", ")}`, {
         missing,
-        questions: questionary.questions.filter((q) => missing.includes(q.id)),
+        questions: completed.questions.filter((q) => missing.includes(q.id)),
       });
     }
 
@@ -1585,7 +1548,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       run_id: runId,
       type: "run.started",
       verdict: headline(
-        `${located.name} profile=${applied.profile} control=${controlMode} steps=${applied.enabledSteps.size}/${def.steps.length}`,
+        `${located.name} control=${controlMode} steps=${applied.enabledSteps.size}/${def.steps.length}`,
       ),
     });
     const live = makeLive(runId, runDir, def, located.dir, controlMode);

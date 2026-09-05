@@ -18,8 +18,7 @@ import type { Harness } from "./types.ts";
 import { migrateDef, renderDef } from "./migrate.ts";
 import type { MigrationNote } from "./migrate.ts";
 import { buildQuestionary } from "./preflight.ts";
-import { PROFILE_LEVELS } from "./types.ts";
-import type { Context, LocatedDef, ProfileLevel, ValidationIssue } from "./types.ts";
+import type { Answers, Context, LocatedDef, ValidationIssue } from "./types.ts";
 import { buildId, runtimeName } from "./version.ts";
 import { daemonCommand } from "./daemon.ts";
 import { clientCommand } from "./cli-client.ts";
@@ -29,16 +28,16 @@ import { unitMcpCommand } from "./unit-mcp.ts";
 const USAGE = `wise-engine <command> [options]
 
 Commands:
-  preflight <workflow> [--profile low|medium|max] [--context <json>]
-                              questionary spec: {workflow, version, questions, defaults}
+  preflight <workflow> [--answers <json>] [--context <json>]
+                              questionary spec: {workflow, version, questions, defaults}; --answers
+                              gives the answers so far and returns the next stage
   compile-check <workflow>...  validate definitions; exit 1 on any error
   migrate <workflow.yaml> [--write] [--out <path>]
                                rewrite a v1 workflow as v2; dry run unless --write (in place,
                                original kept as <file>.v1.bak) or --out; exit 1 if the result
                                still has validation errors
   list-defs                    bundled and user workflow definitions
-  run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v]
-                 [--profile low|medium|max] [--follow]
+  run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v] [--follow]
                                start a run through the daemon (auto-started)
   wait|status|answer|cancel|resume|report ...
                                daemon client commands; see each command's --help
@@ -142,10 +141,15 @@ async function cmdPreflight(p: Parsed, io: Io): Promise<number> {
     );
     return 1;
   }
-  const profileFlag = str(p.flags.profile);
-  if (profileFlag !== undefined && !(PROFILE_LEVELS as readonly string[]).includes(profileFlag)) {
-    io.err(`preflight: --profile must be one of ${PROFILE_LEVELS.join("|")}\n`);
-    return 64;
+  let answers: Answers = {};
+  const answersFlag = str(p.flags.answers);
+  if (answersFlag !== undefined) {
+    try {
+      answers = JSON.parse(answersFlag) as Answers;
+    } catch (e) {
+      io.err(`preflight: --answers is not JSON: ${(e as Error).message}\n`);
+      return 64;
+    }
   }
   let context: Context | undefined;
   const ctxFlag = str(p.flags.context);
@@ -157,13 +161,12 @@ async function cmdPreflight(p: Parsed, io: Io): Promise<number> {
       return 64;
     }
   }
-  const ctx: { context?: Context; profile?: ProfileLevel; harnesses: Harness[] } = {
+  const ctx: { context?: Context; harnesses: Harness[] } = {
     // Same probe the daemon runs, so this preview matches what a conductor sees.
     harnesses: await readyHarnesses(def, (h) => (hasAdapter(h) ? adapterFor(h) : undefined)),
   };
   if (context) ctx.context = context;
-  if (profileFlag) ctx.profile = profileFlag as ProfileLevel;
-  const q = buildQuestionary(def, ctx);
+  const q = buildQuestionary(def, ctx, answers);
   const result = {
     workflow: located.name,
     version: def.version,

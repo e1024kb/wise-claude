@@ -25,21 +25,20 @@ with a server prefix. Errors return `{"error":{code,message,...}}`.
 AskUserQuestion plus Abort). Remaining tokens fill the declared inputs
 in order; the last declared input absorbs the rest of the line.
 
-## 1. Init check and profile (one message)
+## 1. Init check
 
-Call `wise_status` (no id) and, in the same message, read the session
-profile per `${CLAUDE_PLUGIN_ROOT}/references/profile-read.md`.
+Call `wise_status` (no id). Workflows do not read the session profile
+set by `/wise-profile`; pre-flight asks harness, model and effort
+instead.
 
 - `wise_*` tools missing, or `DAEMON_UNAVAILABLE`: print
   `Run /wise-init, then retry.` and stop.
 - `AUTH_REQUIRED`: print `login_cmd` verbatim and stop.
-- Profile is known when the store file exists: pass it as `profile`
-  to `wise_preflight` and `wise_run` and skip the `profile` question.
 
 ## 2. Pre-flight
 
-`wise_preflight {workflow, cwd, profile?}`; `cwd` is the absolute git
-toplevel, else pwd.
+`wise_preflight {workflow, cwd, answers}`; `cwd` is the absolute git
+toplevel, else pwd; `answers` is `{}` on the first call.
 
 - `WORKFLOW_NOT_FOUND`: say so, stop.
 - `WORKFLOW_INVALID` whose `issues[]` name a v1 construct (`path:
@@ -53,15 +52,24 @@ toplevel, else pwd.
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
   until they are installed.
 
-Render `questions` with one composite AskUserQuestion (four questions
+The questionary is staged. Per tuning group it asks, in order, which
+CLI runs the group (`harness.<group>`, offered only when more than one
+CLI is logged in), which model of that CLI (`model.<group>`, the
+engine's catalog), then the effort that model takes (`effort.<group>`).
+Each answer unlocks the next stage, so loop: render the questions
+returned, merge the answers into `answers`, call `wise_preflight` again
+with them, until `questions` is empty. An answered question is never
+returned twice.
+
+Render each batch with one composite AskUserQuestion (four questions
 per call at most): `choice` single-select with the default option
 first, `multi` multiSelect with defaults listed first, `text` free text
-with the default offered. Skip `locked: true` questions, `profile` when
-known, and `input.<name>` filled positionally. Key answers by
-question id. Ask every remaining question, including each
-`harness.<group>` one (which CLI runs that group's steps: claude,
-codex, grok or gemini; only logged-in CLIs are offered); never answer
-one for the user or drop it to save a call.
+with the default offered. A `choice` with more than four options does
+not fit AskUserQuestion: print it as a numbered list (`1. Fable 5.1 -
+latest Fable`, default marked) and take the number or the value as the
+answer. Skip `locked: true` questions and `input.<name>` filled
+positionally. Key answers by question id. Ask every question returned;
+never answer one for the user or drop it to save a call.
 
 ## 3. Context and start
 
@@ -70,7 +78,7 @@ body, url}` for tickets already fetched, `guidance` (operator text),
 `decisions` settled here, `links`. Children never see the transcript;
 include what they need, nothing they could not otherwise see.
 
-`wise_run {workflow, cwd, answers, context, inputs, profile?}` returns
+`wise_run {workflow, cwd, answers, context, inputs}` returns
 `run_id`. Print `Run <run_id> started (<workflow>).` `MISSING_ANSWERS`
 lists required questions or inputs still without a value: ask them
 with AskUserQuestion and call `wise_run` again.

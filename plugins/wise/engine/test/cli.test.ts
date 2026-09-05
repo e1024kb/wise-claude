@@ -19,7 +19,13 @@ async function run(argv: string[]): Promise<{ code: number; out: string; err: st
 }
 
 test("preflight on a v2 file emits the P1 questionary shape", async () => {
-  const r = await run(["preflight", FIXTURE, "--profile", "low"]);
+  // Harness answers settle the first stage whatever CLIs this machine has logged in.
+  const answers = {
+    "harness.evidence": "claude",
+    "harness.authoring": "claude",
+    "model.evidence": "claude-sonnet-5",
+  };
+  const r = await run(["preflight", FIXTURE, "--answers", JSON.stringify(answers)]);
   assert.equal(r.code, 0, r.err);
   const j = JSON.parse(r.out) as {
     workflow: string;
@@ -33,12 +39,18 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
   for (const q of j.questions) {
     assert.match(
       q.id,
-      /^(profile|tuning\.[a-z][a-z0-9-]*|harness\.[a-z][a-z0-9-]*|step-select|input\.[a-z][a-z0-9_]*)$/,
+      /^((harness|model|effort)\.[a-z][a-z0-9-]*|step-select|input\.[a-z][a-z0-9_]*)$/,
     );
     assert.ok(["choice", "multi", "text"].includes(q.kind));
     assert.equal(typeof q.label, "string");
   }
-  assert.equal(j.defaults.profile, "low");
+  // The answered model unlocks its effort stage; the other group is still at its model stage.
+  assert.deepEqual(
+    j.questions.slice(0, 2).map((q) => q.id),
+    ["effort.evidence", "model.authoring"],
+  );
+  assert.equal(j.defaults["effort.evidence"], "medium");
+  assert.equal(j.defaults["model.authoring"], "claude-opus-5");
 });
 
 test("preflight --context pre-fills inputs from ticket refs", async () => {
@@ -51,8 +63,8 @@ test("preflight --context pre-fills inputs from ticket refs", async () => {
   assert.equal(input.default, "LEC-1, LEC-2");
 });
 
-test("preflight rejects a bad --profile and bad --context with exit 64", async () => {
-  assert.equal((await run(["preflight", FIXTURE, "--profile", "turbo"])).code, 64);
+test("preflight rejects bad --answers and bad --context with exit 64", async () => {
+  assert.equal((await run(["preflight", FIXTURE, "--answers", "{nope"])).code, 64);
   assert.equal((await run(["preflight", FIXTURE, "--context", "{nope"])).code, 64);
 });
 

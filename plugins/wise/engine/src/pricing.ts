@@ -13,6 +13,7 @@
 //           not modelled)
 // USD per million tokens. Update the table and the date together.
 
+import { CLAUDE_ALIASES } from "./models.ts";
 import type { CostSource, Harness, Usage } from "./types.ts";
 
 export type Price = {
@@ -70,19 +71,16 @@ export const PRICES: Readonly<Record<string, Price>> = {
   "gpt-5.3-codex": openai(1.75, 0.175, 14),
   "gpt-5.4": openai(2.5, 0.25, 15),
   "gpt-5.5": openai(5, 0.5, 30),
+  // GPT-5.6 tiers (2026-06) and GPT-6 Astra (2026-09-03); cached input at the usual 0.1x.
+  "gpt-5.6-sol": openai(4, 0.4, 20),
+  "gpt-5.6-terra": openai(2, 0.2, 12),
+  "gpt-5.6-luna": openai(0.2, 0.02, 1.2),
+  "gpt-6-astra": openai(10, 1, 50),
   // xAI grok 4 family.
   "grok-4.6": xai(2, 0.5, 6),
   "grok-4.5": xai(2, 0.3, 6),
   "grok-4.3": xai(1.25, 0.2, 2.5),
   "grok-build-0.1": xai(1, 0.2, 2),
-};
-
-/** Claude CLI aliases resolve to the current generation of their family. */
-const CLAUDE_ALIASES: Readonly<Record<string, string>> = {
-  fable: "claude-fable-5-1",
-  opus: "claude-opus-5",
-  sonnet: "claude-sonnet-5",
-  haiku: "claude-haiku-4-5",
 };
 
 /**

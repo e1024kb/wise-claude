@@ -22,8 +22,8 @@ consolidates the findings and makes every scope / approach / component
 / design / testing decision, writes a `PLAN-<ref>.md` into the run
 directory, presents it, sets up the branch, and (optionally)
 implements it. **Every decision is collected up front**,
-ticket-auto-style: pre-flight asks the budget profile, per-group
-model/effort tuning, the research stages, and four flow modes (gap
+ticket-auto-style: pre-flight asks harness, model and effort per
+tuning group, the research stages, and four flow modes (gap
 handling / plan review / branch / implement) - with the default modes
 the run is **fully autonomous after launch**, and each mode keeps an
 `ask` value that restores the mid-run question for exactly that
@@ -135,30 +135,27 @@ auto-answer those gates.) Session naming is the harness's job; the
 
 All configuration happens at pre-flight, before the DAG launches. The
 engine builds the questionary from the definition's `tuning:` /
-`profiles:` / `step-select:` / `inputs:` blocks and the conductor asks
-it:
+`step-select:` / `inputs:` blocks and the conductor asks it in stages:
 
-- **Budget profile** - `Budget profile for this run?`: **low** (sonnet
-  evidence tier, Opus 4.8/high authoring - `low` never dispatches
-  Opus 5), **medium** (the declared defaults), **max** (opus at high
-  effort for evidence and authoring). The session profile set by
-  `/wise-profile` pre-answers it.
-- **Tuning** - one question per group: **evidence** (design spec,
-  deep-dive sweep, codebase audit; default `opus / high`) and
-  **authoring** (gap analysis, build plan, refine, implement; default
-  `opus / xhigh`), each with `Keep default` or `Economy`. The chosen
-  value binds every step in the group at dispatch; the sonnet steps
-  pin their model and are not tunable.
+- **Tuning** - per group, **evidence** (design spec, deep-dive sweep,
+  codebase audit; default `claude-opus-5 / high`) and **authoring**
+  (gap analysis, build plan, refine, implement; default `claude-opus-5
+  / high`): which CLI runs it (asked only when another CLI is logged
+  in), then which model from the engine's catalog for that CLI, then
+  the effort that model takes. The answers bind every step in the
+  group at dispatch; the sonnet steps pin their model and are not
+  tunable.
 - **Stage selection** - one multi-select over the optional research
   stages: design analysis, related tickets & docs, deep-dive sweep,
   gap analysis (the `resolve-gaps` question follows gap analysis on
   its own). Deselected steps are pre-marked `skipped` in run state;
   the `none-failed` trigger-rules above keep the DAG flowing past
   them.
-- **Review depth** follows the session budget profile - the review
-  panel any follow-up `/wise-code-review-auto` runs is always the
-  3-lens set (correctness, security, tests); the profile sets each
-  reviewer's effort, so there is no separate review question.
+- **Review depth** - the review panel any follow-up
+  `/wise-code-review-auto` runs is always the 3-lens set (correctness,
+  security, tests); that skill reads the session profile from
+  `/wise-profile` for each reviewer's effort, so there is no review
+  question here.
 - **Flow modes** (text inputs with a `validate:` regex, defaults
   pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
   (**auto** / ask), `branch_mode` (**auto** / current / ask), and
@@ -204,8 +201,8 @@ implement) defaults to `opus / xhigh`, which Opus 5's policy ceiling
 resolves to `high` (see
 [Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings));
 `evidence` (analyze-design, research-context, codebase-audit) defaults
-to `opus / high`; every other step pins `sonnet`. The profile and the
-tuning answers override the group defaults at dispatch. See
+to `opus / high`; every other step pins `sonnet`. The pre-flight
+answers override the group defaults at dispatch. See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Inputs
@@ -251,8 +248,8 @@ record. `/wise-workflow-status <run-ulid>` shows `plan_path`.
 
 ```
 /wise-workflow-run ticket-plan
-# Pre-flight asks everything up front: budget profile, per-group
-# tuning, research stages, the ticket URL or id, and the four flow
+# Pre-flight asks everything up front: harness, model and effort per
+# group, research stages, the ticket URL or id, and the four flow
 # modes. With the default modes the run is fully autonomous
 # after launch — plan written, ticket branch created, run ends after
 # setup with the implement pointers.

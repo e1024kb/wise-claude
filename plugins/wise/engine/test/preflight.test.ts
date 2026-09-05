@@ -10,9 +10,11 @@ import { loadDef, validateDef } from "../src/defs.ts";
 import {
   applyAnswers,
   buildQuestionary,
+  completeAnswers,
   optionalStepIds,
   resolveFromContext,
 } from "../src/preflight.ts";
+import { MODEL_CATALOG, catalogModel, defaultEffort, defaultModel } from "../src/models.ts";
 import type { ValidationIssue, WorkflowDef } from "../src/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -64,7 +66,7 @@ test("test_preflight_new_keys_default_skip", () => {
   // No `preflight:` block: nothing pinned, the questionary is still built.
   const def = valid(doc());
   assert.equal(def.preflight, undefined);
-  assert.deepEqual(questionIds(def), ["profile"]);
+  assert.deepEqual(questionIds(def), []);
 });
 
 test("test_preflight_new_keys_accept_prompt", () => {
@@ -118,14 +120,17 @@ test("test_get_tuning_emits_step_defaults", () => {
       },
     }),
   );
-  const [, g0, g1] = buildQuestionary(def).questions;
-  assert.equal(g0?.id, "tuning.authoring");
-  assert.equal(g0?.label, "Plan authoring");
-  assert.deepEqual(g0?.options, [
-    { value: "default", label: "Keep default (claude / opus / xhigh)" },
-  ]);
-  assert.equal(g0?.default, "default");
-  assert.deepEqual(g1?.options, [{ value: "default", label: "Keep default (opus / xhigh)" }]);
+  // One harness ready (none given): the harness stage is silent, the model stage asks.
+  const [g0, g1] = buildQuestionary(def).questions;
+  assert.equal(g0?.id, "model.authoring");
+  assert.equal(g0?.label, "Which claude model: Plan authoring?");
+  assert.deepEqual(
+    g0?.options?.map((o) => o.value),
+    MODEL_CATALOG.claude.map((m) => m.id),
+  );
+  assert.equal(g0?.default, "claude-opus-5", "the `opus` alias maps to its catalog entry");
+  assert.equal(g1?.id, "model.plan");
+  assert.equal(g1?.default, "claude-opus-5");
 });
 
 const TUNING_INVALID: [string, Doc, string, RegExp][] = [
@@ -341,12 +346,7 @@ function profilesDoc(profiles: unknown): Doc {
 test("test_get_profiles_empty_when_absent", () => {
   const def = valid(doc());
   assert.equal(def.profiles, undefined);
-  const q = buildQuestionary(def).questions[0];
-  assert.deepEqual(
-    q?.options?.map((o) => o.value),
-    ["low", "medium", "max"],
-  );
-  assert.equal(q?.default, "medium");
+  assert.deepEqual(buildQuestionary(def).questions, [], "no profile question in v2");
 });
 
 test("test_get_profiles_full_shape", () => {
@@ -366,20 +366,27 @@ test("test_get_profiles_full_shape", () => {
   });
   assert.deepEqual(def.profiles?.medium, { tuning: {}, caps: {} });
   assert.equal(def.profiles?.max?.description, "everything");
-  const low = applyAnswers(def, { profile: "low" });
-  assert.deepEqual(low.tuning.authoring, { harness: "claude", model: "sonnet", effort: "medium" });
-  assert.deepEqual(low.tuning.plan, { model: "opus", effort: "high" });
-  assert.deepEqual(low.caps, { max_review_cycles: 2 });
+  // `low` and `max` parse but never apply: a run takes `medium` (the declared defaults).
+  const applied = applyAnswers(def, { profile: "low" });
+  assert.equal(applied.profile, "medium");
+  assert.deepEqual(applied.tuning.authoring, {
+    harness: "claude",
+    model: "claude-opus-5",
+    effort: "high",
+  });
+  assert.deepEqual(applied.caps, {});
 });
 
 test("test_get_profiles_model_only_tuning_value", () => {
-  const def = valid(profilesDoc({ low: { tuning: { authoring: { model: "sonnet" } } } }));
-  assert.deepEqual(def.profiles?.low?.tuning?.authoring, { model: "sonnet" });
-  // A partial override keeps the group's other fields (P2 example).
-  assert.deepEqual(applyAnswers(def, { profile: "low" }).tuning.authoring, {
+  const def = valid(profilesDoc({ medium: { tuning: { authoring: { model: "sonnet" } } } }));
+  assert.deepEqual(def.profiles?.medium?.tuning?.authoring, { model: "sonnet" });
+  // A partial `medium` override keeps the group's other fields (P2 example) and seeds the model
+  // question's default; `sonnet` caps at `medium` effort in the catalog.
+  assert.equal(buildQuestionary(def).questions[0]?.default, "claude-sonnet-5");
+  assert.deepEqual(applyAnswers(def, {}).tuning.authoring, {
     harness: "claude",
-    model: "sonnet",
-    effort: "high",
+    model: "claude-sonnet-5",
+    effort: "medium",
   });
 });
 
@@ -498,8 +505,8 @@ function ticketPlan(): WorkflowDef {
 
 /**
  * The bundled ticket-plan plus the v2 constructs it does not use: a locked tuning group,
- * profile caps, and an optional `from-context: guidance` input. Exercises the engine paths
- * the M3.1 migration dropped from the bundled file (today's pre-flight has neither).
+ * `medium` caps, and an optional `from-context: guidance` input. Exercises the engine paths
+ * the bundled file leaves alone.
  */
 function extendedTicketPlan(): WorkflowDef {
   const def = structuredClone(ticketPlan());
@@ -509,8 +516,7 @@ function extendedTicketPlan(): WorkflowDef {
     default: { harness: "claude", model: "sonnet", effort: "low" },
     locked: true,
   });
-  if (def.profiles?.low) def.profiles.low.caps = { max_refine_passes: 1 };
-  if (def.profiles?.max) def.profiles.max.caps = { max_refine_passes: 3 };
+  def.profiles = { medium: { caps: { max_refine_passes: 2 } } };
   def.inputs?.push({
     name: "config_prompt",
     prompt: "Extra guidance for the run?",
@@ -527,12 +533,11 @@ test("buildQuestionary snapshot: bundled ticket-plan", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(buildQuestionary(ticketPlan()))), expected);
 });
 
-test("buildQuestionary order: profile, tuning groups, step-select, inputs", () => {
+test("buildQuestionary order: tuning group stages, step-select, inputs", () => {
   const ids = questionIds(ticketPlan());
   assert.deepEqual(ids, [
-    "profile",
-    "tuning.evidence",
-    "tuning.authoring",
+    "model.evidence",
+    "model.authoring",
     "step-select",
     "input.ticket_id",
     "input.gap_mode",
@@ -542,32 +547,108 @@ test("buildQuestionary order: profile, tuning groups, step-select, inputs", () =
   ]);
 });
 
-test("buildQuestionary: locked groups are returned with locked and only the default option", () => {
+test("buildQuestionary: locked groups ask nothing and keep their declared value", () => {
   const def = extendedTicketPlan();
-  const q = buildQuestionary(def).questions.find((x) => x.id === "tuning.presentation");
-  assert.equal(q?.locked, true);
+  const ids = questionIds(def);
+  assert.ok(!ids.some((id) => id.endsWith(".presentation")));
   assert.deepEqual(
-    q?.options?.map((o) => o.value),
-    ["default"],
-  );
-  const open = buildQuestionary(def).questions.find((x) => x.id === "tuning.evidence");
-  assert.equal(open?.locked, undefined);
-  assert.deepEqual(
-    open?.options?.map((o) => o.value),
-    ["default", "economy"],
+    applyAnswers(def, { "model.presentation": "claude-opus-5" }).tuning.presentation,
+    {
+      harness: "claude",
+      model: "sonnet",
+      effort: "low",
+    },
   );
 });
 
-test("buildQuestionary: profile default comes from ctx.profile and falls back to medium", () => {
+test("buildQuestionary: stages unlock one at a time and answered questions are not repeated", () => {
   const def = ticketPlan();
-  assert.equal(buildQuestionary(def, { profile: "max" }).defaults.profile, "max");
-  assert.equal(buildQuestionary(def).defaults.profile, "medium");
-  const twoLevels = valid(doc({ profiles: { low: {}, max: {} } }));
-  assert.equal(buildQuestionary(twoLevels, { profile: "medium" }).defaults.profile, "low");
+  const ready = ["claude", "codex", "grok", "gemini"] as const;
+  // Stage 1: harness per group, nothing else about the group yet.
+  const s1 = buildQuestionary(def, { harnesses: ready });
   assert.deepEqual(
-    buildQuestionary(twoLevels).questions[0]?.options?.map((o) => o.value),
-    ["low", "max"],
+    s1.questions.map((q) => q.id).filter((id) => !id.startsWith("input.")),
+    ["harness.evidence", "harness.authoring", "step-select"],
   );
+  const hq = s1.questions[0];
+  assert.equal(
+    hq?.label,
+    "Which CLI runs: Evidence & research (design spec, deep-dive sweep, codebase audit)?",
+  );
+  assert.deepEqual(
+    hq?.options?.map((o) => o.value),
+    [...ready],
+  );
+  assert.equal(hq?.default, "claude");
+  assert.equal(s1.defaults["harness.evidence"], "claude");
+  // Stage 2: the model catalog of the harness each group picked.
+  const a2 = { "harness.evidence": "codex", "harness.authoring": "claude" };
+  const s2 = buildQuestionary(def, { harnesses: ready }, a2);
+  const ids2 = s2.questions.map((q) => q.id);
+  assert.deepEqual(
+    ids2.filter((id) => !id.startsWith("input.")),
+    ["model.evidence", "model.authoring", "step-select"],
+  );
+  const codexQ = s2.questions.find((q) => q.id === "model.evidence");
+  assert.equal(
+    codexQ?.label,
+    "Which codex model: Evidence & research (design spec, deep-dive sweep, codebase audit)?",
+  );
+  assert.deepEqual(
+    codexQ?.options?.map((o) => o.value),
+    ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
+  );
+  assert.equal(codexQ?.default, "gpt-6-astra", "a Claude pin means nothing to codex: first entry");
+  assert.equal(s2.questions.find((q) => q.id === "model.authoring")?.default, "claude-opus-5");
+  // Stage 3: the efforts of the chosen model; a one-effort model asks nothing.
+  const a3 = { ...a2, "model.evidence": "gpt-5.6-luna", "model.authoring": "claude-haiku-4-5" };
+  const s3 = buildQuestionary(def, { harnesses: ready }, a3);
+  assert.deepEqual(
+    s3.questions.map((q) => q.id).filter((id) => !id.startsWith("input.")),
+    ["effort.evidence", "step-select"],
+  );
+  const eq = s3.questions[0];
+  assert.equal(
+    eq?.label,
+    "Effort for GPT-5.6 Luna: Evidence & research (design spec, deep-dive sweep, codebase audit)?",
+  );
+  assert.deepEqual(
+    eq?.options?.map((o) => o.value),
+    ["low", "medium", "high"],
+  );
+  assert.equal(eq?.default, "high", "the group's declared effort");
+  // Everything answered: only the stage-free questions remain, minus the answered ones.
+  const a4 = { ...a3, "effort.evidence": "medium", "step-select": ["analyze-design"] };
+  assert.deepEqual(
+    buildQuestionary(def, { harnesses: ready }, a4).questions.map((q) => q.id),
+    [
+      "input.ticket_id",
+      "input.gap_mode",
+      "input.review_mode",
+      "input.branch_mode",
+      "input.implement_mode",
+    ],
+  );
+});
+
+test("buildQuestionary: a single ready harness or an unprobed context skips the harness stage", () => {
+  const def = ticketPlan();
+  for (const ctx of [{}, { harnesses: ["claude"] as const }, { harnesses: [] as const }] as const) {
+    const ids = buildQuestionary(def, ctx).questions.map((q) => q.id);
+    assert.ok(!ids.some((id) => id.startsWith("harness.")), JSON.stringify(ctx));
+    assert.deepEqual(ids.slice(0, 2), ["model.evidence", "model.authoring"]);
+  }
+  // grok has one catalog model and no efforts: the group settles with no further question.
+  const grok = buildQuestionary(
+    def,
+    { harnesses: ["claude", "grok"] },
+    { "harness.evidence": "grok" },
+  );
+  assert.ok(!grok.questions.some((q) => q.id.endsWith(".evidence")));
+  assert.deepEqual(applyAnswers(def, { "harness.evidence": "grok" }).tuning.evidence, {
+    harness: "grok",
+    model: "grok-4.6",
+  });
 });
 
 test("buildQuestionary: from-context pre-fills inputs (E1)", () => {
@@ -597,103 +678,157 @@ test("buildQuestionary: optional input without context defaults to empty, requir
 
 // ---- applyAnswers --------------------------------------------------------------------------------------------
 
-test("applyAnswers: profile override sits over the group default, preset answer over both", () => {
+test("applyAnswers: no answers resolves every unlocked group onto its catalog default", () => {
   const def = extendedTicketPlan();
   const base = applyAnswers(def, {});
   assert.equal(base.profile, "medium");
-  assert.deepEqual(base.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
-  const low = applyAnswers(def, { profile: "low" });
-  assert.deepEqual(low.tuning.evidence, { harness: "claude", model: "sonnet", effort: "medium" });
-  assert.deepEqual(low.tuning.authoring, {
+  assert.deepEqual(base.tuning.evidence, {
     harness: "claude",
-    model: "claude-opus-4-8",
+    model: "claude-opus-5",
     effort: "high",
   });
-  assert.deepEqual(low.caps, { max_refine_passes: 1 });
-  const preset = applyAnswers(def, { profile: "max", "tuning.authoring": "economy" });
-  assert.deepEqual(preset.tuning.authoring, {
+  // `xhigh` is not in Opus 5's catalog efforts: the highest listed one below it.
+  assert.deepEqual(base.tuning.authoring, {
     harness: "claude",
-    model: "claude-opus-4-8",
+    model: "claude-opus-5",
     effort: "high",
   });
-  assert.deepEqual(preset.caps, { max_refine_passes: 3 });
-  const unknownPreset = applyAnswers(def, { "tuning.evidence": "nope" });
-  assert.deepEqual(unknownPreset.tuning.evidence, {
+  assert.deepEqual(base.caps, { max_refine_passes: 2 }, "medium caps apply");
+  // Answers from a stage the questionary would not have asked are still honoured when valid.
+  const picked = applyAnswers(def, {
+    "model.authoring": "claude-fable-5-1",
+    "effort.authoring": "low",
+    "model.evidence": "claude-sonnet-5",
+  });
+  assert.deepEqual(picked.tuning.authoring, {
     harness: "claude",
-    model: "opus",
+    model: "claude-fable-5-1",
+    effort: "low",
+  });
+  assert.deepEqual(picked.tuning.evidence, {
+    harness: "claude",
+    model: "claude-sonnet-5",
+    effort: "medium",
+  });
+  // Unknown answers fall back stage by stage: model to the default, effort to the model's default.
+  const unknown = applyAnswers(def, { "model.evidence": "gpt-5.5", "effort.evidence": "ultra" });
+  assert.deepEqual(unknown.tuning.evidence, {
+    harness: "claude",
+    model: "claude-opus-5",
+    effort: "high",
+  });
+  // The alias form of a catalog id is accepted too.
+  assert.equal(
+    applyAnswers(def, { "model.evidence": "haiku" }).tuning.evidence?.model,
+    "claude-haiku-4-5",
+  );
+});
+
+test("completeAnswers: walks every stage to its defaults; explicit answers steer it", () => {
+  const def = extendedTicketPlan();
+  const ready = ["claude", "codex"] as const;
+  const done = completeAnswers(def, { harnesses: ready }, {});
+  assert.deepEqual(
+    Object.entries(done.answers).filter(([id]) => !id.startsWith("input.")),
+    [
+      ["harness.evidence", "claude"],
+      ["harness.authoring", "claude"],
+      ["step-select", ["analyze-design", "analyze-related", "research-context", "gap-analysis"]],
+      ["model.evidence", "claude-opus-5"],
+      ["model.authoring", "claude-opus-5"],
+      ["effort.evidence", "high"],
+      ["effort.authoring", "high"],
+    ],
+  );
+  assert.deepEqual(done.missing, ["input.ticket_id"]);
+  assert.ok(done.questions.some((q) => q.id === "effort.authoring"));
+  const steered = completeAnswers(def, { harnesses: ready }, { "harness.evidence": "codex" });
+  assert.equal(steered.answers["model.evidence"], "gpt-6-astra");
+  assert.equal(steered.answers["effort.evidence"], "high");
+  assert.deepEqual(applyAnswers(def, steered.answers).tuning.evidence, {
+    harness: "codex",
+    model: "gpt-6-astra",
     effort: "high",
   });
 });
 
-test("harness.<group>: offered per unlocked group only when another harness is ready", () => {
+test("models: catalog helpers", () => {
+  assert.equal(catalogModel("claude", "opus")?.id, "claude-opus-5");
+  assert.equal(catalogModel("claude", "CLAUDE-SONNET-5")?.id, "claude-sonnet-5");
+  assert.equal(catalogModel("codex", "opus"), undefined);
+  assert.equal(defaultModel("codex", "opus").id, "gpt-6-astra");
+  assert.equal(defaultModel("gemini").id, "gemini-3.8-flash");
+  const sonnet = defaultModel("claude", "sonnet");
+  assert.equal(defaultEffort(sonnet, "xhigh"), "medium");
+  assert.equal(defaultEffort(sonnet, "low"), "low");
+  assert.equal(defaultEffort(sonnet, undefined), "low");
+  assert.equal(defaultEffort(defaultModel("claude", "haiku"), "high"), "medium");
+  assert.equal(defaultEffort(defaultModel("grok"), "high"), undefined);
+  for (const [harness, models] of Object.entries(MODEL_CATALOG)) {
+    assert.ok(models.length > 0, harness);
+    assert.equal(new Set(models.map((m) => m.id)).size, models.length, `${harness}: unique ids`);
+  }
+});
+
+test("harness.<group>: asked per unlocked group when two or more harnesses are ready", () => {
   const def = extendedTicketPlan();
-  const none = buildQuestionary(def).questions.map((q) => q.id);
-  assert.ok(!none.some((id) => id.startsWith("harness.")));
-  const onlyClaude = buildQuestionary(def, { harnesses: ["claude"] }).questions.map((q) => q.id);
-  assert.ok(!onlyClaude.some((id) => id.startsWith("harness.")));
   const qs = buildQuestionary(def, { harnesses: ["claude", "codex", "grok"] }).questions;
-  const ids = qs.map((q) => q.id);
   assert.deepEqual(
-    ids.filter((id) => id.startsWith("tuning.") || id.startsWith("harness.")),
-    [
-      "tuning.evidence",
-      "harness.evidence",
-      "tuning.authoring",
-      "harness.authoring",
-      "tuning.presentation", // locked: no harness question
-    ],
+    qs.map((q) => q.id).filter((id) => id.startsWith("harness.")),
+    ["harness.evidence", "harness.authoring"], // presentation is locked
   );
   const hq = qs.find((q) => q.id === "harness.evidence");
   assert.equal(hq?.kind, "choice");
-  assert.equal(hq?.default, "default");
-  assert.match(hq?.label ?? "", /^Which CLI runs: Evidence/);
+  assert.equal(hq?.default, "claude");
   assert.deepEqual(
-    hq?.options?.map((o) => o.value),
-    ["default", "codex", "grok"],
+    hq?.options?.map((o) => [o.value, o.description]),
+    [
+      ["claude", "the workflow's default"],
+      ["codex", "run these steps on codex"],
+      ["grok", "run these steps on grok"],
+    ],
   );
-  assert.equal(hq?.options?.[0]?.label, "Keep default (claude)");
+  // The default harness is offered even when the probe list omits it (the run probes it anyway).
+  const noClaude = buildQuestionary(def, { harnesses: ["codex", "grok"] }).questions[0];
+  assert.equal(noClaude?.id, "harness.evidence");
+  assert.deepEqual(
+    noClaude?.options?.map((o) => o.value),
+    ["claude", "codex", "grok"],
+  );
+  assert.equal(noClaude?.default, "claude");
 });
 
-test("applyAnswers: harness.<group> swaps the harness, resets the model, keeps the effort", () => {
+test("applyAnswers: harness.<group> swaps the harness onto its catalog, keeps the declared effort", () => {
   const def = extendedTicketPlan();
-  const swapped = applyAnswers(def, { profile: "low", "harness.evidence": "codex" });
+  const swapped = applyAnswers(def, { "harness.evidence": "codex" });
   assert.deepEqual(swapped.tuning.evidence, {
     harness: "codex",
-    model: "inherit",
-    effort: "medium",
+    model: "gpt-6-astra",
+    effort: "high",
   });
   assert.deepEqual(swapped.tuning.authoring, {
     harness: "claude",
-    model: "claude-opus-4-8",
+    model: "claude-opus-5",
     effort: "high",
   });
-  const kept = applyAnswers(def, { "harness.evidence": "default" });
-  assert.deepEqual(kept.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
   const same = applyAnswers(def, { "harness.evidence": "claude" });
-  assert.deepEqual(same.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
+  assert.deepEqual(same.tuning.evidence, {
+    harness: "claude",
+    model: "claude-opus-5",
+    effort: "high",
+  });
   const unknown = applyAnswers(def, { "harness.evidence": "bard" });
-  assert.deepEqual(unknown.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
+  assert.deepEqual(unknown.tuning.evidence, {
+    harness: "claude",
+    model: "claude-opus-5",
+    effort: "high",
+  });
   const locked = applyAnswers(def, { "harness.presentation": "codex" });
   assert.equal(locked.tuning.presentation?.harness, "claude");
-  const withPreset = applyAnswers(def, {
-    "tuning.authoring": "economy",
-    "harness.authoring": "grok",
-  });
-  assert.deepEqual(withPreset.tuning.authoring, {
-    harness: "grok",
-    model: "inherit",
-    effort: "high",
-  });
-});
-
-test("applyAnswers: locked groups ignore answers, invalid profile falls back", () => {
-  const def = extendedTicketPlan();
-  const applied = applyAnswers(def, { profile: "turbo", "tuning.presentation": "economy" });
-  assert.equal(applied.profile, "medium");
-  assert.deepEqual(applied.tuning.presentation, {
-    harness: "claude",
-    model: "sonnet",
-    effort: "low",
+  // gemini: no effort control, the effort is dropped.
+  assert.deepEqual(applyAnswers(def, { "harness.authoring": "gemini" }).tuning.authoring, {
+    harness: "gemini",
+    model: "gemini-3.8-flash",
   });
 });
 

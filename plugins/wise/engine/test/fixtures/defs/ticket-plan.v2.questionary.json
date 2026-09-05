@@ -1,61 +1,70 @@
 {
   "questions": [
     {
-      "id": "profile",
+      "id": "model.evidence",
       "kind": "choice",
-      "label": "Budget profile for this run?",
+      "label": "Which claude model: Evidence & research (design spec, deep-dive sweep, codebase audit)?",
       "options": [
         {
-          "value": "low",
-          "label": "low",
-          "description": "sonnet evidence, Opus 4.8 authoring"
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
         },
         {
-          "value": "medium",
-          "label": "medium",
-          "description": "the workflow's declared defaults"
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
         },
         {
-          "value": "max",
-          "label": "max",
-          "description": "opus at high effort for evidence and authoring"
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
         }
       ],
-      "default": "medium"
+      "default": "claude-opus-5"
     },
     {
-      "id": "tuning.evidence",
+      "id": "model.authoring",
       "kind": "choice",
-      "label": "Evidence & research (design spec, deep-dive sweep, codebase audit)",
+      "label": "Which claude model: Plan authoring (gap analysis, build plan, refine, implement)?",
       "options": [
         {
-          "value": "default",
-          "label": "Keep default (claude / opus / high)"
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
         },
         {
-          "value": "economy",
-          "label": "Economy",
-          "description": "sonnet at medium effort"
-        }
-      ],
-      "default": "default"
-    },
-    {
-      "id": "tuning.authoring",
-      "kind": "choice",
-      "label": "Plan authoring (gap analysis, build plan, refine, implement)",
-      "options": [
-        {
-          "value": "default",
-          "label": "Keep default (claude / opus / xhigh)"
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
         },
         {
-          "value": "economy",
-          "label": "Economy",
-          "description": "Opus 4.8 at high effort"
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
         }
       ],
-      "default": "default"
+      "default": "claude-opus-5"
     },
     {
       "id": "step-select",
@@ -121,9 +130,8 @@
     }
   ],
   "defaults": {
-    "profile": "medium",
-    "tuning.evidence": "default",
-    "tuning.authoring": "default",
+    "model.evidence": "claude-opus-5",
+    "model.authoring": "claude-opus-5",
     "step-select": [
       "analyze-design",
       "analyze-related",

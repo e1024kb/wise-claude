@@ -61,8 +61,9 @@ Current actions (all standalone):
 - `/wise-profile` — set the session's token-budget profile
   (`low|medium|max`, default `medium` = the standard behavior). Stored
   per session; profile-sensitive skills (`wise-code-review-auto`,
-  `wise-pr-watch-auto`, the workflow conductor) read it via
-  `references/profile-read.md` and degrade silently to `medium`.
+  `wise-pr-watch-auto`) read it via `references/profile-read.md` and
+  degrade silently to `medium`. Workflows never read it: the engine's
+  pre-flight asks harness, model and effort per tuning group instead.
   Budget only — model tiers, optional-step scope, panel size, retry
   caps; NEVER correctness rules.
 - `/wise-fork` — reorient a forked session. Inherited context becomes
@@ -366,8 +367,9 @@ one-liners below are the rule, not the argument for it.
   `~/.local/share/wise/profile/<session-id>` — one word
   (`low|medium|max`) written atomically by `/wise-profile`
   (`workflows.py profile-set`), read via
-  `references/profile-read.md` / `profile-get` and by the engine
-  (`engine/src/profile.ts`) with silent degradation to `medium`, and
+  `references/profile-read.md` / `profile-get` with silent degradation
+  to `medium` (the engine keeps `engine/src/profile.ts` for the data
+  root only; workflows run at `medium`), and
   GC'd opportunistically (files from sessions older than 30 days) on
   each write. Routed through `wise_data_root()` (engine: `paths.ts`).
   New per-user persistent state
@@ -418,8 +420,10 @@ one-liners below are the rule, not the argument for it.
   group) passed as real CLI flags; a Claude child delegates to a roster
   role through its own `Task` / `Agent` tool when the prompt says so.
   There is no `agent:` / `agents:` field, no teams, no conductor-side
-  synthesis. Model resolution (retired-id swap, low-profile Opus rule,
-  capability clamp, policy ceiling) is `engine/src/resolve.ts`. Keep
+  synthesis. Model resolution (retired-id swap, capability clamp,
+  policy ceiling; the low-profile Opus rule stays dormant because
+  workflows run at `medium`) is `engine/src/resolve.ts`; the model
+  catalog pre-flight offers is `engine/src/models.ts`. Keep
   `AGENTS.md`'s catalog table in sync with `agents/*.md`, the same way
   workflow READMEs stay in sync with YAML.
 - **The roster is canonical; never hand-maintain a divergent copy.**

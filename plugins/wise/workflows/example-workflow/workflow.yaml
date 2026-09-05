@@ -15,9 +15,8 @@ preflight:
   control-mode: interactive
   worktree: current
 
-# Two tuning groups so the pre-flight questionary and the profile
-# overrides are smoke-tested too: `classify` stays on haiku at every
-# level, `summarize` is bumped to sonnet by the `max` profile.
+# Two tuning groups so the staged pre-flight questionary is smoke-tested
+# too: both default to haiku, `summarize` has codex as fallback harness.
 tuning:
   groups:
     - id: classify
@@ -28,12 +27,6 @@ tuning:
       default: { harness: claude, model: haiku, effort: low }
       fallback: [codex]
 
-profiles:
-  low: {}
-  medium: {}
-  max:
-    tuning:
-      summarize: { model: sonnet, effort: medium }
 
 inputs:
   - name: focus

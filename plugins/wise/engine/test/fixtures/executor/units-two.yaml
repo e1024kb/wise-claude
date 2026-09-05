@@ -6,9 +6,8 @@ tuning:
     - id: build
       default: { harness: claude, model: haiku, effort: low }
 profiles:
-  low:
+  medium:
     caps: { max_fix_attempts: 3, max_review_cycles: 2, watch_poll_seconds: 1, watch_stable_passes: 1 }
-  medium: {}
 inputs:
   - name: tickets
     prompt: "Which tickets?"

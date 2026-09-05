@@ -12,14 +12,14 @@ watches CI and the bots, fixes what they raise, and merges once the PR
 is green and quiet. One worktree + branch + PR per ticket. A merged PR
 loses its worktree and local branch; anything else stays open for a
 human with the worktree kept for inspection. No prompts after launch:
-pre-flight asks the budget profile, one tuning question per phase
-group, and the inputs.
+pre-flight asks harness, model and effort per phase group, and the
+inputs.
 
 The per-ticket loop is engine code (`plugins/wise/engine/src/units.ts`,
 design in `docs/wise/research-ts-engine.md` P4). The five model phases
 run from the engine's prompt templates under
 `plugins/wise/engine/src/prompts/units/`; this workflow declares only
-the phase -> tuning-group binding, the caps per profile, the reviewers,
+the phase -> tuning-group binding, the unit caps, the reviewers,
 the intake and the report. The prompt fragments still under `prompts/`
 (`implement-plan.md`, `review-branch-auto.md`, `watch-pipelines-auto.md`,
 ...) are shared routines the standalone `/wise-*-auto` skills and
@@ -76,21 +76,17 @@ Inside `process`, per ticket and in this order:
 
 | Id | Kind | Default | Notes |
 |---|---|---|---|
-| `profile` | choice | `medium` (or the session profile from `/wise-profile`) | `low` / `medium` / `max`; see the caps below. |
-| `tuning.plan` | choice | `default` (`claude / opus / high`) | `economy` = Opus 4.8 at high. |
-| `tuning.implement` | choice | `default` (`claude / opus / high`) | `economy` = sonnet at high. Also binds `fix`. |
-| `tuning.review` | choice | `default` (`claude / opus / high`) | `economy` = Opus 4.8 at medium. |
-| `tuning.watch` | choice | `default` (`claude / sonnet / medium`) | `economy` = sonnet at low. |
+| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked only when another CLI is logged in. |
+| `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
+| `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
-Profiles (`low` never dispatches Opus 5):
+Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
-| Profile | plan | implement / fix | review | watch | max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes |
-|---|---|---|---|---|---|---|---|---|---|
-| `low` | Opus 4.8 / high | sonnet / high | Opus 4.8 / medium | sonnet / low | 2 | 3 | 30 | 60 | 2 |
-| `medium` | opus / high | opus / high | opus / high | sonnet / medium | 3 | 5 | 60 | 60 | 2 |
-| `max` | opus / high | opus / high | opus / high + adversarial verification | sonnet / medium | 5 | 10 | 120 | 60 | 2 |
+| max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes |
+|---|---|---|---|---|
+| 3 | 5 | 60 | 60 | 2 |
 
 ## Steps
 
@@ -99,7 +95,7 @@ Profiles (`low` never dispatches Opus 5):
 | `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
 | `split-tickets` | `bash` | Splits the `tickets` input on commas and semicolons, trims, dedupes, validates the charset, emits a JSON array as `ticket_list`. Fails on an empty list. |
 | `ensure-access` | `agent` (sonnet) | Reads `wise_context("ticket")` first; probes a real channel (MCP, CLI, public URL) for every ticket not already in the context. Emits `access` (`ok` / `blocked`) and `detail`. |
-| `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from the profile; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |
+| `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |
 | `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
 
 ## Inputs
@@ -122,7 +118,7 @@ Profiles (`low` never dispatches Opus 5):
 
 ```
 /wise-workflow-run ticket-auto
-# Pre-flight asks the profile, the four tuning groups and the tickets.
+# Pre-flight asks harness, model and effort per group, and the tickets.
 
 /wise-workflow-run ticket-auto PROJ-1,PROJ-2
 # Two tickets, no spaces. Sequential units, one PR each.

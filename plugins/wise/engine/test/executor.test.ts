@@ -227,20 +227,16 @@ describe("executor", () => {
     const byName = await exec.handlers.preflight({ workflow: "single-agent", cwd: r.cwd }, ctx);
     assert.equal(byName.workflow, "single-agent");
     assert.equal(byName.version, 2);
-    assert.deepEqual(
-      byName.questions.map((q) => q.id),
-      ["profile"],
-    );
+    assert.deepEqual(byName.questions, []);
     const byPath = await exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd }, ctx);
     assert.equal(byPath.workflow, "example-workflow");
     assert.deepEqual(
       byPath.questions.map((q) => q.id),
-      ["profile", "tuning.classify", "tuning.summarize", "input.focus"],
+      ["model.classify", "model.summarize", "input.focus"],
     );
     assert.deepEqual(byPath.defaults, {
-      profile: "medium",
-      "tuning.classify": "default",
-      "tuning.summarize": "default",
+      "model.classify": "claude-haiku-4-5",
+      "model.summarize": "claude-haiku-4-5",
       "input.focus": "",
     });
     const missing = await attempt(() =>
@@ -268,20 +264,14 @@ describe("executor", () => {
     const pre = await exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd }, ctx);
     assert.deepEqual(
       pre.questions.map((q) => q.id),
-      [
-        "profile",
-        "tuning.classify",
-        "harness.classify",
-        "tuning.summarize",
-        "harness.summarize",
-        "input.focus",
-      ],
+      ["harness.classify", "harness.summarize", "input.focus"],
     );
     const hq = pre.questions.find((q) => q.id === "harness.classify");
     assert.deepEqual(
       hq?.options?.map((o) => o.value),
-      ["default", "codex"],
+      ["claude", "codex"],
     );
+    assert.equal(hq?.default, "claude");
     // grok is not logged in, so not offered; every group defaults to claude, so claude is not probed.
     assert.deepEqual(grok.probes, ["subscription"]);
     assert.deepEqual(claude.probes, []);
@@ -297,52 +287,71 @@ describe("executor", () => {
       ctx,
     );
     const state = readState(r.rt.requireRunDir(run_id));
+    // The unanswered stages took their defaults: codex's first catalog model at the group's effort.
     assert.deepEqual(state.resolved.classify, {
       harness: "codex",
-      model: "inherit",
+      model: "gpt-6-astra",
       effort: "low",
     });
+    assert.equal(state.answers["model.classify"], "gpt-6-astra");
+    assert.equal(state.answers["effort.classify"], "low");
     assert.equal(state.resolved["summarize-project"]?.harness, "claude");
+    assert.equal(state.resolved["summarize-project"]?.model, "claude-haiku-4-5");
     await until(() => codex.calls.length === 1, "codex dispatch of classify");
     await exec.handlers.cancel({ run_id }, ctx);
   });
 
-  test("session profile param: preflight presets the profile default, run uses it when unanswered", async () => {
+  test("preflight answers param: each call returns the next stage; run completes the rest", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
-    const pre = await exec.handlers.preflight(
-      { workflow: EXAMPLE, cwd: r.cwd, profile: "max" },
+    const s2 = await exec.handlers.preflight(
+      { workflow: EXAMPLE, cwd: r.cwd, answers: { "model.classify": "claude-sonnet-5" } },
       ctx,
     );
-    assert.equal(pre.questions.find((q) => q.id === "profile")?.default, "max");
-    assert.equal(pre.defaults.profile, "max");
-    const bad = await attempt(() =>
-      exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd, profile: "turbo" as never }, ctx),
+    assert.deepEqual(
+      s2.questions.map((q) => q.id),
+      ["effort.classify", "model.summarize", "input.focus"],
     );
-    assert.equal((bad as RpcError).code, RPC_INVALID_PARAMS);
-
-    const { run_id } = await exec.handlers.run(
-      { workflow: EXAMPLE, cwd: r.cwd, answers: {}, context: {}, inputs: {}, profile: "max" },
-      ctx,
+    const eq = s2.questions[0];
+    assert.deepEqual(
+      eq?.options?.map((o) => o.value),
+      ["low", "medium"],
     );
-    const runDir = r.rt.requireRunDir(run_id);
-    assert.equal(readState(runDir).profile, "max");
-    assert.equal(readState(runDir).answers.profile, "max");
-    // An explicit answer wins over the session profile.
-    const explicit = await exec.handlers.run(
+    assert.equal(eq?.default, "low");
+    const s3 = await exec.handlers.preflight(
       {
         workflow: EXAMPLE,
         cwd: r.cwd,
-        answers: { profile: "low" },
-        context: {},
-        inputs: {},
-        profile: "max",
+        answers: {
+          "model.classify": "claude-sonnet-5",
+          "effort.classify": "medium",
+          "model.summarize": "claude-haiku-4-5",
+          "input.focus": "",
+        },
       },
       ctx,
     );
-    assert.equal(readState(r.rt.requireRunDir(explicit.run_id)).profile, "low");
+    assert.deepEqual(s3.questions, [], "haiku has one effort: nothing left to ask");
+
+    const { run_id } = await exec.handlers.run(
+      {
+        workflow: EXAMPLE,
+        cwd: r.cwd,
+        answers: { "model.classify": "claude-sonnet-5", "effort.classify": "medium" },
+        context: {},
+        inputs: {},
+      },
+      ctx,
+    );
+    const state = readState(r.rt.requireRunDir(run_id));
+    assert.equal(state.profile, "medium");
+    assert.deepEqual(state.resolved.classify, {
+      harness: "claude",
+      model: "claude-sonnet-5",
+      effort: "medium",
+    });
+    assert.equal(state.answers["model.summarize"], "claude-haiku-4-5", "completed for resume");
     await exec.handlers.cancel({ run_id }, ctx);
-    await exec.handlers.cancel({ run_id: explicit.run_id }, ctx);
   });
 
   // ---- the example workflow end to end -----------------------------------------------------------------
@@ -388,7 +397,7 @@ describe("executor", () => {
       assert.match(summarizePrompt, /Focus: speed/);
       assert.equal(claude.calls[0]?.max_turns, 2);
       assert.equal(claude.calls[0]?.effort, undefined, "haiku has no effort control (resolve)");
-      assert.equal(claude.calls[0]?.model, "haiku");
+      assert.equal(claude.calls[0]?.model, "claude-haiku-4-5");
       assert.equal(typeof claude.calls[0]?.step_token, "string");
       assert.equal(claude.calls[0]?.step_token?.length, 32);
 
@@ -434,9 +443,9 @@ describe("executor", () => {
       assert.equal(state.steps.classify?.cursor, "sess-release_kind");
       assert.deepEqual(state.steps.classify?.resolved, {
         harness: "claude",
-        model: "haiku",
+        model: "claude-haiku-4-5",
         effort: "",
-        reason: "haiku has no effort control; effort 'low' dropped",
+        reason: "claude-haiku-4-5 has no effort control; effort 'medium' dropped",
       });
 
       // E14: usage folded by pool and harness = sum of the three fake results.
@@ -476,7 +485,7 @@ describe("executor", () => {
       assert.equal(classifyDone?.usage?.input, 100);
       const started = events.find((e) => e.type === "step.started" && e.step === "classify");
       assert.equal(started?.harness, "claude");
-      assert.equal(started?.model, "haiku");
+      assert.equal(started?.model, "claude-haiku-4-5");
       assert.equal(started?.effort, undefined);
       // logs: raw stream (none from the fake) and the human extract per agent step
       const logs = readdirSync(join(runDir, "logs"));
@@ -740,7 +749,7 @@ describe("executor", () => {
     assert.equal(second.prompt, first.prompt);
     assert.deepEqual(second.schema, first.schema);
     assert.equal(second.resume, undefined, "no cursor crosses harnesses");
-    assert.equal(first.model, "haiku");
+    assert.equal(first.model, "claude-haiku-4-5");
     assert.equal(second.model, "inherit", "the fallback harness runs its own default model");
     assert.equal(second.effort, first.effort, "effort carries over (haiku drops it on both)");
     // Step state carries the harness that finished the step.
@@ -853,7 +862,11 @@ describe("executor", () => {
     assert.equal(claude.calls.length, 2);
     assert.equal(codex.calls.length, 1);
     assert.equal(state.steps.answer?.resolved?.harness, "claude");
-    assert.equal(state.steps.answer?.resolved?.model, "haiku", "primary resolution restored");
+    assert.equal(
+      state.steps.answer?.resolved?.model,
+      "claude-haiku-4-5",
+      "primary resolution restored",
+    );
     assert.equal(state.steps.answer?.attempts, 3);
     const starts = readEvents(runDir)
       .filter((e) => e.type === "step.started")
@@ -1169,11 +1182,15 @@ describe("executor", () => {
       clients.add(c);
 
       const pre = await c.call("preflight", { workflow: EXAMPLE, cwd: r.cwd });
-      assert.equal(pre.questions.length, 4);
+      assert.equal(pre.questions.length, 3);
       const { run_id } = await c.call("run", {
         workflow: EXAMPLE,
         cwd: r.cwd,
-        answers: { ...pre.defaults, profile: "max" },
+        answers: {
+          ...pre.defaults,
+          "model.summarize": "claude-sonnet-5",
+          "effort.summarize": "medium",
+        },
         context: { guidance: "keep it short" },
         inputs: {},
       });
@@ -1205,11 +1222,14 @@ describe("executor", () => {
       assert.equal(report.usage.subscription.input, 300);
       assert.equal(types(seen)[0], "run.started");
       assert.equal(types(seen).at(-1), "run.done");
-      // `max` profile swaps the summarize group to sonnet / medium; classify keeps haiku / low.
+      // The staged answers put summarize on Sonnet 5 / medium; classify keeps the Haiku default.
       const summarize = claude.calls.find((x) => x.prompt.includes("summarise"));
-      assert.equal(summarize?.model, "sonnet");
+      assert.equal(summarize?.model, "claude-sonnet-5");
       assert.equal(summarize?.effort, "medium");
-      assert.equal(claude.calls.find((x) => x.prompt.includes("Classify"))?.model, "haiku");
+      assert.equal(
+        claude.calls.find((x) => x.prompt.includes("Classify"))?.model,
+        "claude-haiku-4-5",
+      );
       assert.match(
         summarize?.prompt ?? "",
         /Focus: keep it short/,
@@ -1294,57 +1314,18 @@ describe("executor", () => {
     exec.stop();
   });
 
-  test("M6.2 low profile refuses api-key steps without allow-api before any run dir exists", async () => {
+  test("api-key steps run under the declared defaults; a `profile` answer is ignored", async () => {
     const r = mkRoot();
     const claude = claudeFake();
     const exec = make(r, { adapters: { claude } });
-    const refused = await attempt(() =>
-      exec.handlers.run(
-        {
-          workflow: "api-key-refused",
-          cwd: r.cwd,
-          answers: { profile: "low" },
-          context: {},
-          inputs: {},
-        },
-        ctx,
-      ),
-    );
-    assert.equal(domainCode(refused), "PROFILE_REFUSES_API");
-    const data = (refused as RpcError).data as { steps: string[]; profile: string };
-    assert.deepEqual(data.steps, ["paid", "paid-optional"]);
-    assert.equal(data.profile, "low");
-    assert.match((refused as Error).message, /allow-api: true/);
-    assert.deepEqual(r.rt.listRunDirs(), [], "nothing created");
-    assert.equal(claude.probes.length, 0, "refused before the auth probe");
-
-    // A deselected api-key step is not counted; the remaining one still refuses.
-    const partial = await attempt(() =>
-      exec.handlers.run(
-        {
-          workflow: "api-key-refused",
-          cwd: r.cwd,
-          answers: { profile: "low", "step-select": [] },
-          context: {},
-          inputs: {},
-        },
-        ctx,
-      ),
-    );
-    assert.deepEqual(((partial as RpcError).data as { steps: string[] }).steps, ["paid"]);
-
-    // Medium runs the same workflow; low runs one where every api-key step is allowed
-    // (`allow-api` on the step itself or on its tuning group).
-    for (const [workflow, profile] of [
-      ["api-key-refused", "medium"],
-      ["api-key", "low"],
-    ] as const) {
+    for (const workflow of ["api-key-refused", "api-key"] as const) {
       const { run_id } = await exec.handlers.run(
-        { workflow, cwd: r.cwd, answers: { profile }, context: {}, inputs: {} },
+        { workflow, cwd: r.cwd, answers: { profile: "low" }, context: {}, inputs: {} },
         ctx,
       );
       const state = await untilStatus(r, run_id, ["completed", "failed"]);
-      assert.equal(state.status, "completed", `${workflow} at ${profile}`);
+      assert.equal(state.status, "completed", workflow);
+      assert.equal(state.profile, "medium");
     }
     assert.ok(claude.probes.includes("api-key"));
   });
@@ -1417,11 +1398,11 @@ describe("executor", () => {
     assert.equal(all[0]?.usage_total, undefined);
   });
 
-  test("M6.2 ceiling gate: crossing caps.tokens parks the run on the crossing step; approve raises by the profile amount and continues", async () => {
+  test("M6.2 ceiling gate: crossing caps.tokens parks the run on the crossing step; approve raises by the declared amount and continues", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
     const { run_id } = await exec.handlers.run(
-      { workflow: "ceiling", cwd: r.cwd, answers: { profile: "low" }, context: {}, inputs: {} },
+      { workflow: "ceiling", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
     // a: 110 tokens (< 150). b: 220 >= 150 -> gate on b, which has already completed.
@@ -1430,10 +1411,7 @@ describe("executor", () => {
     assert.equal(state.gate?.kind, "approval");
     assert.equal(state.gate?.step, "b");
     assert.deepEqual(state.gate?.ceiling, { used: 220, limit: 150 });
-    assert.equal(
-      state.gate?.message,
-      "Run used 220 tokens, ceiling 150 for profile low. Continue?",
-    );
+    assert.equal(state.gate?.message, "Run used 220 tokens, ceiling 150. Continue?");
     assert.deepEqual(
       state.gate?.options?.map((o) => o.value),
       ["approve", "reject"],
@@ -1470,7 +1448,7 @@ describe("executor", () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
     const { run_id } = await exec.handlers.run(
-      { workflow: "ceiling", cwd: r.cwd, answers: { profile: "medium" }, context: {}, inputs: {} },
+      { workflow: "ceiling", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
     let state = await untilStatus(r, run_id, ["gated", "failed", "completed"]);
@@ -1478,7 +1456,7 @@ describe("executor", () => {
     await exec.handlers.answer({ run_id, gate_id: state.gate!.gate_id, value: "reject" }, ctx);
     state = await untilStatus(r, run_id, ["failed", "completed"]);
     assert.equal(state.status, "failed");
-    assert.match(state.error ?? "", /^ceiling: used 220 tokens, ceiling 150 for profile medium/);
+    assert.match(state.error ?? "", /^ceiling: used 220 tokens, ceiling 150, rejected/);
     assert.equal(state.gate, undefined);
     assert.equal(state.steps.c?.status, "pending", "never dispatched");
     const seq = types(readEvents(r.rt.requireRunDir(run_id)));
@@ -1498,7 +1476,7 @@ describe("executor", () => {
       {
         workflow: "sync-ceiling",
         cwd: r.cwd,
-        answers: { profile: "low" },
+        answers: {},
         context: {},
         inputs: {},
       },
@@ -1506,7 +1484,7 @@ describe("executor", () => {
     );
     const state = await untilStatus(r, run_id, ["gated", "failed", "completed"]);
     assert.equal(state.status, "failed");
-    assert.match(state.error ?? "", /^ceiling: used 220 tokens, ceiling 150 for profile low/);
+    assert.match(state.error ?? "", /^ceiling: used 220 tokens, ceiling 150$/);
     assert.equal(state.steps.a?.status, "completed");
     assert.equal(state.steps.b?.status, "completed");
     assert.equal(state.steps.c?.status, "pending");

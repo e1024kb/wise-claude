@@ -373,35 +373,29 @@ describe("mcp", () => {
       );
     });
 
-    test("wise_preflight and wise_run forward the session profile; an unknown level is rejected", async () => {
+    test("wise_preflight forwards the answers so far; wise_run has no `profile` param", async () => {
       calls.length = 0;
       await callTool(client, "wise_preflight", {
         workflow: "ticket-plan",
         cwd: "/w",
-        profile: "low",
+        answers: { "harness.evidence": "codex" },
       });
-      await callTool(client, "wise_run", { workflow: "ticket-plan", cwd: "/w", profile: "max" });
       assert.deepEqual(calls, [
-        { method: "preflight", params: { workflow: "ticket-plan", cwd: "/w", profile: "low" } },
         {
-          method: "run",
-          params: {
-            workflow: "ticket-plan",
-            cwd: "/w",
-            answers: {},
-            context: {},
-            inputs: {},
-            profile: "max",
-          },
+          method: "preflight",
+          params: { workflow: "ticket-plan", cwd: "/w", answers: { "harness.evidence": "codex" } },
         },
       ]);
-      const bad = await callTool(client, "wise_run", {
+      // No `profile` parameter any more: an unknown key is dropped, never forwarded.
+      const res = await callTool(client, "wise_run", {
         workflow: "ticket-plan",
         cwd: "/w",
-        profile: "turbo",
+        profile: "max",
       });
-      assert.equal(bad.isError, true);
+      assert.notEqual(res.isError, true);
       assert.equal(calls.length, 2);
+      assert.equal(calls[1]?.method, "run");
+      assert.equal("profile" in (calls[1]?.params ?? {}), false);
     });
 
     test("wise_resume forwards run_id and returns {run_id, status}", async () => {
