@@ -36,7 +36,7 @@ import type {
 import { domainCode, RpcError } from "./rpc.ts";
 import type { CallOptions } from "./rpc.ts";
 import type { Context } from "./types.ts";
-import { pluginVersion } from "./version.ts";
+import { pluginVersion, sourceBuildId } from "./version.ts";
 
 // ---- options -------------------------------------------------------------------------------
 
@@ -47,6 +47,11 @@ export type McpServerOptions = {
   version?: string;
   /** Spawn the daemon when the socket is dead. Default true. */
   autoStart?: boolean;
+  /**
+   * The build id the daemon must match, read on every run start; defaults to `daemon.version`
+   * when set, else the sources on disk (`sourceBuildId`). Tests inject a switchable value.
+   */
+  currentVersion?: () => string;
 };
 
 export const MCP_SERVER_NAME = "wise-engine";
@@ -68,18 +73,38 @@ export type McpToolName = (typeof MCP_TOOL_NAMES)[number];
 
 // ---- daemon link ------------------------------------------------------------------------------
 
-/** One lazily opened socket shared by every tool call, replaced when it drops. */
+/** Minimum gap between two on-disk build id checks (`refresh`). */
+const REFRESH_MIN_MS = 3000;
+
+/**
+ * One lazily opened socket shared by every tool call, replaced when it drops or, before a run
+ * starts, when the sources on disk no longer match the daemon it is connected to. Without that
+ * check a desktop session's MCP server kept an outdated daemon alive across a plugin update: the
+ * version handshake only runs at connect time.
+ */
 export class DaemonLink {
   private client: Client | null = null;
   private opening: Promise<Client> | null = null;
   private readonly opts: McpServerOptions;
+  private readonly currentVersion: () => string;
+  private lastRefreshMs = 0;
   constructor(opts: McpServerOptions) {
     this.opts = opts;
+    const pinned = opts.daemon?.version;
+    this.currentVersion =
+      opts.currentVersion ?? (pinned !== undefined ? () => pinned : sourceBuildId);
+  }
+
+  /** Drop the client when the daemon behind it is not the current build (rate limited). */
+  refresh(now: number = Date.now()): void {
+    if (!this.client || now - this.lastRefreshMs < REFRESH_MIN_MS) return;
+    this.lastRefreshMs = now;
+    if (this.client.hello.version !== this.currentVersion()) this.drop(this.client);
   }
 
   private open(): Promise<Client> {
     if (this.opening) return this.opening;
-    const daemon = this.opts.daemon ?? {};
+    const daemon: ClientOptions = { ...this.opts.daemon, version: this.currentVersion() };
     const p = (this.opts.autoStart === false ? connect(daemon) : ensureDaemon(daemon))
       .then((c) => {
         this.client = c;
@@ -356,8 +381,10 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
     params: ParamsOf<M>,
     callOpts?: CallOptions,
     onClient?: (client: Client) => () => void,
+    refresh = false,
   ): Promise<CallToolResult> => {
     try {
+      if (refresh) link.refresh();
       const result = await link.withClient(async (client) => {
         const off = onClient?.(client);
         try {
@@ -375,7 +402,7 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
   register(server, "wise_preflight", preflightShape, async (args) => {
     const params: PreflightParams = { workflow: args.workflow, cwd: args.cwd };
     if (args.answers !== undefined) params.answers = args.answers;
-    return forward("preflight", params);
+    return forward("preflight", params, undefined, undefined, true);
   });
 
   register(server, "wise_run", runShape, async (args) => {
@@ -386,7 +413,7 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
       context: args.context as Context,
       inputs: args.inputs,
     };
-    return forward("run", params);
+    return forward("run", params, undefined, undefined, true);
   });
 
   register(server, "wise_wait", waitShape, async (args, extra) => {

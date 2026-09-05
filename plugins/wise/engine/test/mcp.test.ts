@@ -448,6 +448,27 @@ describe("mcp", () => {
     assert.match(String(err.hint), /\/wise-init/);
   });
 
+  test("a plugin update under a live MCP server: run start reconnects and reports the stale daemon", async () => {
+    const r = mkRoot();
+    const calls: Call[] = [];
+    await startFake(r, calls, VERSION);
+    let current = VERSION;
+    const client = await openMcp({
+      daemon: { env: r.env, version: VERSION },
+      version: VERSION,
+      autoStart: false,
+      currentVersion: () => current,
+    });
+    assert.notEqual((await callTool(client, "wise_status", {})).isError, true);
+    current = "9.9.9+ffffffffff";
+    // Not a run start: the open socket keeps serving.
+    assert.notEqual((await callTool(client, "wise_status", {})).isError, true);
+    // A run start re-checks the build id, drops the socket and greets with the new one; with
+    // autoStart off the mismatch surfaces instead of a restart.
+    const res = await callTool(client, "wise_preflight", { workflow: "x", cwd: r.root });
+    assert.match(`${errorOf(res).code} ${errorOf(res).cause}`, /VERSION_MISMATCH/);
+  });
+
   test("stdio smoke: the real entry point serves wise_status on the current runtime", async () => {
     const r = mkRoot();
     const calls: Call[] = [];

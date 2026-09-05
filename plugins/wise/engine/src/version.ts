@@ -28,6 +28,16 @@ let cachedBuildId: string | undefined;
  */
 export function buildId(): string {
   if (cachedBuildId !== undefined) return cachedBuildId;
+  cachedBuildId = sourceBuildId();
+  return cachedBuildId;
+}
+
+/**
+ * The build id of the sources on disk right now, never cached: a long-lived process (the MCP
+ * server of a desktop session) uses it to notice that the plugin copy under it was updated and
+ * the daemon it talks to is stale.
+ */
+export function sourceBuildId(): string {
   const root = join(ENGINE_ROOT, "src");
   const files: string[] = [];
   const walk = (dir: string): void => {
@@ -45,8 +55,7 @@ export function buildId(): string {
     hash.update(readFileSync(path));
     hash.update("\0");
   }
-  cachedBuildId = `${pluginVersion()}+${hash.digest("hex").slice(0, 10)}`;
-  return cachedBuildId;
+  return `${pluginVersion()}+${hash.digest("hex").slice(0, 10)}`;
 }
 
 export function runtimeName(): "bun" | "node" {

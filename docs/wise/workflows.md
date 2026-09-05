@@ -846,7 +846,7 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 | `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |
 | `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--follow] [--timeout-ms]` | Start a run through the daemon. `--follow` streams events and answers gates from stdin. |
 | `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
-| `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. |
+| `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. A long-lived MCP server re-reads that id from disk before every `wise_preflight` / `wise_run`, so a plugin update under an open desktop session also replaces the daemon. |
 | `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
