@@ -31,6 +31,7 @@ import {
   appendEvent,
   cwdSlug,
   initState,
+  listUnits,
   newUlid,
   readState,
   startRun,
@@ -47,6 +48,8 @@ import { isProfileLevel } from "./profile.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
 import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
 import { renderStep } from "./render.ts";
+import { parseItems, runUnitsStep, unitRow } from "./units.ts";
+import type { CommandRunner } from "./units.ts";
 import { resolveModelDict } from "./resolve.ts";
 import { domainError, RpcError } from "./rpc.ts";
 import { nextWave } from "./scheduler.ts";
@@ -72,6 +75,7 @@ import type {
   Resolved,
   RunSummary,
   State,
+  UnitsStep,
   Usage,
   WorkflowDef,
 } from "./types.ts";
@@ -181,6 +185,8 @@ export type ExecutorOptions = {
   /** Agent / bash wall clock when the step has no `timeout`; default 30 min. */
   defaultTimeoutMs?: number;
   channel?: ChannelOptions;
+  /** Command runner for the `units` phases (`git`, `gh`); default spawns them. Tests inject a fake. */
+  unitsExec?: CommandRunner;
 };
 
 export type Executor = {
@@ -573,18 +579,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
           const harness = plannedResolution(live, state, step).harness;
           if (harnessFree(harness)) dispatchAgent(live, state, step);
         } else {
-          updateStep(live.runDir, step.id, {
-            status: "failed",
-            error: "units steps arrive in M4",
-            verdict: "failed: units steps arrive in M4",
-            completed_at: utcNow(),
-          });
-          emit(live, {
-            type: "step.done",
-            step: step.id,
-            verdict: "failed: units steps arrive in M4",
-          });
-          continue;
+          dispatchUnits(live, state, step);
         }
       }
       if (gate) {
@@ -773,6 +768,49 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       }
       schedule(live);
     });
+  }
+
+  /** `units` step (M4.1): the per-unit pipeline runs in-process; `kill` aborts between phases. */
+  function dispatchUnits(live: LiveRun, state: State, def: UnitsStep): void {
+    const stepRunId = startStep(live.runDir, def.id);
+    const fresh = readState(live.runDir);
+    const step = renderStep(def, fresh, live.workflowDir, live.runDir) as UnitsStep;
+    emit(live, { type: "step.started", step: step.id });
+    if (step.items.includes("{{")) {
+      failStep(live, step.id, `items template unresolved: ${headline(step.items, 80)}`);
+      return;
+    }
+    const items = parseItems(step.items);
+    const ac = new AbortController();
+    live.children.set(step.id, { kill: () => ac.abort() });
+    const done = runUnitsStep({
+      runDir: live.runDir,
+      cwd: state.cwd,
+      stepRunId,
+      step,
+      items,
+      state: fresh,
+      parentEnv: env,
+      ...(opts.unitsExec ? { exec: opts.unitsExec } : {}),
+      emit: (ev) => emit(live, ev),
+      signal: ac.signal,
+    });
+    void done.then(
+      (res) => {
+        live.children.delete(step.id);
+        if (live.stopped || readState(live.runDir).steps[step.id]?.step_run_id !== stepRunId)
+          return;
+        completeStep(live, step.id, res.verdict, res.outputs);
+        schedule(live);
+      },
+      (err: unknown) => {
+        live.children.delete(step.id);
+        if (live.stopped || readState(live.runDir).steps[step.id]?.step_run_id !== stepRunId)
+          return;
+        failStep(live, step.id, (err as Error).message);
+        schedule(live);
+      },
+    );
   }
 
   function dispatchAgent(live: LiveRun, state: State, def: AgentStep): void {
@@ -1301,12 +1339,17 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
   const report: Handler<"report"> = (params) => {
     const rec = asRecord(params, "report");
     const runId = requireString(rec, "run_id", "report");
-    const state = readState(rt.requireRunDir(runId));
+    const runDir = rt.requireRunDir(runId);
+    const state = readState(runDir);
     const verdicts: Record<string, string> = {};
     for (const [id, s] of Object.entries(state.steps)) {
       if (s.verdict !== undefined) verdicts[id] = s.verdict;
     }
-    const out: ReportResult = { units: [], usage: state.usage, verdicts };
+    const out: ReportResult = {
+      units: listUnits(runDir).map(unitRow),
+      usage: state.usage,
+      verdicts,
+    };
     return out;
   };
 

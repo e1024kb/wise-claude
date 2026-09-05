@@ -285,6 +285,8 @@ export type UnitsStep = StepBase & {
   groups: Record<string, string>;
   caps?: string[];
   parallel?: number;
+  /** GitHub logins to request review from; default `copilot-pull-request-reviewer`. */
+  reviewers?: string[];
 };
 export type Step = AgentStep | BashStep | ApprovalStep | AskStep | UnitsStep;
 
@@ -402,7 +404,9 @@ export type UnitVerdict =
   | "partial"
   | "exhausted"
   | "human-intervention"
-  | "failed";
+  | "failed"
+  /** Not processed: claimed by another run, or a phase not yet implemented. */
+  | "skipped";
 export type UnitLedger = {
   unit: Unit;
   last_phase: Phase;
@@ -413,6 +417,8 @@ export type UnitLedger = {
   blueprint?: string;
   cursors: Partial<Record<Phase, unknown>>;
   usage: Usage;
+  /** Cap values the step resolved from the run's profile (P4), stored for the model phases. */
+  caps?: Record<string, number>;
 };
 export type UnitRow = Pick<UnitLedger, "unit" | "verdict" | "reason" | "review" | "cleaned">;
 

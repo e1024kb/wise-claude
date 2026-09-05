@@ -648,7 +648,7 @@ const STEP_KEYS: Record<StepType, readonly string[]> = {
   bash: [...STEP_BASE_KEYS, "run", "outputs"],
   approval: [...STEP_BASE_KEYS, "message"],
   ask: [...STEP_BASE_KEYS, "message", "options", "allow_text", "output"],
-  units: [...STEP_BASE_KEYS, "pipeline", "items", "groups", "caps", "parallel"],
+  units: [...STEP_BASE_KEYS, "pipeline", "items", "groups", "caps", "parallel", "reviewers"],
 };
 /** v1 step keys and the hint each one gets, independent of the step type. */
 const V1_STEP_KEY_HINTS: Record<string, string> = {
@@ -954,6 +954,10 @@ function validateUnitsStep(
   if (step.parallel !== undefined) {
     if (isPosInt(step.parallel)) out.parallel = step.parallel;
     else iss.error(`${p}.parallel`, "parallel must be a positive integer");
+  }
+  if (step.reviewers !== undefined) {
+    if (isStringList(step.reviewers)) out.reviewers = step.reviewers;
+    else iss.error(`${p}.reviewers`, "reviewers must be a list of GitHub logins");
   }
   return ok ? out : undefined;
 }

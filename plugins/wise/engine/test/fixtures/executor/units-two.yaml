@@ -1,0 +1,22 @@
+version: 2
+name: units-two
+description: Two ticket units through the M4.1 pipeline; model phases are stubbed.
+tuning:
+  groups:
+    - id: build
+      default: { harness: claude, model: haiku, effort: low }
+profiles:
+  low:
+    caps: { max_fix_attempts: 3, max_review_cycles: 2 }
+  medium: {}
+inputs:
+  - name: tickets
+    prompt: "Which tickets?"
+steps:
+  - id: process
+    type: units
+    pipeline: ticket
+    items: "{{tickets}}"
+    groups: { plan: build, implement: build, watch: build }
+    caps: [max_fix_attempts, max_review_cycles]
+    reviewers: [copilot-pull-request-reviewer]
