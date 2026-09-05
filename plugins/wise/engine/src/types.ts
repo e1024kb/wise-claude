@@ -413,8 +413,12 @@ export type UnitLedger = {
   verdict?: UnitVerdict;
   reason?: string;
   review?: { converged: boolean; cycles: number };
+  /** Watch-loop counters (M4.2); `fallback_sha` is the head the substitute review covered. */
+  watch?: { passes: number; fix_attempts: number; stable: number; fallback_sha?: string };
   cleaned: boolean;
   blueprint?: string;
+  /** The plan the implement phase ran: engine-written under `<runDir>/plans/`. */
+  plan_path?: string;
   cursors: Partial<Record<Phase, unknown>>;
   usage: Usage;
   /** Cap values the step resolved from the run's profile (P4), stored for the model phases. */

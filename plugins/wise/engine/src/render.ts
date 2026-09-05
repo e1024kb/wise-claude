@@ -64,3 +64,22 @@ function renderValue(value: unknown, state: State, workflowDir: string, runDir?:
 export function renderStep(step: Step, state: State, workflowDir: string, runDir?: string): Step {
   return renderValue(step, state, workflowDir, runDir) as Step;
 }
+
+/**
+ * Render a template against a flat variable dict, the same sequential literal replacement as
+ * `render` (no expressions, no escaping). Used by the unit phases (M4.2), whose variables are
+ * per unit and per phase rather than run state. Keys are matched verbatim (`unit.ref`,
+ * `plan_path`, ...); unresolved placeholders stay in place for the caller to detect.
+ */
+export function renderVars(template: string, vars: Record<string, unknown>): string {
+  let out = template;
+  for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{{${k}}}`, stringify(v));
+  return out;
+}
+
+/** Placeholders still unresolved after rendering, in order of appearance, deduplicated. */
+export function unresolvedPlaceholders(text: string): string[] {
+  const seen = new Set<string>();
+  for (const m of text.matchAll(/\{\{([^{}]+)\}\}/g)) seen.add(m[1] ?? "");
+  return [...seen];
+}

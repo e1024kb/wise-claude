@@ -4,7 +4,18 @@
 
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { spawnClean } from "../adapters/spawn.ts";
-import type { ContextTicket, Unit, UnitLedger, UnitVerdict } from "../types.ts";
+import type { AgentHandle, AgentStarter, ChannelConfig } from "../steps/agent.ts";
+import type {
+  ContextTicket,
+  Harness,
+  ProfileLevel,
+  Resolved,
+  Unit,
+  UnitLedger,
+  UnitVerdict,
+  Usage,
+} from "../types.ts";
+import type { ModelPhase } from "../prompts/units/schemas.ts";
 
 // ---- command runner -----------------------------------------------------------------------
 
@@ -87,7 +98,43 @@ export type UnitsConfig = {
   caps: Record<string, number>;
   /** Phase → tuning group id, for the model phases (M4.2). */
   groups: Record<string, string>;
+  /** Run profile; the review gate's effort and the low-profile Opus rule read it. */
+  profile: ProfileLevel;
+  /** Operator standing guidance from the run context (E1), injected into every model prompt. */
+  guidance?: string;
+  /** Decisions the conversation already made, injected into the plan prompt. */
+  decisions?: Record<string, string>;
+  /** E8: `unit` lets the fixer resume the reviewer's session; `fresh` (default) starts clean. */
+  resume: "unit" | "fresh";
+  /** Step-level wall clock override for every model child, seconds. */
+  timeout?: number;
+  max_turns?: number;
 };
+
+// ---- model-phase runtime (M4.2) ------------------------------------------------------------------
+
+/** What a model phase needs from the executor to spawn a child through `startAgentStep`. */
+export type AgentRuntime = {
+  starter: AgentStarter;
+  stepId: string;
+  stepRunId: string;
+  stepToken: string;
+  channel?: ChannelConfig;
+  /** Wait for a harness slot under the P5 caps; resolves with the release function. */
+  acquire?: (harness: Harness, signal?: AbortSignal) => Promise<() => void>;
+  /** Register a live child so `cancel` can kill it; returns the unregister function. */
+  track?: (key: string, handle: AgentHandle) => () => void;
+  /** Wall clock for a child when neither the step nor the phase table sets one. */
+  defaultTimeoutMs?: number;
+};
+
+export type FixSource = "review" | "ci" | "bot-reviews";
+/** Per-call parameters the loops in `units.ts` hand to the `fix` runner. */
+export type FixRequest = { source: FixSource; findings_path: string; cursor?: unknown };
+/** Per-call parameters for the `review` runner: the pre-push panel or the watch substitute. */
+export type ReviewRequest = { shape: "panel" | "universal"; cycle: number };
+/** Per-call parameters for one `watch` pass. */
+export type WatchRequest = { pass: number; head_sha: string; run_started: string };
 
 export type PhaseCtx = {
   unit: Unit;
@@ -101,27 +148,53 @@ export type PhaseCtx = {
   config: UnitsConfig;
   /** Human-readable trace line for the step log. */
   log: (line: string) => void;
+  /** Apply a ledger patch and persist it now (loops checkpoint between children). */
+  checkpoint: (patch: Partial<UnitLedger>) => void;
+  /** Injectable sleep for the watch loop; rejects on abort. */
+  sleep: (ms: number) => Promise<void>;
+  /** Wall clock in ms (injectable for the watch-minutes cap). */
+  now: () => number;
+  /** Harness/model/effort per model phase, resolved by the executor at run start. */
+  resolved: Partial<Record<ModelPhase, Resolved>>;
+  /** Absent when no starter was configured: model phases then report `skipped`. */
+  agent?: AgentRuntime;
+  fix?: FixRequest;
+  review?: ReviewRequest;
+  watch?: WatchRequest;
   signal?: AbortSignal;
 };
 
+/** Extra facts a phase hands back: the child's parsed schema output and its usage. */
+export type PhaseExtra = {
+  patch?: Partial<UnitLedger>;
+  output?: unknown;
+  usage?: Usage;
+  resolved?: Resolved;
+};
 export type PhaseResult =
-  | { ok: true; patch?: Partial<UnitLedger> }
-  | { ok: false; reason: string; verdict?: UnitVerdict; patch?: Partial<UnitLedger> };
+  | ({ ok: true } & PhaseExtra)
+  | ({ ok: false; reason: string; verdict?: UnitVerdict } & PhaseExtra);
 export type PhaseRunner = (ctx: PhaseCtx) => Promise<PhaseResult>;
 
 export const fail = (
   reason: string,
   verdict?: UnitVerdict,
   patch?: Partial<UnitLedger>,
+  extra: Omit<PhaseExtra, "patch"> = {},
 ): PhaseResult => ({
   ok: false,
   reason,
   ...(verdict !== undefined ? { verdict } : {}),
   ...(patch !== undefined ? { patch } : {}),
+  ...extra,
 });
-export const pass = (patch?: Partial<UnitLedger>): PhaseResult => ({
+export const pass = (
+  patch?: Partial<UnitLedger>,
+  extra: Omit<PhaseExtra, "patch"> = {},
+): PhaseResult => ({
   ok: true,
   ...(patch !== undefined ? { patch } : {}),
+  ...extra,
 });
 
 /** Run a command through the phase's runner, logging argv and exit. */

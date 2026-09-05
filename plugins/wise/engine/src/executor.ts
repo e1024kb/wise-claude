@@ -48,7 +48,7 @@ import { isProfileLevel } from "./profile.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
 import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
 import { renderStep } from "./render.ts";
-import { parseItems, runUnitsStep, unitRow } from "./units.ts";
+import { parseItems, phaseKey, resolveUnitPhases, runUnitsStep, unitRow } from "./units.ts";
 import type { CommandRunner } from "./units.ts";
 import { resolveModelDict } from "./resolve.ts";
 import { domainError, RpcError } from "./rpc.ts";
@@ -539,6 +539,52 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     return inFlight[h] < (caps.harness[h] ?? 1) && inFlightGlobal < caps.global;
   };
 
+  // Unit-phase children (M4.2) wait here for a harness slot; every release wakes the queue.
+  type SlotWaiter = { harness: Harness; grant: () => void };
+  const slotWaiters: SlotWaiter[] = [];
+  const takeSlot = (h: Harness): (() => void) => {
+    inFlight[h] += 1;
+    inFlightGlobal += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      inFlight[h] -= 1;
+      inFlightGlobal -= 1;
+      wakeSlotWaiters();
+      scheduleAll();
+    };
+  };
+  const wakeSlotWaiters = (): void => {
+    for (let i = 0; i < slotWaiters.length;) {
+      const w = slotWaiters[i];
+      if (w && harnessFree(w.harness)) {
+        slotWaiters.splice(i, 1);
+        w.grant();
+      } else i++;
+    }
+  };
+  const acquireSlot = (h: Harness, signal?: AbortSignal): Promise<() => void> => {
+    if (harnessFree(h)) return Promise.resolve(takeSlot(h));
+    if (signal?.aborted) return Promise.reject(new Error("cancelled while waiting for a slot"));
+    return new Promise((resolve, reject) => {
+      const waiter: SlotWaiter = {
+        harness: h,
+        grant: () => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve(takeSlot(h));
+        },
+      };
+      const onAbort = (): void => {
+        const i = slotWaiters.indexOf(waiter);
+        if (i >= 0) slotWaiters.splice(i, 1);
+        reject(new Error("cancelled while waiting for a slot"));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      slotWaiters.push(waiter);
+    });
+  };
+
   const scheduleAll = (): void => {
     for (const live of lives.values()) schedule(live);
   };
@@ -770,7 +816,11 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     });
   }
 
-  /** `units` step (M4.1): the per-unit pipeline runs in-process; `kill` aborts between phases. */
+  /**
+   * `units` step (M4.1 + M4.2): the per-unit pipeline runs in-process. Its model phases spawn
+   * harness children that take slots through `acquireSlot` and register in `live.children` under
+   * `<step>/<branch>/<phase>`, so `cancel` and the auth stop kill them like any agent step.
+   */
   function dispatchUnits(live: LiveRun, state: State, def: UnitsStep): void {
     const stepRunId = startStep(live.runDir, def.id);
     const fresh = readState(live.runDir);
@@ -783,6 +833,9 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const items = parseItems(step.items);
     const ac = new AbortController();
     live.children.set(step.id, { kill: () => ac.abort() });
+    const token = randomToken();
+    live.tokens.set(step.id, token);
+    const untrackAll: (() => void)[] = [];
     const done = runUnitsStep({
       runDir: live.runDir,
       cwd: state.cwd,
@@ -792,21 +845,54 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       state: fresh,
       parentEnv: env,
       ...(opts.unitsExec ? { exec: opts.unitsExec } : {}),
-      emit: (ev) => emit(live, ev),
+      agent: {
+        starter,
+        stepToken: token,
+        ...(channel !== undefined ? { channel } : {}),
+        ...(opts.defaultTimeoutMs !== undefined ? { defaultTimeoutMs: opts.defaultTimeoutMs } : {}),
+        acquire: acquireSlot,
+        track: (key, handle) => {
+          const id = `${step.id}/${key}`;
+          const child: Child = {};
+          if (handle.pid !== undefined) child.pid = handle.pid;
+          if (handle.kill) child.kill = handle.kill;
+          if (handle.nudge) child.nudge = handle.nudge;
+          live.children.set(id, child);
+          if (handle.pid !== undefined && handle.pid > 0) {
+            recordChild(live.runDir, { pgid: handle.pid, pid: handle.pid });
+          }
+          const untrack = (): void => {
+            if (live.children.get(id) === child) live.children.delete(id);
+            if (handle.pid !== undefined && readChild(live.runDir)?.pid === handle.pid) {
+              clearChild(live.runDir);
+            }
+          };
+          untrackAll.push(untrack);
+          return untrack;
+        },
+      },
+      onUsage: (_phase, harness, usage) => {
+        if (!live.stopped) foldUsage(live, step.id, harness, usage);
+      },
+      emit: (ev) => {
+        if (!live.stopped) emit(live, ev);
+      },
       signal: ac.signal,
     });
+    const settle = (): boolean => {
+      for (const u of untrackAll) u();
+      live.children.delete(step.id);
+      live.tokens.delete(step.id);
+      return !live.stopped && readState(live.runDir).steps[step.id]?.step_run_id === stepRunId;
+    };
     void done.then(
       (res) => {
-        live.children.delete(step.id);
-        if (live.stopped || readState(live.runDir).steps[step.id]?.step_run_id !== stepRunId)
-          return;
+        if (!settle()) return;
         completeStep(live, step.id, res.verdict, res.outputs);
         schedule(live);
       },
       (err: unknown) => {
-        live.children.delete(step.id);
-        if (live.stopped || readState(live.runDir).steps[step.id]?.step_run_id !== stepRunId)
-          return;
+        if (!settle()) return;
         failStep(live, step.id, (err as Error).message);
         schedule(live);
       },
@@ -842,6 +928,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       inFlight[harness] -= 1;
       inFlightGlobal -= 1;
       release = () => {};
+      wakeSlotWaiters();
     };
 
     const tracker = createChildTracker({
@@ -1189,6 +1276,14 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       const entry: Resolved = { harness: r.harness, model: r.model, effort: r.effort };
       if (r.reason !== undefined) entry.reason = r.reason;
       resolved[step.id] = entry;
+    }
+    // M4.2: every model phase of a `units` step resolves up front too, keyed `<step>.<phase>`.
+    for (const step of def.steps) {
+      if (step.type !== "units" || !applied.enabledSteps.has(step.id)) continue;
+      const perPhase = resolveUnitPhases(step, applied.tuning, applied.profile, env);
+      for (const [phase, entry] of Object.entries(perPhase)) {
+        resolved[phaseKey(step.id, phase as keyof typeof perPhase)] = entry;
+      }
     }
 
     // R1: nothing is created until every harness the run needs answers its auth probe.

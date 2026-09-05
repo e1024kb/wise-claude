@@ -83,12 +83,16 @@ export type AgentStepInput = {
   channel?: ChannelConfig;
   /** Live-status hook: every vendor event, before it is logged. */
   onEvent?: (e: RawEvent) => void;
+  /** Directories granted on top of the run dir (D19: a unit child also gets its worktree). */
+  addDirs?: string[];
 };
 
 export type AgentOutcome = {
   exit: ExitClass | "missing_output";
   ok: boolean;
   outputs: Record<string, unknown>;
+  /** The child's structured result as returned, for callers that parse the whole object. */
+  json?: unknown;
   verdict: string;
   error?: string;
   usage: Usage;
@@ -109,7 +113,7 @@ export function buildRunReq(input: AgentStepInput): RunReq {
         : (input.defaultTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS),
     auth: step.auth ?? "subscription",
     step_token: input.stepToken,
-    add_dirs: [input.runDir],
+    add_dirs: [input.runDir, ...(input.addDirs ?? [])],
   };
   if (step.allowed_tools !== undefined) req.allowed_tools = step.allowed_tools;
   if (resolved.effort !== "" && effortFor(resolved.harness, resolved.effort) !== undefined) {
@@ -176,6 +180,7 @@ export function outcomeOf(step: AgentStep, res: RunRes): AgentOutcome {
   const base = { usage: res.usage, warnings: res.warnings ?? [] };
   const withCursor = (o: AgentOutcome): AgentOutcome => {
     if (res.cursor !== undefined) o.cursor = res.cursor;
+    if (res.json !== undefined) o.json = res.json;
     return o;
   };
   if (res.exit !== "ok") {

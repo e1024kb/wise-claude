@@ -25,14 +25,23 @@ export function collectNeeds(
 ): HarnessNeed[] {
   const seen = new Set<string>();
   const out: HarnessNeed[] = [];
-  for (const step of def.steps) {
-    if (step.type !== "agent" || !enabled.has(step.id)) continue;
-    const harness = resolved[step.id]?.harness ?? step.harness ?? "claude";
-    const auth = step.auth ?? "subscription";
+  const add = (harness: Harness, auth: HarnessNeed["auth"]): void => {
     const key = `${harness}/${auth}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     out.push({ harness, auth });
+  };
+  for (const step of def.steps) {
+    if (!enabled.has(step.id)) continue;
+    if (step.type === "agent") {
+      add(resolved[step.id]?.harness ?? step.harness ?? "claude", step.auth ?? "subscription");
+    } else if (step.type === "units") {
+      // M4.2: the unit phases resolved under `<step>.<phase>`; the step's own harness otherwise.
+      const prefix = `${step.id}.`;
+      const phases = Object.keys(resolved).filter((k) => k.startsWith(prefix));
+      if (phases.length === 0) add(step.harness ?? "claude", step.auth ?? "subscription");
+      for (const k of phases) add(resolved[k]?.harness ?? "claude", step.auth ?? "subscription");
+    }
   }
   return out;
 }

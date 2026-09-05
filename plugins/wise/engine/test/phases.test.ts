@@ -57,6 +57,8 @@ function ctxFor(
     tickets: [],
     caps: {},
     groups: {},
+    profile: "medium",
+    resume: "fresh",
     ...opts.config,
   };
   return {
@@ -64,6 +66,10 @@ function ctxFor(
     ledger,
     cwd: f.pair.clone,
     runDir: f.runDir,
+    checkpoint: () => undefined,
+    sleep: async () => undefined,
+    now: Date.now,
+    resolved: {},
     env: cleanEnv({
       parent: { PATH: process.env.PATH, HOME: f.pair.root },
       extra: { GIT_TERMINAL_PROMPT: "0" },

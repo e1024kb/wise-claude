@@ -14,11 +14,19 @@ import { domainError } from "../src/rpc.ts";
 import type { CallContext } from "../src/rpc.ts";
 import type { PhaseRunner } from "../src/phases/common.ts";
 import type { Phase, State, UnitsStep } from "../src/types.ts";
-import { configFor, isDone, MODEL_PHASES_PENDING, runUnitsStep } from "../src/units.ts";
+import { configFor, isDone, NO_AGENT_RUNTIME, runUnitsStep } from "../src/units.ts";
 import type { UnitsStepInput } from "../src/units.ts";
 import { fakeAdapter, pause, schemaAnswer } from "./fixtures/executor/fake.ts";
-import { commitFile, fakeExec, git, makeRepoPair, result, startsWith } from "./fixtures/git.ts";
+import { commitFile, fakeExec, git, makeRepoPair, startsWith } from "./fixtures/git.ts";
 import type { FakeExec, RepoPair } from "./fixtures/git.ts";
+import {
+  happyGh,
+  implementCommit,
+  phaseOf,
+  planReady,
+  reviewApprove,
+  watchGreen,
+} from "./fixtures/units.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFS = join(HERE, "..", "..", "workflows");
@@ -102,7 +110,7 @@ describe("units", () => {
     assert.equal(cfg.tickets[0]?.title, "First");
   });
 
-  test("two tickets with the default runners: claim + worktree real, model phases skipped, cleanup closes the ledger", async () => {
+  test("two tickets, no agent runtime: claim + worktree real, model phases skipped, cleanup closes the ledger", async () => {
     const h = harness();
     const res = await runUnitsStep(h.input());
     assert.equal(res.verdict, "units=2 merged=0 open=0 failed=0 skipped=2");
@@ -110,13 +118,14 @@ describe("units", () => {
     for (const ref of ["PROJ-1", "PROJ-2"]) {
       const row = res.outputs.units.find((r) => r.unit.ref === ref);
       assert.equal(row?.verdict, "skipped");
-      assert.equal(row?.reason, MODEL_PHASES_PENDING);
+      assert.equal(row?.reason, NO_AGENT_RUNTIME);
       assert.equal(row?.cleaned, false);
       const ledger = readUnit(h.runDir, ref);
       assert.ok(ledger, `units/${ref}.json written`);
       assert.equal(ledger.last_phase, "cleanup");
       assert.equal(ledger.cursors.claim, "owned");
       assert.deepEqual(ledger.caps, { max_fix_attempts: 3, max_review_cycles: 2 });
+      assert.equal(ledger.plan_path, undefined);
       assert.equal(ledger.unit.base, "main");
       assert.equal(ledger.unit.worktree, join(h.runDir, "worktrees", ref));
       assert.ok(existsSync(join(ledger.unit.worktree, "README.md")), "worktree kept for a human");
@@ -124,7 +133,7 @@ describe("units", () => {
       assert.deepEqual(phasesOf(h.events, ref), ["claim", "worktree", "plan", "cleanup"]);
       const done = h.events.find((e) => e.type === "unit.done" && e.unit === ref);
       assert.equal(done?.verdict, "skipped");
-      assert.equal(done?.message, MODEL_PHASES_PENDING);
+      assert.equal(done?.message, NO_AGENT_RUNTIME);
     }
     assert.ok(existsSync(res.log));
     assert.match(readFileSync(res.log, "utf8"), /\[PROJ-1\] \$ git fetch origin main -> ok/);
@@ -165,58 +174,60 @@ describe("units", () => {
     assert.equal(res.verdict, "units=1 merged=0 open=0 failed=1 skipped=0");
   });
 
-  test("full pipeline with injected model runners: push, PR create, reviewer attach, cleanup on merged", async () => {
-    let prState: string | undefined;
-    const exec = fakeExec((a) => {
-      if (startsWith(a, "repo", "view")) return result('{"defaultBranchRef":{"name":"main"}}');
-      if (startsWith(a, "pr", "list")) return result("[]");
-      if (startsWith(a, "pr", "view", "PROJ-1"))
-        return prState === undefined
-          ? result("no pull requests found", 1)
-          : result(
-              JSON.stringify({ number: 5, url: "https://github.com/a/r/pull/5", state: prState }),
-            );
-      if (startsWith(a, "pr", "create")) {
-        prState = "OPEN";
-        return result("https://github.com/a/r/pull/5\n");
-      }
-      if (startsWith(a, "pr", "view", "5")) return result('{"reviewRequests":[]}');
-      if (startsWith(a, "pr", "edit")) return result("");
-      return undefined;
-    });
+  test("full pipeline with injected model runners: push, PR create, reviewer attach, merge, cleanup", async () => {
+    const gh = happyGh();
+    const exec = fakeExec(gh.rule);
     const h = harness(exec);
     const okRunner: PhaseRunner = () => Promise.resolve({ ok: true });
     const implement: PhaseRunner = (ctx) => {
       commitFile(ctx.unit.worktree, "feature.txt", "x\n", "feat: implement PROJ-1");
       return Promise.resolve({ ok: true });
     };
-    const watch: PhaseRunner = () => Promise.resolve({ ok: true, patch: { verdict: "merged" } });
+    const review: PhaseRunner = () =>
+      Promise.resolve({ ok: true, output: { findings: 0, blocking: 0, verdict: "approve" } });
+    const watch: PhaseRunner = () =>
+      Promise.resolve({
+        ok: true,
+        output: {
+          ci: "green",
+          bot_reviews: "resolved",
+          human_comment: false,
+          merged: false,
+          verdict: "ready",
+        },
+      });
     const runners: Partial<Record<Phase, PhaseRunner>> = {
       plan: okRunner,
       implement,
-      review: okRunner,
+      review,
       fix: okRunner,
       watch,
     };
-    const res = await runUnitsStep(h.input({ items: ["PROJ-1"], runners }));
+    const res = await runUnitsStep(
+      h.input({ items: ["PROJ-1"], runners, sleep: () => Promise.resolve() }),
+    );
     assert.equal(res.verdict, "units=1 merged=1 open=0 failed=0 skipped=0");
     const row = res.outputs.units[0];
     assert.equal(row?.verdict, "merged");
     assert.equal(row?.cleaned, true);
     assert.deepEqual(row?.unit.pr, { number: 5, url: "https://github.com/a/r/pull/5" });
+    assert.equal(gh.state.pr, "MERGED");
+    assert.ok(exec.gh.some((a) => startsWith(a, "pr", "merge", "5", "--squash")));
     assert.deepEqual(phasesOf(h.events, "PROJ-1"), [
       "claim",
       "worktree",
       "plan",
       "implement",
       "review",
-      "fix",
       "push",
       "pr",
       "request-review",
       "watch",
       "cleanup",
     ]);
+    const ledger = readUnit(h.runDir, "PROJ-1");
+    assert.deepEqual(ledger?.review, { converged: true, cycles: 1 });
+    assert.deepEqual(ledger?.watch, { passes: 2, fix_attempts: 0, stable: 2 });
     assert.match(git(h.pair.clone, ["ls-remote", "--heads", "origin", "PROJ-1"]), /PROJ-1/);
     const create = exec.gh.find((a) => startsWith(a, "pr", "create"));
     assert.equal(create?.[create.indexOf("--title") + 1], "PROJ-1: First");
@@ -285,7 +296,7 @@ describe("units", () => {
   // ---- executor end to end -------------------------------------------------------------------------------
 
   test(
-    "executor: a v2 units step with two refs completes, records rows, report.units reads the ledgers",
+    "executor: a v2 units step with two refs runs every phase on the fake harness, merges, reports",
     { timeout: 30_000 },
     async () => {
       const root = tmp();
@@ -316,8 +327,23 @@ describe("units", () => {
         env,
         roots: { userRoot: EXEC_FIXTURES, bundledRoot: DEFS },
         configPath: join(root, "engine.json"),
-        adapters: { claude: fakeAdapter("claude", (req) => schemaAnswer(req)) },
-        unitsExec: fakeExec(),
+        adapters: {
+          claude: fakeAdapter("claude", (req) => {
+            switch (phaseOf(req)) {
+              case "plan":
+                return planReady(req, 1);
+              case "implement":
+                return implementCommit(req, 1);
+              case "review":
+                return reviewApprove(req, 1);
+              case "watch":
+                return watchGreen(req, 1);
+              default:
+                return schemaAnswer(req);
+            }
+          }),
+        },
+        unitsExec: fakeExec(happyGh().rule),
       });
       executors.add(exec);
       const { run_id, status } = await exec.handlers.run(
@@ -340,7 +366,7 @@ describe("units", () => {
       assert.equal(state.status, "completed", state.error);
       const step = state.steps.process;
       assert.equal(step?.status, "completed");
-      assert.equal(step?.verdict, "units=2 merged=0 open=0 failed=0 skipped=2");
+      assert.equal(step?.verdict, "units=2 merged=2 open=0 failed=0 skipped=0");
       const rows = state.outputs.units as {
         unit: { ref: string };
         verdict?: string;
@@ -349,10 +375,15 @@ describe("units", () => {
       assert.deepEqual(
         rows.map((r) => [r.unit.ref, r.verdict, r.reason]),
         [
-          ["PROJ-1", "skipped", MODEL_PHASES_PENDING],
-          ["PROJ-2", "skipped", MODEL_PHASES_PENDING],
+          ["PROJ-1", "merged", undefined],
+          ["PROJ-2", "merged", undefined],
         ],
       );
+      // Model-phase usage lands in the run state and per harness (E14).
+      assert.ok(state.usage.subscription.input > 0, "usage folded into run state");
+      assert.ok((state.usage.by_harness.claude?.input ?? 0) > 0);
+      // The pre-resolved phases carry over into the phase events.
+      assert.equal(state.resolved["process.plan"]?.harness, "claude");
       const report = await exec.handlers.report({ run_id }, ctx);
       assert.equal(report.units.length, 2);
       assert.deepEqual(report.units.map((u) => u.unit.branch).toSorted(), ["PROJ-1", "PROJ-2"]);
@@ -362,6 +393,12 @@ describe("units", () => {
       );
       assert.ok(types.includes("unit.phase:PROJ-1:claim"));
       assert.ok(types.includes("unit.phase:PROJ-2:worktree"));
+      assert.ok(types.includes("unit.phase:PROJ-1:implement"));
+      const planEv = readEvents(runDir).find(
+        (e) => e.type === "unit.phase" && e.unit === "PROJ-1" && e.phase === "plan",
+      );
+      assert.equal(planEv?.harness, "claude");
+      assert.ok(planEv?.model, "phase event names the model");
       assert.ok(types.includes("unit.done:PROJ-1") && types.includes("unit.done:PROJ-2"));
       assert.equal(types.at(-1), "run.done");
       assert.equal(
@@ -369,7 +406,7 @@ describe("units", () => {
         3,
         "low profile caps stored",
       );
-      assert.ok(existsSync(join(runDir, "worktrees", "PROJ-2", "README.md")));
+      assert.equal(existsSync(join(runDir, "worktrees", "PROJ-2")), false, "merged: cleaned");
     },
   );
 });
