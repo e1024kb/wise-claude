@@ -8,7 +8,7 @@ import { pluginVersion, runtimeName } from "../src/index.ts";
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("pluginVersion reads plugin.json", () => {
-  assert.match(pluginVersion(), /^\d+\.\d+\.\d+$/);
+  assert.match(pluginVersion(), /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/);
 });
 
 test("runtimeName is bun or node", () => {
@@ -17,7 +17,7 @@ test("runtimeName is bun or node", () => {
 
 test("engine.sh version runs on the current runtime", () => {
   const out = execFileSync(join(ENGINE, "engine.sh"), ["version"], { encoding: "utf8" });
-  assert.match(out, /^wise-engine \d+\.\d+\.\d+ \((bun|node) /);
+  assert.match(out, /^wise-engine \d+\.\d+\.\d+(-[0-9A-Za-z.]+)? \((bun|node) /);
 });
 
 test("unknown command exits 64", () => {

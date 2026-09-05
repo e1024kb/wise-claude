@@ -55,7 +55,9 @@ Run once after installing:
 
 This wizard walks you through installing bun or Node ≥24 (the workflow
 engine runtime), logging the `claude` CLI in (`claude auth login`, so
-the engine can spawn `claude -p` under your subscription), the `gh` CLI
+the engine can spawn `claude -p` under your subscription), self-checks
+the engine and its `wise-engine` MCP server, reports the optional
+`codex` / `grok` / `gemini` CLIs and their logins, the `gh` CLI
 (plus `gh auth login`), markitdown, and Python 3 + `pyyaml` /
 `python-ulid` / `typing_extensions` (still used by
 `/wise-workflow-list` / `-create` / `-remove` and the legacy v1

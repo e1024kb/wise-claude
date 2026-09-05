@@ -3,8 +3,9 @@ name: wise-init
 description: >-
   First-time setup wizard — walk the user through installing wise's
   system deps (Python 3 + pyyaml/ulid/typing_extensions, bun or Node ≥24,
-  the `claude` CLI login, gh CLI + `gh auth login`, markitdown for file-to-markdown extraction)
-  and cache the probe results so workflow runs skip the live check.
+  the `claude` CLI login, gh CLI + `gh auth login`, markitdown for file-to-markdown extraction),
+  self-check the workflow engine and its `wise-engine` MCP server, report the optional
+  harness CLIs (codex, grok, gemini), and cache the probe results so workflow runs skip the live check.
   Idempotent — re-running only prompts for gaps.
   Invoked as `/wise-init` (bare alias) or `/wise:wise-init` (canonical).
   Use when the user says "init wise", "set up wise", "install wise deps",
@@ -53,9 +54,10 @@ it under 4 lines:
 First-time setup. I'll walk you through the system deps wise needs —
 Python 3, bun or Node ≥24 (the workflow engine runtime), the claude
 CLI login, the gh CLI (with auth), and markitdown (file → markdown text
-extraction). Re-runs are safe: I skip what's already
-installed. After this I cache the probe results so future workflow
-runs skip the live check.
+extraction) — then self-check the engine and its MCP server and report
+the optional harness CLIs (codex, grok, gemini). Re-runs are safe: I
+skip what's already installed. After this I cache the probe results so
+future workflow runs skip the live check.
 ```
 
 ### 2. Python (and its pip modules)
@@ -221,6 +223,59 @@ Record:
 }
 ```
 
+**3d. Engine self-check.** Skip when §3 found no runtime. A plugin
+install copies the engine without its dependencies; the first engine
+call installs them (one `installing runtime dependencies` line on
+stderr, then the answer).
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" version
+```
+
+- Prints `wise-engine <version> (<bun|node> <ver>)`: print it and go on.
+- Exit 69 or an install error: print the stderr verbatim. Usual causes:
+  no network for the dependency fetch, or neither bun nor npm on PATH.
+  Record `engine.status: failed` and continue with §4 (the wizard
+  finishes; workflows will not run until this passes).
+
+Then, in the same message, call the `wise_status` MCP tool with no
+arguments.
+
+- Result (a run list, possibly empty): MCP `ok`.
+- Tool not available in this session: MCP `restart-needed`. Print
+  `The wise-engine MCP server loads at session start; open a new
+  session after installing the plugin, then re-run /wise-init.`
+- `DAEMON_UNAVAILABLE`: MCP `failed`; print the error's message.
+
+**3e. Harness CLIs.** The engine can also dispatch steps to `codex`,
+`grok` and `gemini`; each is optional and a workflow that names one
+fails at pre-flight with `AUTH_REQUIRED` and the login command when it
+is missing.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" auth
+```
+
+One `HARNESS=<name> INSTALLED=yes|no LOGIN=ok|missing LOGIN_CMD=<cmd>`
+line per harness. Print one row each; for `LOGIN=missing` on an
+installed harness, show `LOGIN_CMD` as the thing to run in a terminal
+and never run it yourself. The `claude` row must be `LOGIN=ok` here
+(same fact as §3c, probed the engine's way); if it is not, the exit
+code is 1: repeat the §3c guidance.
+
+Record:
+
+```json
+{
+  "engine": {"version": "...", "status": "ok" | "failed", "mcp": "ok" | "restart-needed" | "failed"},
+  "harnesses": {
+    "codex":  {"installed": true|false, "login": "ok" | "missing", "login_cmd": "..."},
+    "grok":   {...},
+    "gemini": {...}
+  }
+}
+```
+
 ### 4. gh CLI + auth
 
 **4a. Probe.**
@@ -351,10 +406,13 @@ plugin version:
   "plugin_version": "<contents of plugin.json's version field>",
   "completed_at": "<utc ISO8601, see below>",
   "deps": {
-    "python":     { ... from §2c ... },
-    "node":       { ... from §3 ... },
-    "gh":         { ... from §4 ... },
-    "markitdown": { ... from §5c ... }
+    "python":      { ... from §2c ... },
+    "node":        { ... runtime from §3a/§3b ... },
+    "claude_auth": { ... from §3c ... },
+    "engine":      { ... from §3d ... },
+    "harnesses":   { ... from §3e ... },
+    "gh":          { ... from §4 ... },
+    "markitdown":  { ... from §5c ... }
   }
 }
 ```
@@ -390,6 +448,10 @@ Print a one-block report:
   Python 3.12.5       ✓
   bun 1.4.1           ✓
   claude login        ✓ (claude.ai)
+  wise-engine 5.0.0   ✓  MCP ✓
+  codex               ✓ logged in
+  grok                ✓ logged in
+  gemini              ⚠ installed, not logged in (optional)
   gh 2.54.0 (auth: your-username) ✓
   markitdown 0.1.3    ✓
 
@@ -402,7 +464,10 @@ or after `/plugin install wise@…` (which wipes the cache by design).
 ```
 
 Adjust the row's checkmark to `⚠` and the label suffix when a dep
-ended up `missing` or `authenticated: false`. Be honest — don't
+ended up `missing` or `authenticated: false`. Optional harness rows
+are `⚠`, never `✗`: a missing codex, grok or gemini blocks nothing
+until a workflow names it. `MCP restart-needed` is the one row that
+ends with an instruction (open a new session). Be honest — don't
 claim success for something the user skipped.
 
 ## Guardrails

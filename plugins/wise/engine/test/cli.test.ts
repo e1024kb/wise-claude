@@ -128,3 +128,28 @@ test("unknown command exits 64, help exits 0", async () => {
   assert.equal((await run(["bogus"])).code, 64);
   assert.equal((await run(["help"])).code, 0);
 });
+
+test("auth lists every harness; an empty PATH means nothing installed and claude fails the exit code", async () => {
+  const r = await run(["auth", "--json"]);
+  assert.equal(r.code, 1, r.err);
+  const rows = JSON.parse(r.out) as {
+    harness: string;
+    installed: boolean;
+    login: string;
+    login_cmd: string;
+  }[];
+  assert.deepEqual(
+    rows.map((x) => x.harness),
+    ["claude", "codex", "gemini", "grok"],
+  );
+  for (const row of rows) {
+    assert.equal(row.installed, false);
+    assert.equal(row.login, "missing");
+    assert.ok(row.login_cmd.length > 0);
+  }
+  const one = await run(["auth", "codex"]);
+  assert.equal(one.code, 0, "only claude gates the exit code");
+  assert.match(one.out, /^HARNESS=codex INSTALLED=no LOGIN=missing LOGIN_CMD=/);
+  const bad = await run(["auth", "nope"]);
+  assert.equal(bad.code, 2);
+});

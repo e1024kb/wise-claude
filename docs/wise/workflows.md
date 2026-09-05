@@ -831,6 +831,7 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 | `daemon serve\|start\|stop [--now]\|status` | The background daemon. |
 | `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
+| `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
 | `version`, `help` | |
 
 Options: `--json` (default) \| `--text`, `--user-root <dir>`,

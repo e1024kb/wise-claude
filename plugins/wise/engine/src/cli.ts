@@ -10,7 +10,11 @@ import {
 } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { defaultRoots, listDefs, loadDef, locateDef, validateDef } from "./defs.ts";
+import { defaultRoots, listDefs, loadDef, locateDef, onPath, validateDef } from "./defs.ts";
+import { adapterFor, hasAdapter } from "./adapters/index.ts";
+import { LOGIN_CMDS, probeOne } from "./auth.ts";
+import { HARNESSES } from "./types.ts";
+import type { Harness } from "./types.ts";
 import { migrateDef, renderDef } from "./migrate.ts";
 import type { MigrationNote } from "./migrate.ts";
 import { buildQuestionary } from "./preflight.ts";
@@ -43,6 +47,8 @@ Commands:
   mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)
   unit-mcp [--token <t>]       child-side stdio MCP server (wise_report/ask/context/checkpoint);
                                token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT
+  auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);
+                               exit 1 when claude is missing or logged out
   version                      plugin version and runtime
   help                         this text
 
@@ -303,6 +309,45 @@ function cmdListDefs(p: Parsed, io: Io): number {
   return 0;
 }
 
+type AuthRow = { harness: Harness; installed: boolean; login: "ok" | "missing"; login_cmd: string };
+
+/**
+ * `/wise-init` reads this: one row per harness with the binary on PATH and the subscription
+ * login probe. Claude is required for any run, the other three are optional.
+ */
+async function cmdAuth(p: Parsed, io: Io): Promise<number> {
+  const wanted = p.positional.length > 0 ? p.positional : [...HARNESSES];
+  const rows: AuthRow[] = [];
+  for (const name of wanted) {
+    if (!(HARNESSES as readonly string[]).includes(name)) {
+      io.err(`auth: unknown harness ${name} (one of ${HARNESSES.join(", ")})\n`);
+      return 2;
+    }
+    const harness = name as Harness;
+    const installed = onPath(harness, io.env ?? process.env);
+    const probe = installed
+      ? await probeOne(harness, "subscription", (h) => (hasAdapter(h) ? adapterFor(h) : undefined))
+      : { ok: false, login_cmd: LOGIN_CMDS[harness] };
+    rows.push({
+      harness,
+      installed,
+      login: probe.ok ? "ok" : "missing",
+      login_cmd: probe.login_cmd,
+    });
+  }
+  if (p.flags.json) {
+    io.out(JSON.stringify(rows) + "\n");
+  } else {
+    for (const r of rows) {
+      io.out(
+        `HARNESS=${r.harness} INSTALLED=${r.installed ? "yes" : "no"} LOGIN=${r.login} LOGIN_CMD=${r.login_cmd}\n`,
+      );
+    }
+  }
+  const claude = rows.find((r) => r.harness === "claude");
+  return claude !== undefined && claude.login !== "ok" ? 1 : 0;
+}
+
 export async function main(
   argv: readonly string[],
   io: Io = { out: (s) => process.stdout.write(s), err: (s) => process.stderr.write(s) },
@@ -335,6 +380,8 @@ export async function main(
       case "version":
         io.out(`wise-engine ${pluginVersion()} (${runtimeName()} ${process.versions.node})\n`);
         return 0;
+      case "auth":
+        return await cmdAuth(p, io);
       case "help":
       case "--help":
       case "-h":

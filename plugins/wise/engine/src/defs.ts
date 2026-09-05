@@ -1384,7 +1384,7 @@ export function installedPlugins(opts: PluginsOpts = {}): Set<string> {
   return names;
 }
 
-function onPath(
+export function onPath(
   name: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
