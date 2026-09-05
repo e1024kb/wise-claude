@@ -547,6 +547,10 @@ function reportError(err: unknown, out: Out, io: ClientIo): number {
 export async function clientCommand(argv: readonly string[], io: ClientIo): Promise<number> {
   const p = parseArgs(argv);
   const out = makeOut(io, bool(p, "text"));
+  if (bool(p, "help") || bool(p, "h")) {
+    io.out(CLIENT_USAGE);
+    return 0;
+  }
   try {
     switch (p.cmd) {
       case "run":

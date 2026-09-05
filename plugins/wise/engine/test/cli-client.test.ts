@@ -532,3 +532,13 @@ describe("cli-client", () => {
     );
   });
 });
+
+test("run --help prints usage and never starts a run", async () => {
+  const outLines: string[] = [];
+  const code = await clientCommand(["run", "some-workflow", "--help", "--no-start"], {
+    out: (s) => outLines.push(s),
+    err: () => {},
+  });
+  assert.equal(code, 0);
+  assert.match(outLines.join("\n"), /run <workflow>/);
+});
