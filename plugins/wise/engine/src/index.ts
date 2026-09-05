@@ -1,1 +1,1 @@
-export { PLUGIN_ROOT, pluginVersion, runtimeName } from "./version.ts";
+export { PLUGIN_ROOT, buildId, pluginVersion, runtimeName } from "./version.ts";

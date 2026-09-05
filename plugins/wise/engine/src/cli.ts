@@ -12,7 +12,7 @@ import { basename, dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { defaultRoots, listDefs, loadDef, locateDef, onPath, validateDef } from "./defs.ts";
 import { adapterFor, hasAdapter } from "./adapters/index.ts";
-import { LOGIN_CMDS, probeOne } from "./auth.ts";
+import { LOGIN_CMDS, probeOne, readyHarnesses } from "./auth.ts";
 import { HARNESSES } from "./types.ts";
 import type { Harness } from "./types.ts";
 import { migrateDef, renderDef } from "./migrate.ts";
@@ -20,7 +20,7 @@ import type { MigrationNote } from "./migrate.ts";
 import { buildQuestionary } from "./preflight.ts";
 import { PROFILE_LEVELS } from "./types.ts";
 import type { Context, LocatedDef, ProfileLevel, ValidationIssue } from "./types.ts";
-import { pluginVersion, runtimeName } from "./version.ts";
+import { buildId, runtimeName } from "./version.ts";
 import { daemonCommand } from "./daemon.ts";
 import { clientCommand } from "./cli-client.ts";
 import { mcpCommand } from "./mcp.ts";
@@ -123,7 +123,7 @@ function emit(io: Io, p: Parsed, data: unknown, text: () => string): void {
   io.out(p.flags.text === true ? text() + "\n" : JSON.stringify(data, null, 2) + "\n");
 }
 
-function cmdPreflight(p: Parsed, io: Io): number {
+async function cmdPreflight(p: Parsed, io: Io): Promise<number> {
   const ref = p.positional[0];
   if (!ref) {
     io.err("preflight: missing <workflow>\n");
@@ -157,7 +157,10 @@ function cmdPreflight(p: Parsed, io: Io): number {
       return 64;
     }
   }
-  const ctx: { context?: Context; profile?: ProfileLevel } = {};
+  const ctx: { context?: Context; profile?: ProfileLevel; harnesses: Harness[] } = {
+    // Same probe the daemon runs, so this preview matches what a conductor sees.
+    harnesses: await readyHarnesses(def, (h) => (hasAdapter(h) ? adapterFor(h) : undefined)),
+  };
   if (context) ctx.context = context;
   if (profileFlag) ctx.profile = profileFlag as ProfileLevel;
   const q = buildQuestionary(def, ctx);
@@ -370,7 +373,7 @@ export async function main(
       case "daemon":
         return await daemonCommand(argv.slice(1), io);
       case "preflight":
-        return cmdPreflight(p, io);
+        return await cmdPreflight(p, io);
       case "compile-check":
         return cmdCompileCheck(p, io);
       case "migrate":
@@ -378,7 +381,7 @@ export async function main(
       case "list-defs":
         return cmdListDefs(p, io);
       case "version":
-        io.out(`wise-engine ${pluginVersion()} (${runtimeName()} ${process.versions.node})\n`);
+        io.out(`wise-engine ${buildId()} (${runtimeName()} ${process.versions.node})\n`);
         return 0;
       case "auth":
         return await cmdAuth(p, io);

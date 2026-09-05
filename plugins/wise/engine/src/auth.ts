@@ -6,6 +6,7 @@
 
 import { domainError } from "./rpc.ts";
 import type { RpcError } from "./rpc.ts";
+import { HARNESSES } from "./types.ts";
 import type { Adapter, AuthMode, Harness, Resolved, WorkflowDef } from "./types.ts";
 
 /** Login command per harness, shown in `AUTH_REQUIRED.data.login_cmd`. */
@@ -44,6 +45,23 @@ export function collectNeeds(
       if (phases.length === 0) add(step.harness ?? "claude", step.auth ?? "subscription");
       for (const k of phases) add(resolved[k]?.harness ?? "claude", step.auth ?? "subscription");
     }
+  }
+  return out;
+}
+
+/**
+ * Harnesses a `harness.<group>` question may offer: every harness some unlocked tuning group
+ * does not already default to, with an adapter and a subscription login. Groups all defaulting
+ * to the same harness probe nothing for it (the Claude probe runs `claude auth status`).
+ */
+export async function readyHarnesses(def: WorkflowDef, lookup: AdapterLookup): Promise<Harness[]> {
+  const groups = (def.tuning?.groups ?? []).filter((g) => !g.locked);
+  const out: Harness[] = [];
+  for (const h of HARNESSES) {
+    if (!groups.some((g) => (g.default.harness ?? "claude") !== h)) continue;
+    if (!lookup(h)) continue;
+    const probe = await probeOne(h, "subscription", lookup);
+    if (probe.ok) out.push(h);
   }
   return out;
 }

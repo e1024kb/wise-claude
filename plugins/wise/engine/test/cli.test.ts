@@ -31,7 +31,10 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
   assert.equal(j.version, 2);
   assert.ok(j.questions.length > 0);
   for (const q of j.questions) {
-    assert.match(q.id, /^(profile|tuning\.[a-z][a-z0-9-]*|step-select|input\.[a-z][a-z0-9_]*)$/);
+    assert.match(
+      q.id,
+      /^(profile|tuning\.[a-z][a-z0-9-]*|harness\.[a-z][a-z0-9-]*|step-select|input\.[a-z][a-z0-9_]*)$/,
+    );
     assert.ok(["choice", "multi", "text"].includes(q.kind));
     assert.equal(typeof q.label, "string");
   }

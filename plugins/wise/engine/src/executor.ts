@@ -19,7 +19,7 @@ import {
   startGemini,
   startGrok,
 } from "./adapters/index.ts";
-import { collectNeeds, LOGIN_CMDS, probeHarnesses, probeOne } from "./auth.ts";
+import { collectNeeds, LOGIN_CMDS, probeHarnesses, probeOne, readyHarnesses } from "./auth.ts";
 import {
   answerFromDecisions,
   clipReportData,
@@ -1449,23 +1449,6 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
 
   // ---- handlers ---------------------------------------------------------------------------------------
 
-  /**
-   * Harnesses a `harness.<group>` question may offer: every harness some unlocked tuning group
-   * does not already default to, with an adapter and a subscription login. Groups all defaulting
-   * to the same harness probe nothing for it (the Claude probe runs `claude auth status`).
-   */
-  async function readyHarnesses(def: WorkflowDef): Promise<Harness[]> {
-    const groups = (def.tuning?.groups ?? []).filter((g) => !g.locked);
-    const out: Harness[] = [];
-    for (const h of HARNESSES) {
-      if (!groups.some((g) => (g.default.harness ?? "claude") !== h)) continue;
-      if (!getAdapter(h)) continue;
-      const probe = await probeOne(h, "subscription", getAdapter);
-      if (probe.ok) out.push(h);
-    }
-    return out;
-  }
-
   const preflight: Handler<"preflight"> = async (params) => {
     const rec = asRecord(params, "preflight");
     const workflow = requireString(rec, "workflow", "preflight");
@@ -1475,7 +1458,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const def = validated(located);
     const q = buildQuestionary(def, {
       ...(profile !== undefined ? { profile } : {}),
-      harnesses: await readyHarnesses(def),
+      harnesses: await readyHarnesses(def, getAdapter),
     });
     return {
       workflow: located.name,

@@ -16,7 +16,7 @@ import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "../src/protocol.ts";
 import type { ProgressParams, WaitResult } from "../src/protocol.ts";
 import { domainError } from "../src/rpc.ts";
 import type { RunSummary } from "../src/types.ts";
-import { pluginVersion } from "../src/version.ts";
+import { buildId, pluginVersion } from "../src/version.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENGINE = join(HERE, "..");
@@ -457,7 +457,8 @@ describe("mcp", () => {
   test("stdio smoke: the real entry point serves wise_status on the current runtime", async () => {
     const r = mkRoot();
     const calls: Call[] = [];
-    await startFake(r, calls, pluginVersion());
+    // The real entry point greets with the build id, so the fake daemon must carry it too.
+    await startFake(r, calls, buildId());
     // Prefer `engine.sh mcp` once the CLI dispatches it; until then run src/mcp.ts directly.
     const cli = readFileSync(join(ENGINE, "src", "cli.ts"), "utf8");
     const viaCli = /mcpCommand/.test(cli);

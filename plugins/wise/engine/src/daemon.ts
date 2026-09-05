@@ -54,7 +54,7 @@ import { domainError, RpcError, serveConnection } from "./rpc.ts";
 import type { CallContext, RpcHandlerMap } from "./rpc.ts";
 import type { Executor } from "./executor.ts";
 import type { RunStatus, RunSummary, State } from "./types.ts";
-import { pluginVersion } from "./version.ts";
+import { buildId } from "./version.ts";
 
 // ---- constants ---------------------------------------------------------------------------
 
@@ -633,7 +633,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<Daemon> {
   // Synchronous, before any await: concurrent in-process starts serialize here.
   acquireLock(paths.lockPath);
 
-  const version = opts.version ?? pluginVersion();
+  const version = opts.version ?? buildId();
   const started_at = utcNow();
   const idleMs = opts.idleMs ?? IDLE_MS_DEFAULT;
 

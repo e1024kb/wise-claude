@@ -12,7 +12,7 @@ import type { DaemonPathOpts } from "./daemon.ts";
 import type { HelloParams, HelloResult, MethodName, ParamsOf, ResultOf } from "./protocol.ts";
 import { domainCode, RpcClient } from "./rpc.ts";
 import type { CallOptions, NotificationListener } from "./rpc.ts";
-import { pluginVersion } from "./version.ts";
+import { buildId } from "./version.ts";
 
 // ---- options and errors --------------------------------------------------------------------
 
@@ -116,7 +116,7 @@ export async function connect(opts: ClientOptions = {}): Promise<Client> {
   const socket = await rawConnect(paths.socketPath, connectTimeoutMs);
   const rpc = new RpcClient(socket, { timeoutMs: opts.timeoutMs ?? 30_000 });
   const params: HelloParams = {
-    version: opts.version ?? pluginVersion(),
+    version: opts.version ?? buildId(),
     client: opts.client ?? "wise-engine",
   };
   try {
