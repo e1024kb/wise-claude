@@ -1,0 +1,166 @@
+{
+  "questions": [
+    {
+      "id": "profile",
+      "kind": "choice",
+      "label": "Budget profile for this run?",
+      "options": [
+        {
+          "value": "low",
+          "label": "low",
+          "description": "sonnet evidence, Opus 4.8 authoring, one refine pass"
+        },
+        {
+          "value": "medium",
+          "label": "medium",
+          "description": "the workflow's declared defaults"
+        },
+        {
+          "value": "max",
+          "label": "max",
+          "description": "highest tiers, widest scope"
+        }
+      ],
+      "default": "medium"
+    },
+    {
+      "id": "tuning.evidence",
+      "kind": "choice",
+      "label": "Evidence & research (design spec, deep-dive sweep, codebase audit)",
+      "options": [
+        {
+          "value": "default",
+          "label": "Keep default (claude / opus / high)"
+        },
+        {
+          "value": "economy",
+          "label": "Economy",
+          "description": "sonnet at medium effort"
+        }
+      ],
+      "default": "default"
+    },
+    {
+      "id": "tuning.authoring",
+      "kind": "choice",
+      "label": "Plan authoring (gap analysis, build plan, refine)",
+      "options": [
+        {
+          "value": "default",
+          "label": "Keep default (claude / opus / xhigh)"
+        },
+        {
+          "value": "economy",
+          "label": "Economy",
+          "description": "claude / claude-opus-4-8 / high"
+        }
+      ],
+      "default": "default"
+    },
+    {
+      "id": "tuning.presentation",
+      "kind": "choice",
+      "label": "Presentation and summaries",
+      "options": [
+        {
+          "value": "default",
+          "label": "Keep default (claude / sonnet / low)"
+        }
+      ],
+      "default": "default",
+      "locked": true
+    },
+    {
+      "id": "step-select",
+      "kind": "multi",
+      "label": "Which research stages should run?",
+      "options": [
+        {
+          "value": "analyze-design",
+          "label": "Design analysis (Figma / design links)",
+          "description": "analyze-design"
+        },
+        {
+          "value": "analyze-related",
+          "label": "Related tickets & reference docs",
+          "description": "analyze-related"
+        },
+        {
+          "value": "research-context",
+          "label": "Deep-dive context sweep (grill research)",
+          "description": "research-context"
+        },
+        {
+          "value": "gap-analysis",
+          "label": "Gap analysis + blueprint + gap questions",
+          "description": "gap-analysis"
+        },
+        {
+          "value": "resolve-gaps",
+          "label": "Answer the gap questions inline",
+          "description": "resolve-gaps"
+        }
+      ],
+      "default": [
+        "analyze-design",
+        "analyze-related",
+        "research-context",
+        "gap-analysis",
+        "resolve-gaps"
+      ]
+    },
+    {
+      "id": "input.ticket_id",
+      "kind": "text",
+      "label": "Which ticket? (paste a URL, or an id like PROJ-123 / ENG-45 / #678)"
+    },
+    {
+      "id": "input.gap_mode",
+      "kind": "text",
+      "label": "If the gap analysis finds open questions? (defaults | ask)",
+      "default": "defaults"
+    },
+    {
+      "id": "input.review_mode",
+      "kind": "text",
+      "label": "Review the plan before setup? (auto | ask)",
+      "default": "auto"
+    },
+    {
+      "id": "input.branch_mode",
+      "kind": "text",
+      "label": "Branch handling at setup? (auto | current | ask)",
+      "default": "auto"
+    },
+    {
+      "id": "input.implement_mode",
+      "kind": "text",
+      "label": "Implement the plan after setup? (plan-only | now | ask)",
+      "default": "plan-only"
+    },
+    {
+      "id": "input.config_prompt",
+      "kind": "text",
+      "label": "Extra guidance for the run?",
+      "default": ""
+    }
+  ],
+  "defaults": {
+    "profile": "medium",
+    "tuning.evidence": "default",
+    "tuning.authoring": "default",
+    "tuning.presentation": "default",
+    "step-select": [
+      "analyze-design",
+      "analyze-related",
+      "research-context",
+      "gap-analysis",
+      "resolve-gaps"
+    ],
+    "input.gap_mode": "defaults",
+    "input.review_mode": "auto",
+    "input.branch_mode": "auto",
+    "input.implement_mode": "plan-only",
+    "input.config_prompt": ""
+  }
+}

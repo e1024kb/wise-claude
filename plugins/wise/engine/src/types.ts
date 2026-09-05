@@ -56,7 +56,8 @@ export const RUN_STATUSES = [
   "cancelled",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
-export const TERMINAL_RUN: ReadonlySet<RunStatus> = new Set(["completed", "cancelled", "failed"]);
+/** Runs that count as history (prunable, not resumable). `failed` stays resumable, as in v1. */
+export const TERMINAL_RUN: ReadonlySet<RunStatus> = new Set(["completed", "cancelled"]);
 
 // ---- P1 protocol ------------------------------------------------------------
 
@@ -70,6 +71,8 @@ export type Question = {
   default?: string | string[];
   /** Not asked; shown as fixed. */
   locked?: boolean;
+  /** Input may be left empty (inputs only). */
+  optional?: boolean;
 };
 export type Answers = Record<string, string | string[]>;
 
