@@ -273,6 +273,28 @@ CLI (M1.8): `wise-engine preflight <wf> [--profile] [--context <json>]` emits th
 
 Gate M1 passed. Open for M2: `Question.optional` added to types for skippable inputs; `State.run_dir` not added (render takes the dir as a parameter).
 
+### M2 gate report (2026-09-05)
+
+Execution layer landed: `src/adapters/{spawn,claude,index}.ts`, `src/{protocol,rpc,daemon,client}.ts`, `src/executor.ts`, `src/steps/{agent,bash,gate}.ts`, `src/auth.ts`, `src/channel.ts`, `src/mcp.ts`, `src/unit-mcp.ts`, `src/cli-client.ts`; `plugins/wise/.mcp.json` declares the `wise-engine` server (`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`, per-server timeout 660 s). 426 tests green on bun and node.
+
+Gate evidence, all on 2026-09-05 against real Claude children (haiku, sonnet) with the run data root in a scratch dir:
+
+| Criterion | Evidence |
+|---|---|
+| Completes from Claude Code via MCP | `claude -p --model sonnet --effort low --strict-mcp-config --mcp-config …` given only the six `wise_*` tools drove `example-workflow.v2` to `completed`: 13 conductor turns, 26 engine events, 2 gates answered (ask `docs`, approval `approve`), $0.30 conductor cost. |
+| Gate round trip | Ask gate and approval gate parked the run as `gated`, `wise_answer` resumed it, `gate.answered` and `step.done` followed within the same second. Same via `wise-engine run --follow` from a terminal, answers read from stdin. |
+| Daemon survives restart | `kill -9` on `wise-engined` 4 s into a run: recovery marked the run `paused` and reset the running step; the next client call auto-started a daemon; `resume` re-ran `classify` (attempts 2) and the run finished through both gates. No orphan `claude -p` after the crash. |
+
+Behaviour worth recording:
+
+- A run parked at a gate holds no children, so the daemon counts it idle and exits on `daemon stop` or after the idle window; state lives on disk and the next client call restarts the daemon. Intended, matches P5.
+- Child usage under subscription for the eight-step fixture: about 700 output tokens and 30k cache-read tokens per run, `cost_usd` around $0.007 reported by the children. The conductor session dominated cost by 40x, which supports E1 (compact events) and D17 (long `wise_wait`).
+- Concurrency cap held at two Claude children in flight (fixture wave of three agent steps plus three bash steps).
+- Haiku returned a nested JSON string for `summarize-project` once; the schema accepted it because the field is `string`. Prompt hygiene for M3.1, not an engine fault.
+- Found and fixed during the gate: `wise-engine run --help` started a run (client ignored `--help`); `run` sent the located name instead of the given path, so path-form workflows failed with `WORKFLOW_NOT_FOUND`.
+
+Deferred from M2, carried into later milestones: `--settings` trimming measurement (D18) not yet done; `--max-budget-usd` under `auth: api-key` (E11) not wired; `units` steps fail with "units steps arrive in M4"; `wise_context` resolves `state.context`, outputs and inputs only (ticket bodies arrive with M3.2's `Context`); a child-ask gate orphaned by a daemon restart returns `GATE_STALE` on `answer` and needs `resume`.
+
 ## Sources
 
 - Anthropic legal and compliance: https://code.claude.com/docs/en/legal-and-compliance

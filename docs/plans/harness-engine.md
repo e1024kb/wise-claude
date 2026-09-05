@@ -1,6 +1,6 @@
 # PLAN — wise Harness Engine
 
-Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D14, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
+Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D18, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
 
 Created 2026-09-05 on branch `research/ts-engine-ai-sdk` at df467c6. Each milestone ends with a gate; a gate that fails stops the next milestone until the plan is revised.
 
@@ -75,6 +75,8 @@ Goal: run a workflow through the daemon from Claude Code via MCP, Claude harness
 | M2.7 | Auth probe before run (`claude auth status`), `AUTH_REQUIRED` with login command; `/wise-init` and `bootstrap-deps.sh` updated: Node 24 minimum, bun preferred, `claude` login check | 1 | M2.2 | Logged-out state produces the exact login command in the harness, no run dir created | DONE |
 
 Gate M2: example-workflow completes from Claude Code via MCP, gate round trip works, daemon survives restart.
+
+2026-09-05: gate passed. 426 tests green on bun 1.4.1 and node 24.18. A headless Claude Code session (`claude -p --strict-mcp-config --mcp-config` on `plugins/wise/.mcp.json` shape) ran `example-workflow.v2` through `wise_preflight`, `wise_run`, `wise_wait`, `wise_answer`: 26 events, both gates answered, status `completed`, conductor cost $0.30 on sonnet. Same run from the terminal via `wise-engine run --follow`. Restart: daemon killed with SIGKILL mid-run, run recovered as `paused`, next client call auto-started the daemon, `resume` re-ran the interrupted step and the run completed through both gates. Details in the design doc § Spike answers › M2 gate report.
 
 ## M3 — Conductor and first real workflow
 
