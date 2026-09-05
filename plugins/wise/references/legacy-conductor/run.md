@@ -1,4 +1,4 @@
-> Legacy prose conductor, used only for v1 workflows (`ticket-auto`, `impl-plan-auto`) until plan M4 migrates them; removed after that (plan M6.5 keeps it one release behind a flag).
+> Legacy prose conductor. Every bundled workflow is `version: 2` since plan M4.4, so only user-authored v1 workflows reach it now; removed after plan M6.5 (kept one release behind a flag).
 > v2 workflows run on the `wise-engine` MCP tools; see `skills/wise-workflow-run/SKILL.md`.
 
 ---

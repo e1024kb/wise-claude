@@ -11,8 +11,9 @@ Contract under test — a `low` run NEVER dispatches Opus 5:
   non-Opus family (`sonnet`, `haiku`, `fable`, `inherit`) are untouched;
 - `medium` / `max` / no profile leave the pre-rule behaviour intact;
 - the effort clamp runs on the SUBSTITUTED model (Opus 4.8 keeps `xhigh`);
-- `get-profiles` applies the rule to the `low` level's tuning values and
-  the bundled `low` profiles resolve to Opus 4.8 wherever they pin Opus;
+- `get-profiles` applies the rule to the `low` level's tuning values (the
+  bundled workflows are all `version: 2` since M4.4; the TS engine's
+  test/integration.test.ts covers their low profiles);
 - `resolve-team --profile low` applies it to members and overrides alike,
   and an unknown `--profile` is an authoring error, not a silent default.
 """
@@ -20,12 +21,7 @@ Contract under test — a `low` run NEVER dispatches Opus 5:
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
 import pytest
-
-REPO = Path(__file__).resolve().parents[3]
-BUNDLED = REPO / "plugins" / "wise" / "workflows"
 
 
 def test_constant_is_opus_4_8(workflows_module):
@@ -229,23 +225,3 @@ def test_get_profiles_low_explicit_4_8_is_a_noop(workflows_module, tmp_path, cap
     data = json.loads(capsys.readouterr().out)["profiles"]
     assert data["low"]["tuning"]["plan"] == {
         "model": "claude-opus-4-8", "effort": "high", "reason": None}
-
-
-# ticket-plan is a `version: 2` definition since M3.1 and is validated by the
-# TS engine (plugins/wise/engine/test/integration.test.ts covers its low
-# profile); only the v1 bundled workflow stays here until M4 migrates it.
-@pytest.mark.parametrize("name", ["ticket-auto"])
-def test_bundled_low_profiles_never_resolve_to_opus_5(workflows_module, name, capsys):
-    """Every bundled v1 `low` tuning value that pins Opus lands on Opus 4.8."""
-    path = BUNDLED / name / "workflow.yaml"
-    assert workflows_module.cmd_get_profiles(str(path)) == 0
-    data = json.loads(capsys.readouterr().out)["profiles"]
-    low = data["low"]["tuning"]
-    assert low, f"{name}: low profile declares no tuning"
-    opus_entries = [
-        v for v in low.values()
-        if isinstance(v, dict) and workflows_module._model_family(v["model"]) == "opus"
-    ]
-    assert opus_entries, f"{name}: expected at least one Opus-tier low entry"
-    for v in opus_entries:
-        assert v["model"] == "claude-opus-4-8", v

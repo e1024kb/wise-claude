@@ -14,7 +14,6 @@ import { main } from "../src/cli.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "fixtures", "migrate");
-const BUNDLED = join(HERE, "..", "..", "workflows");
 
 type Doc = Record<string, unknown>;
 type Step = Record<string, unknown>;
@@ -81,7 +80,7 @@ const V1_STEP_KEYS = [
   "surface",
 ];
 
-// ---- bundled v1 workflows -----------------------------------------------------------------
+// ---- v1 snapshots of the bundled workflows (fixtures/migrate/*.v1.yaml) --------------------
 
 type Bundled = {
   name: string;
@@ -93,7 +92,7 @@ type Bundled = {
 const BUNDLED_V1: Bundled[] = [
   {
     name: "ticket-auto",
-    path: join(BUNDLED, "ticket-auto", "workflow.yaml"),
+    path: join(FIXTURES, "ticket-auto.v1.yaml"),
     counts: { rewritten: 28, warning: 5, manual: 1 },
     expect(notes, steps, def) {
       noteAt(notes, "agents", "rewritten");
@@ -153,7 +152,7 @@ const BUNDLED_V1: Bundled[] = [
   },
   {
     name: "impl-plan-auto",
-    path: join(BUNDLED, "impl-plan-auto", "workflow.yaml"),
+    path: join(FIXTURES, "impl-plan-auto.v1.yaml"),
     counts: { rewritten: 13, warning: 4, manual: 1 },
     expect(notes, steps) {
       noteAt(notes, "steps[3].type", "manual", /interactive/);
@@ -1016,7 +1015,7 @@ test("cli migrate --out writes the v2 file elsewhere and leaves the source untou
 });
 
 test("cli migrate --write rewrites in place after backing up; the second run is a no-op", async () => {
-  const src = readFileSync(join(BUNDLED, "ticket-auto", "workflow.yaml"), "utf8");
+  const src = readFileSync(join(FIXTURES, "ticket-auto.v1.yaml"), "utf8");
   const { file } = tempCopy("ticket-auto", src);
   const first = await run(["migrate", file, "--write"]);
   assert.equal(first.code, 0, first.err);

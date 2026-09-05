@@ -59,17 +59,19 @@ test("preflight by name resolves through the roots; unknown name exits 2", async
   assert.match(r.out, /WORKFLOW_NOT_FOUND/);
 });
 
-test("compile-check passes the migrated v2 workflows and fails the v1 ones with hints", async () => {
+test("compile-check passes every bundled workflow and fails the v1 fixtures with hints", async () => {
   const ok = await run([
     "compile-check",
     join(BUNDLED, "ticket-plan", "workflow.yaml"),
     join(BUNDLED, "example-workflow", "workflow.yaml"),
+    join(BUNDLED, "ticket-auto", "workflow.yaml"),
+    join(BUNDLED, "impl-plan-auto", "workflow.yaml"),
   ]);
   assert.equal(ok.code, 0, ok.out);
   const bad = await run([
     "compile-check",
-    join(BUNDLED, "ticket-auto", "workflow.yaml"),
-    join(BUNDLED, "impl-plan-auto", "workflow.yaml"),
+    join(HERE, "fixtures", "migrate", "ticket-auto.v1.yaml"),
+    join(HERE, "fixtures", "migrate", "impl-plan-auto.v1.yaml"),
   ]);
   assert.equal(bad.code, 1);
   const report = JSON.parse(bad.out) as {
@@ -88,7 +90,11 @@ test("compile-check passes the migrated v2 workflows and fails the v1 ones with 
 });
 
 test("compile-check --text renders one line per issue", async () => {
-  const r = await run(["compile-check", join(BUNDLED, "ticket-auto", "workflow.yaml"), "--text"]);
+  const r = await run([
+    "compile-check",
+    join(HERE, "fixtures", "migrate", "ticket-auto.v1.yaml"),
+    "--text",
+  ]);
   assert.equal(r.code, 1);
   assert.match(r.out, /^FAIL ticket-auto/);
   assert.match(r.out, /->/);

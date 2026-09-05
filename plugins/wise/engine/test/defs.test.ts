@@ -793,26 +793,31 @@ test("validateDef: units step", () => {
 
 // ---- fixtures and bundled workflows -------------------------------------------------------------------------------
 
-test("bundled ticket-plan and example-workflow validate as v2 with no issues", () => {
-  const ticketPlan = join(BUNDLED, "ticket-plan", "workflow.yaml");
-  const tp = validateDef(loadDef(ticketPlan), ticketPlan);
-  assert.deepEqual(tp.issues, []);
-  assert.equal(tp.def?.name, "ticket-plan");
-  assert.equal(tp.def?.steps.length, 16);
-  const example = join(BUNDLED, "example-workflow", "workflow.yaml");
-  const ex = validateDef(loadDef(example), example);
-  assert.deepEqual(ex.issues, []);
-  assert.equal(ex.def?.name, "example-workflow");
-  assert.equal(ex.def?.steps.length, 8);
+test("every bundled workflow validates as v2 with no issues", () => {
+  // M3.1 migrated ticket-plan and example-workflow; M4.3 / M4.4 ticket-auto and impl-plan-auto.
+  const expectedSteps: Record<string, number> = {
+    "ticket-plan": 16,
+    "example-workflow": 8,
+    "ticket-auto": 5,
+    "impl-plan-auto": 4,
+  };
+  const all = listDefs({ userRoot: join(tmpdir(), "wise-no-user-root"), bundledRoot: BUNDLED });
+  assert.deepEqual(all.map((i) => i.name).toSorted(), Object.keys(expectedSteps).toSorted());
+  for (const item of all) {
+    const res = validateDef(loadDef(item.path), item.path);
+    assert.deepEqual(res.issues, [], item.name);
+    assert.equal(res.def?.name, item.name);
+    assert.equal(res.def?.steps.length, expectedSteps[item.name], item.name);
+  }
 });
 
-test("every bundled v1 workflow fails validation with at least one migration hint", () => {
-  // M3.1 migrated ticket-plan and example-workflow; ticket-auto and impl-plan-auto stay v1 until M4.
-  const V2_MIGRATED = new Set(["ticket-plan", "example-workflow"]);
-  const all = listDefs({ userRoot: join(tmpdir(), "wise-no-user-root"), bundledRoot: BUNDLED });
-  assert.ok(all.length >= 4, `bundled workflows found: ${all.map((i) => i.name).join(", ")}`);
-  const items = all.filter((i) => !V2_MIGRATED.has(i.name));
-  assert.deepEqual(items.map((i) => i.name).toSorted(), ["impl-plan-auto", "ticket-auto"]);
+test("the v1 fixtures fail validation with at least one migration hint", () => {
+  // Snapshots of ticket-auto and impl-plan-auto as they were before M4.3 / M4.4.
+  const FIXTURES = join(HERE, "fixtures", "migrate");
+  const items = ["impl-plan-auto", "ticket-auto"].map((name) => ({
+    name,
+    path: join(FIXTURES, `${name}.v1.yaml`),
+  }));
   for (const item of items) {
     const res = validateDef(loadDef(item.path), item.path);
     assert.equal(res.def, undefined, `${item.name} should not validate as v2`);
