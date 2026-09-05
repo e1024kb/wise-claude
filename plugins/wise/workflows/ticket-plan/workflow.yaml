@@ -224,7 +224,7 @@ steps:
       required: [access]
       additionalProperties: false
     outputs: [access]
-    allowed_tools: ["Bash(command:*)", "WebSearch"]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebSearch"]
     depends_on: [detect-context]
 
   - id: fetch-ticket
@@ -278,7 +278,7 @@ steps:
       required: [ticket_path, ticket_type]
       additionalProperties: false
     outputs: [ticket_path, ticket_type]
-    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)"]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(git:*)", "Bash(mkdir:*)", "Bash(test:*)"]
     depends_on: [ensure-access]
 
   - id: analyze-design
@@ -336,7 +336,7 @@ steps:
 
       If nothing could be fetched, write nothing and reply with exactly
       `NO-RELATED`.
-    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)"]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(git:*)", "Bash(mkdir:*)", "Bash(test:*)"]
     depends_on: [fetch-ticket]
 
   - id: research-context
@@ -393,7 +393,7 @@ steps:
       required: [dossier_path, lexicon, sources_unavailable]
       additionalProperties: false
     outputs: [dossier_path]
-    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(wc:*)", "WebSearch", "WebFetch"]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(git:*)", "Bash(mkdir:*)", "Bash(test:*)", "WebSearch", "WebFetch"]
     depends_on: [fetch-ticket]
 
   - id: codebase-audit
@@ -486,7 +486,7 @@ steps:
       required: [readiness, open_questions]
       additionalProperties: false
     outputs: [readiness, open_questions]
-    allowed_tools: ["Bash(mkdir:*)", "Bash(test:*)", "Bash(ls:*)", "Bash(git:*)"]
+    allowed_tools: ["Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(git:*)", "Bash(mkdir:*)", "Bash(test:*)"]
     depends_on:
       - analyze-design
       - analyze-related

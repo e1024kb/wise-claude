@@ -2,7 +2,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { render, renderStep } from "../src/render.ts";
+import { PLUGIN_ROOT } from "../src/version.ts";
 import { EMPTY_USAGE } from "../src/types.ts";
 import type { AskStep, BashStep, State, UnitsStep } from "../src/types.ts";
 
@@ -105,6 +108,12 @@ test("render resolves inputs and lets recorded outputs win over them", () => {
     outputs: { greeting: "from-output" },
   });
   assert.equal(render("{{ticket_ref}} {{greeting}}", state, ""), "LEC-1 from-output");
+});
+
+test("${CLAUDE_PLUGIN_ROOT} renders to the plugin root", () => {
+  const out = render("Read ${CLAUDE_PLUGIN_ROOT}/agents/architect.md", makeState(), "/wf");
+  assert.equal(out, `Read ${PLUGIN_ROOT}/agents/architect.md`);
+  assert.ok(existsSync(join(PLUGIN_ROOT, "agents", "architect.md")));
 });
 
 test("render tolerates a null project", () => {

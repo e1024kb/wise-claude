@@ -4,6 +4,7 @@
 
 import { usageTotal } from "./ledger.ts";
 import type { State, Step } from "./types.ts";
+import { PLUGIN_ROOT } from "./version.ts";
 
 /** Python `str(v)` stand-in for recorded output values. */
 function stringify(value: unknown): string {
@@ -17,6 +18,8 @@ function stringify(value: unknown): string {
  * Render one template string against the run state.
  *
  * Substitution order mirrors v1 (each pass is a plain global replace):
+ *   0. `${CLAUDE_PLUGIN_ROOT}` -> the plugin root (children have no such variable; the
+ *      bundled prompts point at `references/` and `agents/` files with it)
  *   1. `{{workflow.dir}}` -> `workflowDir`
  *   2. `{{run.dir}}`      -> `runDir` (left verbatim when not supplied)
  *   3. `{{run.id}}`       -> `state.run_id`
@@ -32,7 +35,8 @@ export function render(
   workflowDir: string,
   runDir?: string,
 ): string {
-  let out = template.replaceAll("{{workflow.dir}}", workflowDir);
+  let out = template.replaceAll("${CLAUDE_PLUGIN_ROOT}", PLUGIN_ROOT);
+  out = out.replaceAll("{{workflow.dir}}", workflowDir);
   if (runDir !== undefined) out = out.replaceAll("{{run.dir}}", runDir);
   out = out.replaceAll("{{run.id}}", state.run_id);
   for (const [k, v] of Object.entries(state.project ?? {})) {

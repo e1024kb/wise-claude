@@ -1,5 +1,6 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { PLUGIN_ROOT } from "../src/version.ts";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -300,7 +301,7 @@ describe("model phases", () => {
     const worktree = ledger.unit.worktree;
     for (const c of s.calls) {
       assert.equal(c.req.cwd, worktree);
-      assert.deepEqual(c.req.add_dirs, [f.runDir, worktree]);
+      assert.deepEqual(c.req.add_dirs, [f.runDir, PLUGIN_ROOT, worktree]);
       assert.equal(c.req.mode, PHASE_MODE[c.phase]);
       assert.deepEqual(
         c.req.allowed_tools?.slice(0, PHASE_TOOLS[c.phase].length),

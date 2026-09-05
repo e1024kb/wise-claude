@@ -469,6 +469,7 @@ is undefined, so `x != ''` alone is true.
 
 | Placeholder | Value |
 |---|---|
+| `${CLAUDE_PLUGIN_ROOT}` | The plugin root (children have no such variable). Every agent child also gets the plugin root and the run dir as `--add-dir`, so the `references/` and `agents/` files a prompt cites are readable. |
 | `{{workflow.dir}}` | Absolute folder of the definition; empty for flat form. |
 | `{{run.dir}}` | The run directory. |
 | `{{run.id}}` | The run ULID. |

@@ -3,6 +3,7 @@
 
 import { appendRawLog, writeLog } from "../ledger.ts";
 import { effortFor } from "../resolve.ts";
+import { PLUGIN_ROOT } from "../version.ts";
 import type {
   AgentStep,
   Effort,
@@ -118,7 +119,10 @@ export function buildRunReq(input: AgentStepInput): RunReq {
         : (input.defaultTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS),
     auth: step.auth ?? "subscription",
     step_token: input.stepToken,
-    add_dirs: [input.runDir, ...(input.addDirs ?? [])],
+    // The run dir (files steps hand each other) and the plugin root (the `references/` and
+    // `agents/` files the prompts cite): both are outside the project, so the child needs them
+    // granted or every Read there is a permission denial.
+    add_dirs: [input.runDir, PLUGIN_ROOT, ...(input.addDirs ?? [])],
   };
   if (step.allowed_tools !== undefined) req.allowed_tools = step.allowed_tools;
   if (resolved.effort !== "" && effortFor(resolved.harness, resolved.effort) !== undefined) {

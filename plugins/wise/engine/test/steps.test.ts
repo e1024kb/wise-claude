@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { PLUGIN_ROOT } from "../src/version.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,6 +79,9 @@ test("buildRunReq: defaults (auto, subscription, 30 min), schema, max_turns, eff
   assert.equal(req.timeout_ms, DEFAULT_STEP_TIMEOUT_MS);
   assert.equal(req.max_turns, 2);
   assert.deepEqual(req.schema, AGENT.schema);
+  // The run dir and the plugin root are outside the project: both granted, run dir first.
+  assert.equal(req.add_dirs?.length, 2);
+  assert.equal(req.add_dirs?.[1], PLUGIN_ROOT);
   assert.equal(req.step_token, "tok".padEnd(32, "0"));
   assert.equal(req.mcp_config, undefined, "no channel config: no MCP server for the child");
   assert.equal(req.resume, undefined);
