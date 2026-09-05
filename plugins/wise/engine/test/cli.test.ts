@@ -10,15 +10,15 @@ const ENGINE = join(HERE, "..");
 const FIXTURE = join(HERE, "fixtures", "defs", "ticket-plan.v2.yaml");
 const BUNDLED = join(ENGINE, "..", "workflows");
 
-function run(argv: string[]): { code: number; out: string; err: string } {
+async function run(argv: string[]): Promise<{ code: number; out: string; err: string }> {
   let out = "";
   let err = "";
-  const code = main(argv, { out: (s) => (out += s), err: (s) => (err += s), env: {} });
+  const code = await main(argv, { out: (s) => (out += s), err: (s) => (err += s), env: {} });
   return { code, out, err };
 }
 
-test("preflight on a v2 file emits the P1 questionary shape", () => {
-  const r = run(["preflight", FIXTURE, "--profile", "low"]);
+test("preflight on a v2 file emits the P1 questionary shape", async () => {
+  const r = await run(["preflight", FIXTURE, "--profile", "low"]);
   assert.equal(r.code, 0, r.err);
   const j = JSON.parse(r.out) as {
     workflow: string;
@@ -37,9 +37,9 @@ test("preflight on a v2 file emits the P1 questionary shape", () => {
   assert.equal(j.defaults.profile, "low");
 });
 
-test("preflight --context pre-fills inputs from ticket refs", () => {
+test("preflight --context pre-fills inputs from ticket refs", async () => {
   const ctx = JSON.stringify({ ticket: [{ ref: "LEC-1" }, { ref: "LEC-2" }] });
-  const r = run(["preflight", FIXTURE, "--context", ctx]);
+  const r = await run(["preflight", FIXTURE, "--context", ctx]);
   assert.equal(r.code, 0, r.err);
   const j = JSON.parse(r.out) as { questions: Question[] };
   const input = j.questions.find((q) => q.id.startsWith("input."));
@@ -47,21 +47,21 @@ test("preflight --context pre-fills inputs from ticket refs", () => {
   assert.equal(input.default, "LEC-1, LEC-2");
 });
 
-test("preflight rejects a bad --profile and bad --context with exit 64", () => {
-  assert.equal(run(["preflight", FIXTURE, "--profile", "turbo"]).code, 64);
-  assert.equal(run(["preflight", FIXTURE, "--context", "{nope"]).code, 64);
+test("preflight rejects a bad --profile and bad --context with exit 64", async () => {
+  assert.equal((await run(["preflight", FIXTURE, "--profile", "turbo"])).code, 64);
+  assert.equal((await run(["preflight", FIXTURE, "--context", "{nope"])).code, 64);
 });
 
-test("preflight by name resolves through the roots; unknown name exits 2", () => {
-  const r = run(["preflight", "nope", "--user-root", HERE, "--bundled-root", HERE]);
+test("preflight by name resolves through the roots; unknown name exits 2", async () => {
+  const r = await run(["preflight", "nope", "--user-root", HERE, "--bundled-root", HERE]);
   assert.equal(r.code, 2);
   assert.match(r.out, /WORKFLOW_NOT_FOUND/);
 });
 
-test("compile-check passes the v2 fixture and fails every bundled v1 workflow with hints", () => {
-  const ok = run(["compile-check", FIXTURE]);
+test("compile-check passes the v2 fixture and fails every bundled v1 workflow with hints", async () => {
+  const ok = await run(["compile-check", FIXTURE]);
   assert.equal(ok.code, 0, ok.out);
-  const bad = run([
+  const bad = await run([
     "compile-check",
     join(BUNDLED, "ticket-plan", "workflow.yaml"),
     join(BUNDLED, "ticket-auto", "workflow.yaml"),
@@ -84,26 +84,26 @@ test("compile-check passes the v2 fixture and fails every bundled v1 workflow wi
   }
 });
 
-test("compile-check --text renders one line per issue", () => {
-  const r = run(["compile-check", join(BUNDLED, "ticket-plan", "workflow.yaml"), "--text"]);
+test("compile-check --text renders one line per issue", async () => {
+  const r = await run(["compile-check", join(BUNDLED, "ticket-plan", "workflow.yaml"), "--text"]);
   assert.equal(r.code, 1);
   assert.match(r.out, /^FAIL ticket-plan/);
   assert.match(r.out, /->/);
 });
 
-test("migrate is a dry run listing v1 -> v2 changes; v2 input reports already_v2", () => {
-  const v1 = run(["migrate", join(BUNDLED, "ticket-plan", "workflow.yaml")]);
+test("migrate is a dry run listing v1 -> v2 changes; v2 input reports already_v2", async () => {
+  const v1 = await run(["migrate", join(BUNDLED, "ticket-plan", "workflow.yaml")]);
   assert.equal(v1.code, 0, v1.err);
   const j = JSON.parse(v1.out) as { dry_run: boolean; already_v2: boolean; changes: unknown[] };
   assert.equal(j.dry_run, true);
   assert.equal(j.already_v2, false);
   assert.ok(j.changes.length > 0);
-  const v2 = run(["migrate", FIXTURE]);
+  const v2 = await run(["migrate", FIXTURE]);
   assert.equal((JSON.parse(v2.out) as { already_v2: boolean }).already_v2, true);
 });
 
-test("list-defs lists bundled and user definitions", () => {
-  const r = run([
+test("list-defs lists bundled and user definitions", async () => {
+  const r = await run([
     "list-defs",
     "--user-root",
     join(HERE, "fixtures", "defs"),
@@ -115,7 +115,7 @@ test("list-defs lists bundled and user definitions", () => {
   assert.ok(defs.some((d) => d.name === "ticket-plan" && d.source === "bundled"));
 });
 
-test("unknown command exits 64, help exits 0", () => {
-  assert.equal(run(["bogus"]).code, 64);
-  assert.equal(run(["help"]).code, 0);
+test("unknown command exits 64, help exits 0", async () => {
+  assert.equal((await run(["bogus"])).code, 64);
+  assert.equal((await run(["help"])).code, 0);
 });

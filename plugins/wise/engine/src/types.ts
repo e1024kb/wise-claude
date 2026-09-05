@@ -165,6 +165,8 @@ export const ERROR_CODES = [
   "AUTH_REQUIRED",
   "BUDGET_EXCEEDED",
   "DAEMON_VERSION_MISMATCH",
+  "NOT_IMPLEMENTED",
+  "ALREADY_RUNNING",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -416,6 +418,8 @@ export type RunRes = {
   cursor?: unknown;
   exit: ExitClass;
   error?: string;
+  /** Non-fatal notes: permission denials, ignored cursor shapes. */
+  warnings?: string[];
 };
 export type RawEvent = { ts: string; harness: Harness; line: string; parsed?: unknown };
 export type Adapter = {

@@ -6,6 +6,7 @@ import { buildQuestionary } from "./preflight.ts";
 import { PROFILE_LEVELS } from "./types.ts";
 import type { Context, LocatedDef, ProfileLevel, ValidationIssue } from "./types.ts";
 import { pluginVersion, runtimeName } from "./version.ts";
+import { daemonCommand } from "./daemon.ts";
 
 const USAGE = `wise-engine <command> [options]
 
@@ -15,6 +16,8 @@ Commands:
   compile-check <workflow>...  validate definitions; exit 1 on any error
   migrate <workflow.yaml>      dry run: list v1 constructs with their v2 replacement
   list-defs                    bundled and user workflow definitions
+  daemon serve|start|stop|status
+                               background daemon wise-engined
   version                      plugin version and runtime
   help                         this text
 
@@ -229,13 +232,15 @@ function cmdListDefs(p: Parsed, io: Io): number {
   return 0;
 }
 
-export function main(
+export async function main(
   argv: readonly string[],
   io: Io = { out: (s) => process.stdout.write(s), err: (s) => process.stderr.write(s) },
-): number {
+): Promise<number> {
   const p = parseArgs(argv);
   try {
     switch (p.cmd) {
+      case "daemon":
+        return await daemonCommand(argv.slice(1), io);
       case "preflight":
         return cmdPreflight(p, io);
       case "compile-check":
@@ -263,5 +268,5 @@ export function main(
 }
 
 if (import.meta.main ?? process.argv[1] === new URL(import.meta.url).pathname) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }
