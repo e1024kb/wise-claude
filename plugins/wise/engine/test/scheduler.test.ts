@@ -47,6 +47,7 @@ function makeState(
       subscription: { ...zero, pool: "subscription" },
       "api-key": { ...zero, pool: "api-key" },
       by_harness: {},
+      by_step: {},
     },
     steps: Object.fromEntries(
       Object.entries(steps).map(([id, status]) => [id, { status, attempts: 0 }]),

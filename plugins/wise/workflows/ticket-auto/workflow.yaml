@@ -261,6 +261,15 @@ steps:
       {{run.dir}}/units/<branch>.json carries more per unit:
       last_phase, blueprint, plan_path, watch counters, usage.
 
+      The run's token usage, as JSON the engine folded: `total`, `by_pool`
+      (subscription, api-key), `by_harness`, `by_step`. Tokens are
+      input / output / cache_read / cache_write; `cost_usd` is present
+      when a child reported it or the engine priced an api-key run.
+
+      ---
+      {{usage}}
+      ---
+
       Verify before you claim: for every row with a PR run
       `gh pr view <url> --json state,mergedAt,url` and report the live
       state; where it disagrees with the verdict say so.
@@ -270,7 +279,8 @@ steps:
       (the BLUEPRINT path for `plan-insufficient-context`, the PR for a
       human to finish, the ledger for a failure); the
       `git worktree remove <path>` command for each unit whose
-      `cleaned` is false; the token usage per unit from the ledgers.
+      `cleaned` is false; the run's usage totals from the JSON above and
+      the token usage per unit from the ledgers.
       Print the same table and the counts in your reply. State facts
       once, no praise.
 

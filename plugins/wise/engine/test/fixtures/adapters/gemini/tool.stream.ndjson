@@ -1,0 +1,10 @@
+{"type":"note","synthetic":true,"note":"SYNTHETIC fixture (M5.3): one tool call, a non-fatal `error` notice, and a fenced JSON answer, in the gemini 0.46.0 stream-json shape reconstructed from the bundled source. No live run; numbers invented."}
+{"type":"init","timestamp":"2026-09-05T10:05:00.000Z","session_id":"7b2e4d10-5c6f-4a8b-9d0e-1f2a3b4c5d6e","model":"gemini-2.5-flash"}
+{"type":"message","timestamp":"2026-09-05T10:05:00.010Z","role":"user","content":"Count the lines in README.md and answer with pong and that count as n."}
+{"type":"message","timestamp":"2026-09-05T10:05:01.000Z","role":"assistant","content":"I will read the file first.","delta":true}
+{"type":"tool_use","timestamp":"2026-09-05T10:05:01.200Z","tool_name":"read_file","tool_id":"read_file-1757066701200-1","parameters":{"file_path":"/tmp/work/README.md"}}
+{"type":"tool_result","timestamp":"2026-09-05T10:05:01.400Z","tool_id":"read_file-1757066701200-1","status":"success","output":"# wise\n\nline three\nline four\nline five\n... (43 lines)"}
+{"type":"error","timestamp":"2026-09-05T10:05:01.500Z","severity":"warning","message":"Switching from gemini-2.5-pro to gemini-2.5-flash for the rest of this session due to capacity."}
+{"type":"message","timestamp":"2026-09-05T10:05:03.000Z","role":"assistant","content":"Here is the result:\n```json\n{\"answer\":\"pong\",","delta":true}
+{"type":"message","timestamp":"2026-09-05T10:05:03.100Z","role":"assistant","content":"\"n\":43}\n```\n","delta":true}
+{"type":"result","timestamp":"2026-09-05T10:05:03.400Z","status":"success","stats":{"total_tokens":12840,"input_tokens":12790,"output_tokens":50,"cached":0,"input":12790,"duration_ms":3400,"tool_calls":1,"models":{"gemini-2.5-flash":{"total_tokens":12840,"input_tokens":12790,"output_tokens":50,"cached":0,"input":12790}}}}

@@ -24,6 +24,7 @@ function makeState(overrides: Partial<State> = {}): State {
       subscription: EMPTY_USAGE(),
       "api-key": EMPTY_USAGE("api-key"),
       by_harness: {},
+      by_step: {},
     },
     steps: {},
     outputs: { greeting: "hi" },
@@ -109,4 +110,24 @@ test("render resolves inputs and lets recorded outputs win over them", () => {
 test("render tolerates a null project", () => {
   const state = makeState({ project: null });
   assert.equal(render("{{project.name}}", state, ""), "{{project.name}}");
+});
+
+test("{{usage}} renders the run's usage views as JSON; an output named usage shadows it", () => {
+  const state = makeState();
+  state.usage.subscription.input = 300;
+  state.usage.by_harness.claude = { ...EMPTY_USAGE(), input: 300 };
+  state.usage.by_step.classify = { ...EMPTY_USAGE(), input: 300 };
+  const out = render("Usage:\n{{usage}}", state, "/wf", "/run");
+  const parsed = JSON.parse(out.slice("Usage:\n".length)) as {
+    total: { input: number };
+    by_pool: { subscription: { input: number } };
+    by_harness: { claude: { input: number } };
+    by_step: { classify: { input: number } };
+  };
+  assert.equal(parsed.total.input, 300);
+  assert.equal(parsed.by_pool.subscription.input, 300);
+  assert.equal(parsed.by_harness.claude.input, 300);
+  assert.equal(parsed.by_step.classify.input, 300);
+  const shadowed = render("{{usage}}", makeState({ outputs: { usage: "mine" } }), "/wf");
+  assert.equal(shadowed, "mine");
 });

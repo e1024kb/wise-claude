@@ -13,12 +13,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  addUsage,
   appendEvent,
   appendRawLog,
   applyWorktreeInclude,
   cwdSlug,
+  emptyUsageByPool,
   envPositiveInt,
   findRunsBySession,
+  foldUsageViews,
   formatSessionRunRow,
   initState,
   listResumableRuns,
@@ -39,6 +42,8 @@ import {
   statePath,
   updateRun,
   updateStep,
+  usageTokens,
+  usageTotal,
   utcNow,
   wiseDataRoot,
   wiseRunsRootForCwd,
@@ -48,6 +53,7 @@ import {
   LedgerError,
 } from "../src/ledger.ts";
 import type { Exec } from "../src/ledger.ts";
+import { EMPTY_USAGE } from "../src/types.ts";
 import type { State, UnitLedger } from "../src/types.ts";
 
 // ---- fixtures ------------------------------------------------------------------
@@ -737,4 +743,94 @@ test("test_vanished_listed_path_is_skipped", () => {
   assert.equal(res.copied, 0);
   assert.equal(res.skipped, 1);
   assert.ok(!existsSync(join(worktree, "ghost.txt")));
+});
+
+// ---- usage views (E14, M6.1) ----------------------------------------------------------------
+
+test("foldUsageViews: pool, harness, step and step-state views always sum to the same figures", () => {
+  const { runsRoot } = wiseEnv();
+  const runDir = join(runsRoot, "01FOLD");
+  const state = initState({
+    runDir,
+    runId: "01FOLD",
+    workflow: { name: "wf", version: 2, dir: "/wf" },
+    stepIds: ["a", "b"],
+  });
+  const u = (input: number, pool: "subscription" | "api-key", cost?: number) => ({
+    input,
+    output: input / 10,
+    cache_read: 5,
+    cache_write: 1,
+    pool,
+    ...(cost !== undefined ? { cost_usd: cost, cost_source: "reported" as const } : {}),
+  });
+  foldUsageViews(state, { step: "a", harness: "claude", usage: u(100, "subscription", 0.5) });
+  foldUsageViews(state, { step: "a", harness: "claude", usage: u(200, "subscription") });
+  foldUsageViews(state, { step: "b", harness: "codex", usage: u(40, "api-key", 0.25) });
+  const sum = (list: (typeof state.usage.subscription | undefined)[]) =>
+    list.reduce((n, x) => n + (x?.input ?? 0), 0);
+  assert.equal(sum([state.usage.subscription, state.usage["api-key"]]), 340);
+  assert.equal(sum(Object.values(state.usage.by_harness)), 340);
+  assert.equal(sum(Object.values(state.usage.by_step)), 340);
+  assert.equal(sum([state.steps.a?.usage, state.steps.b?.usage]), 340);
+  assert.deepEqual(state.steps.a?.usage, state.usage.by_step.a);
+  assert.equal(state.usage.by_harness.claude?.cache_read, 10);
+  // Costs and their label fold too: a costed part plus an uncosted one stays `reported`.
+  assert.equal(state.usage.subscription.cost_usd, 0.5);
+  assert.equal(state.usage.subscription.cost_source, "reported");
+  assert.equal(state.usage["api-key"].cost_source, "reported");
+  const total = usageTotal(state.usage);
+  assert.equal(total.input, 340);
+  assert.equal(total.output, 34);
+  assert.equal(total.cost_usd, 0.75);
+  assert.equal(total.pool, "subscription");
+  assert.equal(usageTokens(total), 340 + 34 + 3, "cache reads are not ceiling tokens");
+  // A pre-M6.1 state file has no by_step: the view is created on first fold (from then on).
+  const old = state as unknown as { usage: Record<string, unknown> };
+  delete old.usage.by_step;
+  foldUsageViews(state, { step: "b", harness: "codex", usage: u(1, "api-key") });
+  assert.equal(state.usage.by_step.b?.input, 1);
+  assert.equal(state.steps.b?.usage?.input, 41);
+});
+
+test("addUsage: cost_source aggregation is none -> reported -> priced, never back", () => {
+  const into = EMPTY_USAGE();
+  addUsage(into, { input: 1, output: 0, cache_read: 0, cache_write: 0, pool: "subscription" });
+  assert.equal(into.cost_source, "none");
+  addUsage(into, {
+    input: 1,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    pool: "subscription",
+    cost_usd: 1,
+    cost_source: "reported",
+  });
+  assert.equal(into.cost_source, "reported");
+  addUsage(into, {
+    input: 1,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    pool: "api-key",
+    cost_usd: 2,
+    cost_source: "priced",
+  });
+  assert.equal(into.cost_source, "priced");
+  assert.equal(into.cost_usd, 3);
+  addUsage(into, {
+    input: 1,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    pool: "api-key",
+    cost_usd: 1,
+    cost_source: "reported",
+  });
+  assert.equal(into.cost_source, "priced");
+  // An api-key only run totals as api-key.
+  const api = emptyUsageByPool();
+  api["api-key"].input = 5;
+  assert.equal(usageTotal(api).pool, "api-key");
+  assert.equal(usageTotal(emptyUsageByPool()).pool, "subscription");
 });

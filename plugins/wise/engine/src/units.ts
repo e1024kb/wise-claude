@@ -6,7 +6,8 @@
 // caps, and the merge decision.
 
 import { cleanEnv } from "./adapters/spawn.ts";
-import { readUnit, utcNow, writeLog, writeUnit } from "./ledger.ts";
+import { addUsage, readUnit, utcNow, writeLog, writeUnit } from "./ledger.ts";
+import { priceUsage } from "./pricing.ts";
 import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
 import { claimPhase } from "./phases/claim.ts";
@@ -117,8 +118,8 @@ export type UnitsStepInput = {
   runners?: Partial<Record<Phase, PhaseRunner>>;
   /** Model-phase runtime; absent = the model phases report `skipped`. */
   agent?: UnitsAgentInput;
-  /** Every model child's usage, after it was folded into the unit ledger. */
-  onUsage?: (phase: Phase, harness: Harness, usage: Usage) => void;
+  /** Every model child's usage (priced, M6.1) after it was folded into the unit ledger. */
+  onUsage?: (phase: Phase, harness: Harness, usage: Usage, model: string) => void;
   /** Watch-loop sleep; the default resolves early on abort. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
@@ -194,14 +195,6 @@ function applyPatch(ledger: UnitLedger, patch: Partial<UnitLedger>): void {
     else if (k === "unit") ledger.unit = { ...ledger.unit, ...(v as UnitLedger["unit"]) };
     else (ledger as unknown as Record<string, unknown>)[k] = v;
   }
-}
-
-function addUsage(into: Usage, u: Usage): void {
-  into.input += u.input;
-  into.output += u.output;
-  into.cache_read += u.cache_read;
-  into.cache_write += u.cache_write;
-  if (u.cost_usd !== undefined) into.cost_usd = (into.cost_usd ?? 0) + u.cost_usd;
 }
 
 /** Phases already completed in an earlier attempt are skipped; claim and worktree always re-run. */
@@ -465,6 +458,8 @@ export async function runUnitsStep(input: UnitsStepInput): Promise<UnitsStepResu
   const sleep = input.sleep ?? defaultSleep;
   const now = input.now ?? Date.now;
   const lines: string[] = [];
+  // Models with no price row, logged once per step (M6.1).
+  const pricingWarned = new Set<string>();
   const flushLog = (): string =>
     writeLog(runDir, step.id, input.stepRunId, lines.join("\n") + "\n");
 
@@ -531,8 +526,21 @@ export async function runUnitsStep(input: UnitsStepInput): Promise<UnitsStepResu
       fold: (phase, res) => {
         if (res.patch) applyPatch(ledger, res.patch);
         if (res.usage) {
-          addUsage(ledger.usage, res.usage);
-          input.onUsage?.(phase, res.resolved?.harness ?? "claude", res.usage);
+          // Priced here so the unit ledger and the run views carry the same figure; the
+          // executor's fold sees `cost_source` set and does not price again.
+          const harness = res.resolved?.harness ?? "claude";
+          const model = res.resolved?.model ?? "inherit";
+          const priced = priceUsage(res.usage, harness, model);
+          if (priced.unknownModel !== undefined && !pricingWarned.has(priced.unknownModel)) {
+            pricingWarned.add(priced.unknownModel);
+            log(
+              `${phase}: no price for ${harness} model ${priced.unknownModel}; api-key cost not counted`,
+            );
+          }
+          addUsage(ledger.usage, priced.usage);
+          ledger.usage_by_phase ??= {};
+          addUsage((ledger.usage_by_phase[phase] ??= EMPTY_USAGE(priced.usage.pool)), priced.usage);
+          input.onUsage?.(phase, harness, priced.usage, model);
         }
         persist();
       },

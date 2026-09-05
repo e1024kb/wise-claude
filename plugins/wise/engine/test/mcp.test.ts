@@ -46,6 +46,7 @@ const SUMMARY: RunSummary = {
   started_at: "2026-09-05T00:00:00Z",
   last_activity_at: "2026-09-05T00:00:01Z",
   cwd: "/work",
+  usage_total: { input: 12, output: 3, cache_read: 0, cache_write: 0, pool: "subscription" },
 };
 
 /** Canned handlers that record every call; `wait` emits two progress notifications first. */
@@ -334,6 +335,7 @@ describe("mcp", () => {
       const one = await callTool(client, "wise_status", { run_id: "01X" });
       assert.deepEqual(calls, [{ method: "status", params: { run_id: "01X" } }]);
       assert.equal((one.structuredContent as RunSummary).run_id, "01X");
+      assert.equal((one.structuredContent as RunSummary).usage_total?.input, 12);
     });
 
     test("wise_cancel forwards run_id and reason", async () => {

@@ -584,24 +584,20 @@ test("probeAuth: subscription parses `claude auth status` JSON", async () => {
   );
 });
 
-test("registry: claude, codex, grok are registered; gemini raises HARNESS_UNAVAILABLE", () => {
+test("registry: claude, codex, gemini, grok are registered", () => {
   assert.equal(adapterFor("claude"), claudeAdapter);
   assert.equal(claudeAdapter.id, "claude");
-  for (const h of ["claude", "codex", "grok"] as const) {
+  for (const h of ["claude", "codex", "gemini", "grok"] as const) {
     assert.equal(hasAdapter(h), true, h);
     assert.equal(adapterFor(h).id, h);
   }
-  for (const h of ["gemini"] as const) {
-    assert.equal(hasAdapter(h), false);
-    assert.throws(
-      () => adapterFor(h),
-      (err: unknown) =>
-        err instanceof AdapterError &&
-        err.code === "HARNESS_UNAVAILABLE" &&
-        err.message.includes(h),
-      h,
-    );
-  }
+  assert.throws(
+    () => adapterFor("nope" as never),
+    (err: unknown) =>
+      err instanceof AdapterError &&
+      err.code === "HARNESS_UNAVAILABLE" &&
+      err.message.includes("nope"),
+  );
 });
 
 // ---- live smoke (WISE_LIVE=1) ------------------------------------------------------------------------------

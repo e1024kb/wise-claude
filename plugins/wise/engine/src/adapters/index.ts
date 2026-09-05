@@ -3,6 +3,7 @@
 import type { Adapter, ErrorCode, Harness } from "../types.ts";
 import { claudeAdapter } from "./claude.ts";
 import { codexAdapter } from "./codex.ts";
+import { geminiAdapter } from "./gemini.ts";
 import { grokAdapter } from "./grok.ts";
 
 export class AdapterError extends Error {
@@ -14,10 +15,11 @@ export class AdapterError extends Error {
   }
 }
 
-// gemini stays absent until M5.3 (best effort).
+// gemini (M5.3) is best effort: registered, but not validated against a working login.
 const ADAPTERS: Partial<Record<Harness, Adapter>> = {
   claude: claudeAdapter,
   codex: codexAdapter,
+  gemini: geminiAdapter,
   grok: grokAdapter,
 };
 
@@ -37,6 +39,8 @@ export { claudeAdapter, startClaude } from "./claude.ts";
 export type { ClaudeRun } from "./claude.ts";
 export { codexAdapter, startCodex } from "./codex.ts";
 export type { CodexRun } from "./codex.ts";
+export { geminiAdapter, startGemini } from "./gemini.ts";
+export type { GeminiRun } from "./gemini.ts";
 export { grokAdapter, startGrok } from "./grok.ts";
 export type { GrokRun } from "./grok.ts";
 export { cleanEnv, spawnClean } from "./spawn.ts";

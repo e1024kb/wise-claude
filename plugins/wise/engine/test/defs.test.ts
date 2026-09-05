@@ -853,3 +853,17 @@ test("allowed_tools: list of non-empty strings, rejected otherwise", () => {
   const bad = { ...base, steps: [{ ...base.steps[0], allowed_tools: ["", 3] }] };
   assert.ok(validateDef(bad, "t.yaml").issues.some((i) => i.path.endsWith("allowed_tools")));
 });
+
+test("allow-api: boolean on steps and tuning groups (M6.2), rejected otherwise", () => {
+  const withGroup = (d: Doc, stepExtra: Doc = {}) =>
+    doc({ tuning: { groups: [{ id: "paid", default: { harness: "codex" }, ...d }] } }, [
+      { id: "a", type: "agent", prompt: "x", group: "paid", auth: "api-key", ...stepExtra },
+    ]);
+  const def = valid(withGroup({ "allow-api": true }, { "allow-api": false }));
+  assert.equal(def.tuning?.groups[0]?.["allow-api"], true);
+  assert.equal(def.steps[0]?.["allow-api"], false);
+  assert.equal(valid(step({})).steps[0]?.["allow-api"], undefined);
+  errorAt(issues(withGroup({ "allow-api": "yes" })), "tuning.groups[0].allow-api");
+  errorAt(issues(step({ "allow-api": 1 })), "steps[0].allow-api");
+  noErrors(issues(withGroup({}, { "allow-api": true })));
+});

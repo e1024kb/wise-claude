@@ -11,10 +11,12 @@ import {
   adapterFor,
   claudeAdapter,
   codexAdapter,
+  geminiAdapter,
   grokAdapter,
   hasAdapter,
   startClaude,
   startCodex,
+  startGemini,
   startGrok,
 } from "./adapters/index.ts";
 import { collectNeeds, LOGIN_CMDS, probeHarnesses, probeOne } from "./auth.ts";
@@ -39,6 +41,7 @@ import type { DefRoots } from "./defs.ts";
 import {
   appendEvent,
   cwdSlug,
+  foldUsageViews,
   initState,
   listUnits,
   newUlid,
@@ -47,12 +50,15 @@ import {
   startStep,
   updateRun,
   updateStep,
+  usageTokens,
+  usageTotal,
   utcNow,
   writeState,
 } from "./ledger.ts";
 import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
 import { applyAnswers, buildQuestionary, resolveFromContext } from "./preflight.ts";
+import { priceUsage } from "./pricing.ts";
 import { isProfileLevel } from "./profile.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
 import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
@@ -65,7 +71,7 @@ import { nextWave } from "./scheduler.ts";
 import { headline, startAgentStep } from "./steps/agent.ts";
 import type { AgentHandle, AgentOutcome, AgentStarter, ChannelConfig } from "./steps/agent.ts";
 import { startBashStep } from "./steps/bash.ts";
-import { buildGate, decideGate, isGateStep } from "./steps/gate.ts";
+import { APPROVAL_OPTIONS, buildGate, decideGate, isGateStep } from "./steps/gate.ts";
 import type { GateStep } from "./steps/gate.ts";
 import { HARNESSES, REPORT_KINDS } from "./types.ts";
 import type {
@@ -85,6 +91,7 @@ import type {
   Resolved,
   RunSummary,
   State,
+  Step,
   UnitsStep,
   Usage,
   WorkflowDef,
@@ -251,12 +258,18 @@ function optionalProfile(rec: Rec, method: string): ProfileLevel | undefined {
   return v;
 }
 
-function addUsage(into: Usage, u: Usage): void {
-  into.input += u.input;
-  into.output += u.output;
-  into.cache_read += u.cache_read;
-  into.cache_write += u.cache_write;
-  if (u.cost_usd !== undefined) into.cost_usd = (into.cost_usd ?? 0) + u.cost_usd;
+/** A step may run under `auth: api-key` at the `low` profile only with `allow-api` (M6.2). */
+export function apiKeyStepsRefused(def: WorkflowDef, enabled: ReadonlySet<string>): string[] {
+  const groups = new Map((def.tuning?.groups ?? []).map((g) => [g.id, g]));
+  const refused: string[] = [];
+  for (const step of def.steps as Step[]) {
+    if (!enabled.has(step.id) || step.auth !== "api-key") continue;
+    const allowed =
+      step["allow-api"] === true ||
+      (step.group !== undefined && groups.get(step.group)?.["allow-api"] === true);
+    if (!allowed) refused.push(step.id);
+  }
+  return refused;
 }
 
 /** Primitive outputs only, strings clipped, for the compact `step.done` event (E1). */
@@ -321,6 +334,8 @@ type LiveRun = {
   /** Steps whose child the stale policy killed; their exit settles as `stale`. */
   staleKilled: Set<string>;
   asks: Map<string, PendingAsk>;
+  /** Models an api-key child used that have no price row; warned once per run (M6.1). */
+  pricingWarned: Set<string>;
 };
 
 /** A rate-limited harness: no dispatch until `until` (engine clock), backoff grows per attempt. */
@@ -351,6 +366,7 @@ function makeLive(
     staleWatches: new Map(),
     staleKilled: new Set(),
     asks: new Map(),
+    pricingWarned: new Set(),
   };
 }
 
@@ -436,6 +452,11 @@ function validated(located: LocatedDef): WorkflowDef {
   return result.def;
 }
 
+/** The profile's declared `caps.tokens`: the amount a ceiling approval raises the ceiling by. */
+function ceilingStep(live: LiveRun, state: State): number | undefined {
+  return live.def.profiles?.[state.profile]?.caps?.tokens ?? state.caps.tokens;
+}
+
 /** The run's planned resolution for a step (its primary harness). */
 function plannedResolution(state: State, step: AgentStep): Resolved {
   return (
@@ -503,6 +524,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       if (adapter === claudeAdapter) return startClaude(req, onEvent);
       if (adapter === codexAdapter) return startCodex(req, onEvent);
       if (adapter === grokAdapter) return startGrok(req, onEvent);
+      if (adapter === geminiAdapter) return startGemini(req, onEvent);
       return { done: adapter.run(req, onEvent) };
     });
 
@@ -906,8 +928,8 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
           return untrack;
         },
       },
-      onUsage: (_phase, harness, usage) => {
-        if (!live.stopped) foldUsage(live, step.id, harness, usage);
+      onUsage: (_phase, harness, usage, model) => {
+        if (!live.stopped) foldUsage(live, step.id, harness, usage, model);
       },
       emit: (ev) => {
         if (!live.stopped) emit(live, ev);
@@ -1160,47 +1182,150 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     resolved: Resolved,
     outcome: AgentOutcome,
   ): void {
-    foldUsage(live, step.id, harness, outcome.usage);
+    // The ceiling is checked after the step settled, so its `step.done` lands before any gate.
+    const usage = foldUsage(live, step.id, harness, outcome.usage, resolved.model, false);
     for (const w of outcome.warnings)
       emit(live, { type: "warn", step: step.id, message: headline(w) });
     const patch = { harness, ...(outcome.cursor !== undefined ? { cursor: outcome.cursor } : {}) };
     if (live.staleKilled.delete(step.id)) {
       // E8: the cursor is kept so a `resume: unit` step picks the session back up.
       failStep(live, step.id, "stale", "failed: stale (no activity, killed)", patch);
-      return;
+    } else if (outcome.exit === "ok") {
+      completeStep(live, step.id, outcome.verdict, outcome.outputs, { ...patch, usage });
+    } else if (outcome.exit === "rate_limited") {
+      rateLimited(live, step, harness, outcome.error ?? "rate limited");
+    } else if (outcome.exit === "auth") {
+      authFailed(live, step, harness, resolved, outcome.error ?? "not logged in");
+    } else {
+      failStep(live, step.id, outcome.error ?? outcome.exit, outcome.verdict, patch);
     }
-    switch (outcome.exit) {
-      case "ok":
-        completeStep(live, step.id, outcome.verdict, outcome.outputs, {
-          ...patch,
-          usage: outcome.usage,
-        });
-        return;
-      case "rate_limited":
-        rateLimited(live, step, harness, outcome.error ?? "rate limited");
-        return;
-      case "auth":
-        authFailed(live, step, harness, resolved, outcome.error ?? "not logged in");
-        return;
-      default:
-        failStep(live, step.id, outcome.error ?? outcome.exit, outcome.verdict, patch);
-    }
+    if (!live.stopped) checkCeiling(live, readState(live.runDir), step.id);
   }
 
-  function foldUsage(live: LiveRun, stepId: string, harness: Harness, usage: Usage): void {
+  /**
+   * Price (api-key, tokens only) then fold one child's usage into every ledger view, emit the
+   * `usage` event and, unless the caller checks later, the run's token ceiling. Returns the usage
+   * as folded, so the `step.done` event carries the same figure as the ledger.
+   */
+  function foldUsage(
+    live: LiveRun,
+    stepId: string,
+    harness: Harness,
+    raw: Usage,
+    model: string,
+    ceiling = true,
+  ): Usage {
+    const priced = priceUsage(raw, harness, model);
+    if (priced.unknownModel !== undefined && !live.pricingWarned.has(priced.unknownModel)) {
+      live.pricingWarned.add(priced.unknownModel);
+      emit(live, {
+        type: "warn",
+        step: stepId,
+        harness,
+        message: `${stepId}: no price for ${harness} model ${priced.unknownModel}; api-key cost not counted`,
+      });
+    }
+    const usage = priced.usage;
     const state = readState(live.runDir);
-    addUsage(state.usage[usage.pool], usage);
-    const byHarness = (state.usage.by_harness[harness] ??= {
-      input: 0,
-      output: 0,
-      cache_read: 0,
-      cache_write: 0,
-      pool: usage.pool,
-    });
-    addUsage(byHarness, usage);
+    foldUsageViews(state, { step: stepId, harness, usage });
     state.last_activity_at = utcNow();
     writeState(live.runDir, state);
     emit(live, { type: "usage", step: stepId, harness, usage });
+    if (ceiling) checkCeiling(live, state, stepId);
+    return usage;
+  }
+
+  // ---- token ceiling (E11, M6.2) -------------------------------------------------------------------
+
+  /**
+   * After a fold: when the run's countable tokens reach `caps.tokens`, park it at an approval gate
+   * (interactive) or fail it (synchronous). Children already running finish their turn; nothing
+   * new is dispatched while the run is not `running`.
+   */
+  function checkCeiling(live: LiveRun, state: State, stepId: string): void {
+    const limit = state.caps.tokens;
+    if (limit === undefined || state.status !== "running" || state.gate) return;
+    const used = usageTokens(usageTotal(state.usage));
+    if (used < limit) return;
+    const message = `Run used ${used} tokens, ceiling ${limit} for profile ${state.profile}. Continue?`;
+    if (live.controlMode === "synchronous") {
+      emit(live, {
+        type: "warn",
+        step: stepId,
+        message: headline(`ceiling: ${message} no (synchronous)`),
+      });
+      failRun(live, `ceiling: used ${used} tokens, ceiling ${limit} for profile ${state.profile}`);
+      return;
+    }
+    const gate: Gate = {
+      gate_id: newUlid(),
+      step: stepId,
+      kind: "approval",
+      message,
+      options: APPROVAL_OPTIONS.map((o) => ({ ...o })),
+      ceiling: { used, limit },
+    };
+    updateRun(live.runDir, { status: "gated", gate });
+    emit(live, { type: "gate.opened", step: stepId, verdict: headline(gate.message) });
+  }
+
+  /** Answer to a ceiling gate: approve raises the ceiling by the profile's amount, reject fails. */
+  function answerCeiling(live: LiveRun, gate: Gate, value: string | string[]): { accepted: true } {
+    const text = (Array.isArray(value) ? value.join(", ") : value).trim();
+    if (text !== "approve" && text !== "reject") {
+      throw new RpcError(
+        RPC_INVALID_PARAMS,
+        `answer: ceiling gate takes "approve" or "reject", got ${JSON.stringify(text)}`,
+      );
+    }
+    const state = readState(live.runDir);
+    if (text === "reject") {
+      emit(live, { type: "gate.answered", step: gate.step, verdict: "rejected: ceiling" });
+      failRun(
+        live,
+        `ceiling: used ${gate.ceiling?.used ?? 0} tokens, ceiling ${gate.ceiling?.limit ?? 0} for profile ${state.profile}, rejected`,
+      );
+      return { accepted: true };
+    }
+    const raise = ceilingStep(live, state) ?? 0;
+    const limit = (state.caps.tokens ?? gate.ceiling?.limit ?? 0) + raise;
+    state.caps.tokens = limit;
+    state.status = "running";
+    state.last_activity_at = utcNow();
+    delete state.gate;
+    writeState(live.runDir, state);
+    emit(live, {
+      type: "gate.answered",
+      step: gate.step,
+      verdict: headline(`approved: ceiling raised to ${limit} tokens`),
+    });
+    openChildAsks(live);
+    setImmediate(() => schedule(live));
+    return { accepted: true };
+  }
+
+  /** Fail the whole run now: children are killed, running steps marked failed, `run.failed` emitted. */
+  function failRun(live: LiveRun, error: string): void {
+    for (const child of live.children.values()) child.kill?.("SIGTERM");
+    const state = readState(live.runDir);
+    const now = utcNow();
+    for (const step of Object.values(state.steps)) {
+      if (step.status === "running") {
+        step.status = "failed";
+        step.error = error;
+        step.verdict = headline(`failed: ${error}`);
+        step.completed_at = now;
+      }
+    }
+    state.status = "failed";
+    state.error = error;
+    state.completed_at = now;
+    state.last_activity_at = now;
+    delete state.gate;
+    writeState(live.runDir, state);
+    emit(live, { type: "run.failed", verdict: headline(error) });
+    rt.log(`run ${live.runId}: failed (${error})`);
+    dropLive(live);
   }
 
   /** Step completed with its outputs merged into the run outputs, one atomic state write. */
@@ -1347,6 +1472,16 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const def = validated(located);
     const applied = applyAnswers(def, answers);
     const controlMode = controlModeOf(def, answers);
+    if (applied.profile === "low") {
+      const refused = apiKeyStepsRefused(def, applied.enabledSteps);
+      if (refused.length > 0) {
+        throw domainError(
+          "PROFILE_REFUSES_API",
+          `profile low refuses auth: api-key on ${refused.join(", ")}; set allow-api: true on the step or its tuning group, or pick another profile`,
+          { profile: applied.profile, steps: refused },
+        );
+      }
+    }
 
     const resolved: Record<string, Resolved> = {};
     for (const step of def.steps) {
@@ -1455,6 +1590,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       });
     }
     const live = ensureLive(runDir, state);
+    if (state.gate.ceiling) return answerCeiling(live, state.gate, value);
     const childAsk = [...live.asks.values()].find((a) => a.gate_id === gateId);
     if (childAsk) return answerChildAsk(live, childAsk, value);
     const def = live.def.steps.find((s) => s.id === state.gate?.step);
@@ -1528,7 +1664,9 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     }
     const out: ReportResult = {
       units: listUnits(runDir).map(unitRow),
-      usage: state.usage,
+      usage: { ...state.usage, by_step: state.usage.by_step ?? {} },
+      usage_total: usageTotal(state.usage),
+      resolved: state.resolved,
       verdicts,
     };
     return out;
@@ -1568,7 +1706,11 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       if (!live || live.trackers.size === 0) return s;
       return { ...s, children: [...live.trackers.values()].map((t) => t.snapshot()) };
     };
-    return Array.isArray(res) ? res.map(decorate) : decorate(res);
+    if (Array.isArray(res)) return res.map(decorate);
+    // One run: fold both pools into a single figure (M6.1).
+    const dir = rt.findRunDir(res.run_id);
+    const total = dir ? usageTotal(readState(dir).usage) : undefined;
+    return total ? { ...decorate(res), usage_total: total } : decorate(res);
   };
 
   const nudge: Handler<"nudge"> = (params) => {

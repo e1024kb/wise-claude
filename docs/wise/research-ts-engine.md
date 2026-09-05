@@ -523,7 +523,7 @@ type PhaseResult = { ok: true; patch: Partial<UnitLedger> } | { ok: false; reaso
 Phase behaviour, carried over from the prose with the engine now holding the loop:
 
 - `claim` / `worktree`: idempotent. Ledger file present = this run owns the unit; worktree or branch on disk without a ledger = foreign, skip. Live `git` / `gh` state wins over the ledger.
-- `plan`: `agent` call with the group's harness. Schema `{ status: written | blocked, path?, type?, reason?, blueprint? }`. `blocked` maps to `verdict: failed` with reasons `plan-no-access` or `plan-insufficient-context`.
+- `plan`: `agent` call with the group's harness. Schema `{ plan_path, status: ready | insufficient-context | no-access, blueprint_path? }` (M4.2 tightened this from the draft `written | blocked`). `no-access` and `insufficient-context` map to `verdict: failed` with reasons `plan-no-access` or `plan-insufficient-context`.
 - `implement`: schema `{ waves, tasks, done, failed }`. `done == 0` fails the unit. Parallel task executors are the child's own subagents (Claude) or sequential turns (Codex, Grok); the engine does not supervise them, it enforces `timeout` and `max_turns`.
 - `review` then `fix`: cycle up to `max_review_cycles`. Reviewer returns `{ verdict: clean | issues, findings_path }`; fixer receives the findings path and the review's cursor (E8). Non-convergence pushes anyway with `review.converged = false`.
 - `push`, `pr`, `request-review`: engine code around `git` and `gh`, no model. Failures are unit failures with reasons `push`, `pr`, `request-review`.

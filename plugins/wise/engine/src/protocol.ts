@@ -11,9 +11,11 @@ import type {
   ProfileLevel,
   Question,
   ReportKind,
+  Resolved,
   RunStatus,
   RunSummary,
   UnitRow,
+  Usage,
   UsageByPool,
 } from "./types.ts";
 
@@ -127,7 +129,12 @@ export type ResumeResult = { run_id: string; status: RunStatus };
 export type ReportParams = { run_id: string };
 export type ReportResult = {
   units: UnitRow[];
+  /** Per pool, per harness and per step (M6.1). */
   usage: UsageByPool;
+  /** Both pools folded into one figure. */
+  usage_total: Usage;
+  /** Harness / model / effort per step (`<step>.<phase>` keys for `units` steps). */
+  resolved: Record<string, Resolved>;
   /** Step id → one-line verdict. */
   verdicts: Record<string, string>;
 };

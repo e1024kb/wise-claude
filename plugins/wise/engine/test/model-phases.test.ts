@@ -282,6 +282,14 @@ describe("model phases", () => {
     assert.equal(ledger.cursors.implement, "sess-impl");
     assert.equal(ledger.cursors.review, "sess-review");
     assert.equal(ledger.usage.input, 100 * s.calls.length);
+    // M6.1: the per-phase split sums to the unit total; watch ran twice and accumulates.
+    const byPhase = Object.values(ledger.usage_by_phase ?? {});
+    assert.equal(
+      byPhase.reduce((n, u) => n + (u?.input ?? 0), 0),
+      ledger.usage.input,
+    );
+    assert.equal(ledger.usage_by_phase?.watch?.input, 200);
+    assert.equal(ledger.usage.cost_source, "none");
     assert.equal(f.usage.length, s.calls.length);
     assert.deepEqual(
       f.usage.map((u) => `${u.phase}/${u.harness}`),

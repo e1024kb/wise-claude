@@ -153,8 +153,33 @@ describe("cli-client", () => {
                 pool: "subscription",
               },
               "api-key": { input: 0, output: 0, cache_read: 0, cache_write: 0, pool: "api-key" },
-              by_harness: {},
+              by_harness: {
+                claude: {
+                  input: 1500,
+                  output: 200,
+                  cache_read: 0,
+                  cache_write: 0,
+                  pool: "subscription",
+                },
+              },
+              by_step: {
+                classify: {
+                  input: 1500,
+                  output: 200,
+                  cache_read: 0,
+                  cache_write: 0,
+                  pool: "subscription",
+                },
+              },
             },
+            usage_total: {
+              input: 1500,
+              output: 200,
+              cache_read: 0,
+              cache_write: 0,
+              pool: "subscription",
+            },
+            resolved: { classify: { harness: "claude", model: "haiku", effort: "" } },
             verdicts: { classify: "bug" },
           };
         },
@@ -439,7 +464,13 @@ describe("cli-client", () => {
     const rep = await run(["report", RUN_ID, "--text"]);
     assert.equal(rep.code, 0);
     assert.match(rep.out, /classify: bug/);
-    assert.match(rep.out, /subscription: in 1\.5k out 200/);
+    // M6.1 table: step | harness model | in | out | cache_read | cost, then totals by pool / harness.
+    assert.match(rep.out, /step\s+harness model\s+in\s+out\s+cache_read\s+cost/);
+    assert.match(rep.out, /classify\s+claude haiku\s+1\.5k\s+200\s+0\s+-/);
+    assert.match(rep.out, /pool\s+subscription\s+1\.5k\s+200\s+0\s+-/);
+    assert.match(rep.out, /harness\s+claude\s+1\.5k\s+200/);
+    assert.match(rep.out, /total\s+1\.5k\s+200/);
+    assert.doesNotMatch(rep.out, /api-key/, "an empty pool is not listed");
     const repJson = await run(["report", RUN_ID]);
     assert.equal(
       (JSON.parse(repJson.out) as { verdicts: Record<string, string> }).verdicts.classify,

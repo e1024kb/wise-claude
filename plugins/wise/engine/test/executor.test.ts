@@ -46,6 +46,7 @@ import {
   updateStep,
   utcNow,
 } from "../src/ledger.ts";
+import { usageTokens, usageTotal } from "../src/ledger.ts";
 import { RPC_INVALID_PARAMS } from "../src/protocol.ts";
 import { domainCode, domainError } from "../src/rpc.ts";
 import type { CallContext, RpcError } from "../src/rpc.ts";
@@ -1170,4 +1171,231 @@ describe("executor", () => {
       await daemon.close();
     },
   );
+
+  // ---- usage accounting and ceilings (M6.1, M6.2) --------------------------------------------------
+
+  test("M6.2 low profile refuses api-key steps without allow-api before any run dir exists", async () => {
+    const r = mkRoot();
+    const claude = claudeFake();
+    const exec = make(r, { adapters: { claude } });
+    const refused = await attempt(() =>
+      exec.handlers.run(
+        {
+          workflow: "api-key-refused",
+          cwd: r.cwd,
+          answers: { profile: "low" },
+          context: {},
+          inputs: {},
+        },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(refused), "PROFILE_REFUSES_API");
+    const data = (refused as RpcError).data as { steps: string[]; profile: string };
+    assert.deepEqual(data.steps, ["paid", "paid-optional"]);
+    assert.equal(data.profile, "low");
+    assert.match((refused as Error).message, /allow-api: true/);
+    assert.deepEqual(r.rt.listRunDirs(), [], "nothing created");
+    assert.equal(claude.probes.length, 0, "refused before the auth probe");
+
+    // A deselected api-key step is not counted; the remaining one still refuses.
+    const partial = await attempt(() =>
+      exec.handlers.run(
+        {
+          workflow: "api-key-refused",
+          cwd: r.cwd,
+          answers: { profile: "low", "step-select": [] },
+          context: {},
+          inputs: {},
+        },
+        ctx,
+      ),
+    );
+    assert.deepEqual(((partial as RpcError).data as { steps: string[] }).steps, ["paid"]);
+
+    // Medium runs the same workflow; low runs one where every api-key step is allowed
+    // (`allow-api` on the step itself or on its tuning group).
+    for (const [workflow, profile] of [
+      ["api-key-refused", "medium"],
+      ["api-key", "low"],
+    ] as const) {
+      const { run_id } = await exec.handlers.run(
+        { workflow, cwd: r.cwd, answers: { profile }, context: {}, inputs: {} },
+        ctx,
+      );
+      const state = await untilStatus(r, run_id, ["completed", "failed"]);
+      assert.equal(state.status, "completed", `${workflow} at ${profile}`);
+    }
+    assert.ok(claude.probes.includes("api-key"));
+  });
+
+  test("M6.1 api-key pricing: table price when the child gave tokens only, reported cost wins, unknown model warned once; every view agrees", async () => {
+    const r = mkRoot();
+    const claude = claudeFake((req: { prompt: string; auth: "subscription" | "api-key" }) => {
+      const base = schemaAnswer(req as never, { usage: usage(100, 10, req.auth) });
+      if (req.prompt.startsWith("grouped:")) base.usage = { ...base.usage, cost_usd: 0.5 };
+      return base;
+    });
+    const exec = make(r, { adapters: { claude } });
+    const { run_id } = await exec.handlers.run(
+      { workflow: "api-key", cwd: r.cwd, answers: { profile: "medium" }, context: {}, inputs: {} },
+      ctx,
+    );
+    const state = await untilStatus(r, run_id, ["completed", "failed"]);
+    assert.equal(state.status, "completed");
+    assert.deepEqual(
+      claude.calls.map((c) => c.auth),
+      ["api-key", "api-key", "api-key", "api-key"],
+    );
+
+    // Haiku 4.5 list price: 100 in at $1/M + 10 out at $5/M.
+    const priced = state.usage.by_step.priced;
+    assert.equal(priced?.cost_usd, 0.00015);
+    assert.equal(priced?.cost_source, "priced");
+    assert.equal(state.usage.by_step.grouped?.cost_usd, 0.5);
+    assert.equal(state.usage.by_step.grouped?.cost_source, "reported");
+    assert.equal(state.usage.by_step.mystery?.cost_usd, undefined);
+    assert.equal(state.usage.by_step.mystery?.cost_source, "none");
+    assert.equal(state.usage["api-key"].cost_usd, 0.50015);
+    assert.equal(state.usage["api-key"].cost_source, "priced", "mixed reported + priced");
+    assert.equal(state.usage.subscription.input, 0);
+
+    // The four views: pools, harnesses, steps and step states sum to the same figures.
+    const inputs = (list: ({ input: number } | undefined)[]) =>
+      list.reduce((n, u) => n + (u?.input ?? 0), 0);
+    assert.equal(inputs([state.usage.subscription, state.usage["api-key"]]), 400);
+    assert.equal(inputs(Object.values(state.usage.by_harness)), 400);
+    assert.equal(inputs(Object.values(state.usage.by_step)), 400);
+    assert.equal(inputs(Object.values(state.steps).map((s) => s.usage)), 400);
+    for (const id of Object.keys(state.usage.by_step))
+      assert.deepEqual(state.steps[id]?.usage, state.usage.by_step[id], id);
+    assert.equal(usageTotal(state.usage).cost_usd, 0.50015);
+
+    const events = readEvents(r.rt.requireRunDir(run_id));
+    const priceWarns = warnsOf(events).filter((m) =>
+      /no price for claude model mystery-model-x/.test(m),
+    );
+    assert.equal(priceWarns.length, 1, "unknown model warned once for two steps");
+    assert.equal(events.filter((e) => e.type === "usage").length, 4);
+    const done = events.find((e) => e.type === "step.done" && e.step === "priced");
+    assert.equal(done?.usage?.cost_usd, 0.00015, "step.done carries the folded figure");
+    assert.equal(done?.usage?.cost_source, "priced");
+
+    // `report` exposes every view plus the total and the per-step resolution; `status` for one
+    // run folds both pools into `usage_total`, the list form does not.
+    const report = await exec.handlers.report({ run_id }, ctx);
+    assert.equal(report.usage_total.input, 400);
+    assert.equal(report.usage_total.cost_usd, 0.50015);
+    assert.equal(report.usage.by_step.priced?.input, 100);
+    assert.equal(report.usage.by_harness.claude?.input, 400);
+    assert.equal(report.resolved.priced?.model, "haiku");
+    const one = (await exec.handlers.status({ run_id }, ctx)) as {
+      usage_total?: { input: number };
+    };
+    assert.equal(one.usage_total?.input, 400);
+    const all = (await exec.handlers.status({}, ctx)) as { usage_total?: unknown }[];
+    assert.equal(all[0]?.usage_total, undefined);
+  });
+
+  test("M6.2 ceiling gate: crossing caps.tokens parks the run on the crossing step; approve raises by the profile amount and continues", async () => {
+    const r = mkRoot();
+    const exec = make(r, { adapters: { claude: claudeFake() } });
+    const { run_id } = await exec.handlers.run(
+      { workflow: "ceiling", cwd: r.cwd, answers: { profile: "low" }, context: {}, inputs: {} },
+      ctx,
+    );
+    // a: 110 tokens (< 150). b: 220 >= 150 -> gate on b, which has already completed.
+    let state = await untilStatus(r, run_id, ["gated", "failed", "completed"]);
+    assert.equal(state.status, "gated");
+    assert.equal(state.gate?.kind, "approval");
+    assert.equal(state.gate?.step, "b");
+    assert.deepEqual(state.gate?.ceiling, { used: 220, limit: 150 });
+    assert.equal(
+      state.gate?.message,
+      "Run used 220 tokens, ceiling 150 for profile low. Continue?",
+    );
+    assert.deepEqual(
+      state.gate?.options?.map((o) => o.value),
+      ["approve", "reject"],
+    );
+    assert.equal(state.steps.b?.status, "completed");
+    assert.equal(state.steps.c?.status, "pending", "no dispatch while gated");
+    assert.equal(usageTokens(usageTotal(state.usage)), 220);
+    const bad = await attempt(() =>
+      exec.handlers.answer({ run_id, gate_id: state.gate!.gate_id, value: "maybe" }, ctx),
+    );
+    assert.equal((bad as RpcError).code, RPC_INVALID_PARAMS);
+
+    await exec.handlers.answer({ run_id, gate_id: state.gate!.gate_id, value: "approve" }, ctx);
+    // c: 330 >= 300 (150 + 150) -> a second gate, then approve again to finish.
+    state = await untilStatus(r, run_id, ["gated", "failed", "completed"]);
+    assert.equal(state.status, "gated");
+    assert.equal(state.gate?.step, "c");
+    assert.deepEqual(state.gate?.ceiling, { used: 330, limit: 300 });
+    assert.equal(state.caps.tokens, 300);
+    await exec.handlers.answer({ run_id, gate_id: state.gate!.gate_id, value: "approve" }, ctx);
+    state = await untilStatus(r, run_id, ["failed", "completed"]);
+    assert.equal(state.status, "completed");
+    assert.equal(state.caps.tokens, 450);
+    assert.equal(state.gate, undefined);
+    const seq = types(readEvents(r.rt.requireRunDir(run_id)));
+    assert.deepEqual(
+      seq.filter((t) => t.startsWith("gate.")),
+      ["gate.opened:b", "gate.answered:b", "gate.opened:c", "gate.answered:c"],
+    );
+    assert.equal(seq.at(-1), "run.done");
+  });
+
+  test("M6.2 ceiling gate rejected: the run fails with `ceiling`", async () => {
+    const r = mkRoot();
+    const exec = make(r, { adapters: { claude: claudeFake() } });
+    const { run_id } = await exec.handlers.run(
+      { workflow: "ceiling", cwd: r.cwd, answers: { profile: "medium" }, context: {}, inputs: {} },
+      ctx,
+    );
+    let state = await untilStatus(r, run_id, ["gated", "failed", "completed"]);
+    assert.equal(state.status, "gated");
+    await exec.handlers.answer({ run_id, gate_id: state.gate!.gate_id, value: "reject" }, ctx);
+    state = await untilStatus(r, run_id, ["failed", "completed"]);
+    assert.equal(state.status, "failed");
+    assert.match(state.error ?? "", /^ceiling: used 220 tokens, ceiling 150 for profile medium/);
+    assert.equal(state.gate, undefined);
+    assert.equal(state.steps.c?.status, "pending", "never dispatched");
+    const seq = types(readEvents(r.rt.requireRunDir(run_id)));
+    assert.equal(seq.at(-1), "run.failed");
+    assert.ok(seq.includes("gate.answered:b"));
+    assert.equal(exec.liveRuns().length, 0);
+    const again = await attempt(() =>
+      exec.handlers.answer({ run_id, gate_id: "01GONE", value: "approve" }, ctx),
+    );
+    assert.equal(domainCode(again), "GATE_STALE");
+  });
+
+  test("M6.2 synchronous control mode rejects the ceiling on its own with a warn", async () => {
+    const r = mkRoot();
+    const exec = make(r, { adapters: { claude: claudeFake() } });
+    const { run_id } = await exec.handlers.run(
+      {
+        workflow: "sync-ceiling",
+        cwd: r.cwd,
+        answers: { profile: "low" },
+        context: {},
+        inputs: {},
+      },
+      ctx,
+    );
+    const state = await untilStatus(r, run_id, ["gated", "failed", "completed"]);
+    assert.equal(state.status, "failed");
+    assert.match(state.error ?? "", /^ceiling: used 220 tokens, ceiling 150 for profile low/);
+    assert.equal(state.steps.a?.status, "completed");
+    assert.equal(state.steps.b?.status, "completed");
+    assert.equal(state.steps.c?.status, "pending");
+    const events = readEvents(r.rt.requireRunDir(run_id));
+    assert.ok(warnsOf(events).some((m) => /ceiling: Run used 220 tokens/.test(m)));
+    assert.equal(
+      events.some((e) => e.type === "gate.opened"),
+      false,
+    );
+    assert.equal(types(events).at(-1), "run.failed");
+  });
 });

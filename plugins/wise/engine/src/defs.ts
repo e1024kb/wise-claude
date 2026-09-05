@@ -264,6 +264,7 @@ function validateTuning(iss: Issues, raw: unknown): TuningGroup[] {
       "default",
       "fallback",
       "locked",
+      "allow-api",
       "options",
       "steps",
     ]);
@@ -306,6 +307,10 @@ function validateTuning(iss: Issues, raw: unknown): TuningGroup[] {
     if (g.locked !== undefined) {
       if (typeof g.locked === "boolean") group.locked = g.locked;
       else iss.error(`${p}.locked`, "locked must be a boolean");
+    }
+    if (g["allow-api"] !== undefined) {
+      if (typeof g["allow-api"] === "boolean") group["allow-api"] = g["allow-api"];
+      else iss.error(`${p}.allow-api`, "allow-api must be a boolean");
     }
     if (g.options !== undefined) {
       if (!Array.isArray(g.options)) {
@@ -642,6 +647,7 @@ const STEP_BASE_KEYS = [
   "timeout",
   "stale_after",
   "allowed_tools",
+  "allow-api",
 ] as const;
 const STEP_KEYS: Record<StepType, readonly string[]> = {
   agent: [...STEP_BASE_KEYS, "prompt", "skill", "schema", "outputs", "until"],
@@ -786,6 +792,10 @@ function validateStepBase(
     if (Array.isArray(list) && list.every((v) => typeof v === "string" && v.trim())) {
       base.allowed_tools = list as string[];
     } else iss.error(`${p}.allowed_tools`, "allowed_tools must be a list of non-empty strings");
+  }
+  if (step["allow-api"] !== undefined) {
+    if (typeof step["allow-api"] === "boolean") base["allow-api"] = step["allow-api"];
+    else iss.error(`${p}.allow-api`, "allow-api must be a boolean");
   }
   return base;
 }

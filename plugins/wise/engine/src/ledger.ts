@@ -29,8 +29,11 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { EMPTY_USAGE } from "./types.ts";
 import type {
   Answers,
+  AuthMode,
   Context,
+  CostSource,
   Event,
+  Harness,
   ProfileLevel,
   Project,
   Resolved,
@@ -39,6 +42,7 @@ import type {
   State,
   StepState,
   UnitLedger,
+  Usage,
   UsageByPool,
 } from "./types.ts";
 import { TERMINAL_RUN } from "./types.ts";
@@ -179,12 +183,77 @@ function workflowName(s: LooseState): string | undefined {
   return wf && typeof wf === "object" && typeof wf.name === "string" ? wf.name : undefined;
 }
 
-function emptyUsageByPool(): UsageByPool {
+export function emptyUsageByPool(): UsageByPool {
   return {
     subscription: EMPTY_USAGE("subscription"),
     "api-key": EMPTY_USAGE("api-key"),
     by_harness: {},
+    by_step: {},
   };
+}
+
+// ---- usage folding (E14, M6.1) ------------------------------------------------------------
+
+/** Aggregate label: `none` until a cost lands, `reported` while every part was, `priced` after. */
+function foldCostSource(into: Usage, u: Usage): void {
+  const incoming: CostSource = u.cost_source ?? (u.cost_usd !== undefined ? "reported" : "none");
+  if (incoming === "none") {
+    into.cost_source ??= "none";
+    return;
+  }
+  const current = into.cost_source ?? "none";
+  into.cost_source = current === "none" ? incoming : current === incoming ? current : "priced";
+}
+
+/** The one place a `Usage` is added to another; every view below goes through it. */
+export function addUsage(into: Usage, u: Usage): void {
+  into.input += u.input;
+  into.output += u.output;
+  into.cache_read += u.cache_read;
+  into.cache_write += u.cache_write;
+  if (u.cost_usd !== undefined) into.cost_usd = (into.cost_usd ?? 0) + u.cost_usd;
+  foldCostSource(into, u);
+}
+
+/**
+ * Fold one child's usage into every run view in one go: its pool, its harness, its step and the
+ * step's own `usage`. Old state files without `by_step` grow the view on first use. Pure on the
+ * given state; the caller writes it.
+ */
+export function foldUsageViews(
+  state: State,
+  fold: { step: string; harness: Harness; usage: Usage },
+): void {
+  const { step, harness, usage } = fold;
+  const pool: AuthMode = usage.pool;
+  addUsage(state.usage[pool], usage);
+  addUsage((state.usage.by_harness[harness] ??= EMPTY_USAGE(pool)), usage);
+  state.usage.by_step ??= {};
+  addUsage((state.usage.by_step[step] ??= EMPTY_USAGE(pool)), usage);
+  const st = state.steps[step];
+  if (st) addUsage((st.usage ??= EMPTY_USAGE(pool)), usage);
+}
+
+/** Both pools folded into one figure; `pool` is `subscription` unless only api-key usage exists. */
+export function usageTotal(u: UsageByPool): Usage {
+  const sub = u.subscription;
+  const api = u["api-key"];
+  const total = EMPTY_USAGE(
+    usageTokens(sub) === 0 && usageTokens(api) > 0 ? "api-key" : "subscription",
+  );
+  addUsage(total, sub);
+  addUsage(total, api);
+  return total;
+}
+
+/**
+ * Tokens that count against a run ceiling (E11): input, output and cache writes. Cache reads are
+ * excluded on purpose: a Claude child re-reads its whole context (the 27k stock prompt included)
+ * on every turn at a tenth of the price, so they measure context size, not new work, and would
+ * trip any ceiling within a few turns.
+ */
+export function usageTokens(u: Usage): number {
+  return u.input + u.output + u.cache_write;
 }
 
 export type InitStateArgs = ClockOpts & {

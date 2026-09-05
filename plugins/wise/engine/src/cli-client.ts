@@ -10,7 +10,7 @@ import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "./protocol.ts";
 import type { ReportResult, RunParams, StatusResult, WaitResult } from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
 import { PROFILE_LEVELS } from "./types.ts";
-import type { Answers, Context, Event, Gate, Question, RunSummary } from "./types.ts";
+import type { Answers, Context, Event, Gate, Question, RunSummary, Usage } from "./types.ts";
 
 export const CLIENT_USAGE = `wise-engine <command> [options]
 
@@ -201,6 +201,28 @@ function formatWait(res: WaitResult): string {
   return lines.join("\n");
 }
 
+function money(u: Usage): string {
+  if (u.cost_usd === undefined) return "-";
+  const tag = u.cost_source === "priced" ? "~" : "";
+  return `${tag}$${u.cost_usd.toFixed(2)}`;
+}
+
+/** Fixed-width table: header, one row per entry, columns padded to the widest cell. */
+function table(header: string[], rows: string[][]): string[] {
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)));
+  const line = (cells: string[]): string =>
+    cells
+      .map((c, i) => (i === 0 || i === 1 ? c.padEnd(widths[i] ?? 0) : c.padStart(widths[i] ?? 0)))
+      .join("  ")
+      .trimEnd();
+  return [line(header), ...rows.map(line)];
+}
+
+/**
+ * Human `report`: verdicts, units, then usage as one table per step (harness / model from the
+ * step's resolution, `units` for a units step) with totals by pool and by harness. A `~` marks a
+ * cost the engine priced from its table rather than one the child reported.
+ */
 function formatReport(res: ReportResult): string {
   const lines: string[] = [];
   const verdicts = Object.entries(res.verdicts);
@@ -211,12 +233,46 @@ function formatReport(res: ReportResult): string {
     const reason = u.reason ? `  ${u.reason}` : "";
     lines.push(`  ${u.unit.ref}  ${u.verdict ?? "-"}  ${u.unit.branch}${reason}`);
   }
-  lines.push("usage:");
+  const usageRow = (label: string, who: string, u: Usage): string[] => [
+    label,
+    who,
+    tokens(u.input),
+    tokens(u.output),
+    tokens(u.cache_read),
+    money(u),
+  ];
+  const steps = Object.entries(res.usage.by_step ?? {});
+  lines.push(steps.length ? "usage:" : "usage: none");
+  if (steps.length) {
+    const rows = steps.map(([step, u]) => {
+      const r = res.resolved[step];
+      const who = r
+        ? `${r.harness} ${r.model}`
+        : Object.keys(res.resolved).some((k) => k.startsWith(`${step}.`))
+          ? "units"
+          : "-";
+      return usageRow(step, who, u);
+    });
+    for (const l of table(["step", "harness model", "in", "out", "cache_read", "cost"], rows)) {
+      lines.push(`  ${l}`);
+    }
+  }
+  const totals: string[][] = [];
   for (const pool of ["subscription", "api-key"] as const) {
     const u = res.usage[pool];
-    if (!u) continue;
-    const cost = u.cost_usd !== undefined ? `  $${u.cost_usd.toFixed(2)}` : "";
-    lines.push(`  ${pool}: in ${tokens(u.input)} out ${tokens(u.output)}${cost}`);
+    if (u && (u.input || u.output || u.cache_read || u.cache_write || u.cost_usd !== undefined)) {
+      totals.push(usageRow("pool", pool, u));
+    }
+  }
+  for (const [harness, u] of Object.entries(res.usage.by_harness)) {
+    if (u) totals.push(usageRow("harness", harness, u));
+  }
+  if (res.usage_total) totals.push(usageRow("total", "", res.usage_total));
+  if (totals.length) {
+    lines.push("totals:");
+    for (const l of table(["by", "", "in", "out", "cache_read", "cost"], totals)) {
+      lines.push(`  ${l}`);
+    }
   }
   return lines.join("\n");
 }

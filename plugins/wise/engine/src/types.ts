@@ -84,6 +84,13 @@ export type Context = {
   links?: string[];
 };
 
+/**
+ * Where a `cost_usd` came from (M6.1): `reported` by the child CLI, `priced` by the engine's
+ * table (api-key runs whose child gave tokens only), `none` when no dollar figure exists.
+ * Aggregates are `reported` only when every costed part was; one priced part makes them `priced`.
+ */
+export type CostSource = "reported" | "priced" | "none";
+
 export type Usage = {
   input: number;
   output: number;
@@ -91,6 +98,7 @@ export type Usage = {
   cache_write: number;
   cost_usd?: number;
   pool: AuthMode;
+  cost_source?: CostSource;
 };
 export const EMPTY_USAGE = (pool: AuthMode = "subscription"): Usage => ({
   input: 0,
@@ -160,6 +168,8 @@ export type Gate = {
   options?: { value: string; label: string }[];
   allow_text?: boolean;
   expires_at?: string;
+  /** Present on the per-run token ceiling gate (M6.2): tokens used and the ceiling crossed. */
+  ceiling?: { used: number; limit: number };
 };
 
 export type Resolved = { harness: Harness; model: string; effort: Effort | ""; reason?: string };
@@ -175,6 +185,8 @@ export type RunSummary = {
   gate?: Gate;
   /** Running agent children of a live run (P8); absent when the daemon holds no live children. */
   children?: ChildProgress[];
+  /** Single-run status only: every pool folded into one figure (M6.1). */
+  usage_total?: Usage;
 };
 
 export const ERROR_CODES = [
@@ -189,6 +201,7 @@ export const ERROR_CODES = [
   "NOT_IMPLEMENTED",
   "ALREADY_RUNNING",
   "TOKEN_INVALID",
+  "PROFILE_REFUSES_API",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -202,6 +215,8 @@ export type TuningGroup = {
   default: TuningDefault;
   fallback?: Harness[];
   locked?: boolean;
+  /** Lets the `low` profile run this group's `auth: api-key` steps (M6.2). */
+  "allow-api"?: boolean;
   /** Optional preset menu; each preset is a full or partial TuningDefault. */
   options?: { id: string; label?: string; description?: string; value: TuningDefault }[];
 };
@@ -245,6 +260,8 @@ export type StepOverrides = {
   stale_after?: number;
   /** Harness permission rules granted to the child (Claude `--allowedTools`, e.g. `Bash(git:*)`). */
   allowed_tools?: string[];
+  /** Lets the `low` profile run this step under `auth: api-key` (M6.2). */
+  "allow-api"?: boolean;
 };
 
 export type StepBase = StepOverrides & {
@@ -343,9 +360,18 @@ export type StepState = {
   attempts: number;
   resolved?: Resolved;
   error?: string;
+  /** Every child of this step folded together (a `units` step: all its phases). */
+  usage?: Usage;
 };
 
-export type UsageByPool = Record<AuthMode, Usage> & { by_harness: Partial<Record<Harness, Usage>> };
+/**
+ * Run usage views (E14): per pool, per harness, per step. Every view is fed by one fold
+ * (`foldUsageViews` in ledger.ts), so their sums always agree.
+ */
+export type UsageByPool = Record<AuthMode, Usage> & {
+  by_harness: Partial<Record<Harness, Usage>>;
+  by_step: Record<string, Usage>;
+};
 
 export type Project = { path: string; name: string; kind: string };
 
@@ -421,6 +447,8 @@ export type UnitLedger = {
   plan_path?: string;
   cursors: Partial<Record<Phase, unknown>>;
   usage: Usage;
+  /** The unit total split per model phase (M6.1); review / fix accumulate across cycles. */
+  usage_by_phase?: Partial<Record<Phase, Usage>>;
   /** Cap values the step resolved from the run's profile (P4), stored for the model phases. */
   caps?: Record<string, number>;
 };
@@ -455,6 +483,8 @@ export type RunRes = {
   text: string;
   json?: unknown;
   usage: Usage;
+  /** The model the child actually ran when the vendor reports it; pricing prefers it. */
+  model?: string;
   cursor?: unknown;
   exit: ExitClass;
   error?: string;

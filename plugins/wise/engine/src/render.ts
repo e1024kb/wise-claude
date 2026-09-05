@@ -2,6 +2,7 @@
 // and `cmd_render`: sequential literal replacement, no expressions, no escaping,
 // no whitespace tolerance inside the braces. Unresolved placeholders stay verbatim.
 
+import { usageTotal } from "./ledger.ts";
 import type { State, Step } from "./types.ts";
 
 /** Python `str(v)` stand-in for recorded output values. */
@@ -21,6 +22,7 @@ function stringify(value: unknown): string {
  *   3. `{{run.id}}`       -> `state.run_id`
  *   4. `{{project.<k>}}`  -> each key of `state.project`
  *   5. `{{<name>}}`       -> `state.inputs` merged under `state.outputs`
+ *   6. `{{usage}}`        -> the run's usage views as JSON (M6.1), unless an output took it
  * Outputs go last, so an output key literally named `project.extra` can
  * shadow a still-unresolved project placeholder.
  */
@@ -41,7 +43,23 @@ export function render(
   for (const [k, v] of Object.entries(named)) {
     out = out.replaceAll(`{{${k}}}`, stringify(v));
   }
+  if (out.includes("{{usage}}")) out = out.replaceAll("{{usage}}", usageJson(state));
   return out;
+}
+
+/** The totals a `report` step receives as data (E5): total, per pool, per harness, per step. */
+export function usageJson(state: State): string {
+  const u = state.usage;
+  return JSON.stringify(
+    {
+      total: usageTotal(u),
+      by_pool: { subscription: u.subscription, "api-key": u["api-key"] },
+      by_harness: u.by_harness,
+      by_step: u.by_step ?? {},
+    },
+    null,
+    2,
+  );
 }
 
 /** Recursively render every string inside a step value (lists and maps included). */
