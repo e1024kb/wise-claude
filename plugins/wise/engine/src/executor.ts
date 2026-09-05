@@ -43,6 +43,7 @@ import {
 import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
 import { applyAnswers, buildQuestionary, resolveFromContext } from "./preflight.ts";
+import { isProfileLevel } from "./profile.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
 import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
 import { renderStep } from "./render.ts";
@@ -65,6 +66,7 @@ import type {
   Gate,
   Harness,
   LocatedDef,
+  ProfileLevel,
   Project,
   ReportKind,
   Resolved,
@@ -220,6 +222,16 @@ function optionalRecord(rec: Rec, key: string, method: string): Rec {
   const v = rec[key];
   if (v === undefined || v === null) return {};
   if (!isRec(v)) throw new RpcError(RPC_INVALID_PARAMS, `${method}: ${key} must be an object`);
+  return v;
+}
+
+/** `profile` param: the harness session's level, or undefined. Anything else is invalid params. */
+function optionalProfile(rec: Rec, method: string): ProfileLevel | undefined {
+  const v = rec.profile;
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "string" || !isProfileLevel(v)) {
+    throw new RpcError(RPC_INVALID_PARAMS, `${method}: profile must be low | medium | max`);
+  }
   return v;
 }
 
@@ -1096,9 +1108,10 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const rec = asRecord(params, "preflight");
     const workflow = requireString(rec, "workflow", "preflight");
     requireString(rec, "cwd", "preflight");
+    const profile = optionalProfile(rec, "preflight");
     const located = locate(workflow);
     const def = validated(located);
-    const q = buildQuestionary(def);
+    const q = buildQuestionary(def, profile !== undefined ? { profile } : {});
     return {
       workflow: located.name,
       version: def.version,
@@ -1111,9 +1124,13 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const rec = asRecord(params, "run");
     const workflow = requireString(rec, "workflow", "run");
     const cwd = requireString(rec, "cwd", "run");
-    const answers = optionalRecord(rec, "answers", "run") as Answers;
+    const answers = { ...(optionalRecord(rec, "answers", "run") as Answers) };
     const context = optionalRecord(rec, "context", "run") as Context;
     const explicitInputs = optionalRecord(rec, "inputs", "run") as Record<string, string>;
+    // The session profile stands in for an unanswered `profile` question (the conductor skips it).
+    const sessionProfile = optionalProfile(rec, "run");
+    if (answers.profile === undefined && sessionProfile !== undefined)
+      answers.profile = sessionProfile;
 
     const located = locate(workflow);
     const def = validated(located);

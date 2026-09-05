@@ -113,6 +113,10 @@ function fakeHandlers(calls: Call[]): Partial<DaemonHandlers> {
       record("nudge", params);
       return { delivered: params.step === "implement" };
     },
+    resume: (params) => {
+      record("resume", params);
+      return { run_id: params.run_id, status: "running" };
+    },
   };
 }
 
@@ -187,7 +191,7 @@ describe("mcp", () => {
       client = await openMcp({ daemon: { env: r.env, version: VERSION }, version: VERSION });
     });
 
-    test("listTools exposes exactly the seven harness tools with input schemas", async () => {
+    test("listTools exposes exactly the eight harness tools with input schemas", async () => {
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map((t) => t.name).toSorted(), [...MCP_TOOL_NAMES].toSorted());
       for (const t of tools) {
@@ -365,6 +369,46 @@ describe("mcp", () => {
       );
     });
 
+    test("wise_preflight and wise_run forward the session profile; an unknown level is rejected", async () => {
+      calls.length = 0;
+      await callTool(client, "wise_preflight", {
+        workflow: "ticket-plan",
+        cwd: "/w",
+        profile: "low",
+      });
+      await callTool(client, "wise_run", { workflow: "ticket-plan", cwd: "/w", profile: "max" });
+      assert.deepEqual(calls, [
+        { method: "preflight", params: { workflow: "ticket-plan", cwd: "/w", profile: "low" } },
+        {
+          method: "run",
+          params: {
+            workflow: "ticket-plan",
+            cwd: "/w",
+            answers: {},
+            context: {},
+            inputs: {},
+            profile: "max",
+          },
+        },
+      ]);
+      const bad = await callTool(client, "wise_run", {
+        workflow: "ticket-plan",
+        cwd: "/w",
+        profile: "turbo",
+      });
+      assert.equal(bad.isError, true);
+      assert.equal(calls.length, 2);
+    });
+
+    test("wise_resume forwards run_id and returns {run_id, status}", async () => {
+      calls.length = 0;
+      const res = await callTool(client, "wise_resume", { run_id: "01RUN" });
+      assert.deepEqual(calls, [{ method: "resume", params: { run_id: "01RUN" } }]);
+      assert.equal(textOf(res), '{"run_id":"01RUN","status":"running"}');
+      const tools = (await client.listTools()).tools;
+      assert.match(tools.find((t) => t.name === "wise_resume")?.description ?? "", /gated/);
+    });
+
     test("invalid arguments are rejected by the input schema before reaching the daemon", async () => {
       calls.length = 0;
       const res = await callTool(client, "wise_cancel", {});
@@ -432,7 +476,7 @@ describe("mcp", () => {
     assert.equal(info?.name, "wise-engine");
     assert.equal(info?.version, pluginVersion());
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 7);
+    assert.equal(tools.length, 8);
     const res = await callTool(client, "wise_status", { run_id: "01S" });
     assert.notEqual(res.isError, true, textOf(res));
     assert.equal((parsed(res) as RunSummary).run_id, "01S");

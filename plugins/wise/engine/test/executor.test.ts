@@ -35,6 +35,7 @@ import {
   updateRun,
   utcNow,
 } from "../src/ledger.ts";
+import { RPC_INVALID_PARAMS } from "../src/protocol.ts";
 import { domainCode, domainError } from "../src/rpc.ts";
 import type { CallContext, RpcError } from "../src/rpc.ts";
 import type { Event, RunRes, State } from "../src/types.ts";
@@ -42,9 +43,10 @@ import { fakeAdapter, pause, schemaAnswer, usage } from "./fixtures/executor/fak
 import type { FakeAdapter } from "./fixtures/executor/fake.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFS = join(HERE, "fixtures", "defs");
+// Bundled root: the real plugin workflows (example-workflow is v2 since M3.1).
+const DEFS = join(HERE, "..", "..", "workflows");
 const EXEC_FIXTURES = join(HERE, "fixtures", "executor");
-const EXAMPLE = join(DEFS, "example-workflow.v2.yaml");
+const EXAMPLE = join(DEFS, "example-workflow", "workflow.yaml");
 const VERSION = "9.9.9-test";
 
 const roots: string[] = [];
@@ -176,7 +178,7 @@ describe("executor", () => {
       ["profile"],
     );
     const byPath = await exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd }, ctx);
-    assert.equal(byPath.workflow, "example-workflow.v2");
+    assert.equal(byPath.workflow, "example-workflow");
     assert.deepEqual(
       byPath.questions.map((q) => q.id),
       ["profile", "tuning.classify", "tuning.summarize", "input.focus"],
@@ -201,6 +203,44 @@ describe("executor", () => {
     assert.equal(domainCode(invalid), "WORKFLOW_INVALID");
     const issues = ((invalid as RpcError).data as { issues: { path: string }[] }).issues;
     assert.ok(issues.some((i) => i.path === "version"));
+  });
+
+  test("session profile param: preflight presets the profile default, run uses it when unanswered", async () => {
+    const r = mkRoot();
+    const exec = make(r, { adapters: { claude: claudeFake() } });
+    const pre = await exec.handlers.preflight(
+      { workflow: EXAMPLE, cwd: r.cwd, profile: "max" },
+      ctx,
+    );
+    assert.equal(pre.questions.find((q) => q.id === "profile")?.default, "max");
+    assert.equal(pre.defaults.profile, "max");
+    const bad = await attempt(() =>
+      exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd, profile: "turbo" as never }, ctx),
+    );
+    assert.equal((bad as RpcError).code, RPC_INVALID_PARAMS);
+
+    const { run_id } = await exec.handlers.run(
+      { workflow: EXAMPLE, cwd: r.cwd, answers: {}, context: {}, inputs: {}, profile: "max" },
+      ctx,
+    );
+    const runDir = r.rt.requireRunDir(run_id);
+    assert.equal(readState(runDir).profile, "max");
+    assert.equal(readState(runDir).answers.profile, "max");
+    // An explicit answer wins over the session profile.
+    const explicit = await exec.handlers.run(
+      {
+        workflow: EXAMPLE,
+        cwd: r.cwd,
+        answers: { profile: "low" },
+        context: {},
+        inputs: {},
+        profile: "max",
+      },
+      ctx,
+    );
+    assert.equal(readState(r.rt.requireRunDir(explicit.run_id)).profile, "low");
+    await exec.handlers.cancel({ run_id }, ctx);
+    await exec.handlers.cancel({ run_id: explicit.run_id }, ctx);
   });
 
   // ---- the example workflow end to end -----------------------------------------------------------------

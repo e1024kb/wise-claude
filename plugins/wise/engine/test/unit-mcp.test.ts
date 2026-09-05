@@ -22,7 +22,7 @@ import { heldStarter } from "./fixtures/executor/held.ts";
 import type { Held } from "./fixtures/executor/held.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFS = join(HERE, "fixtures", "defs");
+const DEFS = join(HERE, "..", "..", "workflows");
 const EXEC_FIXTURES = join(HERE, "fixtures", "executor");
 const VERSION = "9.9.9-unit-mcp-test";
 

@@ -1,5 +1,5 @@
 // `wise-engine mcp`: a stdio MCP server that is a thin client of wise-engined (D13, P1).
-// The seven tools mirror the daemon's P1 methods with identical JSON shapes. The server connects to
+// The eight tools mirror the daemon's P1 methods with identical JSON shapes. The server connects to
 // the socket lazily, auto-starts the daemon when it is dead, reconnects once on a dropped socket,
 // and turns daemon errors into tool error results instead of protocol failures. During `wise_wait`
 // the daemon's `progress` notifications are forwarded as MCP progress notifications (D17).
@@ -27,12 +27,14 @@ import type {
   PreflightParams,
   ProgressParams,
   ResultOf,
+  ResumeParams,
   RunParams,
   StatusParams,
   WaitParams,
 } from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
 import type { CallOptions } from "./rpc.ts";
+import { PROFILE_LEVELS } from "./types.ts";
 import type { Context } from "./types.ts";
 import { pluginVersion } from "./version.ts";
 
@@ -60,6 +62,7 @@ export const MCP_TOOL_NAMES = [
   "wise_status",
   "wise_cancel",
   "wise_nudge",
+  "wise_resume",
 ] as const;
 export type McpToolName = (typeof MCP_TOOL_NAMES)[number];
 
@@ -184,9 +187,16 @@ const contextSchema = z
     "What the conversation already knows and the run needs. Children never see this transcript.",
   );
 
+const profileSchema = z
+  .enum(PROFILE_LEVELS)
+  .optional()
+  .describe(
+    "The session's token-budget profile (/wise-profile), when known. The daemon cannot read it itself.",
+  );
 const preflightShape = {
   workflow: z.string().describe("Workflow name or path to its YAML."),
   cwd: z.string().describe("Absolute path of the target project."),
+  profile: profileSchema,
 };
 const runShape = {
   workflow: z.string().describe("Workflow name or path to its YAML."),
@@ -194,7 +204,9 @@ const runShape = {
   answers: answersSchema.default({}),
   context: contextSchema.default({}),
   inputs: z.record(z.string()).default({}).describe("Workflow inputs by name."),
+  profile: profileSchema,
 };
+const resumeShape = { run_id: z.string() };
 const waitShape = {
   run_id: z.string(),
   after: z
@@ -254,6 +266,10 @@ const DESCRIPTIONS: Record<McpToolName, string> = {
     "Send a mid-run user message to a running agent step (Claude children only; their stdin stays open). " +
     "Returns {delivered}. delivered false: the step is not running, has ended, or its harness takes no input; " +
     "nothing is queued. Use sparingly: to unblock, redirect, or ask a child to wrap up.",
+  wise_resume:
+    "Resume a paused or failed run: in-flight steps reset to pending and the scheduler continues from the ledger. " +
+    "Returns {run_id, status}; then loop on wise_wait. A gated run is not resumable: answer its gate with wise_answer. " +
+    "Completed and cancelled runs are refused.",
 };
 
 // ---- server ---------------------------------------------------------------------------------------------
@@ -320,7 +336,7 @@ function register<S extends Shape>(
   registerTool(server, name, DESCRIPTIONS[name], shape, handler);
 }
 
-/** Build the MCP server with the seven harness-facing tools; connect it to a transport yourself. */
+/** Build the MCP server with the eight harness-facing tools; connect it to a transport yourself. */
 export function createMcpServer(opts: McpServerOptions = {}): McpServer {
   const link = new DaemonLink(opts);
   const server = new McpServer({
@@ -354,6 +370,7 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
 
   register(server, "wise_preflight", preflightShape, async (args) => {
     const params: PreflightParams = { workflow: args.workflow, cwd: args.cwd };
+    if (args.profile !== undefined) params.profile = args.profile;
     return forward("preflight", params);
   });
 
@@ -365,6 +382,7 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
       context: args.context as Context,
       inputs: args.inputs,
     };
+    if (args.profile !== undefined) params.profile = args.profile;
     return forward("run", params);
   });
 
@@ -410,6 +428,11 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
     return forward("nudge", params);
   });
 
+  register(server, "wise_resume", resumeShape, async (args) => {
+    const params: ResumeParams = { run_id: args.run_id };
+    return forward("resume", params);
+  });
+
   return server;
 }
 
@@ -431,7 +454,7 @@ export async function serveStdio(opts: McpServerOptions = {}): Promise<number> {
 
 const MCP_USAGE = `wise-engine mcp [options]
 
-  Serve the seven wise_* tools over stdio MCP; connects to (and starts) wise-engined.
+  Serve the eight wise_* tools over stdio MCP; connects to (and starts) wise-engined.
 
 Options: --data-root <dir> --socket <path> --lock <path> --log <path> --idle-ms <n> --no-start
 `;

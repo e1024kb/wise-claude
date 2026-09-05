@@ -74,9 +74,9 @@ below.
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |
 | `/wise-workflow-create <name>` | Wizard to scaffold a new user workflow. |
-| `/wise-workflow-run [<workflow-name>]` | Start a workflow run. The main conversation is the conductor. |
-| `/wise-workflow-resume [<run-ulid>]` | Resume an interrupted or paused run. |
-| `/wise-workflow-status [<run-ulid>]` | List runs in cwd, or dump one run's state. |
+| `/wise-workflow-run [<workflow-name>]` | Start a workflow run on the wise engine. The main conversation is the conductor: pre-flight questions, run context, one line per event, gates. |
+| `/wise-workflow-resume [<run-ulid>]` | Resume a paused or failed engine run, or answer a gated one, then follow it. |
+| `/wise-workflow-status [<run-ulid>]` | List engine runs, or show one run and its open gate. |
 | `/wise-workflow-remove <name>` | Delete a user workflow (bundled ones are immutable). |
 | `/wise-commit-message [--copy]` | Draft a Conventional-Commits subject line from the pending diff. Read-only — drafts and hands back. |
 | `/wise-commit` | Stage every working-tree change (`git add -A`), draft the subject, run `git commit`. Local only. |

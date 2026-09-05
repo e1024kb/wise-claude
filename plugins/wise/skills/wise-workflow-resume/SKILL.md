@@ -1,296 +1,58 @@
 ---
 name: wise-workflow-resume
 description: >-
-  Resume an interrupted or paused workflow run by ULID in the current
-  workspace. Loads the run's state.yaml, re-tags it with the current
-  Claude Code session, resets any in-flight steps to pending, and
-  re-enters the workflow-run conductor's main loop. Invoked as
-  `/wise-workflow-resume` (bare alias) or `/wise:wise-workflow-resume`
-  (canonical). Use when the user says "resume the workflow", "continue
-  the paused run", "pick up the run", "resume run <ulid>", or types
-  `/wise-workflow-resume`.
+  Resume a paused or failed workflow run on the wise engine, or answer
+  the gate of a gated one, then follow its events in this conversation.
+  Invoked as `/wise-workflow-resume` (bare alias) or
+  `/wise:wise-workflow-resume` (canonical). Use when the user says
+  "resume the workflow", "continue the paused run", "pick up the run",
+  "resume run <ulid>", or types `/wise-workflow-resume`.
 argument-hint: "[<run-ulid>]"
-allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
+allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/engine/engine.sh:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
 ---
 
-# /wise-workflow-resume — resume an interrupted run
+# /wise-workflow-resume
 
-## Why this skill exists
+Tools come from the plugin's `wise-engine` MCP server. Errors return
+`{"error":{code,message,...}}`: `DAEMON_UNAVAILABLE` means
+`Run /wise-init, then retry.`; `AUTH_REQUIRED` means print `login_cmd`
+verbatim. Stop on either.
 
-A run can stop mid-execution for several reasons — the user picked
-`Pause` in a wave-sync prompt, the Claude Code session closed while
-a step was in flight, or a step failed and the user wants to try
-again after fixing something out of band. The run directory and
-`state.yaml` survive all of these. This skill picks the run back up
-where it left off.
+## 1. Pick the run
 
-It shares almost all of its loop with `wise-workflow-run`; the key
-differences are the preamble (load state instead of build state,
-reset in-flight steps) and the fact that pre-flight prompts are
-**skipped** — control mode and worktree choice were already made and
-are recorded in `state.yaml`.
+`wise_status` (no id) lists every run. Resumable: `paused`, `failed`.
+`gated` runs are answered, not resumed. `running` runs are only
+followed.
 
-## Arguments
+- Argument given: `wise_status {run_id}`. On `RUN_NOT_FOUND`, if
+  `~/.local/share/wise/runs/<cwd-slug>/<run_id>/state.yaml` exists it
+  is a legacy v1 run: follow
+  `${CLAUDE_PLUGIN_ROOT}/references/legacy-conductor/resume.md`.
+  Otherwise print `No run <run_id>.` and stop.
+- No argument: AskUserQuestion over the `paused`, `failed`, `gated`
+  runs (label `run_id`; description `<workflow>, <status>, last
+  activity <last_activity_at>, <cwd>`) plus Abort. None: print
+  `No resumable runs. /wise-workflow-status lists all runs.` and stop.
 
-Read `$ARGUMENTS`. The first whitespace-separated token is the
-`run-id` ULID. When `$ARGUMENTS` is empty, [§2](#2-resolve-the-run-id)
-prompts the user to pick from the workspace's non-terminal runs.
+## 2. Resume
 
-- `run-id` — ULID of the run under `$RUNS_ROOT/<run-id>/` (where
-  `$RUNS_ROOT` is `$(python3 .../workflows.py runs-root)` — resolves
-  to `~/.local/share/wise/runs/<cwd-slug>/` by default). When absent,
-  [§2](#2-resolve-the-run-id) prompts the user to pick from the
-  workspace's non-terminal runs. If `$ARGUMENTS` is empty and no
-  resumable runs exist in the workspace, stop with an error pointing
-  at `/wise-workflow-status` to list runs on disk.
+- `paused` / `failed`: `wise_resume {run_id}` returns `{run_id,
+  status}`. Print `Resuming <run_id> (<workflow>).`
+- `gated`: show `gate.message`, AskUserQuestion with `gate.options`
+  (free text when `allow_text`), `wise_answer {run_id, gate_id, value}`.
+- `completed` / `cancelled`: say the run is terminal and stop.
 
-## Procedure
+## 3. Follow
 
-### 1. Init-check + resolve — in ONE message
+`wise_wait {run_id, after: 0, timeout_ms: 0}` returns the history at
+once: print one line, `<n> steps done, <m> pending`, not the replay,
+and set `after` to the last `seq`. Then run the wait loop and final
+report exactly as `/wise-workflow-run` §4 and §5 (one line per event,
+no raw step output, gates through AskUserQuestion and `wise_answer`,
+`done: true` ends the loop).
 
-Run the init-check per `${CLAUDE_PLUGIN_ROOT}/references/init-check.md`,
-firing `init-registry.py check` together with the data call for your
-mode, in one message:
+## Rules
 
-- **`$ARGUMENTS` empty** (user picks interactively) — data call
-  `workflows.py list-resumable-runs`, plus a `select:AskUserQuestion`
-  ToolSearch so the §2 picker is ready.
-- **`$ARGUMENTS` non-empty** — data call `workflows.py runs-root`;
-  capture its stdout as `$RUNS_ROOT`. Validate the ULID shape (26
-  chars, Crockford base-32 `[0-9A-HJKMNP-TV-Z]`) and verify
-  `$RUNS_ROOT/<run-id>/state.yaml` exists — reject a bad shape with a
-  one-line error, a missing state file with
-  `No run found for ULID <run-id> in this workspace.`
-
-On `INIT:ok`, use the output directly. Otherwise follow the reference's
-fallback; this skill's resolve step is read-only, so on
-`BOOTSTRAP:need-python` relay and stop, and re-run the data call(s) on
-`READY`.
-
-### 2. Resolve the run ID (when absent)
-
-Now interpret the `list-resumable-runs` output captured in §1.
-
-stdout is a JSON array of `{run_id, workflow_name, status,
-last_activity_at, session_label, claude_session_id}`, sorted most
-recent first. If empty, stop with:
-
-```
-No resumable runs in this workspace. Runs you can resume are those
-in `paused`, `failed`, `initializing`, or (historically) `running`
-state. Terminal runs (completed, cancelled) stay on disk under
-~/.local/share/wise/runs/<cwd-slug>/<run-id>/ for reference but
-can't be re-entered.
-```
-
-Otherwise `AskUserQuestion`:
-
-- Question: `Which run do you want to resume?`
-- Header: `Resume run`
-- One option per entry. Label: the `session_label` if set, otherwise
-  the `run_id`. Description:
-  `<workflow_name> — <status>, last activity <last_activity_at>`.
-  Add a final `Abort` option.
-
-On pick, set `run-id` to the chosen `run_id` and continue. On
-`Abort`, stop cleanly.
-
-### 3. Inspect the run
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" dump-state \
-  "$RUNS_ROOT/<run-id>/state.yaml"
-```
-
-Pull the `status`, `workflow_name`, `control_mode`, `worktree`,
-`steps`. Show the user a short summary (workflow name, status, which
-step(s) were in flight, how long ago the last activity was).
-
-If `status` is `completed` or `cancelled`, tell the user the run is
-already terminal and stop. Resume is only meaningful on `paused`,
-`failed`, `initializing`, or (historically) `running`.
-
-### 4. Re-tag the session (if it changed)
-
-`wise-workflow-run` [§5](../wise-workflow-run/SKILL.md#5-generate-the-run-id-tag-the-session-write-stub-state)
-recorded the Claude Code session UUID the run was started in so
-`state.yaml` always names its current host session. Resume doesn't
-try to send the user back to the original session — a skill can't
-invoke `/resume` on the user's behalf, so anything the skill does
-here either blocks the run (printing "run this yourself") or just
-gets in the way. Instead, resume silently re-tags: whatever session
-the user is in now IS the new host, and a one-line note tells them
-what happened.
-
-Get the current session and the stored one:
-
-```bash
-CURRENT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" current-session-id || true)
-```
-
-Read `claude_session_id` and `session_label` from the state.yaml you
-already dumped in [§3](#3-inspect-the-run).
-
-Decision tree (no prompts, ever):
-
-- `STORED` absent/null **or** equal to `CURRENT` → say nothing, fall
-  through to [§5](#5-re-resolve-the-definition). (Legacy runs and
-  happy-path resumes land here.)
-- Otherwise → overwrite the stored session and note it:
-
-  ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" update-run \
-    "$RUNS_ROOT/<run-id>/state.yaml" claude_session_id=$CURRENT
-  ```
-
-  Then emit a single one-line info to the user — worded according to
-  whether the original session's `.jsonl` is still on disk:
-
-  ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" session-path "$STORED"
-  ```
-
-  - Exit 0 (original still on disk):
-    `(Previously started in session <stored-label or stored-uuid>; continuing here.)`
-  - Exit 2 (original wiped):
-    `(Previously started in session <stored-label or stored-uuid>, which is no longer available; continuing here.)`
-
-  Either way, fall through to [§5](#5-re-resolve-the-definition).
-  No `AskUserQuestion`, no "run /resume yourself" — the user
-  already gave their intent by typing `/wise-workflow-resume` in this
-  session.
-
-### 5. Re-resolve the definition
-
-The on-disk definition may have been edited (or even removed) since
-the run started. You already have `workflow_name` from the §3
-`dump-state` output (read it with the `Read` tool if not). Resolve
-the definition path:
-
-```bash
-DEF=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" locate-def "<workflow_name>")
-```
-
-If the definition is gone, stop with:
-```
-Workflow <name> no longer exists in bundled or user definitions.
-Re-create it with /wise-workflow-create <name>, or remove this run's
-directory if you want to discard it:
-  rm -rf $RUNS_ROOT/<run-id>/
-```
-
-### 6. Reset in-flight steps
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" reset-running \
-  "$RUNS_ROOT/<run-id>/state.yaml"
-```
-
-This moves any step with `status: running` back to `pending` and
-clears its `started_at`, `run_id`, `log` fields so a fresh attempt
-gets its own step-run-ulid and log file. Previous logs stay on disk
-for debugging.
-
-If the interrupted run had any `supervised-prompt` steps (or invoked
-the supervisor loop), a crash can orphan a background team + its
-Monitor. Per `${CLAUDE_PLUGIN_ROOT}/references/supervise-loop.md` §9,
-`TeamDelete` any team named `wise-<run-id>-*` before re-dispatching —
-live state is the truth, an orphaned team is torn down, not adopted.
-The supervised step re-runs whole (it is atomic); stale heartbeat files
-under `<run-dir>/workers/` are harmless (the fresh worker overwrites
-its own).
-
-### 7. TodoWrite (re-emit)
-
-Read the resumed state. `TodoWrite` one todo per step, reflecting its
-current status:
-
-- `completed` / `skipped` / `cancelled` → `completed` / `cancelled`
-- `failed` → `cancelled`
-- `pending` → `pending`
-- `running` — should not happen after [§6](#6-reset-in-flight-steps); treat as `pending` if it
-  does.
-
-Tell the user: `Resuming run <run-id> (<workflow-name>) — <N>
-steps remaining.`
-
-### 8. Re-enter the main loop
-
-From here on, behaviour is identical to `wise-workflow-run` [§10](../wise-workflow-run/SKILL.md#10-main-loop) and [§11](../wise-workflow-run/SKILL.md#11-finalise) —
-**including the turn-continuity rule** (every message ends with a
-tool call; prose is bundled with the tool call that follows it) and
-**the per-step reporting format** (10d announcements + 10e outcome
-lines). A resumed run produces the same live chat output as a fresh
-run; the only user-visible difference is the "Resuming run <id>…"
-preamble from §7 instead of "Run <id> started".
-
-Run the same algorithm against the existing `state.yaml`:
-
-- Call `next-wave` for runnable steps.
-- Apply `to_skip` (with 10b's skip-report prose).
-- Announce the wave (10d) and dispatch runnable steps in a single
-  message.
-- Collect, score, log, update state (10e).
-- In wave-sync mode (state.control_mode), yield between waves with
-  the 10g menu.
-- In synchronous or auto-advance mode, skip 10g and bundle the next
-  `next-wave` call into the same message as 10e's results.
-  (auto-advance still honors in-step prompts — asks, approvals, and
-  AskUserQuestion inside interactive steps; only synchronous
-  suppresses them.)
-- On terminal state, write the final `update-run` and print the
-  summary.
-
-Refer to `wise-workflow-run/SKILL.md` for the exact step dispatch rules
-and the full turn-continuity note. Two pre-flight artifacts carry over
-from the original run with no extra bookkeeping: steps the user
-deselected at step-select are already `skipped` in `state.yaml`
-(`reset-running` never touches terminal steps), and model/effort
-profile + tuning choices live in `state.outputs` — `run_profile`,
-`opus_model`, `tuning_<group>`, per-step `tuning_step_<step-id>`,
-`team_mode`, `cap_<name>`, and `tuning_summary` — apply them at
-dispatch exactly as `wise-workflow-run`'s roster-resolution reference
-describes (precedence `tuning_step_*` > `tuning_<group>` > declared
-pins; `run_profile` → `--profile <level>` on every `resolve-team` /
-`resolve-model` call, so a `low` run keeps dispatching Opus 4.8, never
-Opus 5; `team_mode=solo` → `--team-mode solo` on every `resolve-team` call;
-re-shell `get-tuning "$DEF"` once; read every choice from state, not
-from conversation memory). The profile questionary itself is never
-re-asked on resume.
-
-## Stuck-run takeover
-
-A run can wedge in `status: running` with no session driving it — classically
-when a long autonomous run (`ticket-auto` / `impl-plan-auto`) is
-**orphaned by a context compaction** partway through its `process-*` step: the
-per-unit work is committed in the worktree but never pushed, no PR, and the run
-never reached its `until:` line. Such a run is still resumable here — [§3](#3-inspect-the-run)
-admits a `running` run and [§6](#6-reset-in-flight-steps)'s `reset-running` flips
-its in-flight step back to `pending`.
-
-Just resume it: `/wise-workflow-resume <run-ulid>` (or bare, then pick it from
-the list). Those orchestrators are **idempotent on resume** — `process-tickets`
-/ `process-plans` re-enter from the top, re-derive each unit's branch +
-worktree, **adopt** whatever already exists (worktree, branch, pushed commits,
-open PR) via live `git`/`gh` probes, and continue each unit from where it left
-off — pushing committed-but-unpushed work, finding or creating the PR, watching,
-and merging. No manual push / PR / merge is needed; recovery is the normal
-resume path. (A worktree/branch a *different* run created is left untouched.)
-
-If a run is genuinely unrecoverable, the manual escape hatches still apply:
-re-arm a single step with `update-step <id> status=pending` (via
-`/wise-workflow-status`), or discard the run entirely with
-`rm -rf "$RUNS_ROOT/<run-id>/"`.
-
-## Guardrails
-
-- Never re-run a step already in `completed` / `failed` / `skipped`
-  / `cancelled` state. Resume re-executes only `pending` work.
-  If the user wants to re-run a failed step, they use the `Modify`
-  option in wave-sync or manually `update-step <id> status=pending`
-  via `/wise-workflow-status` workflows — not via resume.
-- Never skip pre-flight — but also never prompt pre-flight questions
-  here. Control mode and worktree are taken from state.yaml.
-- Same invariant exception as `wise-workflow-run`: this skill may invoke
-  wise action skills via `Skill`, but only as part of validated
-  `type: skill` steps.
+- Never re-run finished steps; the engine resumes only in-flight and
+  pending work.
+- Do not invoke other wise skills.

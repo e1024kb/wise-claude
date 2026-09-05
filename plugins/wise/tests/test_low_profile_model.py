@@ -231,9 +231,12 @@ def test_get_profiles_low_explicit_4_8_is_a_noop(workflows_module, tmp_path, cap
         "model": "claude-opus-4-8", "effort": "high", "reason": None}
 
 
-@pytest.mark.parametrize("name", ["ticket-auto", "ticket-plan"])
+# ticket-plan is a `version: 2` definition since M3.1 and is validated by the
+# TS engine (plugins/wise/engine/test/integration.test.ts covers its low
+# profile); only the v1 bundled workflow stays here until M4 migrates it.
+@pytest.mark.parametrize("name", ["ticket-auto"])
 def test_bundled_low_profiles_never_resolve_to_opus_5(workflows_module, name, capsys):
-    """Every bundled `low` tuning value that pins Opus lands on Opus 4.8."""
+    """Every bundled v1 `low` tuning value that pins Opus lands on Opus 4.8."""
     path = BUNDLED / name / "workflow.yaml"
     assert workflows_module.cmd_get_profiles(str(path)) == 0
     data = json.loads(capsys.readouterr().out)["profiles"]

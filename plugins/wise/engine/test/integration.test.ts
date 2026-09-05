@@ -14,7 +14,7 @@ import { syntheticSessionId } from "../src/profile.ts";
 import type { WorkflowDef } from "../src/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FIXTURE = join(HERE, "fixtures", "defs", "ticket-plan.v2.yaml");
+const FIXTURE = join(HERE, "..", "..", "workflows", "ticket-plan", "workflow.yaml");
 
 function fixtureDef(): WorkflowDef {
   const { def, issues } = validateDef(loadDef(FIXTURE), FIXTURE);
@@ -50,7 +50,7 @@ test("test_get_profiles_low_explicit_4_8_is_a_noop", () => {
 });
 
 test("test_bundled_low_profiles_never_resolve_to_opus_5", () => {
-  // Bundled workflows are still v1; the v2 fixture stands in until M6.4 migrates them.
+  // The bundled ticket-plan is v2 since M3.1 (ticket-auto follows in M4).
   const def = fixtureDef();
   for (const [group, model] of Object.entries(resolvedModels(def, "low"))) {
     assert.ok(!/^(opus|claude-opus-5)/.test(model), `${group} resolved to ${model} under low`);

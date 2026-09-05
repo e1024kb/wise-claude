@@ -1,84 +1,48 @@
 ---
 name: wise-workflow-status
 description: >-
-  Show workflow runs in the current workspace. With no argument, list
-  every run under the current workspace's runs root (per-workspace by slug under `~/.local/share/wise/runs/`) with its status,
-  workflow name, and last activity. With a run ULID, print the full
-  state YAML of that run. Read-only. Invoked as `/wise-workflow-status`
-  (bare alias) or `/wise:wise-workflow-status` (canonical). Use when the
-  user says "list workflow runs", "show workflow status", "status of
-  my workflow", "which runs are paused", "inspect run <ulid>", or
-  types `/wise-workflow-status`.
+  Show workflow runs on the wise engine. With no argument, list every
+  run with its status, workflow, start time, cwd and live children.
+  With a run ULID, show that run; when it is gated, show the gate and
+  offer to answer it. Invoked as `/wise-workflow-status` (bare alias) or
+  `/wise:wise-workflow-status` (canonical). Use when the user says "list
+  workflow runs", "show workflow status", "status of my workflow",
+  "which runs are paused", "inspect run <ulid>", or types
+  `/wise-workflow-status`.
 argument-hint: "[<run-ulid>]"
 model: opus
 effort: low
-allowed-tools: Read, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
+allowed-tools: Read, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
 ---
 
-# /wise-workflow-status — list runs or dump one
+# /wise-workflow-status
 
-## Why this skill exists
+`wise_status` comes from the plugin's `wise-engine` MCP server. On
+`DAEMON_UNAVAILABLE` print `Run /wise-init, then retry.` and stop.
 
-Workflow runs leave per-run state at
-`~/.local/share/wise/runs/<cwd-slug>/<ulid>/state.yaml`
-(honours `XDG_DATA_HOME`; off the project tree on purpose — avoids
-`.claude/**` sensitive-path prompts AND keeps gitignore clean).
-Users need a cheap way to see what's out there (am I mid-run? which
-run is paused?) and to inspect a specific one without reading YAML by
-hand.
+## No argument
 
-## Arguments
+`wise_status {}` returns `RunSummary[]`, newest activity first. Render
+one table: run id | workflow | status | started | cwd | children. The
+children column lists each live child as `<step> turn <n> <tool>`, or
+`-`. Empty list: `No engine runs yet.` Legacy v1 runs (`state.yaml` on
+disk) are listed by
+`${CLAUDE_PLUGIN_ROOT}/references/legacy-conductor/status.md`, only
+when the user asks for them.
 
-Read `$ARGUMENTS`. The first whitespace-separated token is the
-`run-id` — an optional ULID of the run to dump. When present, print
-the full state.yaml content via `workflows.py dump-state`. When
-`$ARGUMENTS` is empty, list every run in the current workspace via
-`workflows.py list-runs`.
+## With a run id
 
-## Procedure
+`wise_status {run_id}` returns one `RunSummary`. Print run id,
+workflow, status, started, last activity, completed (when set), cwd,
+children as above. `RUN_NOT_FOUND`: `No run <run_id>.`
 
-### 1. Init-check + fetch — in ONE message
+Status `gated`: print `gate.step` and `gate.message`, then
+AskUserQuestion `Answer this gate now?` with the gate's options plus
+`Not now` (free text when `allow_text`). On a choice, `wise_answer
+{run_id, gate_id, value}`, print `gate answered`, point to
+`/wise-workflow-resume <run_id>` to follow the run.
 
-Run the init-check per `${CLAUDE_PLUGIN_ROOT}/references/init-check.md`,
-firing `init-registry.py check` together with the data call for your
-mode, in one message (the inline `$(… runs-root)` subshell keeps it a
-single tool call):
+## Rules
 
-- **`run-id` absent** (list every run):
-  ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" list-runs "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/null)" 2>/dev/null || true
-  ```
-- **`run-id` present** — validate the ULID shape FIRST (26-char
-  Crockford base-32); reject with
-  `Not a ULID: <value>. Expected 26-character Crockford base-32 string.`
-  Then:
-  ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" dump-state "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/null)/<run-id>/state.yaml" 2>/dev/null || true
-  ```
-
-### 2. Interpret
-
-On `INIT:ok`, use the `list-runs` / `dump-state` output directly.
-Otherwise follow the reference's fallback — this skill is read-only, so
-on `BOOTSTRAP:need-python` relay and stop; on `READY:<py-path>`, re-run
-the appropriate data call.
-
-**When `run-id` is absent** — relay `list-runs` stdout verbatim. The
-script handles the "no runs yet" case with its own message.
-
-**When `run-id` is present** — if `dump-state` failed (exit non-zero,
-missing state file), stop with:
-`No run found for ULID <run-id> in this workspace.`
-Otherwise relay its stdout as a code block. Follow with a two-line footer:
-
-```
-State file: <absolute path>
-Logs: <absolute path>/logs/
-```
-
-## Guardrails
-
-- Read-only. Never modify a run's state.yaml — resume, retry, and
-  modify flows live in `workflow-resume` and `workflow-run`.
-- Do not invoke any other skill.
-- Do not spawn subagents.
+- Read-only apart from the offered gate answer.
+- Do not invoke other wise skills.

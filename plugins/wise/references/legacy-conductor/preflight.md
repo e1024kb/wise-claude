@@ -1,4 +1,4 @@
-# wise-workflow-run/references/preflight — session tagging, questionaries, inputs
+# legacy-conductor/preflight — session tagging, questionaries, inputs
 
 Companion to the conductor SKILL.md, read ONCE per run — right before
 §5's sub-steps need it and never inside the main loop. It carries the

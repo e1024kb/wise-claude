@@ -632,3 +632,11 @@ test(
     assert.ok(typeof res.cursor === "string" && res.cursor.length > 0);
   },
 );
+
+test("buildArgv: model inherit or empty omits --model", () => {
+  for (const model of ["inherit", ""]) {
+    const argv = buildArgv({ ...BASE_REQ, model });
+    assert.equal(argv.includes("--model"), false, `model=${JSON.stringify(model)}`);
+  }
+  assert.ok(buildArgv({ ...BASE_REQ, model: "sonnet" }).includes("--model"));
+});

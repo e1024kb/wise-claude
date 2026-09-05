@@ -1,4 +1,4 @@
-# wise-workflow-run/references/step-types — team, supervised, interactive, approval, ask
+# legacy-conductor/step-types — team, supervised, interactive, approval, ask
 
 Companion to the conductor SKILL.md §10d. The common step types
 (`skill`, `prompt` single-agent, `bash`) stay in the SKILL body; this

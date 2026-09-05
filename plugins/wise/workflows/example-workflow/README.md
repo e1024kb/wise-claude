@@ -2,105 +2,101 @@
 
 <!-- This README is the source of truth for how the workflow
      LOOKS to users. Keep it in sync with workflow.yaml +
-     prompts/*.md — every edit to the flow, steps, outputs,
+     prompts/*.md - every edit to the flow, steps, outputs,
      or fragment list belongs here too. See
      CONTRIBUTING.md §9.6 for the invariant. -->
 
-Reference workflow that exercises four of the six step types
-(`skill`, `prompt`, `bash`, `approval` — `ask` and `interactive`
-are not exercised here), the parallel-wave dispatcher, AND the
-per-step agent / model / effort fields including a multi-agent
-**team** step. Harmless to run — it only lists the available
-workflows, classifies the current project, and runs seven parallel
-fan-out steps that either subagent-prompt (one of them a team) or
-`echo` under a randomised sleep. Use it to verify the workflow
-subsystem after an install, a schema change, or a dep upgrade.
+Reference `version: 2` workflow that exercises every step type the TS
+engine runs (`agent`, `bash`, `ask`, `approval`; `units` is the
+engine-side ticket / plan loop and has no place in a smoke test), the
+parallel-wave dispatcher, the pre-flight questionary (two tuning
+groups, three profiles, one `from-context` input) and structured
+`schema:` outputs. Harmless to run: it classifies the current project,
+runs five parallel fan-out steps that either prompt a harness child or
+`echo` under a randomised sleep, asks one question, and asks for
+approval. Use it to verify the workflow subsystem after an install, a
+schema change, or a dep upgrade.
 
 ## When to use
 
-- After installing / updating the wise plugin, to confirm the
-  engine, `workflows.py` helpers, and step-type dispatch all
-  work end-to-end.
-- While developing the workflow subsystem — change an engine
-  helper, run this, see if anything regressed.
-- As a reference when authoring a new workflow — the YAML
-  exercises parallel waves (same `depends_on`), `outputs` capture,
-  `until:` regex, and an approval gate.
+- After installing / updating the wise plugin, to confirm the engine,
+  the harness adapter, and step-type dispatch all work end-to-end.
+- While developing the workflow subsystem: change an engine module,
+  run this, see if anything regressed.
+- As a reference when authoring a new workflow: the YAML exercises
+  parallel waves (same `depends_on`), `schema:` + `outputs:` capture,
+  tuning groups with a profile override, an `ask` gate, and an
+  approval gate.
 
 ## When not to use
 
-- It's not a "real" workflow — it doesn't do anything useful
-  beyond proving the subsystem is wired correctly.
+- It's not a "real" workflow: it doesn't do anything useful beyond
+  proving the subsystem is wired correctly.
 
 ## Prerequisites
 
-- `/wise-init` completed at least once so the workflow engine's
-  fast-path finds Python + PyYAML.
-- Run from inside a git repository — `project-selection: prompt`
-  auto-detects the project from the current directory and asks
-  you to confirm it.
+- `/wise-init` completed at least once (bun or Node 24 for the engine).
+- Run from inside a git repository: `project-selection: current`
+  auto-detects the project from the current directory.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    A[list-workflows<br/>skill wise:wise-workflow-list] --> B[classify<br/>prompt → release_kind]
-    B --> C[summarize-project<br/>prompt]
-    B --> D[suggest-next-step<br/>prompt]
-    B --> E[pick-emoji<br/>prompt → project_emoji]
-    B --> T[team-verdict<br/>prompt TEAM]
+    B[classify<br/>agent → release_kind] --> C[summarize-project<br/>agent → summary]
+    B --> E[pick-emoji<br/>agent → project_emoji]
     B --> F[echo-greeting<br/>bash]
-    B --> G[echo-timestamp<br/>bash]
+    B --> G[echo-timestamp<br/>bash → stamp]
     B --> H[echo-pwd<br/>bash]
+    C --> N[pick-next<br/>ask → next_focus]
     C --> I
-    D --> I
     E --> I
-    T --> I
     F --> I
     G --> I
-    H --> I[approve-summary<br/>approval]
+    H --> I
+    N --> I[approve-summary<br/>approval]
 ```
 
-The seven steps between `classify` and `approve-summary` share
-`depends_on: [classify]`, so they run as one parallel wave. In
-wave-sync mode the conductor batches them into a single turn;
-in synchronous mode the approval is auto-approved.
+The five steps between `classify` and the gates share
+`depends_on: [classify]`, so they run as one parallel wave (the engine
+caps concurrent harness children). `pick-next` then parks the run as
+an `ask` gate, `approve-summary` as an `approval` gate; in
+`synchronous` control mode both are answered automatically.
 
-The workflow sets `agents: auto`, and the five `prompt` steps cover
-every agent-binding path so the dispatch logic is smoke-tested:
-`agent: off` + `model: haiku` (classify), a forced role + `effort`
-(summarize-project → `wise:technical-writer`, low), explicit
-`agent: auto` (suggest-next-step), policy-inherited auto
-(pick-emoji), and a multi-agent **team** with a lead + per-member
-model override (team-verdict → `wise:architect` lead +
-`wise:product-manager` + `wise:qa-engineer`, conductor-synthesized).
-See [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
+Pre-flight asks the budget profile, one question per tuning group
+(`classify`: haiku / low; `summarize`: haiku / low, with `codex` as
+fallback harness), and the optional `focus` input (pre-filled from the
+run context's `guidance` when present). The `max` profile moves the
+`summarize` group to `sonnet / medium`.
 
 ## Steps
 
 | Step | Type | Purpose |
 |---|---|---|
-| `list-workflows` | `skill` | Invokes `wise:wise-workflow-list` so Claude sees the available workflows. |
-| `classify` | `prompt` | One word — `frontend` / `backend` / `fullstack` / `other` — validated against an `until:` regex with 2 retries. Captures `release_kind`. Runs as plain `general-purpose` (`agent: off`) on `model: haiku`. |
-| `summarize-project` | `prompt` | One-sentence summary of a `{{project.kind}}` project. Forced to `wise:technical-writer` (`agent:`) at `effort: low`. |
-| `suggest-next-step` | `prompt` | One-sentence improvement suggestion. Explicit `agent: auto` — the conductor picks the best-fit roster role. |
-| `pick-emoji` | `prompt` | Single emoji matching the project kind. Captures `project_emoji`. Inherits the workflow `agents: auto` policy (no `agent:` set). |
-| `team-verdict` | `prompt` (team) | One-line priority take, worked by a **team**: `wise:architect` (lead) + `wise:product-manager` + `wise:qa-engineer` on shared `model: haiku`, conductor-synthesized into one result. |
+| `classify` | `agent` | Classifies the project as `frontend` / `backend` / `fullstack` / `other` through a `schema:` enum, no tools, `max_turns: 2`. Captures `release_kind`. `classify` tuning group. |
+| `summarize-project` | `agent` | One-sentence summary of a `{{release_kind}}` project, focused on `{{focus}}`. Captures `summary`. `summarize` tuning group. |
+| `pick-emoji` | `agent` | Single emoji matching the project kind. Captures `project_emoji`. `summarize` tuning group. |
 | `echo-greeting` | `bash` | `sleep RANDOM; echo "hello from {{project.name}}"`. |
-| `echo-timestamp` | `bash` | `sleep RANDOM; date -u`. |
-| `echo-pwd` | `bash` | `sleep RANDOM; pwd`. |
-| `approve-summary` | `approval` | Final gate. In wave-sync mode an AskUserQuestion confirms the run; in sync it auto-approves. |
+| `echo-timestamp` | `bash` | `sleep RANDOM; date -u`. Captures `stamp`. |
+| `echo-pwd` | `bash` | `pwd`. |
+| `pick-next` | `ask` | `tests` / `docs` / `performance` or free text. Captures `next_focus`. |
+| `approve-summary` | `approval` | Final gate: renders the project, kind, emoji, summary and next focus; approve to complete the run. |
 
 ## Inputs
 
-None.
+| Name | Required | Description |
+|---|---|---|
+| `focus` | no | What the summary should focus on; pre-filled from the run context's `guidance`. |
 
 ## Outputs
 
 | Name | Source | Used for |
 |---|---|---|
-| `release_kind` | `classify` | Templated into downstream step prompts. |
+| `release_kind` | `classify` | Templated into downstream step prompts and the approval message. |
+| `summary` | `summarize-project` | Included in the `approve-summary` message. |
 | `project_emoji` | `pick-emoji` | Included in the `approve-summary` message. |
+| `stamp` | `echo-timestamp` | The bash step's captured output. |
+| `next_focus` | `pick-next` | Included in the `approve-summary` message. |
 
 ## Examples
 
@@ -111,5 +107,5 @@ None.
 ## Related
 
 - [Definition YAML](./workflow.yaml)
-- [`docs/wise/workflows.md`](../../../../docs/wise/workflows.md) —
+- [`docs/wise/workflows.md`](../../../../docs/wise/workflows.md):
   user-facing workflow reference.

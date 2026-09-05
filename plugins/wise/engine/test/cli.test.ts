@@ -7,8 +7,9 @@ import type { Question } from "../src/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENGINE = join(HERE, "..");
-const FIXTURE = join(HERE, "fixtures", "defs", "ticket-plan.v2.yaml");
 const BUNDLED = join(ENGINE, "..", "workflows");
+// M3.1: the bundled ticket-plan is v2; tests read it in place (no fixture copy).
+const FIXTURE = join(BUNDLED, "ticket-plan", "workflow.yaml");
 
 async function run(argv: string[]): Promise<{ code: number; out: string; err: string }> {
   let out = "";
@@ -26,7 +27,7 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
     questions: Question[];
     defaults: Record<string, unknown>;
   };
-  assert.equal(j.workflow, "ticket-plan.v2");
+  assert.equal(j.workflow, "ticket-plan");
   assert.equal(j.version, 2);
   assert.ok(j.questions.length > 0);
   for (const q of j.questions) {
@@ -58,15 +59,17 @@ test("preflight by name resolves through the roots; unknown name exits 2", async
   assert.match(r.out, /WORKFLOW_NOT_FOUND/);
 });
 
-test("compile-check passes the v2 fixture and fails every bundled v1 workflow with hints", async () => {
-  const ok = await run(["compile-check", FIXTURE]);
+test("compile-check passes the migrated v2 workflows and fails the v1 ones with hints", async () => {
+  const ok = await run([
+    "compile-check",
+    join(BUNDLED, "ticket-plan", "workflow.yaml"),
+    join(BUNDLED, "example-workflow", "workflow.yaml"),
+  ]);
   assert.equal(ok.code, 0, ok.out);
   const bad = await run([
     "compile-check",
-    join(BUNDLED, "ticket-plan", "workflow.yaml"),
     join(BUNDLED, "ticket-auto", "workflow.yaml"),
     join(BUNDLED, "impl-plan-auto", "workflow.yaml"),
-    join(BUNDLED, "example-workflow", "workflow.yaml"),
   ]);
   assert.equal(bad.code, 1);
   const report = JSON.parse(bad.out) as {
@@ -74,7 +77,7 @@ test("compile-check passes the v2 fixture and fails every bundled v1 workflow wi
     ok: boolean;
     issues: { hint?: string }[];
   }[];
-  assert.equal(report.length, 4);
+  assert.equal(report.length, 2);
   for (const r of report) {
     assert.equal(r.ok, false, r.workflow);
     assert.ok(
@@ -85,14 +88,14 @@ test("compile-check passes the v2 fixture and fails every bundled v1 workflow wi
 });
 
 test("compile-check --text renders one line per issue", async () => {
-  const r = await run(["compile-check", join(BUNDLED, "ticket-plan", "workflow.yaml"), "--text"]);
+  const r = await run(["compile-check", join(BUNDLED, "ticket-auto", "workflow.yaml"), "--text"]);
   assert.equal(r.code, 1);
-  assert.match(r.out, /^FAIL ticket-plan/);
+  assert.match(r.out, /^FAIL ticket-auto/);
   assert.match(r.out, /->/);
 });
 
 test("migrate is a dry run listing v1 -> v2 changes; v2 input reports already_v2", async () => {
-  const v1 = await run(["migrate", join(BUNDLED, "ticket-plan", "workflow.yaml")]);
+  const v1 = await run(["migrate", join(BUNDLED, "ticket-auto", "workflow.yaml")]);
   assert.equal(v1.code, 0, v1.err);
   const j = JSON.parse(v1.out) as { dry_run: boolean; already_v2: boolean; changes: unknown[] };
   assert.equal(j.dry_run, true);

@@ -29,7 +29,7 @@ import { fakeAdapter, pause, schemaAnswer } from "./fixtures/executor/fake.ts";
 import { heldStarter } from "./fixtures/executor/held.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFS = join(HERE, "fixtures", "defs");
+const DEFS = join(HERE, "..", "..", "workflows");
 const EXEC_FIXTURES = join(HERE, "fixtures", "executor");
 const VERSION = "9.9.9-channel-test";
 

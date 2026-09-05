@@ -1,4 +1,4 @@
-# wise-workflow-run/references/roster-resolution — tuning override, model, effort
+# legacy-conductor/roster-resolution — tuning override, model, effort
 
 Companion to the conductor SKILL.md §10d. Read it the FIRST time a
 wave dispatches a `type: prompt` step (any run that reaches dispatch);

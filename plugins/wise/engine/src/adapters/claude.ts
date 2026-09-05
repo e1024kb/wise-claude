@@ -45,9 +45,9 @@ export function buildArgv(req: RunReq): string[] {
     "--output-format",
     "stream-json",
     "--verbose",
-    "--model",
-    req.model,
   ];
+  // `inherit` (or an empty pin) leaves the model to the child's own default.
+  if (req.model && req.model !== "inherit") argv.push("--model", req.model);
   const effort = req.effort === undefined ? undefined : effortMap(req.effort);
   if (effort !== undefined) argv.push("--effort", effort);
   if (req.schema !== undefined) argv.push("--json-schema", JSON.stringify(req.schema));

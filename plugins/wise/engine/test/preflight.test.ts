@@ -15,7 +15,9 @@ import {
 } from "../src/preflight.ts";
 import type { ValidationIssue, WorkflowDef } from "../src/types.ts";
 
-const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "defs");
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FIXTURES = join(HERE, "fixtures", "defs");
+const BUNDLED = join(HERE, "..", "..", "workflows");
 
 type Doc = Record<string, unknown>;
 
@@ -487,14 +489,38 @@ test("test_get_profiles_valid_skip_list", () => {
 // ---- buildQuestionary --------------------------------------------------------------------------------------
 
 function ticketPlan(): WorkflowDef {
-  const path = join(FIXTURES, "ticket-plan.v2.yaml");
+  const path = join(BUNDLED, "ticket-plan", "workflow.yaml");
   const res = validateDef(loadDef(path), path);
   assert.deepEqual(res.issues, []);
   assert.ok(res.def);
   return res.def;
 }
 
-test("buildQuestionary snapshot: ticket-plan.v2", () => {
+/**
+ * The bundled ticket-plan plus the v2 constructs it does not use: a locked tuning group,
+ * profile caps, and an optional `from-context: guidance` input. Exercises the engine paths
+ * the M3.1 migration dropped from the bundled file (today's pre-flight has neither).
+ */
+function extendedTicketPlan(): WorkflowDef {
+  const def = structuredClone(ticketPlan());
+  def.tuning?.groups.push({
+    id: "presentation",
+    label: "Presentation and summaries",
+    default: { harness: "claude", model: "sonnet", effort: "low" },
+    locked: true,
+  });
+  if (def.profiles?.low) def.profiles.low.caps = { max_refine_passes: 1 };
+  if (def.profiles?.max) def.profiles.max.caps = { max_refine_passes: 3 };
+  def.inputs?.push({
+    name: "config_prompt",
+    prompt: "Extra guidance for the run?",
+    optional: true,
+    "from-context": "guidance",
+  });
+  return def;
+}
+
+test("buildQuestionary snapshot: bundled ticket-plan", () => {
   const expected: unknown = JSON.parse(
     readFileSync(join(FIXTURES, "ticket-plan.v2.questionary.json"), "utf8"),
   );
@@ -507,25 +533,24 @@ test("buildQuestionary order: profile, tuning groups, step-select, inputs", () =
     "profile",
     "tuning.evidence",
     "tuning.authoring",
-    "tuning.presentation",
     "step-select",
     "input.ticket_id",
     "input.gap_mode",
     "input.review_mode",
     "input.branch_mode",
     "input.implement_mode",
-    "input.config_prompt",
   ]);
 });
 
 test("buildQuestionary: locked groups are returned with locked and only the default option", () => {
-  const q = buildQuestionary(ticketPlan()).questions.find((x) => x.id === "tuning.presentation");
+  const def = extendedTicketPlan();
+  const q = buildQuestionary(def).questions.find((x) => x.id === "tuning.presentation");
   assert.equal(q?.locked, true);
   assert.deepEqual(
     q?.options?.map((o) => o.value),
     ["default"],
   );
-  const open = buildQuestionary(ticketPlan()).questions.find((x) => x.id === "tuning.evidence");
+  const open = buildQuestionary(def).questions.find((x) => x.id === "tuning.evidence");
   assert.equal(open?.locked, undefined);
   assert.deepEqual(
     open?.options?.map((o) => o.value),
@@ -552,7 +577,7 @@ test("buildQuestionary: from-context pre-fills inputs (E1)", () => {
     links: ["https://a", "https://b"],
     decisions: { db: "sqlite" },
   };
-  const { questions, defaults } = buildQuestionary(ticketPlan(), { context });
+  const { questions, defaults } = buildQuestionary(extendedTicketPlan(), { context });
   assert.equal(defaults["input.ticket_id"], "LEC-772, LEC-773");
   assert.equal(defaults["input.config_prompt"], "keep it small");
   assert.equal(questions.find((q) => q.id === "input.ticket_id")?.default, "LEC-772, LEC-773");
@@ -564,7 +589,7 @@ test("buildQuestionary: from-context pre-fills inputs (E1)", () => {
 });
 
 test("buildQuestionary: optional input without context defaults to empty, required has no default", () => {
-  const { questions, defaults } = buildQuestionary(ticketPlan());
+  const { questions, defaults } = buildQuestionary(extendedTicketPlan());
   assert.equal(defaults["input.config_prompt"], "");
   assert.equal(questions.find((q) => q.id === "input.ticket_id")?.default, undefined);
   assert.equal("input.ticket_id" in defaults, false);
@@ -573,7 +598,7 @@ test("buildQuestionary: optional input without context defaults to empty, requir
 // ---- applyAnswers --------------------------------------------------------------------------------------------
 
 test("applyAnswers: profile override sits over the group default, preset answer over both", () => {
-  const def = ticketPlan();
+  const def = extendedTicketPlan();
   const base = applyAnswers(def, {});
   assert.equal(base.profile, "medium");
   assert.deepEqual(base.tuning.evidence, { harness: "claude", model: "opus", effort: "high" });
@@ -601,7 +626,7 @@ test("applyAnswers: profile override sits over the group default, preset answer 
 });
 
 test("applyAnswers: locked groups ignore answers, invalid profile falls back", () => {
-  const def = ticketPlan();
+  const def = extendedTicketPlan();
   const applied = applyAnswers(def, { profile: "turbo", "tuning.presentation": "economy" });
   assert.equal(applied.profile, "medium");
   assert.deepEqual(applied.tuning.presentation, {
@@ -620,10 +645,12 @@ test("applyAnswers: step-select disables only deselected optional steps", () => 
   assert.ok(!some.enabledSteps.has("research-context"));
   assert.ok(!some.enabledSteps.has("gap-analysis"));
   assert.ok(some.enabledSteps.has("build-plan"));
+  // resolve-gaps is not optional: it follows gap-analysis through its `when:`.
+  assert.ok(some.enabledSteps.has("resolve-gaps"));
   const none = applyAnswers(def, { "step-select": [] });
-  assert.equal(none.enabledSteps.size, def.steps.length - 5);
-  const csv = applyAnswers(def, { "step-select": "analyze-design, resolve-gaps" });
-  assert.ok(csv.enabledSteps.has("resolve-gaps") && !csv.enabledSteps.has("analyze-related"));
+  assert.equal(none.enabledSteps.size, def.steps.length - 4);
+  const csv = applyAnswers(def, { "step-select": "analyze-design, gap-analysis" });
+  assert.ok(csv.enabledSteps.has("gap-analysis") && !csv.enabledSteps.has("analyze-related"));
 });
 
 test("applyAnswers: inputs take the answer, else the declared default", () => {
