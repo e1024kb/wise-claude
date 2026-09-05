@@ -363,7 +363,7 @@ All builds green on bun 1.4.1 and node 24: 587 tests, 582 pass, 5 skipped live t
 
 # Part 2: detailed design
 
-Date: 2026-09-05. Builds on D1 to D14 and the E-rules above. Everything here is a proposal for the plan, nothing built.
+Date: 2026-09-05. Builds on D1 to D14 and the E-rules above. Written as the proposal for the plan; kept in sync with the code as milestones close (see the M4-M6 build report for what differs).
 
 ## P1. Protocol
 
