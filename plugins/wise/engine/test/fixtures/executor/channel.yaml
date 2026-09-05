@@ -1,0 +1,19 @@
+version: 2
+name: channel
+description: A bash step with an output, then an agent step held live by the test; drives the child-channel tests.
+inputs:
+  - name: topic
+    prompt: Topic
+    default: engines
+steps:
+  - id: prep
+    type: bash
+    run: echo prepared
+    outputs: [prep_out]
+  - id: work
+    type: agent
+    model: haiku
+    depends_on: [prep]
+    prompt: "Work on {{topic}}. Reply with JSON only."
+    schema: { type: object, properties: { result: { type: string } }, required: [result] }
+    outputs: [result]

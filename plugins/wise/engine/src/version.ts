@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 
 /** Plugin root: `plugins/wise`. The engine lives in `plugins/wise/engine`. */
 export const PLUGIN_ROOT: string = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+/** `plugins/wise/engine`: holds `engine.sh`, the entry the child MCP config runs. */
+export const ENGINE_ROOT: string = join(PLUGIN_ROOT, "engine");
 
 /** Single version source is `plugins/wise/.claude-plugin/plugin.json`. */
 export function pluginVersion(): string {

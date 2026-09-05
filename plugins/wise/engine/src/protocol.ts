@@ -9,6 +9,7 @@ import type {
   Event,
   Gate,
   Question,
+  ReportKind,
   RunStatus,
   RunSummary,
   UnitRow,
@@ -127,6 +128,45 @@ export type ReportResult = {
   verdicts: Record<string, string>;
 };
 
+// ---- child channel (P8, D16) --------------------------------------------------------------
+// Every `child_*` method carries the per-step `token` the daemon put in the child's MCP env;
+// an unknown or ended token is the domain error `TOKEN_INVALID`.
+
+export type ChildReportParams = {
+  token: string;
+  kind: ReportKind;
+  text: string;
+  data?: Record<string, unknown>;
+};
+export type ChildReportResult = { accepted: true; seq: number };
+
+export type ChildAskParams = {
+  token: string;
+  question: string;
+  options?: string[];
+  allow_text?: boolean;
+  /** Re-issue after a `pending` result to keep waiting on the same question. */
+  ask_id?: string;
+  /** Long-poll bound, default `WAIT_DEFAULT_MS`, cap `WAIT_MAX_MS`. */
+  timeout_ms?: number;
+};
+export type ChildAskResult =
+  | { ask_id: string; status: "answered"; value: string }
+  | { ask_id: string; status: "pending" }
+  /** Synchronous run with nothing to answer from: the child must finish without it. */
+  | { ask_id: string; status: "needs-human" };
+
+export type ChildContextParams = { token: string; key: string };
+/** `null` when the key resolves to nothing. */
+export type ChildContextResult = { value: unknown };
+
+export type ChildCheckpointParams = { token: string; data: unknown };
+export type ChildCheckpointResult = { path: string };
+
+/** Harness-facing: a mid-run user message to a live Claude child. */
+export type NudgeParams = { run_id: string; step: string; message: string };
+export type NudgeResult = { delivered: boolean };
+
 /** Server → client notification sent every 30 s while a `wait` is blocked (D17). */
 export type ProgressParams = { run_id: string; waiting_ms: number };
 
@@ -142,6 +182,11 @@ export type Methods = {
   cancel: { params: CancelParams; result: CancelResult };
   resume: { params: ResumeParams; result: ResumeResult };
   report: { params: ReportParams; result: ReportResult };
+  nudge: { params: NudgeParams; result: NudgeResult };
+  child_report: { params: ChildReportParams; result: ChildReportResult };
+  child_ask: { params: ChildAskParams; result: ChildAskResult };
+  child_context: { params: ChildContextParams; result: ChildContextResult };
+  child_checkpoint: { params: ChildCheckpointParams; result: ChildCheckpointResult };
 };
 export type MethodName = keyof Methods;
 export type ParamsOf<M extends MethodName> = Methods[M]["params"];
@@ -163,6 +208,11 @@ export const METHOD_NAMES: readonly MethodName[] = [
   "cancel",
   "resume",
   "report",
+  "nudge",
+  "child_report",
+  "child_ask",
+  "child_context",
+  "child_checkpoint",
 ];
 
 // ---- wait limits (D17) ------------------------------------------------------------------

@@ -44,6 +44,29 @@ export type AgentStarter = (
   onEvent: (e: RawEvent) => void,
 ) => AgentHandle;
 
+/** Where the child's `wise-engine unit-mcp` finds the daemon (P8): no secrets in argv, all in env. */
+export type ChannelConfig = { engineRoot: string; socketPath: string; dataRoot: string };
+
+/** The one MCP server every child loads (D16, D18). `bash engine.sh unit-mcp` picks bun or node. */
+export function childMcpConfig(
+  channel: ChannelConfig,
+  token: string,
+): NonNullable<RunReq["mcp_config"]> {
+  return {
+    mcpServers: {
+      "wise-engine": {
+        command: "bash",
+        args: [`${channel.engineRoot}/engine.sh`, "unit-mcp"],
+        env: {
+          WISE_STEP_TOKEN: token,
+          WISE_ENGINE_SOCKET: channel.socketPath,
+          WISE_DATA_ROOT: channel.dataRoot,
+        },
+      },
+    },
+  };
+}
+
 export type AgentStepInput = {
   runDir: string;
   stepRunId: string;
@@ -56,6 +79,10 @@ export type AgentStepInput = {
   stepToken: string;
   starter: AgentStarter;
   defaultTimeoutMs?: number;
+  /** When set, the child gets the engine MCP server with this token in its env. */
+  channel?: ChannelConfig;
+  /** Live-status hook: every vendor event, before it is logged. */
+  onEvent?: (e: RawEvent) => void;
 };
 
 export type AgentOutcome = {
@@ -90,6 +117,7 @@ export function buildRunReq(input: AgentStepInput): RunReq {
   if (step.max_turns !== undefined) req.max_turns = step.max_turns;
   // E8: only the `unit` policy resumes a prior session; `fresh` (default) starts clean.
   if (step.resume === "unit" && input.cursor !== undefined) req.resume = input.cursor;
+  if (input.channel !== undefined) req.mcp_config = childMcpConfig(input.channel, input.stepToken);
   return req;
 }
 
@@ -186,6 +214,11 @@ export function startAgentStep(input: AgentStepInput): {
   const tools: string[] = [];
   const onEvent = (e: RawEvent): void => {
     tools.push(...toolNames(e.parsed));
+    try {
+      input.onEvent?.(e);
+    } catch {
+      // A status hook failure never fails the step either.
+    }
     try {
       appendRawLog(input.runDir, input.step.id, input.stepRunId, e);
     } catch {

@@ -1,5 +1,5 @@
 // `wise-engine mcp`: a stdio MCP server that is a thin client of wise-engined (D13, P1).
-// The six tools mirror the daemon's P1 methods with identical JSON shapes. The server connects to
+// The seven tools mirror the daemon's P1 methods with identical JSON shapes. The server connects to
 // the socket lazily, auto-starts the daemon when it is dead, reconnects once on a dropped socket,
 // and turns daemon errors into tool error results instead of protocol failures. During `wise_wait`
 // the daemon's `progress` notifications are forwarded as MCP progress notifications (D17).
@@ -22,6 +22,7 @@ import type {
   AnswerParams,
   CancelParams,
   MethodName,
+  NudgeParams,
   ParamsOf,
   PreflightParams,
   ProgressParams,
@@ -58,13 +59,14 @@ export const MCP_TOOL_NAMES = [
   "wise_answer",
   "wise_status",
   "wise_cancel",
+  "wise_nudge",
 ] as const;
 export type McpToolName = (typeof MCP_TOOL_NAMES)[number];
 
 // ---- daemon link ------------------------------------------------------------------------------
 
 /** One lazily opened socket shared by every tool call, replaced when it drops. */
-class DaemonLink {
+export class DaemonLink {
   private client: Client | null = null;
   private opening: Promise<Client> | null = null;
   private readonly opts: McpServerOptions;
@@ -124,19 +126,23 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Compact JSON in one text block; `structuredContent` only for object results (MCP requires an object). */
-function okResult(result: unknown): CallToolResult {
+export function okResult(result: unknown): CallToolResult {
   const out: CallToolResult = { content: [{ type: "text", text: JSON.stringify(result) }] };
   if (isPlainObject(result)) out.structuredContent = result;
   return out;
 }
 
-function errResult(code: string, message: string, extra: Record<string, unknown>): CallToolResult {
+export function errResult(
+  code: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): CallToolResult {
   const error = { code, message, ...extra };
   return { content: [{ type: "text", text: JSON.stringify({ error }) }], isError: true };
 }
 
 /** Daemon and socket failures become tool error results; anything else stays a protocol error. */
-function toErrorResult(err: unknown): CallToolResult {
+export function toErrorResult(err: unknown): CallToolResult {
   if (err instanceof ConnectError) {
     return errResult("DAEMON_UNAVAILABLE", err.message, { cause: err.code, hint: INIT_HINT });
   }
@@ -211,6 +217,11 @@ const answerShape = {
 };
 const statusShape = { run_id: z.string().optional() };
 const cancelShape = { run_id: z.string(), reason: z.string().optional() };
+const nudgeShape = {
+  run_id: z.string(),
+  step: z.string().describe("Step id of the running agent child."),
+  message: z.string().describe("Text delivered to the child as a user message."),
+};
 
 // ---- descriptions (read by the model that calls the tools) --------------------------------------------
 
@@ -239,6 +250,10 @@ const DESCRIPTIONS: Record<McpToolName, string> = {
     "activity first. Cheapest daemon health check; DAEMON_UNAVAILABLE means /wise-init has not run.",
   wise_cancel:
     "Cancel a run and kill its child processes. Returns {status: 'cancelled'}. reason is recorded in the run's events.",
+  wise_nudge:
+    "Send a mid-run user message to a running agent step (Claude children only; their stdin stays open). " +
+    "Returns {delivered}. delivered false: the step is not running, has ended, or its harness takes no input; " +
+    "nothing is queued. Use sparingly: to unblock, redirect, or ask a child to wrap up.",
 };
 
 // ---- server ---------------------------------------------------------------------------------------------
@@ -266,8 +281,8 @@ function isProgress(params: unknown): params is ProgressParams {
   );
 }
 
-type Shape = Record<string, z.ZodTypeAny>;
-type ToolHandler<S extends Shape> = (
+export type Shape = Record<string, z.ZodTypeAny>;
+export type ToolHandler<S extends Shape> = (
   args: z.infer<z.ZodObject<S>>,
   extra: ToolExtra,
 ) => Promise<CallToolResult>;
@@ -281,21 +296,31 @@ type LooseRegisterTool = {
   ) => unknown;
 };
 
-/** Register one tool with the handler typed from our own zod shape. */
+/** Register one tool with the handler typed from our own zod shape (shared with unit-mcp.ts). */
+export function registerTool<S extends Shape>(
+  server: McpServer,
+  name: string,
+  description: string,
+  shape: S,
+  handler: ToolHandler<S>,
+): void {
+  (server as unknown as LooseRegisterTool).registerTool(
+    name,
+    { description, inputSchema: shape },
+    handler,
+  );
+}
+
 function register<S extends Shape>(
   server: McpServer,
   name: McpToolName,
   shape: S,
   handler: ToolHandler<S>,
 ): void {
-  (server as unknown as LooseRegisterTool).registerTool(
-    name,
-    { description: DESCRIPTIONS[name], inputSchema: shape },
-    handler,
-  );
+  registerTool(server, name, DESCRIPTIONS[name], shape, handler);
 }
 
-/** Build the MCP server with the six P1 tools; connect it to a transport yourself. */
+/** Build the MCP server with the seven harness-facing tools; connect it to a transport yourself. */
 export function createMcpServer(opts: McpServerOptions = {}): McpServer {
   const link = new DaemonLink(opts);
   const server = new McpServer({
@@ -380,6 +405,11 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
     return forward("cancel", params);
   });
 
+  register(server, "wise_nudge", nudgeShape, async (args) => {
+    const params: NudgeParams = { run_id: args.run_id, step: args.step, message: args.message };
+    return forward("nudge", params);
+  });
+
   return server;
 }
 
@@ -401,7 +431,7 @@ export async function serveStdio(opts: McpServerOptions = {}): Promise<number> {
 
 const MCP_USAGE = `wise-engine mcp [options]
 
-  Serve the six wise_* tools over stdio MCP; connects to (and starts) wise-engined.
+  Serve the seven wise_* tools over stdio MCP; connects to (and starts) wise-engined.
 
 Options: --data-root <dir> --socket <path> --lock <path> --log <path> --idle-ms <n> --no-start
 `;

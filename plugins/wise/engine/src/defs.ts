@@ -640,6 +640,7 @@ const STEP_BASE_KEYS = [
   "resume",
   "max_turns",
   "timeout",
+  "stale_after",
 ] as const;
 const STEP_KEYS: Record<StepType, readonly string[]> = {
   agent: [...STEP_BASE_KEYS, "prompt", "skill", "schema", "outputs", "until"],
@@ -773,6 +774,11 @@ function validateStepBase(
   if (step.timeout !== undefined) {
     if (typeof step.timeout === "number" && step.timeout > 0) base.timeout = step.timeout;
     else iss.error(`${p}.timeout`, "timeout must be a positive number of seconds");
+  }
+  if (step.stale_after !== undefined) {
+    if (typeof step.stale_after === "number" && step.stale_after > 0) {
+      base.stale_after = step.stale_after;
+    } else iss.error(`${p}.stale_after`, "stale_after must be a positive number of seconds");
   }
   return base;
 }

@@ -1,4 +1,5 @@
-// wise-engine CLI (M1.8). Non-executing commands only; daemon and mcp arrive in M2.
+// wise-engine CLI: definition commands (M1.8), daemon client commands, and the two stdio MCP
+// servers (`mcp` for the harness, `unit-mcp` for a child).
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { defaultRoots, listDefs, loadDef, locateDef, validateDef } from "./defs.ts";
@@ -9,6 +10,7 @@ import { pluginVersion, runtimeName } from "./version.ts";
 import { daemonCommand } from "./daemon.ts";
 import { clientCommand } from "./cli-client.ts";
 import { mcpCommand } from "./mcp.ts";
+import { unitMcpCommand } from "./unit-mcp.ts";
 
 const USAGE = `wise-engine <command> [options]
 
@@ -26,6 +28,8 @@ Commands:
   daemon serve|start|stop|status
                                background daemon wise-engined
   mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)
+  unit-mcp [--token <t>]       child-side stdio MCP server (wise_report/ask/context/checkpoint);
+                               token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT
   version                      plugin version and runtime
   help                         this text
 
@@ -257,6 +261,8 @@ export async function main(
         return await clientCommand(argv, io);
       case "mcp":
         return await mcpCommand(argv.slice(1), io);
+      case "unit-mcp":
+        return await unitMcpCommand(argv.slice(1), io);
       case "daemon":
         return await daemonCommand(argv.slice(1), io);
       case "preflight":

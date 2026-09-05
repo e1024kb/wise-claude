@@ -109,6 +109,10 @@ function fakeHandlers(calls: Call[]): Partial<DaemonHandlers> {
       record("cancel", params);
       return { status: "cancelled" };
     },
+    nudge: (params) => {
+      record("nudge", params);
+      return { delivered: params.step === "implement" };
+    },
   };
 }
 
@@ -183,7 +187,7 @@ describe("mcp", () => {
       client = await openMcp({ daemon: { env: r.env, version: VERSION }, version: VERSION });
     });
 
-    test("listTools exposes exactly the six P1 tools with input schemas", async () => {
+    test("listTools exposes exactly the seven harness tools with input schemas", async () => {
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map((t) => t.name).toSorted(), [...MCP_TOOL_NAMES].toSorted());
       for (const t of tools) {
@@ -337,6 +341,30 @@ describe("mcp", () => {
       assert.equal(textOf(res), '{"status":"cancelled"}');
     });
 
+    test("wise_nudge forwards run_id, step and message and returns {delivered}", async () => {
+      calls.length = 0;
+      const hit = await callTool(client, "wise_nudge", {
+        run_id: "01RUN",
+        step: "implement",
+        message: "wrap up",
+      });
+      assert.deepEqual(calls, [
+        { method: "nudge", params: { run_id: "01RUN", step: "implement", message: "wrap up" } },
+      ]);
+      assert.equal(textOf(hit), '{"delivered":true}');
+      const miss = await callTool(client, "wise_nudge", {
+        run_id: "01RUN",
+        step: "gone",
+        message: "x",
+      });
+      assert.deepEqual(parsed(miss), { delivered: false });
+      const tools = (await client.listTools()).tools;
+      assert.match(
+        tools.find((t) => t.name === "wise_nudge")?.description ?? "",
+        /Claude children/,
+      );
+    });
+
     test("invalid arguments are rejected by the input schema before reaching the daemon", async () => {
       calls.length = 0;
       const res = await callTool(client, "wise_cancel", {});
@@ -404,7 +432,7 @@ describe("mcp", () => {
     assert.equal(info?.name, "wise-engine");
     assert.equal(info?.version, pluginVersion());
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 6);
+    assert.equal(tools.length, 7);
     const res = await callTool(client, "wise_status", { run_id: "01S" });
     assert.notEqual(res.isError, true, textOf(res));
     assert.equal((parsed(res) as RunSummary).run_id, "01S");

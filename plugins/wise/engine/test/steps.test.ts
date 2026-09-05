@@ -79,7 +79,7 @@ test("buildRunReq: defaults (auto, subscription, 30 min), schema, max_turns, eff
   assert.equal(req.max_turns, 2);
   assert.deepEqual(req.schema, AGENT.schema);
   assert.equal(req.step_token, "tok".padEnd(32, "0"));
-  assert.equal(req.mcp_config, undefined, "M2.6 fills mcp_config");
+  assert.equal(req.mcp_config, undefined, "no channel config: no MCP server for the child");
   assert.equal(req.resume, undefined);
 });
 

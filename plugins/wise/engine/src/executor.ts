@@ -9,6 +9,20 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { adapterFor, claudeAdapter, hasAdapter, startClaude } from "./adapters/index.ts";
 import { collectNeeds, LOGIN_CMDS, probeHarnesses } from "./auth.ts";
+import {
+  answerFromDecisions,
+  clipReportData,
+  clipReportText,
+  createChildTracker,
+  progressLine,
+  realTimers,
+  resolveContextKey,
+  STALE_AFTER_SECS_DEFAULT,
+  staleNudgeText,
+  startStaleWatch,
+  writeCheckpoint,
+} from "./channel.ts";
+import type { ChannelTimers, ChildTracker, StaleWatch } from "./channel.ts";
 import { clearChild, ledgerHandlers, readChild, recordChild } from "./daemon.ts";
 import type { DaemonHandlers, DaemonRuntime, Handler } from "./daemon.ts";
 import { defaultRoots, loadAndValidate, locateDef } from "./defs.ts";
@@ -29,32 +43,37 @@ import {
 import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
 import { applyAnswers, buildQuestionary, resolveFromContext } from "./preflight.ts";
-import { RPC_INVALID_PARAMS } from "./protocol.ts";
-import type { ReportResult } from "./protocol.ts";
+import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
+import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
 import { renderStep } from "./render.ts";
 import { resolveModelDict } from "./resolve.ts";
 import { domainError, RpcError } from "./rpc.ts";
 import { nextWave } from "./scheduler.ts";
 import { headline, startAgentStep } from "./steps/agent.ts";
-import type { AgentHandle, AgentOutcome, AgentStarter } from "./steps/agent.ts";
+import type { AgentHandle, AgentOutcome, AgentStarter, ChannelConfig } from "./steps/agent.ts";
 import { startBashStep } from "./steps/bash.ts";
 import { buildGate, decideGate, isGateStep } from "./steps/gate.ts";
 import type { GateStep } from "./steps/gate.ts";
-import { HARNESSES } from "./types.ts";
+import { HARNESSES, REPORT_KINDS } from "./types.ts";
 import type {
   Adapter,
   AgentStep,
   Answers,
+  AskStep,
   BashStep,
   Context,
+  Gate,
   Harness,
   LocatedDef,
   Project,
+  ReportKind,
   Resolved,
+  RunSummary,
   State,
   Usage,
   WorkflowDef,
 } from "./types.ts";
+import { ENGINE_ROOT } from "./version.ts";
 
 // ---- configuration -----------------------------------------------------------------------------
 
@@ -131,6 +150,20 @@ export function detectProject(cwd: string): Project {
 
 export type AdapterRegistry = Partial<Record<Harness, Adapter>>;
 
+/** Child channel knobs (P8). Defaults: engine.sh under `ENGINE_ROOT`, the daemon's own paths. */
+export type ChannelOptions = {
+  engineRoot?: string;
+  socketPath?: string;
+  dataRoot?: string;
+  /** `false` starts children without the engine MCP server (no daemon socket to reach). */
+  inject?: boolean;
+  /** Idle window before the stale policy acts when the step sets no `stale_after`; default 600. */
+  staleAfterSecs?: number;
+  /** `step.progress` throttle per step; default 30 000. */
+  progressThrottleMs?: number;
+  timers?: ChannelTimers;
+};
+
 export type ExecutorOptions = {
   env?: Env;
   /** Definition roots; default `defaultRoots({ env })`. */
@@ -145,6 +178,7 @@ export type ExecutorOptions = {
   detectProject?: (cwd: string) => Project;
   /** Agent / bash wall clock when the step has no `timeout`; default 30 min. */
   defaultTimeoutMs?: number;
+  channel?: ChannelOptions;
 };
 
 export type Executor = {
@@ -229,6 +263,19 @@ type Child = {
   pid?: number;
 };
 
+/** One `wise_ask` in flight: queued, gated, answered, or dropped with its child. */
+type PendingAsk = {
+  ask_id: string;
+  step: string;
+  question: string;
+  options?: string[];
+  allow_text?: boolean;
+  gate_id?: string;
+  value?: string;
+  dropped: boolean;
+  waiters: Set<() => void>;
+};
+
 type LiveRun = {
   runId: string;
   runDir: string;
@@ -241,6 +288,12 @@ type LiveRun = {
   /** Harness a step moved to after a rate limit (E12). */
   harnessOverride: Map<string, Harness>;
   triedHarnesses: Map<string, Set<Harness>>;
+  /** Live status per running agent child (P8). */
+  trackers: Map<string, ChildTracker>;
+  staleWatches: Map<string, StaleWatch>;
+  /** Steps whose child the stale policy killed; their exit settles as `stale`. */
+  staleKilled: Set<string>;
+  asks: Map<string, PendingAsk>;
 };
 
 type Park = { until: number; attempts: number; timer: NodeJS.Timeout };
@@ -267,7 +320,73 @@ function makeLive(
     tokens: new Map(),
     harnessOverride: new Map(),
     triedHarnesses: new Map(),
+    trackers: new Map(),
+    staleWatches: new Map(),
+    staleKilled: new Set(),
+    asks: new Map(),
   };
+}
+
+function dropAsk(ask: PendingAsk): void {
+  ask.dropped = true;
+  for (const w of ask.waiters) w();
+}
+
+function pendingAskFor(live: LiveRun, stepId: string): boolean {
+  for (const a of live.asks.values()) {
+    if (a.step === stepId && a.value === undefined && !a.dropped) return true;
+  }
+  return false;
+}
+
+function idleMinutes(ms: number): number {
+  return Math.max(1, Math.round(ms / 60_000));
+}
+
+function optionalStringList(rec: Rec, key: string, method: string): string[] | undefined {
+  const v = rec[key];
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) {
+    throw new RpcError(RPC_INVALID_PARAMS, `${method}: ${key} must be a string array`);
+  }
+  return v as string[];
+}
+
+function clampWait(rec: Rec, method: string): number {
+  const v = rec.timeout_ms;
+  if (v === undefined || v === null) return WAIT_DEFAULT_MS;
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    throw new RpcError(RPC_INVALID_PARAMS, `${method}: timeout_ms must be a number`);
+  }
+  return Math.min(Math.max(0, v), WAIT_MAX_MS);
+}
+
+/** Block until the ask has a value, is dropped, the bound passes, or the connection goes away. */
+async function awaitAsk(
+  live: LiveRun,
+  ask: PendingAsk,
+  timeoutMs: number,
+  ctx: { notify: (method: string, params: unknown) => void; signal: AbortSignal },
+): Promise<void> {
+  if (ask.value !== undefined || ask.dropped || timeoutMs <= 0) return;
+  const start = Date.now();
+  const { promise, resolve } = Promise.withResolvers<void>();
+  const waiter = (): void => resolve();
+  ask.waiters.add(waiter);
+  const timer = setTimeout(resolve, timeoutMs);
+  const ticker = setInterval(() => {
+    const p: ProgressParams = { run_id: live.runId, waiting_ms: Date.now() - start };
+    ctx.notify("progress", p);
+  }, WAIT_PROGRESS_MS);
+  ctx.signal.addEventListener("abort", waiter, { once: true });
+  try {
+    await promise;
+  } finally {
+    ask.waiters.delete(waiter);
+    clearTimeout(timer);
+    clearInterval(ticker);
+    ctx.signal.removeEventListener("abort", waiter);
+  }
 }
 
 /** Load and validate a located definition; both failure modes are `WORKFLOW_INVALID`. */
@@ -310,6 +429,15 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
   const backoffMs = opts.backoffMs ?? defaultBackoffMs;
   const projectOf = opts.detectProject ?? detectProject;
   const ledger = ledgerHandlers(rt);
+  const timers = opts.channel?.timers ?? realTimers;
+  const channel: ChannelConfig | undefined =
+    opts.channel?.inject === false
+      ? undefined
+      : {
+          engineRoot: opts.channel?.engineRoot ?? ENGINE_ROOT,
+          socketPath: opts.channel?.socketPath ?? rt.paths.socketPath,
+          dataRoot: opts.channel?.dataRoot ?? rt.paths.dataRoot,
+        };
 
   const getAdapter = (h: Harness): Adapter | undefined =>
     opts.adapters ? opts.adapters[h] : hasAdapter(h) ? adapterFor(h) : undefined;
@@ -485,9 +613,99 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
 
   function dropLive(live: LiveRun): void {
     live.stopped = true;
+    for (const w of live.staleWatches.values()) w.stop();
+    live.staleWatches.clear();
+    for (const ask of live.asks.values()) dropAsk(ask);
+    live.asks.clear();
+    live.trackers.clear();
     live.children.clear();
     live.tokens.clear();
     lives.delete(live.runId);
+  }
+
+  // ---- child asks (P8) --------------------------------------------------------------------------------
+
+  /** Open a gate for the oldest queued child question when the run is free to take one. */
+  function openChildAsks(live: LiveRun): void {
+    if (live.stopped) return;
+    const state = readState(live.runDir);
+    if (state.status !== "running" || state.gate) return;
+    const next = [...live.asks.values()].find(
+      (a) => a.gate_id === undefined && a.value === undefined && !a.dropped,
+    );
+    if (!next) return;
+    const gate: Gate = {
+      gate_id: newUlid(),
+      step: next.step,
+      kind: "ask",
+      message: next.question.trim(),
+    };
+    if (next.options && next.options.length > 0) {
+      gate.options = next.options.map((o) => ({ value: o, label: o }));
+    }
+    if (next.allow_text !== undefined) gate.allow_text = next.allow_text;
+    next.gate_id = gate.gate_id;
+    updateRun(live.runDir, { status: "gated", gate });
+    emit(live, { type: "gate.opened", step: next.step, verdict: headline(gate.message) });
+  }
+
+  /** The child behind these questions is gone: drop them and reopen the run if one was gated. */
+  function closeChildAsks(live: LiveRun, stepId: string): void {
+    let closedGate = false;
+    for (const [id, ask] of live.asks) {
+      if (ask.step !== stepId) continue;
+      live.asks.delete(id);
+      dropAsk(ask);
+      if (ask.gate_id === undefined) continue;
+      const state = readState(live.runDir);
+      if (state.gate?.gate_id !== ask.gate_id) continue;
+      state.status = "running";
+      state.last_activity_at = utcNow();
+      delete state.gate;
+      writeState(live.runDir, state);
+      closedGate = true;
+    }
+    if (closedGate) {
+      emit(live, {
+        type: "warn",
+        step: stepId,
+        message: `${stepId}: child exited with an open question; gate closed`,
+      });
+    }
+    openChildAsks(live);
+  }
+
+  /** `answer` on a child-ask gate: hand the value to the blocked `wise_ask`, nudge the child. */
+  function answerChildAsk(
+    live: LiveRun,
+    ask: PendingAsk,
+    value: string | string[],
+  ): { accepted: boolean } {
+    const synthetic: AskStep = { id: ask.step, type: "ask", message: ask.question };
+    if (ask.options !== undefined) synthetic.options = ask.options;
+    if (ask.allow_text !== undefined) synthetic.allow_text = ask.allow_text;
+    const decision = decideGate(synthetic, value);
+    const text = decision.output?.value ?? "";
+    const state = readState(live.runDir);
+    state.status = "running";
+    state.last_activity_at = utcNow();
+    delete state.gate;
+    writeState(live.runDir, state);
+    ask.value = text;
+    for (const w of ask.waiters) w();
+    emit(live, { type: "gate.answered", step: ask.step, verdict: headline(`answered: ${text}`) });
+    const child = live.children.get(ask.step);
+    if (child?.nudge) {
+      try {
+        child.nudge(`Answer to your question: ${text}`);
+      } catch {
+        // Stdin already closed: the tool result still carries the answer.
+      }
+    }
+    live.trackers.get(ask.step)?.touch();
+    openChildAsks(live);
+    setImmediate(() => schedule(live));
+    return { accepted: true };
   }
 
   // ---- gates ----------------------------------------------------------------------------------------
@@ -576,6 +794,14 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       release = () => {};
     };
 
+    const tracker = createChildTracker({
+      step: step.id,
+      now: timers.now,
+      ...(opts.channel?.progressThrottleMs !== undefined
+        ? { throttleMs: opts.channel.progressThrottleMs }
+        : {}),
+    });
+    live.trackers.set(step.id, tracker);
     let run: { handle: AgentHandle; outcome: Promise<AgentOutcome> };
     try {
       run = startAgentStep({
@@ -588,10 +814,18 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
         stepToken: token,
         starter,
         ...(opts.defaultTimeoutMs !== undefined ? { defaultTimeoutMs: opts.defaultTimeoutMs } : {}),
+        ...(channel !== undefined ? { channel } : {}),
+        onEvent: (e) => {
+          const progress = tracker.ingest(e);
+          if (progress && !live.stopped) {
+            emit(live, { type: "step.progress", step: step.id, message: progressLine(progress) });
+          }
+        },
       });
     } catch (err) {
       release();
       live.tokens.delete(step.id);
+      live.trackers.delete(step.id);
       failStep(live, step.id, (err as Error).message);
       return;
     }
@@ -603,6 +837,43 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     if (run.handle.pid !== undefined && run.handle.pid > 0) {
       recordChild(live.runDir, { pgid: run.handle.pid, pid: run.handle.pid });
     }
+    const staleSecs = step.stale_after ?? opts.channel?.staleAfterSecs ?? STALE_AFTER_SECS_DEFAULT;
+    live.staleWatches.set(
+      step.id,
+      startStaleWatch({
+        staleMs: staleSecs * 1000,
+        timers,
+        lastActivityMs: () => tracker.lastActivityMs(),
+        paused: () => pendingAskFor(live, step.id),
+        nudge: (idle) => {
+          if (!child.nudge) return false;
+          try {
+            child.nudge(staleNudgeText(idle));
+          } catch {
+            return false;
+          }
+          emit(live, {
+            type: "warn",
+            step: step.id,
+            message: `${step.id}: idle for ${idleMinutes(idle)} min, nudged`,
+          });
+          return true;
+        },
+        kill: () => {
+          if (!child.kill) {
+            emit(live, { type: "warn", step: step.id, message: `${step.id}: stale, cannot kill` });
+            return;
+          }
+          live.staleKilled.add(step.id);
+          emit(live, {
+            type: "warn",
+            step: step.id,
+            message: `${step.id}: stale, killed${child.nudge ? "" : "; resume from cursor"}`,
+          });
+          child.kill("SIGTERM");
+        },
+      }),
+    );
     void run.outcome
       .catch((err: unknown): AgentOutcome => ({
         exit: "error",
@@ -623,11 +894,19 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
         release();
         live.children.delete(step.id);
         live.tokens.delete(step.id);
+        live.trackers.delete(step.id);
+        live.staleWatches.get(step.id)?.stop();
+        live.staleWatches.delete(step.id);
         if (run.handle.pid !== undefined && readChild(live.runDir)?.pid === run.handle.pid) {
           clearChild(live.runDir);
         }
+        if (live.stopped) {
+          scheduleAll();
+          return;
+        }
+        closeChildAsks(live, step.id);
         const current = readState(live.runDir).steps[step.id];
-        if (live.stopped || current?.step_run_id !== stepRunId) {
+        if (current?.step_run_id !== stepRunId) {
           scheduleAll();
           return;
         }
@@ -647,6 +926,11 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     for (const w of outcome.warnings)
       emit(live, { type: "warn", step: step.id, message: headline(w) });
     const cursorPatch = outcome.cursor !== undefined ? { cursor: outcome.cursor } : {};
+    if (live.staleKilled.delete(step.id)) {
+      // E8: the cursor is kept so a `resume: unit` step picks the session back up.
+      failStep(live, step.id, "stale", "failed: stale (no activity, killed)", cursorPatch);
+      return;
+    }
     switch (outcome.exit) {
       case "ok":
         completeStep(live, step.id, outcome.verdict, outcome.outputs, {
@@ -935,6 +1219,8 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       });
     }
     const live = ensureLive(runDir, state);
+    const childAsk = [...live.asks.values()].find((a) => a.gate_id === gateId);
+    if (childAsk) return answerChildAsk(live, childAsk, value);
     const def = live.def.steps.find((s) => s.id === state.gate?.step);
     if (!def || !isGateStep(def)) {
       throw domainError("GATE_STALE", `answer: gate step ${state.gate.step} is not a gate`, {
@@ -969,6 +1255,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       answered.outputs = { [decision.output.name]: headline(decision.output.value) };
     emit(live, answered);
     emit(live, { type: "step.done", step: def.id, verdict: decision.verdict });
+    openChildAsks(live);
     setImmediate(() => schedule(live));
     return { accepted: true };
   };
@@ -1006,15 +1293,164 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     return out;
   };
 
+  // ---- child channel handlers (P8) ------------------------------------------------------------------
+
+  const nudgeChild = (runId: string, stepId: string, text: string): boolean => {
+    const child = lives.get(runId)?.children.get(stepId);
+    if (!child?.nudge) return false;
+    try {
+      child.nudge(text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /** Resolve a child's token to its live run and step, or `TOKEN_INVALID`. */
+  const requireToken = (rec: Rec, method: string): { live: LiveRun; step: string } => {
+    const token = requireString(rec, "token", method);
+    for (const live of lives.values()) {
+      for (const [step, t] of live.tokens) {
+        if (t === token) {
+          live.trackers.get(step)?.touch();
+          return { live, step };
+        }
+      }
+    }
+    throw domainError("TOKEN_INVALID", `${method}: token does not match a running step`);
+  };
+
+  const status: Handler<"status"> = async (params, ctx) => {
+    const res = await ledger.status(params, ctx);
+    const decorate = (s: RunSummary): RunSummary => {
+      const live = lives.get(s.run_id);
+      if (!live || live.trackers.size === 0) return s;
+      return { ...s, children: [...live.trackers.values()].map((t) => t.snapshot()) };
+    };
+    return Array.isArray(res) ? res.map(decorate) : decorate(res);
+  };
+
+  const nudge: Handler<"nudge"> = (params) => {
+    const rec = asRecord(params, "nudge");
+    const runId = requireString(rec, "run_id", "nudge");
+    const stepId = requireString(rec, "step", "nudge");
+    const message = requireString(rec, "message", "nudge");
+    rt.requireRunDir(runId);
+    return { delivered: nudgeChild(runId, stepId, message) };
+  };
+
+  const childReport: Handler<"child_report"> = (params) => {
+    const rec = asRecord(params, "child_report");
+    const { live, step } = requireToken(rec, "child_report");
+    const kind = rec.kind;
+    if (typeof kind !== "string" || !(REPORT_KINDS as readonly string[]).includes(kind)) {
+      throw new RpcError(
+        RPC_INVALID_PARAMS,
+        `child_report: kind must be one of ${REPORT_KINDS.join(" | ")}`,
+      );
+    }
+    const text = requireString(rec, "text", "child_report");
+    live.trackers.get(step)?.report();
+    const ev: EventInput = {
+      run_id: live.runId,
+      type: "step.progress",
+      step,
+      kind: kind as ReportKind,
+      message: clipReportText(text),
+    };
+    const data = clipReportData(rec.data);
+    if (data) ev.data = data;
+    const full = appendEvent(live.runDir, ev);
+    return { accepted: true, seq: full.seq };
+  };
+
+  const childAsk: Handler<"child_ask"> = async (params, ctx) => {
+    const rec = asRecord(params, "child_ask");
+    const { live, step } = requireToken(rec, "child_ask");
+    const question = requireString(rec, "question", "child_ask");
+    const options = optionalStringList(rec, "options", "child_ask");
+    const allowText = typeof rec.allow_text === "boolean" ? rec.allow_text : undefined;
+    const timeoutMs = clampWait(rec, "child_ask");
+    const askId = typeof rec.ask_id === "string" ? rec.ask_id : undefined;
+    let ask: PendingAsk | undefined;
+    if (askId !== undefined) {
+      ask = live.asks.get(askId);
+      if (!ask || ask.step !== step) {
+        throw domainError("GATE_STALE", `child_ask: question ${askId} is gone`, { ask_id: askId });
+      }
+    } else if (live.controlMode === "synchronous") {
+      const state = readState(live.runDir);
+      const value = answerFromDecisions(question, options, state.context.decisions);
+      const id = newUlid();
+      if (value === undefined) {
+        emit(live, {
+          type: "warn",
+          step,
+          message: headline(`${step} asked "${question}": no decision in a synchronous run`),
+        });
+        const out: ChildAskResult = { ask_id: id, status: "needs-human" };
+        return out;
+      }
+      emit(live, {
+        type: "step.progress",
+        step,
+        kind: "decision",
+        message: headline(`asked "${question}" -> ${value} (synchronous)`),
+      });
+      const out: ChildAskResult = { ask_id: id, status: "answered", value };
+      return out;
+    } else {
+      ask = { ask_id: newUlid(), step, question, dropped: false, waiters: new Set() };
+      if (options !== undefined) ask.options = options;
+      if (allowText !== undefined) ask.allow_text = allowText;
+      live.asks.set(ask.ask_id, ask);
+      openChildAsks(live);
+    }
+    await awaitAsk(live, ask, timeoutMs, ctx);
+    if (ask.value !== undefined) {
+      live.asks.delete(ask.ask_id);
+      const out: ChildAskResult = { ask_id: ask.ask_id, status: "answered", value: ask.value };
+      return out;
+    }
+    if (ask.dropped) {
+      throw domainError("GATE_STALE", `child_ask: question ${ask.ask_id} was dropped`, {
+        ask_id: ask.ask_id,
+      });
+    }
+    const out: ChildAskResult = { ask_id: ask.ask_id, status: "pending" };
+    return out;
+  };
+
+  const childContext: Handler<"child_context"> = (params) => {
+    const rec = asRecord(params, "child_context");
+    const { live } = requireToken(rec, "child_context");
+    const key = requireString(rec, "key", "child_context");
+    return { value: resolveContextKey(readState(live.runDir), key) };
+  };
+
+  const childCheckpoint: Handler<"child_checkpoint"> = (params) => {
+    const rec = asRecord(params, "child_checkpoint");
+    const { live, step } = requireToken(rec, "child_checkpoint");
+    if (!("data" in rec)) {
+      throw new RpcError(RPC_INVALID_PARAMS, "child_checkpoint: data is required");
+    }
+    return { path: writeCheckpoint(live.runDir, step, rec.data) };
+  };
+
   const handlers: DaemonHandlers = {
     preflight,
     run,
     wait: ledger.wait,
     answer,
-    status: ledger.status,
+    status,
     cancel,
     resume,
     report,
+    nudge,
+    child_report: childReport,
+    child_ask: childAsk,
+    child_context: childContext,
+    child_checkpoint: childCheckpoint,
   };
 
   // ---- lifecycle --------------------------------------------------------------------------------------
@@ -1062,16 +1498,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       }
       return undefined;
     },
-    nudge: (runId, stepId, text) => {
-      const child = lives.get(runId)?.children.get(stepId);
-      if (!child?.nudge) return false;
-      try {
-        child.nudge(text);
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    nudge: nudgeChild,
     liveRuns: () => [...lives.keys()],
   };
 }

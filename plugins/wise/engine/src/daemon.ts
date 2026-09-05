@@ -369,6 +369,11 @@ export type DaemonHandlers = {
   cancel: Handler<"cancel">;
   resume: Handler<"resume">;
   report: Handler<"report">;
+  nudge: Handler<"nudge">;
+  child_report: Handler<"child_report">;
+  child_ask: Handler<"child_ask">;
+  child_context: Handler<"child_context">;
+  child_checkpoint: Handler<"child_checkpoint">;
 };
 
 /** What a handler factory and the executor get from the daemon. */
@@ -576,6 +581,11 @@ export function ledgerHandlers(rt: DaemonRuntime, tuning: WaitTuning = {}): Daem
     cancel,
     resume,
     report: notImplemented("report"),
+    nudge: notImplemented("nudge"),
+    child_report: notImplemented("child_report"),
+    child_ask: notImplemented("child_ask"),
+    child_context: notImplemented("child_context"),
+    child_checkpoint: notImplemented("child_checkpoint"),
   };
 }
 

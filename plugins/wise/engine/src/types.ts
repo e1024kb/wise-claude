@@ -115,6 +115,11 @@ export const EVENT_TYPES = [
   "warn",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
+
+/** What a child may say through `wise_report` (P8). */
+export const REPORT_KINDS = ["progress", "blocker", "decision", "finding"] as const;
+export type ReportKind = (typeof REPORT_KINDS)[number];
+
 export type Event = {
   seq: number;
   ts: string;
@@ -131,6 +136,20 @@ export type Event = {
   model?: string;
   effort?: Effort;
   message?: string;
+  /** `step.progress` from a child report: the report kind. */
+  kind?: ReportKind;
+  /** `step.progress` from a child report: small structured payload (<= 1 kB serialized). */
+  data?: Record<string, unknown>;
+};
+
+/** Live status of one running agent child, derived from its event stream and its reports (P8). */
+export type ChildProgress = {
+  step: string;
+  turn: number;
+  tool?: string;
+  tokens: number;
+  last_activity: string;
+  reports: number;
 };
 
 export type Gate = {
@@ -154,6 +173,8 @@ export type RunSummary = {
   completed_at?: string;
   cwd: string;
   gate?: Gate;
+  /** Running agent children of a live run (P8); absent when the daemon holds no live children. */
+  children?: ChildProgress[];
 };
 
 export const ERROR_CODES = [
@@ -167,6 +188,7 @@ export const ERROR_CODES = [
   "DAEMON_VERSION_MISMATCH",
   "NOT_IMPLEMENTED",
   "ALREADY_RUNNING",
+  "TOKEN_INVALID",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -219,6 +241,8 @@ export type StepOverrides = {
   max_turns?: number;
   /** Wall clock, seconds. */
   timeout?: number;
+  /** Idle seconds before the stale policy acts (nudge, then kill); default 600. */
+  stale_after?: number;
 };
 
 export type StepBase = StepOverrides & {
