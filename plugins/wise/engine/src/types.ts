@@ -403,6 +403,10 @@ export type RunReq = {
   timeout_ms: number;
   auth: AuthMode;
   env?: Record<string, string>;
+  /** Engine-provided MCP servers for the child (D18: Claude runs with `--strict-mcp-config`). */
+  mcp_config?: { mcpServers: Record<string, unknown> };
+  /** Per-step token the child channel (P8) presents back to the daemon. */
+  step_token?: string;
 };
 export type ExitClass = "ok" | "error" | "rate_limited" | "auth" | "timeout" | "max_turns";
 export type RunRes = {
