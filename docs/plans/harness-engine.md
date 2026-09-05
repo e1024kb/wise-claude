@@ -85,9 +85,11 @@ Gate M2: example-workflow completes from Claude Code via MCP, gate round trip wo
 | M3.1 | Migrate `example-workflow` and `ticket-plan` to YAML v2: `prompt` → `agent`, `until` → `schema`, tuning groups with harness, `from-context` inputs | 2 | M1.2 | `compile-check` passes; questionary spec matches today's pre-flight questions | DONE |
 | M3.2 | Conductor rewrite per P7: `wise-workflow-run`, `-resume`, `-status` SKILLs on the MCP tools; delete wave-loop, dispatch, roster-resolution, log-excerpt prose; `Context` built from the conversation | 2 | M2.4 | SKILL under 5 KB; runs ticket-plan from the desktop app; gates rendered via AskUserQuestion | DONE |
 | M3.3 | End-to-end ticket-plan on one real ticket; record baseline per E14: harness tokens, child tokens by harness, wall clock, transcript size, compared with the prose conductor on the same ticket | 2 | M3.1, M3.2 | Numbers in the design doc; no regression in plan quality by eyeball | TODO |
-| M3.4 | Delete `workflows.py`, Python tests, `engine.py`, `engine.sh` Python shim; `justfile` and `validate_repo.py` drop pytest, add `just check` in the engine dir | 1 | M3.3, M1.9 | Repo has no `.py` under `plugins/wise/scripts` except hooks that stay; validator green | TODO |
+| M3.4 | Delete `workflows.py`, Python tests, `engine.py`, `engine.sh` Python shim; `justfile` and `validate_repo.py` drop pytest, add `just check` in the engine dir | 1 | M3.3, M1.9, M4.4 | Repo has no `.py` under `plugins/wise/scripts` except hooks that stay; validator green | TODO |
 
 Gate M3: ticket-plan works from Claude Code on the new engine, Python removed.
+
+2026-09-05 revision: M3.4 also depends on M4.4. The legacy prose conductor kept under `references/legacy-conductor/` for `ticket-auto` and `impl-plan-auto` still calls `workflows.py`, so the Python engine can only go once both are on v2 `units` steps.
 
 ## M4 — Unit pipelines
 
