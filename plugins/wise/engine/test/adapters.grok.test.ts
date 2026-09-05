@@ -66,12 +66,12 @@ const doc = (fields: Record<string, unknown>, pretty = true): string =>
 
 // ---- argv ----------------------------------------------------------------------------------------
 
-test("buildArgv: base shape, -p prompt, json output, no auto-update, cwd, dontAsk", () => {
+test("buildArgv: base shape, -p prompt, streaming-json output, no auto-update, cwd, dontAsk", () => {
   assert.deepEqual(buildArgv(BASE_REQ), [
     "-p",
     "ping",
     "--output-format",
-    "json",
+    "streaming-json",
     "--no-auto-update",
     "--cwd",
     "/tmp/work",
@@ -230,6 +230,28 @@ test("parser: NDJSON fallback takes the last result-shaped line", () => {
   assert.equal(res.text, "two");
   assert.deepEqual(res.json, { n: 2 });
   assert.equal(res.cursor, "s-b");
+});
+
+test("parser: streaming-json joins text deltas and reads the end line as the result", () => {
+  const stream =
+    '{"type":"available_commands","tools":["read_file"]}\n' +
+    '{"type":"text","data":"{\\"word\\":"}\n' +
+    '{"type":"text","data":"\\"ok\\"}"}\n' +
+    '{"type":"usage","usage":{"input_tokens":21019,"output_tokens":10}}\n' +
+    '{"type":"end","stopReason":"end_turn","sessionId":"s-end","usage":{"input_tokens":21019,' +
+    '"cache_read_input_tokens":5760,"cache_creation_input_tokens":0,"output_tokens":43},' +
+    '"total_cost_usd":0.00767992,"modelUsage":{"grok-4.6-build":{"modelCalls":1}},' +
+    '"structuredOutput":{"word":"ok"}}\n';
+  const { events, res, snap } = parseAll(stream);
+  assert.equal(events.length, 5, "one RawEvent per NDJSON line, so the stale watch sees activity");
+  assert.equal(res.exit, "ok");
+  assert.equal(res.text, '{"word":"ok"}');
+  assert.deepEqual(res.json, { word: "ok" });
+  assert.equal(res.cursor, "s-end");
+  assert.equal(res.usage.cost_usd, 0.00767992);
+  assert.equal(res.usage.input, 21019);
+  assert.equal(snap.model, "grok-4.6-build");
+  assert.equal(snap.result, true);
 });
 
 test("parser: junk stdout without a result is an error carrying the stdout", () => {

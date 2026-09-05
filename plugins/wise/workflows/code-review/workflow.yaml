@@ -336,7 +336,9 @@ steps:
     type: agent
     group: fix
     mode: full-access
-    when: "mode == 'apply' && commit_count != 0"
+    # `findings_path` is unset when `curate` was skipped (a reviewer failed), so
+    # the fixer never runs on raw, uncurated reports.
+    when: "mode == 'apply' && commit_count != 0 && findings_path"
     prompt: |
       Apply the findings in `{{findings_path}}` to the branch in
       {{project.path}} (`origin/{{base}}..HEAD`). An empty file means
@@ -379,9 +381,10 @@ steps:
 
   - id: finalize
     type: bash
-    # Unset outputs render empty (a skipped step), so the line always prints.
+    # An output of a skipped step stays an unresolved `{{name}}`; sed blanks it
+    # so the line always prints.
     run: |
-      echo "code-review: origin/{{base}}..HEAD commits={{commit_count}} findings={{findings}} kept={{kept}} refuted={{refuted}} applied={{applied}} skipped={{skipped}} committed={{committed}} file={{findings_path}}"
+      echo "code-review: origin/{{base}}..HEAD commits={{commit_count}} findings={{findings}} kept={{kept}} refuted={{refuted}} applied={{applied}} skipped={{skipped}} committed={{committed}} file={{findings_path}}" | sed -E 's/\{\{[a-z_]+\}\}//g'
     timeout: 15
     depends_on: [apply]
     trigger-rule: all-done

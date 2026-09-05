@@ -91,7 +91,7 @@ default); and the inputs below. Answered questions are never repeated.
 | `review-tests` | `agent` | Test-coverage lens: untested behaviour, stale assertions, weakened tests, flaky patterns. Writes `<run-dir>/review/tests.md`; read-only. `tests` group. |
 | `curate` | `agent` | Merges the three reports, dedupes by `file:line`, keeps only concrete correctness / security / clear-quality findings on touched lines, respects the plan's `## Decisions Made` and the guidance. Writes `<run-dir>/review/findings.md`. `curate` group; `trigger-rule: none-failed`. |
 | `verify` | `agent` | Optional (`step-select`). Tries to refute every kept finding against the code, defaulting to refuted when ambiguous; rewrites the findings file with the survivors. `when: findings != 0`. `verify` group. |
-| `apply` | `agent` | `when: mode == 'apply'`. Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |
+| `apply` | `agent` | `when: mode == 'apply' && findings_path` (never runs when `curate` was skipped because a reviewer failed). Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |
 | `finalize` | `bash` | One summary line with the range, the counts and the findings file. `trigger-rule: all-done`. |
 
 **Model tiering**: every group defaults to `opus / high`. The pre-flight

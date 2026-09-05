@@ -1,8 +1,9 @@
 // `grok` harness adapter (research-ts-engine.md P6, D15, D19; M0.4 result shape).
-// Runs `grok -p <prompt> --output-format json --json-schema <json>` on the unmodified binary.
-// Headless grok prints one JSON document on stdout when the turn ends (pretty-printed, so it
-// spans lines); the parser buffers stdout and reads the document at exit, falling back to the
-// last JSON line for NDJSON output formats. No open stdin, so no nudge: kill + `--resume`.
+// Runs `grok -p <prompt> --output-format streaming-json --json-schema <json>` on the unmodified
+// binary. The NDJSON stream carries `text` deltas while the turn runs (so the stale watch sees
+// activity on a long review) and one `end` line with the session id, usage, cost and the
+// structured output; the parser also accepts the pretty-printed `json` document (one document
+// spanning lines, read at exit). No open stdin, so no nudge: kill + `--resume`.
 // A prompt over `PROMPT_ARGV_MAX` bytes is written to a temp file and passed with
 // `--prompt-file` so E5 diffs never hit ARG_MAX.
 
@@ -65,7 +66,7 @@ export function buildArgv(req: RunReq, opts: ArgvOpts = {}): string[] {
   } else {
     argv.push("-p", req.prompt);
   }
-  argv.push("--output-format", "json", "--no-auto-update", "--cwd", req.cwd);
+  argv.push("--output-format", "streaming-json", "--no-auto-update", "--cwd", req.cwd);
   argv.push(...PERMISSION_MAP[req.mode]);
   for (const rule of req.allowed_tools ?? []) argv.push("--allow", rule);
   if (req.model && req.model !== "inherit") argv.push("-m", req.model);
@@ -156,11 +157,12 @@ function clip(text: string): string {
   return t.length > ERROR_TEXT_MAX ? t.slice(0, ERROR_TEXT_MAX) : t;
 }
 
-/** A result document carries `text`, `sessionId` or `usage`; NDJSON `end` events carry `type`. */
+/** A result document carries `text`, `sessionId` or `usage`; the NDJSON `end` line carries all three. */
 function looksLikeResult(v: unknown): v is Rec {
   return (
     isRec(v) &&
-    (v.text !== undefined ||
+    (v.type === "end" ||
+      v.text !== undefined ||
       v.sessionId !== undefined ||
       v.usage !== undefined ||
       v.structuredOutput !== undefined ||
@@ -182,6 +184,8 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
   const snap: StreamSnapshot = { lines: 0, result: false };
   let buffer = "";
   let lastLineResult: Rec | undefined;
+  /** `text` deltas of the NDJSON stream; the `end` line carries no text of its own. */
+  const textDeltas: string[] = [];
 
   const ingest = (line: string): RawEvent => {
     snap.lines += 1;
@@ -191,6 +195,9 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
     try {
       const parsed: unknown = JSON.parse(line);
       ev.parsed = parsed;
+      if (isRec(parsed) && parsed.type === "text" && typeof parsed.data === "string") {
+        textDeltas.push(parsed.data);
+      }
       if (looksLikeResult(parsed)) {
         lastLineResult = parsed;
         const sid = str(parsed.sessionId);
@@ -259,7 +266,7 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
       }
       const verdict = classify(exit, result);
       const res: RunRes = {
-        text: (result && str(result.text)) ?? "",
+        text: (result && str(result.text)) ?? textDeltas.join(""),
         usage: usageOf(result, opts.pool),
         exit: verdict.exit,
       };
