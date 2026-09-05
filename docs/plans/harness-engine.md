@@ -97,8 +97,8 @@ Gate M3: ticket-plan works from Claude Code on the new engine, Python removed.
 
 | Id | Task | SP | Deps | Acceptance | Status |
 |---|---|---|---|---|---|
-| M4.1 | `units.ts` skeleton and the no-model phases: `claim`, `worktree`, `push`, `pr`, `request-review`, `cleanup` as code over `git` and `gh`; `UnitLedger` per P4; idempotent claim rules | 3 | M2.3 | Unit tests with a temp git repo; second run adopts, foreign worktree is skipped | TODO |
-| M4.2 | Model phases: `plan`, `implement`, `review` ↔ `fix` loop, `watch`; prompts moved from `prompts/*.md` into engine prompt templates with schemas; caps enforced by the engine (fix commits counted) | 3 | M4.1 | Each phase runs against a fixture repo on haiku; review loop converges or pushes with `converged: false` | TODO |
+| M4.1 | `units.ts` skeleton and the no-model phases: `claim`, `worktree`, `push`, `pr`, `request-review`, `cleanup` as code over `git` and `gh`; `UnitLedger` per P4; idempotent claim rules | 3 | M2.3 | Unit tests with a temp git repo; second run adopts, foreign worktree is skipped | DONE |
+| M4.2 | Model phases: `plan`, `implement`, `review` ↔ `fix` loop, `watch`; prompts moved from `prompts/*.md` into engine prompt templates with schemas; caps enforced by the engine (fix commits counted) | 3 | M4.1 | Each phase runs against a fixture repo on haiku; review loop converges or pushes with `converged: false` | IN PROGRESS |
 | M4.3 | `ticket-auto` v2 with a `units` step; delete `process-tickets.md`; README regenerated | 2 | M4.2 | `compile-check` passes; README flow diagram matches | TODO |
 | M4.4 | `impl-plan-auto` v2 on the `plan` pipeline; delete `process-plans.md` | 2 | M4.2 | Same as M4.3 | TODO |
 | M4.5 | End-to-end ticket-auto on one ticket, all Claude, from Claude Code; `report` step consumes `UnitRow[]` as data | 2 | M4.3, M3.2 | PR merged or left open with the correct verdict; usage by phase in the report | TODO |
