@@ -17,7 +17,7 @@ description: >-
   `/wise:wise-pr-watch` (canonical). Use when the user says "watch the
   PR", "drive the pipelines", "fix the failing checks", "babysit CI", or
   types `/wise-pr-watch`.
-argument-hint: ""
+argument-hint: "[--on <harness>[:<model>[:<effort>]] | --on ask]"
 allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), AskUserQuestion
 ---
 
@@ -46,6 +46,24 @@ at run time and follows it.
 ```
 
 No positionals, no flags.
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
+`--on ask` / a bare `--on`), do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-watch-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+- `INTERACTIVE` = `yes`
+
+`--on ask` (or a bare `--on`) picks harness, model and effort through one composite `AskUserQuestion` built from the engine's `auth --json` and `models` output.
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 

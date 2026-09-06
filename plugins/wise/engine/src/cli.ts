@@ -21,6 +21,7 @@ import { buildQuestionary } from "./preflight.ts";
 import type { Answers, Context, LocatedDef, ValidationIssue } from "./types.ts";
 import { buildId, runtimeName } from "./version.ts";
 import { daemonCommand } from "./daemon.ts";
+import { cmdDispatch, cmdModels } from "./dispatch.ts";
 import { clientCommand } from "./cli-client.ts";
 import { mcpCommand } from "./mcp.ts";
 import { unitMcpCommand } from "./unit-mcp.ts";
@@ -48,6 +49,13 @@ Commands:
                                token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT
   auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);
                                exit 1 when claude is missing or logged out
+  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)
+  dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]
+           [--mode approval-required|auto|full-access] [--cwd <dir>] [--timeout-s <n>]
+           [--add-dir <dir>] [--allowed-tools <a,b>] [--text]
+                               one child run on any harness, no daemon or ledger; prints one
+                               JSON result (or the child's text under --text); exit 1 on a
+                               failed child
   version                      plugin version and runtime
   help                         this text
 
@@ -388,6 +396,10 @@ export async function main(
         return 0;
       case "auth":
         return await cmdAuth(p, io);
+      case "models":
+        return cmdModels(p.positional, p.flags, io);
+      case "dispatch":
+        return await cmdDispatch(p.flags, io);
       case "help":
       case "--help":
       case "-h":

@@ -10,7 +10,7 @@ description: >-
   user says "create the PR without asking", "auto-create a PR", or
   types `/wise-pr-create-auto`. For the interactive version (base-branch
   picker) use `/wise-pr-create`.
-argument-hint: ""
+argument-hint: "[--on <harness>[:<model>[:<effort>]]]"
 allowed-tools: Read, Write, Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(head:*), Bash(test:*), Bash(cd:*), Bash(bash:*), Bash(date:*), Bash(printf:*)
 ---
 
@@ -29,6 +29,23 @@ PR-create step follows.
 
 This skill takes no arguments. Ignore anything the user types beyond
 the skill name.
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]`, do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-create-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+- `INTERACTIVE` = `no`
+
+This is the autonomous variant, so `--on` must carry the full spec — a bare `--on` / `--on ask` is an error (no prompts).
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 

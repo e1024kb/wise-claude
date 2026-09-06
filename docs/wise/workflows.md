@@ -854,6 +854,8 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 | `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
+| `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
+| `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text]` | One child run on any harness through the adapters, no daemon or ledger: prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`); exit 1 on a failed child. An effort the model does not list is a usage error, never a silent clamp. How a skill runs its procedure on another harness (`--on`). |
 | `version`, `help` | |
 
 Options: `--json` (default) \| `--text`, `--user-root <dir>`,

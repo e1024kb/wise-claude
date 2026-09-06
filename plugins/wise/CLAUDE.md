@@ -218,6 +218,7 @@ plugins/wise/
 │   ├── branch-naming.md            # the ticket = branch-name rule
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── profile-read.md             # session token-budget profile read (silent degrade to medium); read by profile-sensitive skills
+│   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by wise-pr-watch(-auto), the pr/simplify/implement -auto skills
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
 │   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report + the ticket-auto / impl-plan-auto report steps)

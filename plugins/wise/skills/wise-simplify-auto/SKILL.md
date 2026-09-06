@@ -11,8 +11,8 @@ description: >-
   `/wise:wise-simplify-auto` (canonical). Use when the user says "simplify
   and commit", "clean up and commit", "run a simplify pass", or types
   `/wise-simplify-auto`.
-argument-hint: ""
-allowed-tools: Task, Read, Bash(git:*)
+argument-hint: "[--on <harness>[:<model>[:<effort>]]]"
+allowed-tools: Task, Read, Bash(git:*), Bash(bash:*)
 ---
 
 # /wise-simplify-auto — simplify recently-modified code and commit
@@ -45,6 +45,23 @@ than optional whitespace, stop with:
 Unknown argument(s): <the extra tokens>
 Usage: /wise-simplify-auto
 ```
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]`, do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-simplify-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+- `INTERACTIVE` = `no`
+
+This is the autonomous variant, so `--on` must carry the full spec — a bare `--on` / `--on ask` is an error (no prompts).
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 

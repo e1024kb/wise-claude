@@ -22,7 +22,7 @@ description: >-
   `/wise:wise-pr-watch-auto` (canonical). Use when the user says "watch
   the PR and fix it without asking", "auto-drive CI to green", or types
   `/wise-pr-watch-auto`. For the interactive version use `/wise-pr-watch`.
-argument-hint: "[<max-fix-attempts>] [--profile low|medium|max]"
+argument-hint: "[<max-fix-attempts>] [--profile low|medium|max] [--on <harness>[:<model>[:<effort>]]]"
 allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
 ---
 
@@ -91,6 +91,23 @@ on Opus 4.8 (`PROFILE_OPUS_MODEL` from the profile read).
 
 An explicit `max_fix_attempts` argument always beats the profile's
 default.
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]`, do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-watch-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+- `INTERACTIVE` = `no`
+
+This is the autonomous variant, so `--on` must carry the full spec — a bare `--on` / `--on ask` is an error (no prompts).
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 
