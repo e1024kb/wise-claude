@@ -69,7 +69,17 @@ const BUILD_TOOLS = [
 
 /** Claude permission rules pre-granted per phase (D19). Review is read-only except its findings file. */
 export const PHASE_TOOLS: Readonly<Record<ModelPhase, readonly string[]>> = {
-  plan: [...EDIT_TOOLS, "Bash(git:*)", "Bash(gh:*)", "Bash(ls:*)", "WebFetch", "WebSearch"],
+  plan: [
+    ...EDIT_TOOLS,
+    "Bash(git:*)",
+    "Bash(gh:*)",
+    "Bash(glab:*)",
+    "Bash(linear:*)",
+    "Bash(jira:*)",
+    "Bash(ls:*)",
+    "WebFetch",
+    "WebSearch",
+  ],
   implement: [...EDIT_TOOLS, ...BUILD_TOOLS, "Task", "Agent"],
   review: [
     "Read",

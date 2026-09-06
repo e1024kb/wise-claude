@@ -151,7 +151,8 @@ steps:
       never ask. For each distinct tracker probe for a channel that
       actually returns the ticket: a tracker MCP tool (a one-time
       permission prompt on first use is expected), a CLI (`command -v
-      gh`, `command -v glab`), or `WebFetch` on a public URL. A login
+      gh`, `command -v glab`, `command -v linear`, `command -v jira`;
+      e.g. `linear issue view <id>`), or `WebFetch` on a public URL. A login
       page, a 401/403 or an empty body is not access.
 
       Every ticket reachable: `access` = `ok`, `detail` = one line per
@@ -170,7 +171,7 @@ steps:
       required: [access, detail]
       additionalProperties: false
     outputs: [access, detail]
-    allowed_tools: ["Bash(command:*)", "Bash(gh:*)", "Bash(glab:*)", "WebSearch", "WebFetch"]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebSearch", "WebFetch"]
     depends_on: [split-tickets]
 
   - id: process
