@@ -11,8 +11,8 @@ description: >-
   `/wise:wise-simplify-auto` (canonical). Use when the user says "simplify
   and commit", "clean up and commit", "run a simplify pass", or types
   `/wise-simplify-auto`.
-argument-hint: "[--on <harness>[:<model>[:<effort>]]]"
-allowed-tools: Task, Read, Bash(git:*), Bash(bash:*)
+argument-hint: "[--on <harness>[:<model>[:<effort>]] | --on ask]"
+allowed-tools: Task, Read, Bash(git:*), Bash(bash:*), AskUserQuestion
 ---
 
 # /wise-simplify-auto — simplify recently-modified code and commit
@@ -48,16 +48,19 @@ Usage: /wise-simplify-auto
 
 ## Run on another harness (`--on`)
 
-If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]`, do
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
+`--on ask` / a bare `--on`), do
 NOT run the procedure below in this conversation. Strip the `--on`
 tokens (everything left is `SKILL_ARGS`), then read
 `${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
 
 - `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-simplify-auto/SKILL.md`
 - `SKILL_ARGS` = the remaining tokens
-- `INTERACTIVE` = `no`
 
-This is the autonomous variant, so `--on` must carry the full spec — a bare `--on` / `--on ask` is an error (no prompts).
+`--on ask` (or a bare `--on`) picks harness, model and effort through
+one composite `AskUserQuestion` before any child spawns — the ONE
+sanctioned prompt in this skill: it happens at invocation time, so the
+dispatched run itself stays decision-free.
 The reference probes the harness login, validates model and effort
 against the engine catalog, and runs the procedure as a headless child
 via `engine.sh dispatch`; you only relay its result. Without `--on`,
@@ -96,7 +99,8 @@ COMMIT: failed reason="<verbatim error>"
 
 ## Guardrails
 
-- Never call `AskUserQuestion` — the only stop is the argument error above.
+- Never call `AskUserQuestion` mid-run — the one exception is the
+  `--on ask` harness/model/effort pick, before anything runs.
 - One simplify pass — never re-dispatch the agent to iterate-to-clean.
 - Never `git push` — use `/wise-commit-push` for that.
 - All of `commit-routine.md`'s guardrails apply (no `--amend` /

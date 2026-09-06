@@ -16,8 +16,6 @@ exactly like an engine child.
   which.
 - `SKILL_ARGS` — the caller's `$ARGUMENTS` with every `--on` token
   removed; passed to the child verbatim as the skill's arguments.
-- `INTERACTIVE` — `yes` when the calling skill may use
-  `AskUserQuestion` (the non-`-auto` skills), else `no`.
 
 ## 1. Parse `--on`
 
@@ -33,9 +31,10 @@ Grammar, anywhere in `$ARGUMENTS`:
 - `<model>` is a catalog id (or Claude alias); omitted: the harness's
   first catalog entry.
 - `<effort>` is `low|medium|high|xhigh|max`; omitted: no effort flag.
-- `--on ask` or a bare `--on`: pick interactively (§3). When
-  `INTERACTIVE=no`, that is an error — stop with
-  `--on needs <harness>[:<model>[:<effort>]] in an -auto skill`.
+- `--on ask` or a bare `--on`: pick interactively (§3). This holds in
+  the `-auto` skills too — the pick happens at invocation time, before
+  any child spawns, so it does not break their no-prompts contract;
+  only the dispatched child itself stays prompt-free.
 - A malformed spec (unknown harness, bad effort word) stops before any
   child spawns:
 
@@ -67,7 +66,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh models <harness>
 - Spec gave model / effort: validate against the catalog rows
   (`dispatch` re-validates and errors on an effort the model does not
   list; surface that error as is).
-- `--on ask` (interactive skills only): one composite
+- `--on ask` (any caller, `-auto` skills included): one composite
   `AskUserQuestion` — harness (the `auth --json` rows with
   `login: ok`, `claude` first), then model (that harness's catalog,
   first entry first, label + description), then effort (the chosen

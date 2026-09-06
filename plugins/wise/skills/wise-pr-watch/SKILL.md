@@ -57,7 +57,6 @@ tokens (everything left is `SKILL_ARGS`), then read
 
 - `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-watch-auto/SKILL.md`
 - `SKILL_ARGS` = the remaining tokens
-- `INTERACTIVE` = `yes`
 
 `--on ask` (or a bare `--on`) picks harness, model and effort through one composite `AskUserQuestion` built from the engine's `auth --json` and `models` output.
 The reference probes the harness login, validates model and effort

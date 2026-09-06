@@ -10,8 +10,8 @@ description: >-
   user says "create the PR without asking", "auto-create a PR", or
   types `/wise-pr-create-auto`. For the interactive version (base-branch
   picker) use `/wise-pr-create`.
-argument-hint: "[--on <harness>[:<model>[:<effort>]]]"
-allowed-tools: Read, Write, Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(head:*), Bash(test:*), Bash(cd:*), Bash(bash:*), Bash(date:*), Bash(printf:*)
+argument-hint: "[--on <harness>[:<model>[:<effort>]] | --on ask]"
+allowed-tools: Read, Write, Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(head:*), Bash(test:*), Bash(cd:*), Bash(bash:*), Bash(date:*), Bash(printf:*), AskUserQuestion
 ---
 
 # /wise-pr-create-auto — create or refresh a PR, autonomously
@@ -32,16 +32,19 @@ the skill name.
 
 ## Run on another harness (`--on`)
 
-If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]`, do
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
+`--on ask` / a bare `--on`), do
 NOT run the procedure below in this conversation. Strip the `--on`
 tokens (everything left is `SKILL_ARGS`), then read
 `${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
 
 - `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-create-auto/SKILL.md`
 - `SKILL_ARGS` = the remaining tokens
-- `INTERACTIVE` = `no`
 
-This is the autonomous variant, so `--on` must carry the full spec — a bare `--on` / `--on ask` is an error (no prompts).
+`--on ask` (or a bare `--on`) picks harness, model and effort through
+one composite `AskUserQuestion` before any child spawns — the ONE
+sanctioned prompt in this skill: it happens at invocation time, so the
+dispatched run itself stays decision-free.
 The reference probes the harness login, validates model and effort
 against the engine catalog, and runs the procedure as a headless child
 via `engine.sh dispatch`; you only relay its result. Without `--on`,
@@ -77,7 +80,8 @@ as the next step.
 
 ## Guardrails
 
-- Never call `AskUserQuestion` — this skill is the autonomous variant
+- Never call `AskUserQuestion` mid-run — the one exception is the
+  `--on ask` pick before dispatch; this skill is the autonomous variant
   by definition.
 - Never force-push, amend, rebase, or retarget an existing PR's base.
 - Never invoke another wise action skill.
