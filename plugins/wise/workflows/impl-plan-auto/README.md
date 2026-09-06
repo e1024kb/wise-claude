@@ -42,6 +42,10 @@ watch); this workflow is the full pipeline around a plan file.
 - Run from inside the project's git repository (`project-selection:
   current`); the base working tree must be clean and have an `origin`
   remote (`preflight-checks` refuses otherwise).
+- Children run with `preflight.permissions: full` (every harness's
+  bypass mode), so any tracker CLI, MCP or build tool on the machine is
+  usable without a per-step allowlist; pass `permissions: allowlist` as a
+  run answer to restore the step allowlists.
 - Every plan file must exist; `split-plans` stops the run before any
   worktree exists when one is missing.
 

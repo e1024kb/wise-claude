@@ -557,6 +557,32 @@ describe("executor", () => {
 
   // ---- failures ----------------------------------------------------------------------------------------
 
+  test("answers.permissions = full runs every agent child full-access; the default keeps the step mode", async () => {
+    const r = mkRoot();
+    const claude = claudeFake();
+    const exec = make(r, { adapters: { claude } });
+    const a = await exec.handlers.run(
+      { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      ctx,
+    );
+    await untilStatus(r, a.run_id, ["completed", "failed"]);
+    assert.equal(claude.calls[0]?.mode, "auto");
+    const b = await exec.handlers.run(
+      {
+        workflow: "single-agent",
+        cwd: r.cwd,
+        answers: { permissions: "full" },
+        context: {},
+        inputs: {},
+      },
+      ctx,
+    );
+    const sb = await untilStatus(r, b.run_id, ["completed", "failed"]);
+    assert.equal(sb.status, "completed");
+    assert.equal(sb.permissions, "full");
+    assert.equal(claude.calls[1]?.mode, "full-access");
+  });
+
   test("timeout result fails the step and the run with the reason", async () => {
     const r = mkRoot();
     const claude = claudeFake(() => ({

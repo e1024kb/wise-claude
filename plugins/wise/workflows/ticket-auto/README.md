@@ -43,6 +43,10 @@ the intake and the report. The prompt fragments still under `prompts/`
 - Run from inside the project's git repository (`project-selection:
   current`); the base working tree must be clean and have an `origin`
   remote (`preflight-checks` refuses otherwise).
+- Children run with `preflight.permissions: full` (every harness's
+  bypass mode), so any tracker CLI, MCP or build tool on the machine is
+  usable without a per-step allowlist; pass `permissions: allowlist` as a
+  run answer to restore the step allowlists.
 - No tracker plugin is required up front: `ensure-access` probes for a
   tracker MCP, CLI or public URL per ticket and stops the run with an
   actionable message when one is unreachable. Nothing is planned from

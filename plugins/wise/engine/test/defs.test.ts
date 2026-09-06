@@ -291,6 +291,23 @@ test("validateInput: extract group 1 else whole match, full-match validate, rege
 
 // ---- validateDef: top level --------------------------------------------------------------------------------
 
+test("validateDef: preflight.permissions is allowlist | full", () => {
+  assert.equal(valid(doc({ preflight: { permissions: "full" } })).preflight?.permissions, "full");
+  assert.equal(
+    valid(doc({ preflight: { permissions: "allowlist" } })).preflight?.permissions,
+    "allowlist",
+  );
+  assert.equal(
+    valid(doc({ preflight: { worktree: "current" } })).preflight?.permissions,
+    undefined,
+  );
+  errorAt(
+    issues(doc({ preflight: { permissions: "yolo" } })),
+    "preflight.permissions",
+    /allowlist \| full/,
+  );
+});
+
 test("validateDef: non-mapping and minimal valid document", () => {
   assert.equal(validateDef("nope", "t.yaml").def, undefined);
   assert.equal(validateDef(null, "t.yaml").issues[0]?.level, "error");

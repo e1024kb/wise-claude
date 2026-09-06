@@ -34,6 +34,7 @@ import type {
   CostSource,
   Event,
   Harness,
+  Permissions,
   ProfileLevel,
   Project,
   Resolved,
@@ -316,6 +317,7 @@ export type StartRunCtx = {
   answers?: Answers;
   context?: Context;
   profile?: ProfileLevel;
+  permissions?: Permissions;
   resolved?: Record<string, Resolved>;
   caps?: Record<string, number>;
   harnessSession?: string;
@@ -328,6 +330,7 @@ export function startRun(runDir: string, ctx: StartRunCtx, opts: ClockOpts = {})
   if (ctx.answers) state.answers = { ...state.answers, ...ctx.answers };
   if (ctx.context) state.context = { ...state.context, ...ctx.context };
   if (ctx.profile) state.profile = ctx.profile;
+  if (ctx.permissions) state.permissions = ctx.permissions;
   if (ctx.resolved) state.resolved = { ...state.resolved, ...ctx.resolved };
   if (ctx.caps) state.caps = { ...state.caps, ...ctx.caps };
   if (ctx.harnessSession) state.harness_session = ctx.harnessSession;

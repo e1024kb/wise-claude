@@ -298,7 +298,7 @@ async function runChild(
     type: "agent",
     prompt,
     schema: PHASE_SCHEMAS[phase],
-    mode: PHASE_MODE[phase],
+    mode: ctx.config.permissions === "full" ? "full-access" : PHASE_MODE[phase],
     allowed_tools: [...PHASE_TOOLS[phase]],
     resume: cursor !== undefined ? "unit" : "fresh",
     timeout: ctx.config.timeout ?? PHASE_TIMEOUT_MS[phase] / 1000,

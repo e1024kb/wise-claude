@@ -8,6 +8,7 @@ import type { AgentHandle, AgentStarter, ChannelConfig } from "../steps/agent.ts
 import type {
   ContextTicket,
   Harness,
+  Permissions,
   ProfileLevel,
   Resolved,
   Unit,
@@ -100,6 +101,8 @@ export type UnitsConfig = {
   groups: Record<string, string>;
   /** Run profile; the review gate's effort and the low-profile Opus rule read it. */
   profile: ProfileLevel;
+  /** `full`: every model phase runs `full-access` instead of its own `PHASE_MODE`. */
+  permissions?: Permissions;
   /** Operator standing guidance from the run context (E1), injected into every model prompt. */
   guidance?: string;
   /** Decisions the conversation already made, injected into the plan prompt. */

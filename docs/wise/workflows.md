@@ -70,7 +70,7 @@ v1 error.
 | `description` | no | Free text. |
 | `author` | no | Free text. |
 | `project-selection` | no | `current` (default) \| `ask` \| `none`. |
-| `preflight` | no | `{control-mode, worktree}` pins. |
+| `preflight` | no | `{control-mode, worktree, permissions}` pins. |
 | `requires` | no | `{plugins: [...], tools: [...]}`. |
 | `tuning` | no | `{groups: [...]}`. |
 | `profiles` | no | Mapping keyed `low` \| `medium` \| `max`; only `medium` is applied. |
@@ -165,10 +165,11 @@ is unmet, before the auth probes and before a run directory exists.
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
 | `worktree` | `current` (default) \| `new` | Recorded. The engine runs steps in `cwd`; `units` steps make their own worktrees under the run directory. |
+| `permissions` | `allowlist` (default) \| `full` | `full` runs every child (agent steps and unit model phases) in `full-access` regardless of its `mode`, so a tool the step did not list is never a permission denial; `allowlist` keeps each step's `mode` and `allowed_tools`. The `ticket-auto`, `impl-plan-auto` and `ticket-plan` workflows pin `full`. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
-`wave-sync`, `auto-advance`, `prompt`. A run answer `control-mode`
-overrides the pin when the conductor passes one.
+`wave-sync`, `auto-advance`, `prompt`. A run answer `control-mode` or
+`permissions` overrides the pin when the conductor passes one.
 
 ### `tuning`
 
@@ -524,6 +525,9 @@ default. An empty effort omits the flag.
 | `approval-required` | `default` | `read-only` | `--permission-mode dontAsk` |
 | `auto` (default) | `acceptEdits` | `workspace-write` | `--permission-mode acceptEdits` |
 | `full-access` | `bypassPermissions` | `danger-full-access` | `--always-approve` |
+
+Under `preflight.permissions: full` (or the run answer) every child
+runs the `full-access` row whatever its step `mode` says.
 
 Headless children cannot answer permission prompts. Claude children get
 `--allowedTools mcp__wise-engine,<allowed_tools>`, `--add-dir <run dir>`

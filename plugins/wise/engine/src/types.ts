@@ -15,6 +15,14 @@ export type AuthMode = (typeof AUTH_MODES)[number];
 export const RUN_MODES = ["approval-required", "auto", "full-access"] as const;
 export type RunMode = (typeof RUN_MODES)[number];
 
+/**
+ * Run-wide child permissions. `allowlist` (default): each step's `mode` and `allowed_tools`.
+ * `full`: every child runs `full-access` (claude bypassPermissions, codex danger-full-access, gemini
+ * yolo, grok --always-approve), so a tool the step did not list is never a permission denial.
+ */
+export const PERMISSIONS = ["allowlist", "full"] as const;
+export type Permissions = (typeof PERMISSIONS)[number];
+
 export const PROFILE_LEVELS = ["low", "medium", "max"] as const;
 export type ProfileLevel = (typeof PROFILE_LEVELS)[number];
 
@@ -328,6 +336,7 @@ export type WorkflowDef = {
   preflight?: {
     "control-mode"?: "synchronous" | "interactive";
     worktree?: "current" | "new";
+    permissions?: Permissions;
   };
   requires?: { plugins?: string[]; tools?: string[] };
   tuning?: Tuning;
@@ -391,6 +400,8 @@ export type State = {
   harness_session?: string;
   status: RunStatus;
   profile: ProfileLevel;
+  /** Effective child permissions for the run (`preflight.permissions` pin or the run answer). */
+  permissions?: Permissions;
   answers: Answers;
   context: Context;
   inputs: Record<string, string>;

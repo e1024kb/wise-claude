@@ -394,6 +394,22 @@ describe("model phases", () => {
     );
   });
 
+  test("state.permissions = full: every model phase runs full-access", async () => {
+    const f = fixture();
+    f.state.permissions = "full";
+    const s = scriptedStarter({
+      plan: planReady,
+      implement: implementCommit,
+      review: reviewOnce,
+      fix: fixCommit,
+      watch: watchGreen,
+    });
+    const res = await runUnitsStep(withAgent(f, s.starter));
+    assert.equal(res.outputs.units[0]?.verdict, "merged");
+    assert.ok(s.calls.length >= 5);
+    for (const c of s.calls) assert.equal(c.req.mode, "full-access", c.phase);
+  });
+
   test("default `resume: fresh`: the fixer gets no cursor", async () => {
     const f = fixture();
     const s = scriptedStarter({

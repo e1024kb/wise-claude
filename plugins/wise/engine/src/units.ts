@@ -162,6 +162,7 @@ export function configFor(step: UnitsStep, state: State): UnitsConfig {
     profile: state.profile,
     resume: step.resume ?? "fresh",
   };
+  if (state.permissions !== undefined) cfg.permissions = state.permissions;
   if (state.context.guidance !== undefined) cfg.guidance = state.context.guidance;
   if (state.context.decisions !== undefined) cfg.decisions = state.context.decisions;
   if (step.timeout !== undefined) cfg.timeout = step.timeout;

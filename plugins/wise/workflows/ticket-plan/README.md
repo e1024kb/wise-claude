@@ -44,6 +44,10 @@ structured outputs their `schema:` declares.
 - The ticket has parent / linked tickets / reference docs you'd
   otherwise skim and forget.
 
+Children run with `preflight.permissions: full`, so any tracker CLI or
+MCP on the machine is usable without a per-step allowlist (`permissions:
+allowlist` as a run answer restores the step allowlists).
+
 ## When not to use
 
 - Quick fixes that don't need planning (typo, one-line change) — skip

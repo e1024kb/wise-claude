@@ -1093,6 +1093,7 @@ function validatePreflight(iss: Issues, raw: unknown): WorkflowDef["preflight"] 
   warnUnknownKeys(iss, raw, "preflight", [
     "control-mode",
     "worktree",
+    "permissions",
     "rename_session",
     "tuning",
     "step-select",
@@ -1123,6 +1124,11 @@ function validatePreflight(iss: Issues, raw: unknown): WorkflowDef["preflight"] 
         "pick `synchronous` or `interactive`; v2 does not ask the control mode",
       );
     } else iss.error("preflight.control-mode", "control-mode must be synchronous | interactive");
+  }
+  const perms = raw.permissions;
+  if (perms !== undefined) {
+    if (perms === "allowlist" || perms === "full") out.permissions = perms;
+    else iss.error("preflight.permissions", "permissions must be allowlist | full");
   }
   const wt = raw.worktree;
   if (wt !== undefined) {

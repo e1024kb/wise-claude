@@ -91,6 +91,7 @@ import type {
   LocatedDef,
   Project,
   ReportKind,
+  Permissions,
   Resolved,
   RunSummary,
   State,
@@ -269,6 +270,13 @@ function randomToken(): string {
 }
 
 type ControlMode = "synchronous" | "interactive";
+
+/** `answers.permissions` over the `preflight.permissions` pin, else `allowlist`. */
+function permissionsOf(def: WorkflowDef, answers: Answers): Permissions {
+  const answered = answers.permissions;
+  if (answered === "allowlist" || answered === "full") return answered;
+  return def.preflight?.permissions ?? "allowlist";
+}
 
 function controlModeOf(def: WorkflowDef, answers: Answers): ControlMode {
   const answered = answers["control-mode"];
@@ -1018,6 +1026,8 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     updateStep(live.runDir, def.id, { resolved });
     const fresh = readState(live.runDir);
     const step = renderStep(def, fresh, live.workflowDir, live.runDir) as AgentStep;
+    // `permissions: full`: the step's own mode and allowlist no longer gate the child.
+    if (fresh.permissions === "full") step.mode = "full-access";
     const started: EventInput = {
       run_id: live.runId,
       type: "step.started",
@@ -1541,6 +1551,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       answers,
       context,
       profile: applied.profile,
+      permissions: permissionsOf(def, answers),
       resolved,
       caps: applied.caps,
     });
