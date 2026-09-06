@@ -882,6 +882,9 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     emit(live, { type: "step.started", step: step.id, ...describe(def) });
     if (step.items.includes("{{")) {
       failStep(live, step.id, `items template unresolved: ${headline(step.items, 80)}`);
+      // Same deferred re-pass as the dispatchBash / dispatchAgent catches: a sync dispatch
+      // failure must not strand the run with no child to wake the scheduler.
+      timers.setTimeout(() => schedule(live), 0);
       return;
     }
     const items = parseItems(step.items);

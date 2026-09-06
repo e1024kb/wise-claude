@@ -1268,6 +1268,27 @@ describe("executor", () => {
 
   // ---- usage accounting and ceilings (M6.1, M6.2) --------------------------------------------------
 
+  test("a sync dispatch failure re-enters the scheduler: the run fails instead of hanging", async () => {
+    const r = mkRoot();
+    const claude = claudeFake();
+    const exec = make(r, { adapters: { claude } });
+    // units-two's items template renders to a leftover placeholder -> dispatchUnits fails the
+    // step synchronously; without the deferred re-pass the run would stay `running` forever.
+    const { run_id } = await exec.handlers.run(
+      {
+        workflow: "units-two",
+        cwd: r.cwd,
+        answers: { "input.tickets": "{{unset}}" },
+        context: {},
+        inputs: {},
+      },
+      ctx,
+    );
+    const state = await untilStatus(r, run_id, ["failed"]);
+    assert.equal(state.status, "failed");
+    assert.match(state.steps.process?.error ?? "", /items template unresolved/);
+  });
+
   test("requires: preflight lists missing tools and run refuses with REQUIRES_MISSING before any run dir", async () => {
     const r = mkRoot();
     const exec = make(r);
