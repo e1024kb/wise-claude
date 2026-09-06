@@ -267,3 +267,13 @@ describe("rpc", () => {
     c.close();
   });
 });
+
+test("LineFramer reassembles a multi-byte UTF-8 character split across Buffer chunks", () => {
+  const line = JSON.stringify({ t: "héllo — ✅ жизнь" }) + "\n";
+  const raw = Buffer.from(line, "utf8");
+  for (let cut = 1; cut < raw.length; cut++) {
+    const f = new LineFramer();
+    const got = [...f.push(raw.subarray(0, cut)), ...f.push(raw.subarray(cut))];
+    assert.deepEqual(got, [line.trimEnd()], `split at byte ${cut}`);
+  }
+});

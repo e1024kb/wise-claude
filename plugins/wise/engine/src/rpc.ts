@@ -3,6 +3,7 @@
 // `RpcClient` with per-request timeouts. Notifications flow both ways (the daemon sends `progress`).
 
 import type { Socket } from "node:net";
+import { StringDecoder } from "node:string_decoder";
 import {
   RPC_CLIENT_DISCONNECTED,
   RPC_CLIENT_TIMEOUT,
@@ -63,8 +64,10 @@ export function domainCode(err: unknown): DomainErrorCode | undefined {
 /** Buffers chunks and yields complete lines; a trailing partial line waits for the next chunk. */
 export class LineFramer {
   private pending = "";
+  // Per-chunk toString would corrupt a multi-byte UTF-8 character split across two socket chunks.
+  private decoder = new StringDecoder("utf8");
   push(chunk: Buffer | string): string[] {
-    this.pending += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    this.pending += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
     const parts = this.pending.split("\n");
     this.pending = parts.pop() ?? "";
     return parts.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() !== "");

@@ -852,6 +852,9 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       });
     } catch (err) {
       failStep(live, step.id, (err as Error).message);
+      // Deferred re-pass: schedule() dispatched this wave and returns without another look, so a
+      // synchronous start failure would otherwise leave the run "running" with no child to wake it.
+      timers.setTimeout(() => schedule(live), 0);
       return;
     }
     live.children.set(step.id, { kill: handle.kill, pid: handle.pid });
@@ -1084,6 +1087,8 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       live.tokens.delete(step.id);
       live.trackers.delete(step.id);
       failStep(live, step.id, (err as Error).message);
+      // Same deferred re-pass as dispatchBash: a sync start failure must not strand the run.
+      timers.setTimeout(() => schedule(live), 0);
       return;
     }
     const child: Child = {};
