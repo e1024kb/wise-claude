@@ -3,9 +3,9 @@
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
 credits / stayed rate-limited / never answered. Instead of parking the
-PR for a human, run **wise's own reviewer panel** (the same
-discipline the `code-review` workflow runs) over the PR's branch diff, commit
-what it finds, push, and let the caller keep driving the PR to green and
+PR for a human, run **wise's own reviewer panel** (the same discipline
+the `code-review` workflow runs) over the PR's branch diff, commit what
+it finds, push, and let the caller keep driving the PR to green and
 merge it.
 
 The premise: in the normal case a stuck Copilot / CodeRabbit is an
