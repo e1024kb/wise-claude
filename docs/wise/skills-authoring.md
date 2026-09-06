@@ -153,7 +153,9 @@ convention:
 
 See any existing standalone skill under `plugins/wise/skills/` for a
 canonical example (`wise-commit-message` is small and focused;
-`wise-workflow-run` is large and illustrates the conductor pattern).
+`wise-workflow-run` is the conductor: it calls the engine's `wise_*`
+MCP tools and renders their events, so its body is a protocol, not a
+procedure).
 
 ## Reference / guidance skills
 
@@ -250,9 +252,14 @@ wrapper means:
 
 ## For workflow *definitions*, use `/wise-workflow-create` instead
 
-Workflow definitions are YAML, not skills — `/wise-workflow-create`
-doesn't delegate to `skill-creator`. See
-[`workflows.md`](./workflows.md) for the workflow author guide.
+Workflow definitions are YAML v2 run by the TypeScript engine under
+`plugins/wise/engine`, not skills. `/wise-workflow-create` does not
+delegate to `skill-creator`; validate a definition with
+`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh compile-check <path>`. See
+[`workflows.md`](./workflows.md) for the schema and the author guide.
+A skill that a workflow should run becomes an `agent` step with
+`skill: <name>` (sugar for the prompt `Run /<name>` on the `claude`
+harness).
 
 ## Full procedure
 

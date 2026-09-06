@@ -11,8 +11,8 @@ description: >-
   `/wise:wise-implement-plan-auto` (canonical). Use when the user says
   "implement the plan", "execute PLAN-*.md", "build out the plan
   autonomously", or types `/wise-implement-plan-auto`.
-argument-hint: "[<plan-file-path>]"
-allowed-tools: Read, Edit, Write, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, TodoWrite, Bash(git:*), Bash(npm:*), Bash(make:*), Bash(go:*), Bash(python3:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(test:*)
+argument-hint: "[<plan-file-path>] [--on <harness>[:<model>[:<effort>]] | --on ask]"
+allowed-tools: Read, Edit, Write, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, TodoWrite, Bash(git:*), Bash(npm:*), Bash(make:*), Bash(go:*), Bash(python3:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(test:*), AskUserQuestion
 ---
 
 # /wise-implement-plan-auto — execute a plan, autonomously
@@ -32,6 +32,26 @@ Read `$ARGUMENTS`. The first whitespace-separated token, if present,
 is the path to the `PLAN-*.md` to implement. When absent, look for a
 single `PLAN-*.md` at the git toplevel and use it; if there are zero
 or several, stop and ask the user to name one.
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
+`--on ask` / a bare `--on`), do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-implement-plan-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+
+`--on ask` (or a bare `--on`) picks harness, model and effort through
+one composite `AskUserQuestion` before any child spawns — the ONE
+sanctioned prompt in this skill: it happens at invocation time, so the
+dispatched run itself stays decision-free.
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 

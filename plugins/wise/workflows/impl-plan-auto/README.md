@@ -1,258 +1,137 @@
 # impl-plan-auto
 
-<!-- This README is the source of truth for how the workflow
-     LOOKS to users. Keep it in sync with workflow.yaml +
-     prompts/*.md — every edit to the flow, steps, outputs,
-     or fragment list belongs here too. See
-     CONTRIBUTING.md §9.6 for the invariant. -->
+<!-- This README is the source of truth for how the workflow LOOKS to
+     users. Keep it in sync with workflow.yaml: every edit to the flow,
+     steps, inputs or outputs belongs here too (CONTRIBUTING.md 9.6). -->
 
-Autonomous plan-file → PR pipeline. Give it one or more ready-made
-`PLAN-*.md` files — typically the plans `/wise-revise` writes into
-`docs/plans/` — and for each one the wise SDLC roster **re-plans it from
-the file** against current HEAD (`wise:architect`), implements it
-(`wise:software-engineer`) in an isolated git worktree, runs an
-independent **review↔fix loop** (`wise:code-reviewer` judges,
-`wise:software-engineer` fixes) until the branch passes, commits, pushes,
-opens a PR, requests the bot reviews (attaches Copilot, triggers
-CodeRabbit), watches + fixes CI, then resolves every review comment — end
-to end, with **no user prompts**. One worktree + branch + PR per plan.
-When a PR's checks all pass, every review bot has finished (a stuck one
-counts only when the local review fallback covered the same head), and
-every comment is fixed-or-dismissed it is **merged** (squash, respecting
-branch protection); a PR that can't be driven fully resolved is left
-open for a human. When a PR is merged, its worktree and local branch are
-removed to keep the base repo clean; a PR left open keeps its worktree
-for inspection.
+Autonomous plan-file -> PR pipeline, `version: 2`, run by the TS
+engine. Give it one or more `PLAN-*.md` files (for example the plans
+`/wise-revise` writes into `docs/plans/`); for each one the engine's
+`units` step claims a branch and worktree, re-plans the seed against
+current HEAD, implements the refreshed plan, converges the branch
+through a review / fix loop, pushes, opens a PR, requests the bot
+reviews, watches CI and the bots, fixes what they raise, and merges
+once the PR is green and quiet. One worktree + branch + PR per plan
+file. A merged PR loses its worktree and local branch; anything else
+stays open for a human with the worktree kept for inspection. No
+prompts after launch.
 
-This is the missing bridge in the `/wise-revise` story: `/wise-revise`
-investigates a scope and writes executable plans, but only plans —
-execution is yours to schedule. `impl-plan-auto` takes those plan
-files and drives each one all the way to a merged PR.
-
-## impl-plan-auto vs. its neighbours
-
-| You have… | …and want | Use |
-|---|---|---|
-| a tracker **ticket** | full pipeline → merged PR, unattended | `ticket-auto` |
-| a ready **`PLAN-*.md`** | full pipeline → merged PR, unattended | **`impl-plan-auto`** (this) |
-| a ready **`PLAN-*.md`** | just implement + commit (you push / PR) | `/wise-implement-plan-auto` *(the skill)* |
-
-Note the name overlap: `/wise-implement-plan-auto` is a **skill** (the
-implement-only building block — task waves → commits, no push/PR) and
-this is a **workflow** of the same stem (the full-pipeline wrapper). They
-are invoked differently — `/wise-implement-plan-auto <plan>` runs the
-skill; `/wise-workflow-run impl-plan-auto <plan>` runs this
-workflow — and this workflow **reuses that same implement fragment**,
-chaining the review / push / PR / watch / merge phases around it.
+The per-plan loop is engine code (`plugins/wise/engine/src/units.ts`,
+`pipeline: plan`; design in `docs/wise/research-ts-engine.md` P4). It
+is the same loop `ticket-auto` runs; only the plan phase differs (its
+template `engine/src/prompts/units/plan/plan.md` re-plans from the seed
+file instead of from a ticket). `/wise-implement-plan-auto` is the
+implement-only building block (task waves + commits, no push / PR /
+watch); this workflow is the full pipeline around a plan file.
 
 ## When to use
 
-- You ran `/wise-revise`, have one or more plans in `docs/plans/`, and
-  want each turned into a reviewed-ready (often merged) PR unattended —
-  fire it and come back to a set of PRs.
-- The plans are clear enough that reasonable autonomous decisions won't
-  go badly wrong.
+- You have ready-made plan files (from `/wise-revise`, `ticket-plan`,
+  or written by hand in the same schema) and want each turned into a
+  reviewed, merged PR unattended.
 
 ## When not to use
 
-- You want to review / adjust the plan before any code — `/wise-revise`
-  already gave you the file; edit it, or use the interactive
-  `ticket-plan` workflow.
-- You want a human in the loop for CI fixes or review comments — use the
-  standalone `/wise-pr-watch` on your own PR.
-- You're starting from a tracker ticket, not a plan file — use
-  `ticket-auto`.
+- You want to run a plan's tasks and stop before pushing: use
+  `/wise-implement-plan-auto <plan>`.
+- You start from a ticket, not a plan: use `ticket-auto`.
 
 ## Prerequisites
 
-- `/wise-init` completed at least once (Python + Node + gh CLI + auth).
-- Run from inside the project's git repository — `project-selection:
-  current` auto-detects it; the base working tree must be **clean**
-  (`preflight-checks` refuses a dirty base).
-- Each named plan file should exist and be readable. Relative paths
-  resolve against the repo root — the same place `/wise-revise` writes
-  `docs/plans/`. A missing plan file is recorded as a failed plan and the
-  run continues with the rest (it never aborts the batch).
-- Recommended ≤ 5 plans per run (each plan's full pipeline is
-  substantial; see Notes).
+- `/wise-init` completed at least once (Node, gh CLI + auth).
+- Run from inside the project's git repository (`project-selection:
+  current`); the base working tree must be clean and have an `origin`
+  remote (`preflight-checks` refuses otherwise).
+- Children run with `preflight.permissions: full` (every harness's
+  bypass mode), so any tracker CLI, MCP or build tool on the machine is
+  usable without a per-step allowlist; pass `permissions: allowlist` as a
+  run answer to restore the step allowlists.
+- Every plan file must exist; `split-plans` stops the run before any
+  worktree exists when one is missing.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    A[assemble-team<br/>prompt — declare roster team + bind config] --> B[split-plans<br/>prompt → plan_count, plan_list]
-    B --> C[preflight-checks<br/>bash — clean tree, gh auth, origin]
-    C --> D[process-plans<br/>interactive — per-plan orchestrator loop]
-    D --> E[report<br/>prompt — verified status report, report-pass.md]
+    A[preflight-checks<br/>bash - clean tree, gh auth, origin] --> B[split-plans<br/>bash - comma list -> JSON array of absolute paths plan_list]
+    B --> D[process<br/>units pipeline plan - one unit per seed plan -> units rows]
+    D --> E[report<br/>agent sonnet - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
 ```
 
-`process-plans` is the engine of the workflow. For each plan it runs an
-isolated sub-pipeline:
+Inside `process`, per plan file and in this order (branch = the file
+name without `PLAN-` and `.md`, sanitised):
 
-```
-ensure-worktree (create or adopt; carry over .worktreeinclude) → re-plan from file → implement
-        → review↔fix loop (reviewer ⇄ fixer) → commit+push → create PR
-        → request review → watch + fix CI loop
-        → record (+ remove worktree & local branch if merged)
-```
+| Phase | Kind | Group / model | What it does |
+|---|---|---|---|
+| `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a foreign worktree or branch is skipped. |
+| `worktree` | code | - | `<run-dir>/worktrees/<branch>` on the plan branch off the fetched base. |
+| `plan` | model | `plan` | Reads the seed, checks drift against its `SOURCE_SHA`, re-audits the scope at HEAD, writes the refreshed plan to `<run-dir>/plans/PLAN-<ref>.md`. `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
+| `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
+| `review` <-> `fix` | model | `review` / `implement` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
+| `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body (links the plan), `gh pr edit --add-reviewer` for each login in `reviewers`. |
+| `watch` (+ `fix`, `push`) | model | `watch` / `implement` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
+| `cleanup` | code | - | Only on `merged`: remove the worktree and the local branch. |
 
-The wise workflow engine has no DAG loops, so the per-plan loop and each
-per-plan pipeline live *inside* the `process-plans` step (`type:
-interactive`, run in the conductor with full Bash/Task access). Every
-heavy sub-task is delegated to a `Task` subagent to keep the step's
-context bounded.
+## Pre-flight questions
 
-`control-mode` is pinned `synchronous`, `worktree` `current`,
-`rename_session` `skip` — the only pre-flight input is the plan-file list
-(required) and an optional free-form `config_prompt`. There are no `ask` /
-`approval` steps, no tuning questions, and no `profiles:` block (this
-workflow stays budget-profile-insensitive for now — a single-plan
-execution has few discretionary dials): every quality / depth dial
-takes its declared default. The review gate is pinned to the medium
-review pass — opus, the 3-lens set (correctness, security, tests) —
-the same per-workflow policy `ticket-auto` pins. The review↔fix cycle
-cap and the CI-fix cap both default to 10 (each overridable from
-`config_prompt`).
+| Id | Kind | Default | Notes |
+|---|---|---|---|
+| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked only when another CLI is logged in. |
+| `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
+| `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `input.plans` | text | - | Comma-separated `PLAN-*.md` paths; relative paths resolve against the repo root. |
+| `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
+
+Unit caps (`profiles.medium.caps`; only `medium` is applied):
+
+| max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes |
+|---|---|---|---|---|
+| 3 | 5 | 60 | 60 | 2 |
 
 ## Steps
 
 | Step | Type | Purpose |
 |---|---|---|
-| `assemble-team` | `prompt` | Run-start declaration of the roster team (`wise:architect` lead + `wise:software-engineer` + `wise:code-reviewer`) and binding of the operator `config_prompt`. `agent: off` (plain confirmation step), `model: sonnet`. Declaration-only — explicitly guarded against planning, codebase work, or spawning any subagent. |
-| `split-plans` | `prompt` | Parse `plan_files` into a clean list; emit count + semicolon-joined list. `model: sonnet`. |
-| `preflight-checks` | `bash` | Refuse a dirty base repo; verify `gh` auth and an `origin` remote. (Per-plan existence is checked inside `process-plans` — a missing plan fails just that plan.) |
-| `process-plans` | `interactive` | The orchestrator — loops the plan list, running the full re-plan→implement→review↔fix→PR→watch pipeline per plan in its own worktree. |
-| `report` | `prompt` | End-of-run verified status report: follows the shared `references/report-pass.md` (`SCOPE` = this run, `MODE=full`, `SAVE=yes`, `RETURN=summary` — the full report lands in the per-workspace handoff store; the run conversation gets only the per-section counts + saved path), verifying the run's claims against `state.yaml`, the per-plan ledgers, and live `gh pr view` probes; a `## Run specifics` addendum keeps the per-plan roll-up (source plan, branch, worktree path, PR url, verdict, incl. `review=not-converged`) and worktree-removal commands. Ends with the parseable `REPORT:` line. Dispatched to `wise:qa-engineer` on `sonnet` (needs Bash for the verification probes). |
-
-The workflow sets `agents: auto`, but most of its work runs inside the
-`process-plans` fragment, which dispatches each phase to a concrete
-roster role + model — brought in **fresh per phase** so transcripts
-release and the multi-plan run stays within its context budget. The
-per-phase roles and models are in the [pipeline table](#per-plan-pipeline-inside-process-plans)
-below; at the step level `report` → `wise:qa-engineer`. Model
-tiering (`opus` = the latest Opus, Opus 5): `opus` at `high` for the
-re-planning brain — `high` is Opus 5's policy ceiling, so an authored
-`xhigh` resolves to `high` (see
-[Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings)) —
-`opus` at `high` for the hands-on engineering
-(implement / fix / executors) + review brains, `sonnet` for the
-watch+fix CI conductor and the
-hands-on engineering and bookkeeping steps. See
-[Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
-
-## Per-plan pipeline (inside `process-plans`)
-
-Driven by `prompts/process-plans.md`. Only the **Re-plan** phase is
-unique to this workflow; every other phase reuses `ticket-auto`'s shared
-prompts verbatim, so the two workflows stay one implementation.
-
-| Phase | Fragment | Role · model | Notes |
-|---|---|---|---|
-| Re-plan | `prompts/replan-from-file.md` | `wise:architect` · opus · high | seeds from the provided plan, re-verifies + refreshes against current HEAD |
-| Implement | `ticket-auto/prompts/implement-plan.md` | `wise:software-engineer` · opus · high | phase-gated executor, supervised — a watchdog nudges hung executors; code-simplifier per task commit |
-| Review ↔ fix | `ticket-auto/prompts/review-branch-auto.md` (`fixer=delegate`) | `wise:code-reviewer` · opus · high ⇄ `wise:software-engineer` · opus · high | high-depth review gate (judges only) + an independent fixer, cycling before push |
-| Push | `wise-commit/commit-routine.md` | (inline) | `/wise-commit-push` |
-| Create PR | `ticket-auto/prompts/ensure-pr-auto.md` | (inline) | `/wise-pr-create` |
-| Request review | `ticket-auto/prompts/request-review-auto.md` | (inline) | `/wise-pr-add-reviewers` |
-| Watch + fix | `ticket-auto/prompts/watch-pipelines-auto.md` | `wise:software-engineer` · sonnet | `/wise-pr-watch` |
-| — review fallback (stuck bot) | `ticket-auto/prompts/review-fallback-auto.md` (inside Watch + fix) | reviewer panel · high | `/wise-code-review-auto` |
-
-The **Re-plan** phase is the difference from `ticket-auto`: instead of
-fetching a tracker ticket and authoring a plan from scratch, it reads the
-**provided `PLAN-*.md` as the seed**, checks its `SOURCE_SHA` against the
-worktree's current HEAD, re-verifies the cited evidence, drops findings
-the codebase already fixed, refreshes drifted tasks, and writes a fresh
-plan the implement phase runs. The branch name comes **from the plan
-slug** (the plan filename's `<NNN>-<slug>`, used verbatim, no prefix).
-
-The **Review ↔ fix** phase separates judging from fixing: a
-`wise:code-reviewer` reviews the branch in `fixer=delegate` mode (reports
-findings, applies nothing), then a `wise:software-engineer` applies
-exactly those findings and commits. The two cycle — re-review verifies
-each fix — until the reviewer returns `verdict=clean` or the cap (10,
-`config_prompt`-overridable) is hit. On non-convergence the branch is
-pushed anyway and the plan is flagged `review=not-converged` for the human
-+ the CI/bot review to catch.
+| `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
+| `split-plans` | `bash` | Splits the `plans` input on commas and semicolons, trims, dedupes, resolves each path against the repo root, fails when a file is missing, emits a JSON array of absolute paths as `plan_list`. |
+| `process` | `units` | `pipeline: plan`, `items: {{plan_list}}`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per plan). |
+| `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
 
 ## Inputs
 
 | Name | Required | Description |
 |---|---|---|
-| `plan_files` | yes | Comma-separated list of `PLAN-*.md` paths. Each gets its own worktree + branch + PR. Relative paths resolve against the repo root. First positional arg; when passed positionally use **no spaces** between items (`docs/plans/001-foo.md,docs/plans/002-bar.md`). |
-| `config_prompt` | no | Free-form guidance to tune the run — skills / libraries to prefer, guidelines, guardrails, files to avoid, knob overrides (e.g. "cap CI fixes at 4", "cap review cycles at 5"). The `wise:architect` (re-plan phase) applies it to every decision and **predicts** any answer it implies rather than prompting; later phases honour it too. As the last input it absorbs the remainder of the command line. Blank → none (max-value defaults; CI-fix + review-cycle caps 10). |
+| `plans` | yes | Comma-separated `PLAN-*.md` paths, relative to the repo root or absolute. |
+| `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
 ## Outputs
 
-| Name | Source | Used for |
+| Name | Source | Content |
 |---|---|---|
-| `plan_count` / `plan_list` | `split-plans` | The parsed plan list driving the orchestrator loop. |
-| `plans_processed` / `plans_merged` / `plans_open` / `plans_failed` | `process-plans` | Run tallies surfaced by `report`. |
+| `plan_list` | `split-plans` | JSON array of absolute seed plan paths, the `units` items. |
+| `units` | `process` | `UnitRow[]`: `unit` (ref, branch, worktree, base, plan_path = the seed, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review` (converged, cycles), `cleaned`. Full ledgers under `<run-dir>/units/<branch>.json`, the refreshed plans under `<run-dir>/plans/`. |
+| `merged`, `open`, `failed`, `report_path` | `report` | Counts and the report file. |
 
 ## Examples
 
 ```
 /wise-workflow-run impl-plan-auto
-# Bare: prompts only for the plan-file list (config_prompt is optional and skipped).
+# Pre-flight asks harness, model and effort per group, and the plan files.
 
-/wise-workflow-run impl-plan-auto docs/plans/001-api-caching.md,docs/plans/002-auth-debt.md
-# Two plans, no prompts. Comma-separated, NO spaces. Max-value defaults.
+/wise-workflow-run impl-plan-auto docs/plans/PLAN-api-caching.md,docs/plans/PLAN-auth-debt.md
+# Two plans, no spaces. Sequential units, one PR each.
 
-/wise-workflow-run impl-plan-auto docs/plans/001-api-caching.md prefer the design-system lib; never touch infra/*; cap CI fixes at 4
-# One plan + free-form config_prompt (everything after the first token).
-# Steers the Lead Architect's re-plan decisions; still no questions asked.
+/wise-workflow-run impl-plan-auto docs/plans/PLAN-api-caching.md keep the public API unchanged
+# Everything after the first token is the guidance input.
 ```
-
-The natural pairing:
-
-```
-/wise-revise improve performance of src/api      # writes docs/plans/NNN-*.md
-/wise-workflow-run impl-plan-auto docs/plans/001-api-caching.md
-```
-
-## Notes
-
-- **Re-plans, not blindly executes.** The provided plan is the seed; the
-  architect re-verifies it against current HEAD before implementing. A
-  plan whose findings the codebase already fixed is dropped (recorded in
-  the report); a plan that drifted is refreshed.
-- **Merges on fully resolved.** A PR is merged (squash, fallback merge
-  commit) only when its checks all pass, every review bot has finished
-  (a stuck one counts only when the local review fallback covered the
-  same head), and every bot comment is fixed-or-dismissed with its
-  thread resolved.
-  Branch protection is respected — if the repo requires a human approval
-  the merge is left to a human and the PR stays open. Any PR that isn't
-  fully resolved is left open.
-- **Merged plans are cleaned up; open/failed ones are kept.** When a
-  plan's PR is merged, its worktree and local branch are removed (the
-  work is preserved on the remote) so the base repo stays clean. A plan
-  left open for a human, or failed, keeps its worktree + branch for
-  inspection — `report` lists the `git worktree remove` command for each
-  one that remains. After the last plan a `git worktree prune` tidies any
-  stale entries.
-- **Resumable on interrupt.** Per-plan progress is checkpointed to a ledger
-  under the run directory (off the git tree, surviving the interrupt). If a
-  context compaction orphans the run mid-flight, `/wise-workflow-resume`
-  re-enters `process-plans`, **adopts** each plan's existing worktree / branch /
-  PR via live `git`/`gh` probes, and continues it from where it left off —
-  pushing committed-but-unpushed work, finding or creating the PR, and driving
-  it to a verdict instead of stranding it. A worktree/branch this run did not
-  create is left untouched (never stomped).
-- **≤ 5 plans/run recommended.** Each plan runs a full
-  re-plan+implement+watch pipeline; the orchestrator delegates heavy work
-  to subagents to bound context, but very large batches still risk the
-  run growing long.
 
 ## Related
 
 - [Definition YAML](./workflow.yaml)
-- [`/wise-revise`](../../skills/wise-revise/SKILL.md) — the planner that
-  writes the `PLAN-*.md` files this workflow consumes.
-- [`ticket-auto`](../ticket-auto/README.md) — the same full pipeline, but
-  starting from a tracker ticket (it re-plans from the ticket). This
-  workflow reuses its implement / review / PR / watch prompts.
-- [`/wise-implement-plan-auto`](../../skills/wise-implement-plan-auto/SKILL.md)
-  — the implement-only **skill** (task waves → commits, no push/PR) that
-  this workflow's implement phase reuses.
-- [`wise-estimation`](../../skills/wise-estimation/SKILL.md) — SP
-  estimation reference consulted by the re-plan phase.
+- [`ticket-auto`](../ticket-auto/README.md): the same pipeline started
+  from tickets.
+- [`/wise-revise`](../../skills/wise-revise/SKILL.md): writes the
+  `PLAN-*.md` files this workflow consumes.
+- [`/wise-implement-plan-auto`](../../skills/wise-implement-plan-auto/SKILL.md):
+  the implement-only building block.
+- `docs/wise/research-ts-engine.md` P4: the `units` contract.

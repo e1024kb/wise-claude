@@ -22,8 +22,8 @@ description: >-
   `/wise:wise-pr-watch-auto` (canonical). Use when the user says "watch
   the PR and fix it without asking", "auto-drive CI to green", or types
   `/wise-pr-watch-auto`. For the interactive version use `/wise-pr-watch`.
-argument-hint: "[<max-fix-attempts>] [--profile low|medium|max]"
-allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*)
+argument-hint: "[<max-fix-attempts>] [--profile low|medium|max] [--on <harness>[:<model>[:<effort>]] | --on ask]"
+allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*), AskUserQuestion
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + fix loop
@@ -69,8 +69,7 @@ Read `$ARGUMENTS` and split into whitespace-separated tokens:
 
   A typo here must not silently fall through to the session or
   `medium` default and change the fallback depth / attempt cap without
-  the operator noticing (the same validation
-  `/wise-code-review-auto` applies to its own `--profile` argument).
+  the operator noticing.
 
 Resolve `profile`: the `--profile` argument if given, else the session
 profile via `${CLAUDE_PLUGIN_ROOT}/references/profile-read.md` (read it
@@ -92,6 +91,26 @@ on Opus 4.8 (`PROFILE_OPUS_MODEL` from the profile read).
 
 An explicit `max_fix_attempts` argument always beats the profile's
 default.
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
+`--on ask` / a bare `--on`), do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-watch-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+
+`--on ask` (or a bare `--on`) picks harness, model and effort through
+one composite `AskUserQuestion` before any child spawns — the ONE
+sanctioned prompt in this skill: it happens at invocation time, so the
+dispatched run itself stays decision-free.
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 
@@ -138,7 +157,8 @@ left open for a human.
 
 ## Guardrails
 
-- Never call `AskUserQuestion`.
+- Never call `AskUserQuestion` mid-run — the one exception is the
+  `--on ask` harness/model/effort pick, before the loop starts.
 - Never force-push, never `--no-verify`.
 - Merge only a fully resolved PR — every CI check green, every expected
   bot terminal (Copilot reviewed / absent / stuck; CodeRabbit reviewed /
@@ -171,5 +191,5 @@ left open for a human.
 - Never invoke another wise action skill (the fragment reads
   `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
   `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly —
-  the review fallback runs `/wise-code-review-auto`'s *fragment*, not
-  the skill).
+  the review fallback runs the `review-branch-auto.md` *fragment*, not
+  the `code-review` workflow).

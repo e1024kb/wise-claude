@@ -1,0 +1,26 @@
+version: 2
+name: three-parallel
+description: Three independent agent steps on one group; drives the concurrency-cap test.
+tuning:
+  groups:
+    - id: work
+      default: { harness: claude, model: haiku, effort: low }
+steps:
+  - id: a
+    type: agent
+    group: work
+    prompt: "Step a. Reply with JSON only."
+    schema: { type: object, properties: { a: { type: string } }, required: [a] }
+    outputs: [a]
+  - id: b
+    type: agent
+    group: work
+    prompt: "Step b. Reply with JSON only."
+    schema: { type: object, properties: { b: { type: string } }, required: [b] }
+    outputs: [b]
+  - id: c
+    type: agent
+    group: work
+    prompt: "Step c. Reply with JSON only."
+    schema: { type: object, properties: { c: { type: string } }, required: [c] }
+    outputs: [c]

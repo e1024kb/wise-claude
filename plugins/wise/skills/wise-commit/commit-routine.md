@@ -38,7 +38,7 @@ single source of truth that this routine, `/wise-commit-message`, and
     `SIMPLIFY=yes` — every commit, autofix included, gets the cleanup.
   - `SIMPLIFY=no` is for callers that already ran simplify
     (`/wise-simplify-auto`) or that explicitly want a raw commit (the
-    code-review gate's fix commit via `/wise-code-review-auto`).
+    review fallback's fix commit).
 
 No other inputs. The routine reads everything else from `git` and
 the live conversation context.
@@ -61,8 +61,7 @@ COMMIT: failed reason="not inside a git working tree"
 
 **Skip this step entirely if `SIMPLIFY=no`.** That's the carve-out for
 callers that already ran simplify themselves (`/wise-simplify-auto`) or
-that explicitly want a raw commit (the code-review gate's fix commit
-via `/wise-code-review-auto`).
+that explicitly want a raw commit (the review fallback's fix commit).
 
 Otherwise, before staging, run the per-commit cleanup per
 `${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md` — it dispatches the

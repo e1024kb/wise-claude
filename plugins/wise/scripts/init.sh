@@ -25,6 +25,23 @@
 #         VERSION=<x.y.z>                (when parseable)
 #         MAJOR=<N>                      (when parseable; integer)
 #
+#   probe-bun
+#       Emits:
+#         STATUS=ok|missing
+#         BINARY=<absolute path>         (when STATUS=ok)
+#         VERSION=<x.y.z>                (when STATUS=ok)
+#       bun is the preferred runtime for the workflow engine; node >= 24
+#       is the fallback, so `missing` is not an error when probe-node is ok.
+#
+#   probe-claude-auth
+#       Emits:
+#         STATUS=ok|missing|logged-out
+#         BINARY=<absolute path>         (when the claude CLI is on PATH)
+#         METHOD=<claude.ai|console|api-key|none>  (when STATUS=ok|logged-out)
+#       The engine spawns `claude -p` children under the user's login; a
+#       desktop-app session does not log the terminal CLI in, so this probe
+#       tells /wise-init to ask for `claude auth login`.
+#
 #   probe-gh
 #       Emits:
 #         STATUS=ok|missing
@@ -32,6 +49,17 @@
 #         VERSION=<x.y.z>                (when STATUS=ok)
 #         AUTHENTICATED=true|false       (when STATUS=ok)
 #         LOGIN=<gh login>|              (when AUTHENTICATED=true)
+#
+#   probe-git-ssh [host]
+#       Emits:
+#         STATUS=ok|denied|unreachable|missing-ssh|unknown
+#         AGENT=set|unset                (SSH_AUTH_SOCK in this shell)
+#         HOST=<host>                    (default github.com)
+#         DETAIL=<first line ssh printed>
+#       Runs `ssh -T git@<host>` under the same clean environment the
+#       engine gives its children (HOME, PATH, SSH_AUTH_SOCK only), so
+#       `denied` means every engine git call over ssh fails the same way
+#       (a key that only lives in the agent, or no agent at all).
 #
 #   probe-markitdown
 #       Emits:
@@ -50,7 +78,7 @@
 
 set -u
 
-NODE_REQUIRED_MAJOR=22
+NODE_REQUIRED_MAJOR=24
 
 # ---- Python ---------------------------------------------------------------
 
@@ -147,6 +175,47 @@ probe_node() {
   fi
 }
 
+# ---- bun (preferred engine runtime) ----------------------------------------
+
+probe_bun() {
+  local bn
+  bn="$(command -v bun 2>/dev/null || true)"
+  if [[ -z "$bn" ]]; then
+    echo "STATUS=missing"
+    return 0
+  fi
+  echo "BINARY=$bn"
+  echo "VERSION=$("$bn" --version 2>/dev/null || true)"
+  echo "STATUS=ok"
+}
+
+# ---- claude CLI login ------------------------------------------------------
+
+probe_claude_auth() {
+  local cl
+  cl="$(command -v claude 2>/dev/null || true)"
+  if [[ -z "$cl" ]]; then
+    echo "STATUS=missing"
+    return 0
+  fi
+  echo "BINARY=$cl"
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    echo "METHOD=api-key"
+    echo "STATUS=ok"
+    return 0
+  fi
+  local status method logged_in
+  status="$(env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT "$cl" auth status 2>/dev/null || true)"
+  logged_in="$(printf '%s' "$status" | grep -o '"loggedIn"[[:space:]]*:[[:space:]]*[a-z]*' | grep -oE 'true|false' | head -1)"
+  method="$(printf '%s' "$status" | grep -o '"authMethod"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' | head -1)"
+  echo "METHOD=${method:-none}"
+  if [[ "$logged_in" == "true" ]]; then
+    echo "STATUS=ok"
+  else
+    echo "STATUS=logged-out"
+  fi
+}
+
 # ---- gh -------------------------------------------------------------------
 
 find_gh() {
@@ -190,6 +259,40 @@ probe_gh() {
   else
     echo "AUTHENTICATED=false"
     echo "LOGIN="
+  fi
+}
+
+# ---- git over ssh ---------------------------------------------------------
+
+probe_git_ssh() {
+  local host="${1:-github.com}"
+  echo "HOST=$host"
+  if ! command -v ssh >/dev/null 2>&1; then
+    echo "STATUS=missing-ssh"
+    echo "AGENT=$([[ -n "${SSH_AUTH_SOCK:-}" ]] && echo set || echo unset)"
+    echo "DETAIL="
+    return 0
+  fi
+  local agent=unset
+  [[ -n "${SSH_AUTH_SOCK:-}" ]] && agent=set
+  echo "AGENT=$agent"
+  # The engine's child env, reduced to what ssh reads (adapters/spawn.ts PASSTHROUGH_VARS).
+  local -a clean=(env -i "HOME=$HOME" "PATH=$PATH")
+  [[ $agent == set ]] && clean+=("SSH_AUTH_SOCK=$SSH_AUTH_SOCK")
+  local out
+  out="$("${clean[@]}" ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+    -T "git@$host" 2>&1 || true)"
+  local first
+  first="$(printf '%s\n' "$out" | head -n 1)"
+  echo "DETAIL=$first"
+  if printf '%s' "$out" | grep -qi 'successfully authenticated'; then
+    echo "STATUS=ok"
+  elif printf '%s' "$out" | grep -qi 'permission denied'; then
+    echo "STATUS=denied"
+  elif printf '%s' "$out" | grep -qiE 'could not resolve|connection (timed out|refused)|network is unreachable|operation timed out'; then
+    echo "STATUS=unreachable"
+  else
+    echo "STATUS=unknown"
   fi
 }
 
@@ -276,7 +379,10 @@ probe_markitdown() {
 case "${1:-}" in
   probe-python)     probe_python ;;
   probe-node)       probe_node ;;
+  probe-bun)        probe_bun ;;
+  probe-claude-auth) probe_claude_auth ;;
   probe-gh)         probe_gh ;;
+  probe-git-ssh)    probe_git_ssh "${2:-}" ;;
   probe-markitdown) probe_markitdown ;;
   *)
     cat <<'USAGE' >&2
@@ -284,8 +390,11 @@ Usage: init.sh <subcommand>
 
 Subcommands:
   probe-python      Probe for python3 + the pip modules wise needs.
-  probe-node        Probe for node (>= 22 required).
+  probe-node        Probe for node (>= 24 required unless bun is present).
+  probe-bun         Probe for bun (preferred engine runtime).
+  probe-claude-auth Probe the claude CLI login used by engine children.
   probe-gh          Probe for the gh CLI + its auth state.
+  probe-git-ssh     Probe git over ssh (ssh -T git@github.com) from the engine's child env.
   probe-markitdown  Probe for the markitdown converter + uv installer.
 
 Output format: KEY=VALUE lines. Callers can `source` the output

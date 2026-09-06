@@ -1,0 +1,12 @@
+version: 2
+name: fallback-resume
+description: "A resume-unit step with a codex fallback; drives the cross-harness cursor guard test."
+steps:
+  - id: answer
+    type: agent
+    model: haiku
+    resume: unit
+    fallback: [codex]
+    prompt: "Answer. Reply with JSON only."
+    schema: { type: object, properties: { answer: { type: string } }, required: [answer] }
+    outputs: [answer]

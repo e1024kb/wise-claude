@@ -10,7 +10,7 @@ pushes, and loops until the PR is fully resolved or a cap is hit.
 errors / is rate-limited, or CodeRabbit runs out of credits / stays
 rate-limited / never answers, the loop does not park the PR for a human:
 it runs wise's own high-depth reviewer panel over the branch diff
-instead (§4c — the same pass `/wise-code-review-auto` runs), commits and
+instead (§4c — the same discipline the `code-review` workflow runs), commits and
 pushes what that finds, and keeps driving the PR to green and merge. A
 bot outage is an availability problem on their side, not a verdict about
 the code.

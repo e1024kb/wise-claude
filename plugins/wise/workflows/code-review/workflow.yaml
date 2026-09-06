@@ -1,0 +1,390 @@
+version: 2
+name: code-review
+description: >-
+  Review the current branch before it is pushed: three parallel
+  read-only reviewers (correctness, security, tests) over
+  origin/<base>..HEAD, one curator that dedupes and keeps the concrete
+  findings, an optional adversarial verification pass, then a fixer that
+  applies the kept findings and commits them (or, in report mode, leaves
+  the findings file for you). Pre-flight picks harness, model and effort
+  for every reviewer, the curator, the verifier and the fixer. No prompts
+  after launch; never pushes.
+author: e1024kb
+#
+# The heavyweight tier of the plugin's two-tier quality model (the
+# lightweight tier is the per-commit simplify pass). It replaces the
+# `/wise-code-review-auto` skill: the same 3-lens panel, curation,
+# verification and bounded apply, but as engine steps, so each agent's
+# harness / model / effort is a pre-flight choice instead of a budget
+# profile. Findings travel between steps as files under
+# `{{run.dir}}/review/`; steps hand each other only counts.
+
+project-selection: current
+
+preflight:
+  control-mode: synchronous
+  worktree: current
+
+# One tuning group per agent. Reviewers and the verifier only read; the
+# curator writes one file; the fixer edits the tree and commits.
+tuning:
+  groups:
+    - id: correctness
+      label: "Correctness reviewer"
+      default: { harness: claude, model: opus, effort: high }
+    - id: security
+      label: "Security reviewer"
+      default: { harness: claude, model: opus, effort: high }
+    - id: tests
+      label: "Test-coverage reviewer"
+      default: { harness: claude, model: opus, effort: high }
+    - id: curate
+      label: "Curator"
+      default: { harness: claude, model: opus, effort: high }
+    - id: verify
+      label: "Verifier"
+      default: { harness: claude, model: opus, effort: high }
+    - id: fix
+      label: "Fixer"
+      default: { harness: claude, model: opus, effort: high }
+
+inputs:
+  - name: base
+    prompt: "Base branch to diff against (empty = the repo's default branch)"
+    optional: true
+  - name: mode
+    prompt: "apply (fix and commit the kept findings) or report (write the findings file only)"
+    default: apply
+    validate: "^(apply|report)$"
+  - name: plan_path
+    prompt: "Plan file whose `## Decisions Made` the review must respect (optional)"
+    optional: true
+  - name: guidance
+    prompt: "Standing guidance for the reviewers (optional)"
+    optional: true
+    from-context: guidance
+
+step-select:
+  prompt: "Which extra passes should run?"
+  optional: [verify]
+
+steps:
+  - id: resolve-base
+    type: bash
+    # The base branch: the input when given, else the repo's default
+    # branch from gh, else origin/HEAD, else main. Prints the bare name.
+    run: |
+      set -eu
+      raw=$(mktemp)
+      trap 'rm -f "$raw"' EXIT
+      cat >"$raw" <<'WISE_BASE'
+      {{base}}
+      WISE_BASE
+      base=$(tr -d '\r' <"$raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's@^origin/@@' | head -n 1)
+      if [ -z "$base" ]; then
+        base=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null || true)
+      fi
+      if [ -z "$base" ]; then
+        base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || true)
+      fi
+      base="${base:-main}"
+      git fetch --quiet origin "$base" 2>/dev/null || true
+      if ! git rev-parse --verify --quiet "origin/$base" >/dev/null; then
+        echo "ERROR: origin/$base does not exist; pass the base branch as the 'base' input." >&2
+        exit 1
+      fi
+      echo "$base"
+    outputs: [base]
+    timeout: 60
+
+  - id: count-commits
+    type: bash
+    # The change set is exactly the commits about to be pushed. Zero
+    # commits skips every review step and the run ends clean.
+    run: |
+      set -eu
+      git rev-list --count "origin/{{base}}..HEAD"
+    outputs: [commit_count]
+    timeout: 30
+    depends_on: [resolve-base]
+
+  # --- the panel: three read-only reviewers in one parallel wave --------
+
+  - id: review-correctness
+    type: agent
+    group: correctness
+    description: "Correctness and logic review"
+    when: "commit_count != 0"
+    prompt: |
+      Review the branch in {{project.path}}: exactly the commits in
+      `origin/{{base}}..HEAD` ({{commit_count}} commits), the change set
+      about to be pushed. Your lens: correctness and logic bugs. Wrong
+      conditions, off-by-one, unhandled null / error paths, broken
+      invariants, races, resource leaks, behaviour that contradicts the
+      code around it or the commit messages.
+
+      Read the diff (`git diff origin/{{base}}...HEAD`) and enough
+      surrounding code to judge. Report only: never edit the worktree,
+      never run a git write command, never run a formatter or linter in
+      write mode, never commit. The one file you write is your findings
+      file.
+
+      Keep only high-confidence, concrete findings on lines the branch
+      touched. Drop judgement calls the work did not ask for (behaviour
+      changes, broad renames, new dependencies, large refactors).
+      Respect the plan's deliberate choices when a plan is given (plan:
+      {{plan_path}}) and the operator guidance (guidance: {{guidance}});
+      flag what contradicts the guidance.
+
+      Write the findings to `{{run.dir}}/review/correctness.md` (mkdir -p
+      the directory) as a numbered list, one per line:
+      `N. file:line - problem - concrete fix - severity (critical|warning|info)`.
+      Write the file even when it is empty.
+
+      Return the fields directly, no wrapping: `correctness_findings` (count
+      of lines written), `correctness_blocking` (count of critical and warning
+      ones).
+    schema:
+      type: object
+      properties:
+        correctness_findings: { type: integer, minimum: 0 }
+        correctness_blocking: { type: integer, minimum: 0 }
+      required: [correctness_findings, correctness_blocking]
+      additionalProperties: false
+    outputs: [correctness_findings, correctness_blocking]
+    allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
+    depends_on: [count-commits]
+
+  - id: review-security
+    type: agent
+    group: security
+    description: "Security and input-handling review"
+    when: "commit_count != 0"
+    prompt: |
+      Review the branch in {{project.path}}: exactly the commits in
+      `origin/{{base}}..HEAD` ({{commit_count}} commits), the change set
+      about to be pushed. Your lens: security and input handling.
+      Injection (shell, SQL, template, path), missing validation or
+      escaping of external input, secrets in code or logs, auth and
+      permission checks skipped, unsafe defaults, unsafe deserialisation,
+      SSRF, insecure temp files.
+
+      Read the diff (`git diff origin/{{base}}...HEAD`) and enough
+      surrounding code to judge. Report only: never edit the worktree,
+      never run a git write command, never run a formatter or linter in
+      write mode, never commit. The one file you write is your findings
+      file.
+
+      Keep only high-confidence, concrete findings on lines the branch
+      touched. Drop judgement calls the work did not ask for (behaviour
+      changes, broad renames, new dependencies, large refactors).
+      Respect the plan's deliberate choices when a plan is given (plan:
+      {{plan_path}}) and the operator guidance (guidance: {{guidance}});
+      flag what contradicts the guidance.
+
+      Write the findings to `{{run.dir}}/review/security.md` (mkdir -p
+      the directory) as a numbered list, one per line:
+      `N. file:line - problem - concrete fix - severity (critical|warning|info)`.
+      Write the file even when it is empty.
+
+      Return the fields directly, no wrapping: `security_findings` (count
+      of lines written), `security_blocking` (count of critical and warning
+      ones).
+    schema:
+      type: object
+      properties:
+        security_findings: { type: integer, minimum: 0 }
+        security_blocking: { type: integer, minimum: 0 }
+      required: [security_findings, security_blocking]
+      additionalProperties: false
+    outputs: [security_findings, security_blocking]
+    allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
+    depends_on: [count-commits]
+
+  - id: review-tests
+    type: agent
+    group: tests
+    description: "Test-coverage review"
+    when: "commit_count != 0"
+    prompt: |
+      Review the branch in {{project.path}}: exactly the commits in
+      `origin/{{base}}..HEAD` ({{commit_count}} commits), the change set
+      about to be pushed. Your lens: test coverage. New or changed
+      behaviour with no test, tests that no longer assert what the code
+      does, edge cases the change introduces and leaves untested,
+      tests weakened or deleted without a stated reason, flaky patterns
+      (timing, ordering, shared state).
+
+      Read the diff (`git diff origin/{{base}}...HEAD`) and enough
+      surrounding code and existing tests to judge. Report only: never
+      edit the worktree, never run a git write command, never run a
+      formatter or linter in write mode, never commit. The one file you
+      write is your findings file.
+
+      Keep only high-confidence, concrete findings on lines the branch
+      touched. Drop judgement calls the work did not ask for (behaviour
+      changes, broad renames, new dependencies, large refactors).
+      Respect the plan's deliberate choices when a plan is given (plan:
+      {{plan_path}}) and the operator guidance (guidance: {{guidance}});
+      flag what contradicts the guidance.
+
+      Write the findings to `{{run.dir}}/review/tests.md` (mkdir -p the
+      directory) as a numbered list, one per line:
+      `N. file:line - problem - concrete fix - severity (critical|warning|info)`.
+      Write the file even when it is empty.
+
+      Return the fields directly, no wrapping: `tests_findings` (count
+      of lines written), `tests_blocking` (count of critical and warning
+      ones).
+    schema:
+      type: object
+      properties:
+        tests_findings: { type: integer, minimum: 0 }
+        tests_blocking: { type: integer, minimum: 0 }
+      required: [tests_findings, tests_blocking]
+      additionalProperties: false
+    outputs: [tests_findings, tests_blocking]
+    allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
+    depends_on: [count-commits]
+
+  # --- curate: one findings file -----------------------------------------
+
+  - id: curate
+    type: agent
+    group: curate
+    when: "commit_count != 0"
+    prompt: |
+      Merge the three reviewer reports for the branch in
+      {{project.path}} (`origin/{{base}}..HEAD`) into one findings list.
+      Read `{{run.dir}}/review/correctness.md`, `{{run.dir}}/review/security.md`
+      and `{{run.dir}}/review/tests.md` (a missing or empty file means
+      that reviewer found nothing).
+
+      Dedupe by file:line. Keep only high-confidence, concrete findings:
+      correctness bugs, security issues, and clear quality problems
+      (dead code, unused imports, obviously redundant logic). Drop
+      judgement calls the work did not ask for (behaviour changes, broad
+      renames, new dependencies, large refactors), anything on lines the
+      branch did not touch (check with `git diff origin/{{base}}...HEAD`
+      when in doubt), and anything the plan's `## Decisions Made` chose
+      deliberately (plan: {{plan_path}}). Respect the operator guidance
+      and keep what contradicts it: {{guidance}}
+
+      Report only: never edit the worktree, never run a git write
+      command, never commit.
+
+      Write the kept findings to `{{run.dir}}/review/findings.md` as a
+      numbered list, one per line, renumbered from 1:
+      `N. file:line - problem - concrete fix - severity (critical|warning|info)`.
+      Write the file even when it is empty.
+
+      Return the fields directly, no wrapping: `findings` (count of
+      lines written), `blocking` (count of critical and warning ones),
+      `findings_path` (the absolute path of the file).
+    schema:
+      type: object
+      properties:
+        findings: { type: integer, minimum: 0 }
+        blocking: { type: integer, minimum: 0 }
+        findings_path: { type: string }
+      required: [findings, blocking, findings_path]
+      additionalProperties: false
+    outputs: [findings, blocking, findings_path]
+    allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
+    depends_on: [review-correctness, review-security, review-tests]
+    trigger-rule: none-failed
+
+  # --- verify (optional): refute each finding against the code -----------
+
+  - id: verify
+    type: agent
+    group: verify
+    description: "Adversarial verification of every kept finding"
+    when: "findings != 0"
+    prompt: |
+      Adversarially verify the findings in `{{findings_path}}` for the
+      branch in {{project.path}} (`origin/{{base}}..HEAD`). For every
+      numbered finding, try to REFUTE it against the current code: is it
+      actually wrong as claimed, on the lines it names, in the way it
+      describes? Where you have subagents, run one read-only subagent per
+      finding in parallel; otherwise check them one after another.
+      Default to refuted when the evidence is ambiguous.
+
+      Report only: never edit the worktree, never run a git write
+      command, never commit.
+
+      Overwrite `{{findings_path}}` with only the findings that survive,
+      renumbered from 1 in the same line format. Write the file even when
+      nothing survives.
+
+      Return the fields directly, no wrapping: `kept` (findings that
+      survived), `refuted` (findings dropped).
+    schema:
+      type: object
+      properties:
+        kept: { type: integer, minimum: 0 }
+        refuted: { type: integer, minimum: 0 }
+      required: [kept, refuted]
+      additionalProperties: false
+    outputs: [kept, refuted]
+    allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(test:*)"]
+    depends_on: [curate]
+
+  # --- apply: bounded fixes, one commit ----------------------------------
+
+  - id: apply
+    type: agent
+    group: fix
+    mode: full-access
+    # `findings_path` is unset when `curate` was skipped (a reviewer failed), so
+    # the fixer never runs on raw, uncurated reports.
+    when: "mode == 'apply' && commit_count != 0 && findings_path"
+    prompt: |
+      Apply the findings in `{{findings_path}}` to the branch in
+      {{project.path}} (`origin/{{base}}..HEAD`). An empty file means
+      nothing to apply: return applied 0, skipped 0, committed no.
+
+      For each numbered finding apply the concrete fix in place, bounded:
+      guard the change, do not redesign it, no behaviour changes beyond
+      the fix, no broad renames, no new dependencies. Skip a finding
+      when the fix would need any of those or when the code has moved
+      on; count it as skipped.
+
+      When any file changed: run the project's quickest relevant check
+      (a syntax check, the affected tests, or the linter in read-only
+      mode); if the tree is broken, revert your edits with
+      `git checkout -- <files>` and treat every finding as skipped. Then
+      stage every change (`git add -A`) and commit with one
+      Conventional Commits subject in the form
+      `fix(<scope>): apply code-review findings` where <scope> is the
+      area most of the fixes touch (drop the scope when there is none).
+      Commit message body: one line per applied finding. Never add a
+      Co-Authored-By or any AI attribution trailer. Never push, never
+      amend, never `--no-verify`. One round: never re-review.
+
+      Return the fields directly, no wrapping: `applied` (findings
+      turned into edits), `skipped` (findings left alone),
+      `committed` (`yes` when a fix commit landed, else `no`).
+    schema:
+      type: object
+      properties:
+        applied: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+        committed: { type: string, enum: [yes, "no"] }
+      required: [applied, skipped, committed]
+      additionalProperties: false
+    outputs: [applied, skipped, committed]
+    depends_on: [verify]
+    trigger-rule: none-failed
+
+  # --- summary -----------------------------------------------------------
+
+  - id: finalize
+    type: bash
+    # An output of a skipped step stays an unresolved `{{name}}`; sed blanks it
+    # so the line always prints.
+    run: |
+      echo "code-review: origin/{{base}}..HEAD commits={{commit_count}} findings={{findings}} kept={{kept}} refuted={{refuted}} applied={{applied}} skipped={{skipped}} committed={{committed}} file={{findings_path}}" | sed -E 's/\{\{[a-z_]+\}\}//g'
+    timeout: 15
+    depends_on: [apply]
+    trigger-rule: all-done

@@ -1,0 +1,316 @@
+{
+  "questions": [
+    {
+      "id": "model.analyze-design",
+      "kind": "choice",
+      "label": "Which claude model: Design spec?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "model.research-context",
+      "kind": "choice",
+      "label": "Which claude model: Deep-dive sweep?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "model.codebase-audit",
+      "kind": "choice",
+      "label": "Which claude model: Codebase audit?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "model.gap-analysis",
+      "kind": "choice",
+      "label": "Which claude model: Gap analysis?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "model.build-plan",
+      "kind": "choice",
+      "label": "Which claude model: Build plan?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "model.refine-plan",
+      "kind": "choice",
+      "label": "Which claude model: Refine plan?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "model.implement",
+      "kind": "choice",
+      "label": "Which claude model: Implement?",
+      "options": [
+        {
+          "value": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "description": "latest Fable"
+        },
+        {
+          "value": "claude-opus-5",
+          "label": "Opus 5",
+          "description": "current Opus"
+        },
+        {
+          "value": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "description": "previous Opus"
+        },
+        {
+          "value": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "description": "latest Sonnet"
+        },
+        {
+          "value": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "description": "cheap tier for simple steps"
+        }
+      ],
+      "default": "claude-opus-5"
+    },
+    {
+      "id": "step-select",
+      "kind": "multi",
+      "label": "Which research stages should run?",
+      "options": [
+        {
+          "value": "analyze-design",
+          "label": "Design analysis (Figma / design links)",
+          "description": "analyze-design"
+        },
+        {
+          "value": "analyze-related",
+          "label": "Related tickets & reference docs",
+          "description": "analyze-related"
+        },
+        {
+          "value": "research-context",
+          "label": "Deep-dive context sweep (grill research)",
+          "description": "research-context"
+        },
+        {
+          "value": "gap-analysis",
+          "label": "Gap analysis + blueprint + gap questions",
+          "description": "gap-analysis"
+        }
+      ],
+      "default": [
+        "analyze-design",
+        "analyze-related",
+        "research-context",
+        "gap-analysis"
+      ]
+    },
+    {
+      "id": "input.ticket_id",
+      "kind": "text",
+      "label": "Which ticket? (paste a URL, or an id like PROJ-123 / ENG-45 / #678)"
+    },
+    {
+      "id": "input.gap_mode",
+      "kind": "text",
+      "label": "If the gap analysis finds open questions? (defaults: proceed on the stated defaults, recorded as assumptions | ask: pause so I can answer inline)",
+      "default": "defaults"
+    },
+    {
+      "id": "input.review_mode",
+      "kind": "text",
+      "label": "Review the plan before setup? (auto: accept the plan as presented | ask: pause for my comments, one refine pass)",
+      "default": "auto"
+    },
+    {
+      "id": "input.branch_mode",
+      "kind": "text",
+      "label": "Branch handling at setup? (auto: ticket branch off the default branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)",
+      "default": "auto"
+    },
+    {
+      "id": "input.implement_mode",
+      "kind": "text",
+      "label": "Implement the plan after setup? (plan-only: stop after setup | now: implement autonomously | ask: ask me once the plan and branch are settled)",
+      "default": "plan-only"
+    }
+  ],
+  "defaults": {
+    "model.analyze-design": "claude-opus-5",
+    "model.research-context": "claude-opus-5",
+    "model.codebase-audit": "claude-opus-5",
+    "model.gap-analysis": "claude-opus-5",
+    "model.build-plan": "claude-opus-5",
+    "model.refine-plan": "claude-opus-5",
+    "model.implement": "claude-opus-5",
+    "step-select": [
+      "analyze-design",
+      "analyze-related",
+      "research-context",
+      "gap-analysis"
+    ],
+    "input.gap_mode": "defaults",
+    "input.review_mode": "auto",
+    "input.branch_mode": "auto",
+    "input.implement_mode": "plan-only"
+  }
+}

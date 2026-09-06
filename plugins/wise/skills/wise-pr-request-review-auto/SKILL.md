@@ -11,8 +11,8 @@ description: >-
   "request review without asking", "auto-attach Copilot", or types
   `/wise-pr-request-review-auto`. For the interactive version
   (human-reviewer picker) use `/wise-pr-add-reviewers`.
-argument-hint: ""
-allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*)
+argument-hint: "[--on <harness>[:<model>[:<effort>]] | --on ask]"
+allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*), AskUserQuestion
 ---
 
 # /wise-pr-request-review-auto — request bot review, autonomously
@@ -30,6 +30,26 @@ request-review step follows.
 
 This skill takes no arguments. Ignore anything the user types beyond
 the skill name.
+
+## Run on another harness (`--on`)
+
+If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
+`--on ask` / a bare `--on`), do
+NOT run the procedure below in this conversation. Strip the `--on`
+tokens (everything left is `SKILL_ARGS`), then read
+`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+
+- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-request-review-auto/SKILL.md`
+- `SKILL_ARGS` = the remaining tokens
+
+`--on ask` (or a bare `--on`) picks harness, model and effort through
+one composite `AskUserQuestion` before any child spawns — the ONE
+sanctioned prompt in this skill: it happens at invocation time, so the
+dispatched run itself stays decision-free.
+The reference probes the harness login, validates model and effort
+against the engine catalog, and runs the procedure as a headless child
+via `engine.sh dispatch`; you only relay its result. Without `--on`,
+this section does not apply.
 
 ## Procedure
 
@@ -60,7 +80,8 @@ out-of-credits / rate-limit states.
 
 ## Guardrails
 
-- Never call `AskUserQuestion`.
+- Never call `AskUserQuestion` mid-run — the one exception is the
+  `--on ask` harness/model/effort pick, before dispatch.
 - Never block on a Copilot-attach or CodeRabbit-trigger failure —
   best-effort by design.
 - Never enumerate or attach human reviewers.

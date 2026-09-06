@@ -1,1016 +1,947 @@
 # wise workflows
 
-A **workflow** is a named, reusable, multi-step procedure that
-composes wise actions, third-party skills, shell commands, and
-approval gates into a single `/wise-workflow-run <name>` invocation.
+A workflow is a YAML v2 definition the wise engine runs: a DAG of steps
+(`agent`, `bash`, `approval`, `ask`, `units`) with a pre-flight
+questionary (harness, model and effort per tuning group, optional
+steps, inputs).
+The engine is TypeScript under `plugins/wise/engine`, run as source on
+bun or Node 24 (`engine/engine.sh`). It runs as a per-user daemon
+(`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
+`codex exec`, `grok -p`, `gemini -p`) and exposes MCP tools to the
+Claude Code conversation through the plugin's `.mcp.json` server
+`wise-engine`. The conversation is a thin conductor: it renders
+questions, forwards context, prints one line per event and answers
+gates. It never sees step output.
 
-Workflows let you codify recipes like "build, test, and open a
-release PR" once, then run them repeatably and resumably.
+Source of truth for this page: `plugins/wise/engine/src/*.ts`
+(`defs.ts` schema, `scheduler.ts` DAG, `executor.ts` run loop,
+`units.ts` and `phases/` pipelines, `adapters/` harnesses,
+`migrate.ts` v1 rewrite).
 
-## The commands
+## Commands
 
 | Invocation | Purpose |
 |---|---|
-| `/wise-workflow-list` | List bundled + user workflows. |
-| `/wise-workflow-create <name>` | Wizard to scaffold a new user workflow. |
-| `/wise-workflow-run <name>` | Start a run. The main conversation becomes the conductor. |
-| `/wise-workflow-resume <run-ulid>` | Continue an interrupted or paused run. |
-| `/wise-workflow-status [<run-ulid>]` | List runs in cwd; with arg, dump full state. |
-| `/wise-workflow-remove <name>` | Delete a user workflow. Bundled ones are immutable. |
+| `/wise-workflow-run [<name> [<inputs...>]]` | Pre-flight questions, `wise_run`, event loop, gates, final report. |
+| `/wise-workflow-resume [<run-ulid>]` | Resume a `paused` or `failed` run, or answer a `gated` one, then follow it. |
+| `/wise-workflow-status [<run-ulid>]` | List runs, or show one run and its open gate. |
+| `/wise-workflow-list` | List bundled and user definitions. |
+| `/wise-workflow-create <name>` | Wizard that writes a user definition. |
+| `/wise-workflow-remove <name>` | Delete a user definition. Bundled ones are immutable. |
+| `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh <command>` | The engine CLI (see [CLI](#cli)). |
+
+Setup once: `/wise-init` (bun or Node 24, `claude auth login`, `gh`).
+`DAEMON_UNAVAILABLE` from any tool means the daemon could not start:
+run `/wise-init`, then retry.
 
 ## Where things live
 
-Each `workflows/` root accepts one of two layouts:
+| Thing | Path |
+|---|---|
+| Bundled definitions | `${CLAUDE_PLUGIN_ROOT}/workflows/<name>/workflow.yaml` |
+| User definitions | `<plugin data>/workflows/definitions/<name>/workflow.yaml`, where plugin data is `$CLAUDE_PLUGIN_DATA`, else `$WISE_DATA_DIR`, else the data root |
+| Data root | `$XDG_DATA_HOME/wise`, else `~/.local/share/wise` |
+| Run directories | `<data root>/runs/<cwd-slug>/<run-ulid>/` (`<cwd-slug>` = realpath of the cwd with `/` replaced by `-`) |
+| Daemon socket | `$XDG_RUNTIME_DIR/wise/engined.sock`, else `<data root>/engined.sock` |
+| Daemon lock and log | `<data root>/engined.lock`, `<data root>/engined.log` (rotated at 10 MB to `.1`) |
+| Engine config | `$XDG_CONFIG_HOME/wise/engine.json`, else `~/.config/wise/engine.json` |
+| Session profile | `<data root>/profile/<session-id>` (one word, written by `/wise-profile`; read by skills, never by workflows) |
 
-- **Folder form (preferred)** — `<root>/<name>/workflow.yaml`. The
-  workflow can ship sibling artifacts (see [Workflow artifacts](#workflow-artifacts))
-  and address them from steps via `{{workflow.dir}}`.
-- **Flat form (legacy)** — `<root>/<name>.yaml`. Still accepted so
-  existing user-authored files keep working. No artifacts dir.
+Layouts per root: folder form `<name>/workflow.yaml` (preferred, may
+ship `README.md`, `prompts/`, `templates/` addressed via
+`{{workflow.dir}}`) or flat form `<name>.yaml` (`{{workflow.dir}}` is
+empty). Folder form wins over flat in one root. The user root shadows
+the bundled root. A `<workflow>` argument to the CLI is a name or a
+path to a `.yaml` file.
 
-Folder form wins on same-root collision.
+Every bundled workflow ships a `README.md`: summary, when to use, when
+not to, prerequisites, flow (mermaid from the step DAG), steps table,
+inputs, outputs, examples, related. Keep it in sync with the YAML.
 
-- **Bundled definitions** — `${CLAUDE_PLUGIN_ROOT}/workflows/<name>/workflow.yaml`
-  (or legacy flat `*.yaml`). Ship with the plugin; replaced by reinstall.
-- **User definitions** — `${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>/workflow.yaml`
-  (or legacy flat `*.yaml`). Written by `/wise-workflow-create`. Survive
-  plugin updates.
-- **Run state** — `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/state.yaml` (honours `XDG_DATA_HOME`).
-  Per-workspace. Each step execution gets its own ULID and log file
-  at `logs/<step-id>.<step-run-ulid>.log`.
+## Definition
 
-If a user definition has the same name as a bundled one, the user
-version wins at run time. `/wise-workflow-list` flags this as a
-shadow.
+Top-level keys (`defs.ts` `TOP_KEYS`). Unknown keys warn; `agents` is a
+v1 error.
 
-### Workflow artifacts
+| Key | Required | Value |
+|---|---|---|
+| `version` | yes | `2`. Missing or `1` is an error with a migration hint. |
+| `name` | yes | kebab-case, matches the folder or file name. |
+| `description` | no | Free text. |
+| `author` | no | Free text. |
+| `project-selection` | no | `current` (default) \| `ask` \| `none`. |
+| `preflight` | no | `{control-mode, worktree, permissions}` pins. |
+| `requires` | no | `{plugins: [...], tools: [...]}`. |
+| `tuning` | no | `{groups: [...]}`. |
+| `profiles` | no | Mapping keyed `low` \| `medium` \| `max`; only `medium` is applied. |
+| `inputs` | no | List of input definitions. |
+| `step-select` | no | `{prompt?, optional?: [step ids]}`. |
+| `steps` | yes | List of steps. |
 
-Folder-form workflows can ship their own supporting files beside the
-`workflow.yaml`. By convention:
-
-```
-<name>/
-├── workflow.yaml
-├── README.md         # overview + mermaid flow diagram + step table; see below
-├── templates/        # long-form text the workflow injects (PR bodies, email templates, …)
-└── prompts/          # prompt fragments shared across steps or with standalone skills
-```
-
-**Every workflow ships a `README.md`** with a consistent
-structure — title + summary → When to use → When not to use →
-Prerequisites → Flow (mermaid flowchart derived from the
-step DAG) → Steps (table) → Inputs → Outputs → Examples →
-Related. The `/wise-workflow-create` wizard generates a scaffolded
-README automatically; when hand-authoring, copy the shape from
-any of the bundled workflows' READMEs
-(`plugins/wise/workflows/*/README.md`).
-
-Steps reference them via the `{{workflow.dir}}` template variable,
-which expands to the absolute path of the folder:
+Minimal example:
 
 ```yaml
-- id: draft-body
-  type: prompt
-  prompt: |
-    Read the template at {{workflow.dir}}/templates/pr-template.md
-    and fill it from {{changes_summary}}.
-- id: run-fixer
-  type: bash
-  command: cat {{workflow.dir}}/prompts/watch-pipelines.md
-```
+version: 2
+name: release-check
+description: Classify the release, run the tests, ask for approval.
 
-`{{workflow.dir}}` is the empty string for legacy flat-form
-workflows, so any reference to it from a flat-form definition is a
-bug — migrate to folder form first (just `mkdir <name>` + move the
-file to `<name>/workflow.yaml`; no YAML contents change).
+preflight:
+  control-mode: interactive
+  worktree: current
 
-## Definition schema
-
-```yaml
-version: 1                       # integer on its own line; required
-name: release-checklist          # kebab-case; matches filename
-description: Run tests, build, and open a release PR.
-author: your-name                # optional
-
-requires:                        # optional per-workflow deps; probed at run start
-  - plugin: some-other-plugin
-  - skill: skill-creator:skill-creator
-
-project-selection: current       # current (default) | prompt | any (see below)
-
-agents: auto                     # optional — off (default) | auto. Default agent
-                                 # policy for prompt steps (see Agent roster below).
-
-preflight:                       # optional — pin pre-flight answers (see below)
-  control-mode:   wave-sync      # prompt (default) | wave-sync | synchronous | auto-advance
-  worktree:       prompt         # prompt (default) | current | new
-  rename_session: prompt         # prompt (default) | skip
-  tuning:         skip           # skip (default) | prompt — opt-in model/effort questionary
-  step-select:    skip           # skip (default) | prompt — opt-in stage-selection questionary
-
-tuning:                          # optional — groups for the tuning questionary (see below)
+tuning:
   groups:
-    - id: authoring              # slug, unique
-      label: "Plan authoring"    # shown in the questionary
-      steps: [decide-release-kind]  # prompt-step ids the override binds to
-    - id: plan                   # an ADVISORY group: no steps binding —
-      label: "Plan phase"        #   the choice reaches the workflow via the
-      default: "opus / high"     #   {{tuning_plan}} / {{tuning_summary}} outputs
+    - id: classify
+      label: "Classification"
+      default: { harness: claude, model: sonnet, effort: low }
+      fallback: [codex]
 
-step-select:                     # optional — stages for the step-select questionary (see below)
-  optional:
-    - id: lint-stage
-      label: "Lint pass"
-      steps: [lint]              # step ids skipped together; defaults to [<id>]
-      ask-group: "Quality"       # one multiSelect question per ask-group
-  presets:
-    - id: quick
-      label: "Quick"
-      description: "Skip the lint pass"
-      skip: [lint-stage]         # ⊆ optional entry ids
+profiles:
+  medium:
+    caps: { max_review_cycles: 3 }
 
-profiles:                        # optional — budget-profile mappings (see § Profiles)
-  low:                           # keys ⊆ {low, medium, max}
-    tuning:                      # tuning-group id → "<model> [/ <effort>]" | "default"
-      authoring: "sonnet / medium"
-    step-preset: quick           # a step-select preset id, or `full` (XOR `skip:`)
-    # skip: [lint-stage]         # alternative: explicit optional-entry ids
-    team-mode: solo              # solo | full — collapse `agent:` teams to the lead
-    caps:                        # positive ints → recorded as cap_<name> outputs,
-      max_fix_attempts: 3        #   consumed by prompts as {{cap_<name>}}
-  medium: {}                     # empty = the workflow's declared defaults (convention)
-  max: { team-mode: full }
+inputs:
+  - name: focus
+    prompt: "What should the release notes focus on?"
+    optional: true
+    from-context: guidance
 
 steps:
-  - id: list-workflows           # unique per workflow; [a-z0-9-]
-    type: skill
-    skill: wise:wise-workflow-list
-    payload: {}
-    depends_on: []
-
-  - id: decide-release-kind
-    type: prompt
+  - id: classify
+    type: agent
+    group: classify
     prompt: |
-      Project: {{project.name}} (kind {{project.kind}}, path {{project.path}}).
-      Given `git status`, is this release 'patch', 'minor', or 'major'?
-      Reply with exactly one of: patch | minor | major.
-    until: "^(patch|minor|major)$"
-    max_iterations: 3
+      Project {{project.name}} ({{project.kind}}) at {{project.path}}.
+      Given `git log`, is this release patch, minor or major?
+      Return the field directly: release_kind.
+    schema:
+      type: object
+      properties:
+        release_kind: { type: string, enum: [patch, minor, major] }
+      required: [release_kind]
+      additionalProperties: false
     outputs: [release_kind]
-    agent: architect             # optional (prompt only) — force a roster role,
-                                 #   or `auto` / `off`. See Agent roster below.
-    model: opus                  # optional (prompt only) — inherit | opus | sonnet | haiku | fable
-    effort: high                 # optional (prompt only) — low | medium | high | xhigh | max
-    depends_on: [list-workflows]
+    max_turns: 3
 
-  - id: run-tests
+  - id: tests
     type: bash
-    command: make codecept unit
-    cwd: "{{project.path}}"
-    success:
-      exit_code: 0
-      stdout_matches: ".*OK.*"
+    run: npm test
     timeout: 600
-    depends_on: [decide-release-kind]
+    depends_on: [classify]
 
-  - id: lint
-    type: bash
-    command: npm run lint
-    cwd: "{{project.path}}"
-    success: { exit_code: 0 }
-    depends_on: [decide-release-kind]
-    # Same depends_on as run-tests → they run in parallel.
-
-  - id: approve-merge
+  - id: approve
     type: approval
-    message: |
-      Tests passed. Lint passed. Release kind: {{release_kind}}.
-      Approve merge?
-    depends_on: [run-tests, lint]
+    message: "Release kind {{release_kind}}, tests green. Tag it?"
+    depends_on: [tests]
     trigger-rule: all-success
 ```
 
-## Step types
+### `project-selection`
 
-| Type | Success when | Failure when | Captured output |
-|---|---|---|---|
-| `skill` | The `Skill` tool call returns without raising. | `Skill` errors or the invoked skill emits a fatal line. | Last message of the skill's reply. |
-| `prompt` | Subagent's final message matches `until:` regex (or, when `until:` is absent, single-shot success on return). | `max_iterations` hit without a match; subagent errors; timeout. | Named `outputs:` captured from the matching line's regex groups. |
-| `supervised-prompt` | As `prompt`, but the worker runs as a watched background teammate; success when its task completes and the final message matches `until:`. | The worker stays hung past the nudge/respawn ladder and the supervisor fails the slot; subagent errors. | Named `outputs:` captured from the worker's final line, identical to `prompt`. |
-| `bash` | `success.exit_code` matches the actual exit code AND all `success.stdout_matches` / `success.stderr_matches` regexes pass. | Any condition fails; timeout. | stdout+stderr to the step's log file; last ~1KB in state. |
-| `approval` | User picks Approve (wave-sync / auto-advance), OR the run is in synchronous mode (auto-approved). | User picks Reject or cancels (wave-sync / auto-advance only — never auto-rejects). | The selection label, or `auto-approved (sync mode)`. |
-| `ask` | User picks the skip or confirm option (wave-sync / auto-advance), OR sync mode (skipped). | — (ask steps don't fail — they always record *some* value, possibly empty). | The chosen value; see "`ask` rendering shapes" below. |
-| `interactive` | Conductor's main-thread execution of the step body emits a final line matching `until:`. | `max_iterations` doesn't apply — the conductor retries by re-reading the body. Failure surfaces when the conductor explicitly fails the step. | Named `outputs:` captured from the final line's regex groups, identical to `prompt`. |
+`current` detects the project from the run `cwd`: `path` = cwd, `name`
+= basename, `kind` = `node` (`package.json`) \| `python`
+(`pyproject.toml` or `setup.py`) \| `go` (`go.mod`) \| `rust`
+(`Cargo.toml`) \| `other`. `ask` and `none` are accepted by the
+validator (v1 `prompt` and `any` are errors with rename hints). The
+engine detects the project from `cwd` for every value in this build.
 
-### `prompt` vs `interactive`
-
-Both types take a free-form `prompt:` body and use `until:` +
-`outputs:` to capture a verdict. The difference is **where the
-body runs**:
-
-- `prompt` spawns a **Task subagent** — isolated, its own tool
-  list, releases the transcript on return. Good for
-  self-contained work: research, generation, bulk analysis.
-  Cannot call `AskUserQuestion` (subagent-side, not main-thread).
-  Parallelisable — multiple `prompt` steps in the same wave run
-  concurrently via parallel `Task` calls in one conductor turn.
-- `interactive` runs **inline in the conductor** — the main Claude
-  Code conversation reads the body and follows it directly.
-  Full main-thread tool access including `AskUserQuestion`,
-  richer dispatch across turns. NOT parallelisable — blocks the
-  conductor until it finishes.
-
-Pick `interactive` when the body needs to walk the user through
-per-item decisions (sonar wizards, review-comment wizards,
-anything that calls `AskUserQuestion` more than once). Pick
-`prompt` for everything else. An `interactive` step in a wave
-with other steps forces the others to wait — don't use it as a
-drop-in replacement for `prompt`.
-
-### `supervised-prompt` — a watched `prompt`
-
-`supervised-prompt` is a `prompt` step whose worker runs as an
-**addressable background teammate** (`Agent(team_name, name,
-run_in_background: true)`) instead of a blocking `Task`, so the
-conductor stays free to watch it. A leader loop — the routine in
-`plugins/wise/references/supervise-loop.md` — polls the worker's
-heartbeat and nudges it if it hangs mid-turn or goes idle without
-finishing, escalating (`TaskStop` → respawn → fail the slot) only
-if nudging fails. Use it for a single long step where a silent hang
-would otherwise stall the run; `Task` has no timeout of its own.
-Tune the watchdog with `WISE_WORKER_STALE_SECS` (default 180s),
-`WISE_WORKER_POLL_SECS`, `WISE_WORKER_MAX_NUDGES`, and
-`WISE_WORKER_MAX_RESPAWNS`. One supervised step is one worker (no
-team `agent:` list). The same routine — under `SUPERVISE=yes` —
-drives the `-auto` implement phase's executor fan-out, and the
-standalone `/wise-supervise [team]` skill attaches it to any
-already-running team.
-
-
-### `ask` — two rendering shapes
-
-An `ask` step captures an answer from the user and records it as
-a named output. It renders one of two ways depending on the YAML
-shape:
-
-- **Free-text** (default) — `ask` with no `confirm_label` key.
-  The user gets two options: the skip label (records empty
-  string) or `Provide input` (records free-text via the
-  AskUserQuestion Other affordance). Use this when the answer is
-  an open value: a comment, a ticket id, a branch name.
-- **Binary choice** — `ask` with a `confirm_label` key. The user
-  gets two explicit options: the skip label (records empty
-  string) or the confirm label (records `confirm_value`, or the
-  confirm label itself when `confirm_value` isn't set). Use this
-  for yes/no opt-ins: "watch the PR?", "run tests?", etc. The
-  free-text affordance is dropped — this is deliberately binary.
+### `requires`
 
 ```yaml
-# Free-text: "what's your comment?"
-- id: user-comments
-  type: ask
-  question: "Any comments for the planning step?"
-  output: user_comments
-  skip_label: "Skip — no extra guidance"
-
-# Binary: "do you want to opt into this extra stage?"
-- id: ask-watch
-  type: ask
-  question: "Watch the PR until it's green?"
-  output: watch_choice
-  skip_label: "No — I'll watch manually"
-  confirm_label: "Yes — watch pipelines"
-  confirm_value: "yes"
+requires:
+  plugins: [some-plugin]      # installed_plugins.json keys `<name>@<marketplace>`,
+                              # or a dir holding .claude-plugin/plugin.json
+  tools: [gh, codex]          # binaries on PATH
 ```
 
-Downstream steps gate with `when:` — `when: "user_comments != ''"`
-for free-text (truthy = user provided something), or
-`when: "watch_choice == 'yes'"` for binary (exact-match the
-confirm value). `when:` also accepts a **list** of such conditions,
-AND-ed — the shape for a step gated on both a captured output and a
-pre-flight mode choice:
+The v1 list form (`- plugin: x`) is an error. `wise_preflight` returns
+the unmet entries as `requires_missing` (`plugin:<name>`,
+`tool:<name>`); `wise_run` refuses with `REQUIRES_MISSING` while any
+is unmet, before the auth probes and before a run directory exists.
+
+### `preflight`
+
+| Key | Values | Effect |
+|---|---|---|
+| `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
+| `worktree` | `current` (default) \| `new` | Recorded. The engine runs steps in `cwd`; `units` steps make their own worktrees under the run directory. |
+| `permissions` | `allowlist` (default) \| `full` | `full` runs every child (agent steps and unit model phases) in `full-access` regardless of its `mode`, so a tool the step did not list is never a permission denial; `allowlist` keeps each step's `mode` and `allowed_tools`. The `ticket-auto`, `impl-plan-auto` and `ticket-plan` workflows pin `full`. |
+
+v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
+`wave-sync`, `auto-advance`, `prompt`. A run answer `control-mode` or
+`permissions` overrides the pin when the conductor passes one.
+
+### `tuning`
+
+Three staged questions per unlocked group at pre-flight (harness,
+model, effort; see [Pre-flight questionary](#pre-flight-questionary)).
+A step binds with `group: <id>`; `units` steps bind phases through
+`groups:`.
 
 ```yaml
-when:
-  - "readiness == 'gaps'"
-  - "gap_mode == 'ask'"
+tuning:
+  groups:
+    - id: plan                       # SLUG_RE ^[a-z][a-z0-9-]*$, unique
+      label: "Plan phase"
+      description: "Who writes the plan"
+      default: { harness: claude, model: opus, effort: high }   # mapping, required
+      fallback: [codex, grok]        # harnesses tried after a rate limit
+      locked: true                   # no question; default stands
 ```
 
-Order the guarding condition first: `x != ''` on an output that was
-never recorded evaluates TRUE (unset ≠ empty string), so pair it with
-the mode condition that decides whether the recording step ran at all.
+| Field | Notes |
+|---|---|
+| `default` | `{harness?, model?, effort?}`. A string (`"opus / high"`) is a v1 error. |
+| `fallback` | Harness list. Used when the primary is parked by a rate limit; a fallback runs with `model: inherit`. |
+| `locked` | Question emitted with `locked: true`; the conductor skips it. |
+| `options` | Parsed and ignored: pre-flight offers the engine's model catalog instead of presets. |
+| `steps` | v1 error. Bind from the step with `group:`. |
 
-Picking the binary shape for yes/no questions matters for UX:
-`Provide input` + free-text forces the user to type `yes` by
-hand, which is slow and error-prone. Use binary whenever the
-answer is enum-like.
+Resolution per step: pre-flight answers for an unlocked group (harness,
+model, effort) > `profiles.medium.tuning` for the group > group
+default. A step's own `harness` / `model` / `effort` override the
+group.
 
-### Choice inputs — front-loading run decisions
+### `profiles`
 
-An `inputs:` entry may declare `options:` (list of
-`{value, label?, description?}`; bare string = `{value}`) plus an
-optional `default:` naming one of the values. The conductor then
-renders it as an AskUserQuestion choice (default listed first,
-recorded answer = the option **value**) instead of a free-text
-prompt, and batches consecutive choice inputs into one composite
-call. Membership validation is derived automatically: when no
-explicit `validate:` is declared, `list-inputs` emits one built from
-the option values, so positionally-supplied answers get checked by
-the same machinery with nothing to hand-maintain (an explicit
-`validate:` overrides it, e.g. to admit free-text values).
-
-This is how a workflow front-loads its mid-run decisions into the
-pre-flight questionary: declare each decision as a choice input with
-an autonomous default and an `ask` escape value, then gate the old
-mid-run `ask` step on `<name> == 'ask'` (compound `when:` above).
-`ticket-plan`'s `gap_mode` / `review_mode` / `branch_mode` /
-`implement_mode` are the reference case — with the defaults selected
-the run is fully autonomous after launch.
-
-### `trigger-rule` — what makes a dependent runnable
-
-Set on the *dependent* step (not the dependencies). Controls whether
-a step becomes runnable once its `depends_on` entries are terminal:
-
-- `all-success` (default) — every dep `completed`.
-- `one-success` — ≥1 dep `completed`; others may be `failed` or `skipped`.
-- `all-done` — every dep terminal (completed/failed/skipped).
-- `none-failed` — every dep terminal, none failed — runs even when ALL
-  deps are skipped. The rule for consolidation steps downstream of
-  user-deselectable stages (step-select): deselecting evidence must not
-  skip-propagate into the step that summarises whatever evidence
-  remains, but a *failed* dep still propagates the skip.
-- `none-failed-min-one-success` — every dep terminal, none failed, ≥1
-  completed. Beware: if every dep ends `skipped` this rule never fires
-  and the run dead-ends — behind step-select prefer `none-failed`.
-
-### Surfacing step output to chat
-
-By default a step's full output goes to its log file; only a
-one-line verdict appears in chat. When a step produces content the
-user needs to *review* (a drafted PR body, a generated report),
-add a `surface:` field to the step definition:
+Kept for the `caps` a `units` step reads. Pre-flight no longer asks a
+budget level: the run is fixed to `medium`, and the model and effort
+come from the questionary. `low` and `max` still parse and are ignored.
 
 ```yaml
-- id: draft-body
-  type: prompt
+profiles:
+  medium:
+    tuning:
+      authoring: { effort: high }   # group id -> partial default, merged over the group's
+    caps:                           # positive ints, CAP_RE ^[a-z][a-z0-9_]*$
+      max_review_cycles: 3
+      tokens: 2000000               # per-run ceiling; see the gate below
+```
+
+v1 keys `step-preset`, `skip`, `team-mode` and the tuning value
+`"default"` are errors.
+
+`caps` land in `state.caps`; a `units` step reads the names it lists.
+`caps.tokens` sets a per-run token ceiling that parks the run at a gate
+(`Gate.ceiling = {used, limit}`).
+
+### `inputs`
+
+```yaml
+inputs:
+  - name: ticket_id                  # INPUT_NAME_RE ^[a-z][a-z0-9_]*$
+    prompt: "Which ticket?"          # default "Value for <name>?"
+    description: "URL or key"
+    optional: true                   # else the run refuses to start without it
+    default: defaults
+    from-context: ticket[].ref       # pre-fill from the run context
+    extract: "([A-Z]+-\\d+)"         # first capture group (else whole match) becomes the value
+    validate: "^(defaults|ask)$"     # full match after extract
+```
+
+`from-context` grammar: `guidance` \| `ticket[].ref` \| `ticket[].title`
+\| `ticket[].body` \| `ticket[].url` \| `links[]` \| `decisions.<key>`.
+Ticket fields join with `, `, links with newlines. Order: positional
+argument from the conductor, else the `input.<name>` answer, else the
+context value, else `default`. A non-optional input with no value fails
+`wise_run` with `MISSING_ANSWERS`. `validate` failures report
+`INVALID:no-match` or `INVALID:validate`. v1 `options:` is an error:
+use `validate` with an alternation, or an `ask` step.
+
+Inputs are templating variables (`{{ticket_id}}`) and are also copied
+into `state.outputs` at run start, so `when:` can read them by bare
+name.
+
+### `step-select`
+
+```yaml
+step-select:
+  prompt: "Which research stages should run?"
+  optional: [analyze-design, research-context]   # step ids; else steps with `optional: true`
+```
+
+One `multi` question, label from each step's `description`, all
+selected by default. Deselected steps are skipped before the first
+wave with verdict `skipped: deselected in pre-flight`. Downstream
+consolidation steps use `trigger-rule: none-failed`. v1 `presets` and
+object entries are errors.
+
+## Steps
+
+Common fields (`StepBase` and `StepOverrides`):
+
+| Field | Types | Notes |
+|---|---|---|
+| `id` | all | `^[a-z][a-z0-9_-]*$`, unique. |
+| `type` | all | `agent` \| `bash` \| `approval` \| `ask` \| `units`. v1 `prompt`, `skill`, `interactive`, `supervised-prompt` are errors with hints. |
+| `description` | all | Shown as the step-select label. |
+| `optional` | all | Offered in step-select when `step-select.optional` is absent. |
+| `depends_on` | all | Step ids. Self or unknown id is an error. Steps whose deps are all terminal run together. |
+| `trigger-rule` | all | See below. Default `all-success`. |
+| `when` | all | Expression, see below. A list is a v1 error. |
+| `group` | agent, units | Tuning group id. Warns "no effect" on bash / approval / ask. |
+| `harness` | agent, units | `claude` \| `codex` \| `gemini` \| `grok`. Overrides the group. |
+| `model`, `effort` | agent, units | Override the group. `effort`: `low` \| `medium` \| `high` \| `xhigh` \| `max`. |
+| `auth` | agent, units | `subscription` (default) \| `api-key`. |
+| `fallback` | agent, units | Harness list, overrides the group's. |
+| `mode` | agent, units | `approval-required` \| `auto` (default) \| `full-access`. |
+| `resume` | agent, units | `fresh` (default) \| `unit`. `unit` resumes the previous attempt's session cursor. A cursor never crosses harnesses: a `units` fixer whose group resolves to a different CLI than the reviewer's starts clean (logged as `fix: fresh session`). |
+| `max_turns` | agent, units | Passed to Claude and grok `--max-turns`. |
+| `timeout` | agent, bash, units | Seconds. Default 1800 for agent and bash; per-phase defaults for units. |
+| `stale_after` | agent, units | Idle seconds before the stale policy acts. Default 600. |
+| `allowed_tools` | agent, units | Claude permission rules (`Bash(git:*)`, `WebFetch`) pre-granted to the child; grok gets them as `--allow`. |
+| `allow-api` | agent, units | Landing in the same release (M6.2). |
+
+### `agent`
+
+```yaml
+- id: classify
+  type: agent
+  group: classify
   prompt: |
-    …write the drafted body to a temp file; emit DRAFT: body_path=<path>…
-  until: 'DRAFT: body_path=(\S+)'
-  outputs: [pr_body_path]
-  surface:
-    file: pr_body_path           # read file at state.outputs[pr_body_path]
-    label: "Drafted PR body"     # optional header shown above the content
-    max-lines: 400               # optional cap; default 400
+    ... {{project.name}} ... Return the field directly: release_kind.
+  schema:
+    type: object
+    properties: { release_kind: { type: string, enum: [patch, minor, major] } }
+    required: [release_kind]
+    additionalProperties: false
+  outputs: [release_kind]
+  max_turns: 3
+  allowed_tools: ["Bash(git:*)"]
 ```
 
-The conductor reads the file (if it exists and is readable) and
-inlines the content as a fenced block in the wave-results render,
-right after the step's one-line outcome. Truncation adds a
-`… (<N> more lines)` footer. A missing output / unreadable file
-degrades to a `<surface failed: …>` note — never fails the step.
-
-Use this sparingly — only for content the user actually needs to
-see inline. Long noisy outputs belong in the log file, not the
-main chat.
-
-### Templating
-
-Before a step runs, the conductor renders `{{project.path}}`,
-`{{project.name}}`, `{{project.kind}}`, `{{workflow.dir}}` (absolute
-path to the workflow folder for folder-form definitions, empty
-string for flat-form), `{{run.dir}}` (absolute path to this run's
-directory — the parent of `state.yaml`, off the project tree),
-`{{run.id}}` (the run ULID), and any named `outputs` from earlier
-completed steps. `{{run.dir}}` is where a step writes run-scoped
-artifacts that should persist with the run rather than land in the
-project tree — e.g. `{{run.dir}}/plans/PLAN-<ref>.md`. No expression
-evaluation beyond literal replacement. For conditional execution, use
-the step-level `when:` field with a trivial comparison:
-`when: "release_kind == 'patch'"`.
-
-## Agents, model and effort
-
-`wise` ships an **SDLC agent roster** — a set of role subagents
-(`wise:architect`, `wise:software-engineer`, `wise:security-engineer`,
-`wise:code-reviewer`, …) under `plugins/wise/agents/`, catalogued in
-[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md). A `prompt`
-step can be dispatched to one of them instead of the generic
-`general-purpose` subagent, and can pin a model and a reasoning effort.
-
-**These fields apply to `prompt` steps only.** An `interactive`
-step runs inline in the conductor (it *is* the conductor, so it can't
-become a subagent or switch model mid-conversation), and a `skill` step
-runs under the invoked skill's own frontmatter. The fields are ignored
-on every other step type. **A step that pins none of them inherits the
-parent session's model + effort** — the harness setup at run time.
-
-### Workflow-level policy: `agents:`
-
-| Value | Effect |
+| Field | Notes |
 |---|---|
-| `off` (default) | `prompt` steps run as a plain `general-purpose` subagent unless the step sets its own `agent:`. Matches pre-roster behaviour. |
-| `auto` | every `prompt` step with no explicit `agent:` is routed to the best-fit roster role (the conductor picks). |
+| `prompt` | Required unless `skill`. Rendered, sent as the child's first user message. |
+| `skill` | Sugar: `prompt: "Run /<skill>"`, forces `harness: claude`. Exclusive with `prompt`; a non-claude harness is an error. |
+| `schema` | JSON schema for the structured result (`claude --json-schema`, `codex --output-schema`, `grok --json-schema`). Required when `outputs` is set. |
+| `outputs` | Names copied from the structured result into run outputs. Each must be a schema property. A missing name fails the step: `schema result lacks <name>`. |
+| `until` | Deprecated. Accepted on `agent` for one release with a warning; an error on other types. `wise-engine migrate` turns a plain enum regex into `schema` plus `outputs`. |
 
-### Step-level: `agent:`
+Verdict: first non-empty line of the child's text (200 chars), else the
+JSON headline, else `ok`. Exit classes: `ok`, `error`, `rate_limited`,
+`auth`, `timeout`, `max_turns`, plus `missing_output`. `rate_limited`
+parks the harness and returns the step to `pending` (see [Fallback and
+rate limits](#fallback-and-rate-limits)); `auth` fails the run.
 
-Set on a `prompt` step; overrides the workflow policy for that step. It takes
-either a **scalar** (one role or a policy keyword) or a **list** (a team of
-roles dispatched together).
-
-**Scalar:**
-
-| Value | Effect |
-|---|---|
-| `<role>` (e.g. `architect`) | force this role → dispatched as `subagent_type: wise:<role>`. |
-| `auto` | the conductor reads the roster (`workflows.py list-agents`) and routes to the role whose description best matches the step's intent + tool needs; falls back to `general-purpose` when nothing fits. |
-| `off` | force the plain `general-purpose` subagent. (A YAML 1.1 boolean — both `agent: off` and `agent: "off"` work.) |
-| *(omitted)* | inherit the workflow's `agents:` policy. |
-
-**List — a team.** When `agent:` is a list, the step is worked by **several
-roster roles at once** and the conductor **synthesizes** their outputs into the
-step's single result. Each item is a bare role name or an object with
-per-member overrides:
-
-| Member field | Effect |
-|---|---|
-| `role` (required) | the roster role → `wise:<role>`. A bare string item is shorthand for `{role: <string>}`. |
-| `lead` | `true` on **at most one** member → it runs *after* the peers, sees their drafts, and proposes an integrated recommendation before the conductor's final synthesis. Zero leads = equal peers, synthesized directly. |
-| `model` | per-member model override; omitted → inherits the step-level `model:`. |
-| `effort` | per-member effort override; omitted → inherits the step-level `effort:`. |
-
-`auto` / `off` are policy keywords — valid only as a scalar, **not** as team
-members. A team runs **in-conversation** (parallel `Task` subagents under the
-subscription, then a conductor synthesis on the main thread — no extra API
-billing). A member's `until:` is ignored; the contract applies to the
-synthesized result. The step is **atomic** — a resume mid-team re-runs it
-whole (members are idempotent producers), so no extra run state is kept.
-
-### Step-level: `model:`
-
-`inherit` (default) | `opus` | `sonnet` | `haiku` | `fable`. Passed as
-the Task per-call model override — the real, harness-level way to run a
-step's subagent on a specific model. It runs **in-conversation** under the
-active subscription (no extra API billing; there is no subprocess/headless
-backend). Resolution order Claude Code applies: env
-`CLAUDE_CODE_SUBAGENT_MODEL` > this per-call `model:` > the roster agent's
-own `model:` frontmatter > the session model. This is the primary per-step
-knob — see [Model availability and fallback](#model-availability-and-fallback).
-
-### Step-level: `effort:`
-
-`low` | `medium` | `high` | `xhigh` | `max`. Claude Code's in-conversation
-`Task` tool has **no per-call effort parameter**, so `effort:` is conveyed
-as a **prompt directive only** — the conductor appends a one-line nudge
-(*"Reason at high effort — think carefully, weigh alternatives."*), and
-the targeted `wise:<role>` agent's frontmatter `effort:` is the standing
-baseline. It is **best-effort and may be ignored** by the model/harness
-today — the field is forward-looking (Claude-Code-first; a future model
-may act on it at a lower level). When the effort knob must be real, pick a
-roster agent whose default effort already matches. The directive uses the
-**resolved** effort, clamped to what the model's **family** supports
-(Opus, Sonnet, and Fable take the full range as of Sonnet 5; Haiku has
-no effort control so it is dropped) and then to that model's **policy
-ceiling** (Opus 5 tops out at `high`). Capability clamping is
-family-level, not per-version — a pinned pre-Sonnet-5 id (e.g.
-`claude-sonnet-4-6`) is treated as the `sonnet` family and so also passes
-`xhigh` through unclamped — see
-[Model availability and fallback](#model-availability-and-fallback) and
-[Effort ceilings](#effort-ceilings).
-
-### Model availability and fallback
-
-Before dispatch the conductor resolves the pinned model/effort via
-`workflows.py resolve-model`:
-
-- A **known-retired / deprecated** full id (e.g.
-  `claude-opus-4-1-20250805`) is swapped for its maintained alias
-  (`opus`), and the substitution `reason` is shown in the step's outcome
-  line + log.
-- **Effort is clamped** to the resolved model's ceiling (a model that
-  lacks `xhigh`/`max` steps down; a model with no effort control drops it),
-  then to its policy ceiling — see [Effort ceilings](#effort-ceilings).
-- On a **live** "model unavailable" failure, the step retries once down a
-  tier chain (`opus → sonnet → haiku`) before failing.
-- **Low-profile Opus rule (MUST)** — with `--profile low` (the conductor
-  passes the run's recorded `run_profile` on every `resolve-model` /
-  `resolve-team` call), every Opus-family pin — the `opus` alias, a
-  `claude-opus-5*` id, a retired id that substitutes to `opus`, a tuning
-  override — resolves to **`claude-opus-4-8`**, with the swap in
-  `reason` (`low profile: opus→claude-opus-4-8 (Opus 5 is never used at
-  low)`). A `low` run never dispatches Opus 5. Sonnet / haiku / fable
-  pins and `inherit` are untouched; a pin already on Opus 4.8 (or a
-  dated snapshot of it) stands. `get-profiles` applies the same rule to
-  a `profiles.low.tuning` value, so authoring `opus / high` under `low`
-  is equivalent to `claude-opus-4-8 / high`. The rule is not
-  env-tunable — it is part of what `low` means, not a ceiling.
-
-**Prefer aliases** (`opus`/`sonnet`/`haiku`/`fable`) in workflows — they
-auto-resolve to a maintained model and rarely retire, so they sidestep
-the fallback path entirely. The durable availability check is Anthropic's
-`GET /v1/models` (it also reports each model's supported effort levels),
-but it needs an API key the subscription-auth conductor may lack, so the
-shipped path uses a static retired-id table plus the live error-driven
-retry.
-
-### Effort ceilings
-
-Two different clamps run on `effort:`, in this order:
-
-1. **Capability** — what the model family accepts (`MODEL_EFFORT_SUPPORT`).
-   Haiku has no effort control at all, so the effort is dropped.
-2. **Policy** — the highest effort that wise is willing to *request*
-   from that model (`MODEL_EFFORT_CEILING`). Keyed **per model**, not per family,
-   because the tiers are not equivalent across versions: Opus 5 reasons
-   deeper at every level than Opus 4.8, so wise's planning steps get their
-   signal at `high` while `xhigh`/`max` only buy latency and tokens.
-
-Shipped ceilings:
-
-| model | ceiling | effect |
-| --- | --- | --- |
-| `opus` (alias → latest Opus = Opus 5) | `high` | authored `xhigh`/`max` run at `high` |
-| `claude-opus-5` (and dated snapshots) | `high` | same |
-| `claude-opus-4-8` | `xhigh` | keeps `xhigh`, `max` steps down |
-| anything else (`sonnet`, `fable`, `haiku`, untabled ids) | none | capability clamp only |
-
-Keys match the **resolved** model id/alias — exact match first, then the
-longest `claude-…` key the model is a *dated snapshot* of (the base id
-plus `-YYYYMMDD`), so `claude-opus-5-20260401` inherits
-`claude-opus-5`'s ceiling while `claude-opus-5-1` (a different model)
-does not, and a retired id substituted for `opus` inherits Opus 5's. `model: inherit` has no ceiling (the engine cannot see
-the session model).
-
-Workflows keep authoring their intended depth (`effort: xhigh` on the
-planning steps) — the ceiling is applied at resolve time, and the
-step-down is surfaced in the outcome line + log as
-`effort xhigh→high (opus policy ceiling)`.
-
-Override per run with `WISE_EFFORT_CEILING`:
-
-```bash
-WISE_EFFORT_CEILING=off                     # no policy ceilings at all
-WISE_EFFORT_CEILING="opus=xhigh"            # raise one entry
-WISE_EFFORT_CEILING="claude-opus-5=medium"  # lower one entry
-WISE_EFFORT_CEILING="opus=off"              # drop one entry
-```
-
-Comma-separate pairs to set several. Unparseable pairs are ignored (a typo
-must not kill a run), so check the step's `reason` line to confirm an
-override landed.
+### `bash`
 
 ```yaml
-agents: auto                 # workflow default
-
-steps:
-  - id: design
-    type: prompt
-    agent: architect         # force the role; uses its effort: high baseline
-    model: opus              # alias — auto-resolves, rarely retires (the real knob)
-    effort: high             # prompt-directive nudge (best-effort)
-    prompt: |
-      Design the …
-  - id: research
-    type: prompt
-    agent: auto              # conductor picks the best-fit role
-    prompt: |                # model+effort inherited from the session
-      Investigate …
-  - id: raw
-    type: prompt
-    agent: off               # plain general-purpose subagent
-    prompt: |
-      …
-  - id: review               # a TEAM — three roles at once, conductor-synthesized
-    type: prompt
-    model: sonnet            # shared default for members that don't override
-    effort: high
-    agent:
-      - role: architect
-        lead: true           # integrates the panel before final synthesis
-        model: opus          # per-member override
-      - role: security-engineer
-        effort: high
-      - qa-engineer          # bare string → inherits step model/effort
-    until: 'VERDICT: (ship|block)'   # governs the synthesized result, not members
-    prompt: |
-      Review the proposed change for …
+- id: stamp
+  type: bash
+  run: |
+    set -eu
+    date -u +%Y-%m-%dT%H:%M:%SZ
+  outputs: [stamp]
+  timeout: 15
 ```
 
-The roster agents are real Claude Code plugin subagents — after install
-they appear in `/agents` and are directly invocable as
-`subagent_type: wise:<name>`. See
-[`plugins/wise/AGENTS.md`](../../plugins/wise/AGENTS.md) for the full
-list, each role's default effort, and how `auto` chooses.
+`bash -c <run>` in the run cwd under the clean child environment.
+Success is exit code 0 without timeout. `outputs`: the first name gets
+the whole trimmed stdout (1 MiB cap). Verdict: last non-empty stdout
+line, else `ok`; on failure `failed: <last stderr line or exit code>`.
+v1 `command` (rename `run`), `cwd` (prefix the script with `cd`),
+`success` are errors.
 
-## Project selection
-
-`wise` keeps no persisted project registry — the project a run
-operates on is derived from the current context. Set at the workflow
-level via `project-selection:`:
-
-- `current` (default) — the conductor auto-detects the project from
-  the current directory: `path` from `git rev-parse --show-toplevel`
-  (falling back to `pwd`), `name` from the repo basename or
-  `origin` slug, `kind` inferred from the repo's contents.
-- `prompt` — the conductor auto-detects as above, then presents an
-  `AskUserQuestion` at run start so the user can confirm or override
-  each of `path` / `name` / `kind`.
-- `any` — the workflow is workspace-agnostic; `project` stays null,
-  and `{{project.*}}` templates resolve to empty strings.
-
-## Session tagging
-
-The very first persistent act of a run is session tagging. Before
-pre-flight, the conductor:
-
-1. Allocates the run's ULID.
-2. Creates `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` and writes a stub
-   `state.yaml` with `status: initializing`.
-3. Resolves the current session id and records it as
-   `claude_session_id:` in state.yaml, in this order: the exported
-   `$CLAUDE_CODE_SESSION_ID` → else the most-recently-modified
-   `.jsonl` in `~/.claude/projects/<cwd-slug>/` (reliable because
-   your own session is being appended to as the workflow runs) →
-   else a **synthetic per-workspace id** (`local-<cwd-slug>`), so a
-   run is still tagged even when no transcript exists.
-4. Derives a human-readable label of the form
-   `<run-ulid>_<first-7-hyphen-tokens-of-workflow-name>` and
-   records it as `session_label:`.
-5. Checks for **session conflicts** — other non-terminal runs in
-   the same workspace that have already claimed this session. Only a
-   *live* run counts: matches are classified by how recently they
-   checked in (`last_activity_at` vs `WISE_SESSION_STALE_SECS`,
-   default 30 min). A `fresh` match means the user is interrupting an
-   in-flight run, and asks whether to continue (both runs share the
-   session — `/resume` will only return to whichever renamed the
-   session most recently) or abort. A `stale` match is a run that was
-   abandoned mid-flight and whose state froze at non-terminal; it is
-   not a real conflict, so the new run proceeds (with a one-line note)
-   rather than prompting.
-6. Prints a copy-pasteable `/rename <session_label>` command and
-   asks the user to confirm (rename / skip rename / abort run).
-   The rename is cosmetic: resume uses the UUID, not the label,
-   so skipping is safe — the `/resume` picker will just show the
-   raw UUID rather than a friendly label.
-
-The label exists for two reasons. First, so `/resume`'s picker
-shows something descriptive ("01K…_release-checklist" instead of a
-raw UUID) when you reach for it manually. Second, so when a run is
-re-tagged mid-flight (see [Resume](#resume) below), the info line
-can identify the previous host session by label rather than UUID.
-
-Legacy runs (started before this feature) have no
-`claude_session_id` field; resume treats that as "no stored session"
-and proceeds without any notice.
-
-The three `workflows.py` session subcommands degrade cleanly when no
-transcript exists: `current-session-id` returns the resolved id
-(synthetic when there is no transcript, never empty), `session-path`
-exits 2 when no `.jsonl` exists (the "no transcript" signal), and
-`find-runs-by-session` matches on whatever id was stored — so the
-conflict check and `/resume` still work.
-
-## Pre-flight prompts
-
-After session tagging, BEFORE the run flips to `status: running`,
-the conductor runs the pre-flight: up to three base-control questions
-— rename_session, control-mode, worktree — plus, for workflows that
-opt in, the tuning and stage-selection flows (multi-question, see
-below) and any declared inputs. Each base control can be **pinned by
-the workflow definition** via the top-level `preflight:` block, in
-which case the corresponding AskUserQuestion is skipped and the
-pinned answer is logged.
-
-### The three keys
-
-1. **Session rename (`preflight.rename_session`):**
-   Asked first. Suggests `/rename <session-label>` so the run is
-   findable in `/resume`'s picker. `skip` value pins no-rename.
-   Optional — the session UUID is always tracked regardless; the
-   only effect is the picker shows the raw UUID instead of a
-   friendly label.
-
-2. **Control mode (`preflight.control-mode`):**
-   - **Wave-sync (recommended)** — run one wave of steps, then pause
-     for the user. Between waves you can chat freely, abort, or
-     steer. Approval gates use `AskUserQuestion`. This is the only
-     mode that lets you interrupt mid-run.
-   - **Synchronous** — run end-to-end without stopping. **Approval
-     gates are auto-approved** — picking synchronous is itself the
-     blanket approval. Each auto-approved gate writes a
-     `[sync auto-approved]` line to its step log, so the decision
-     is auditable after the run. In-step prompts are all suppressed:
-     `ask` steps record empty, `interactive` steps don't call
-     `AskUserQuestion`. Fully unattended.
-   - **Auto-advance** — run waves back-to-back with **no between-wave
-     menu** (like synchronous), but **still honor every in-step
-     prompt** (like wave-sync): `ask` steps render, approval gates use
-     `AskUserQuestion`, and `interactive` steps may prompt. The run
-     flows wave-to-wave on its own and stops only where a step
-     genuinely needs the user's input. Per-step chat output (10d/10e) is
-     shown, so it is not silent the way synchronous is — it just never
-     asks "continue to the next wave?".
-
-   Pin `wave-sync` on workflows with `ask` steps, AskUserQuestion
-   inside prompt steps, or interactive approval gates when the runner
-   should also review progress between waves — synchronous mode would
-   break those steps by auto-approving and skipping asks. Pin
-   `auto-advance` on the same kind of workflow when its in-step
-   questions should fire but the runner should NOT be asked to start
-   each wave (e.g. `ticket-plan`, whose DAG is mostly one step per
-   wave). Pin `synchronous` on end-to-end automated workflows with no
-   human decision points.
-
-3. **Worktree (`preflight.worktree`):**
-   - **Current tree** — run against the project path as-is.
-   - **Dedicated worktree** — create a sibling worktree at
-     `<project-path>.wise-<run-ulid>` on branch
-     `wise/<name>-<run-ulid>`. All `{{project.path}}` templates and
-     bash `cwd` fields resolve to the worktree. Cleanup is manual
-     (`git worktree remove` when you're done). On creation, files listed
-     in a `.worktreeinclude` at the base repo root (gitignore syntax) are
-     copied into the new worktree — `git worktree add` checks out only
-     tracked files, so untracked artifacts the tree needs to run (`.env`,
-     local config) are carried over automatically. Best-effort: no file,
-     a non-git base, or a missing listed path are silent no-ops.
-
-   Pin `current` for read-only workflows (status checks, reports).
-   Pin `new` for workflows that make destructive-ish edits and the
-   user should always be able to throw the tree away.
-
-### The two opt-in questionaries
-
-Two more pre-flight questions exist, but inverted: they default to
-`skip` and only run when the workflow opts in with `prompt`. Both run
-in the main TUI *before* the DAG launches, so even a
-`control-mode: synchronous` workflow (e.g. `ticket-auto`) can offer
-them without breaking its no-prompts-after-launch contract. Both
-persist their answers in `state.yaml`, so resume keeps them.
-
-4. **Profile & tuning (`preflight.tuning`)** — reads the top-level
-   `tuning:` + `profiles:` blocks (`get-tuning` / `get-profiles`) and
-   the session budget profile (`profile-get`, set by `/wise-profile`).
-   With a `profiles:` block, ONE question runs: `Budget profile for
-   this run?` — low / medium / max / `Custom (per-step)`, with the
-   stored session profile pre-selected as the Recommended option; a
-   level pick expands the workflow's `profiles[level]` mapping
-   (tuning tiers, a step-preset/skip applied via §5's mechanics,
-   `team_mode`, `cap_<name>` values) and also answers the
-   stage-selection questionary. `Custom` asks model/effort per
-   tunable STEP (recorded as `tuning_step_<step-id>`; advisory-group
-   workflows fall back to per-group), then §5's multiSelect skips,
-   then full-team-vs-solo when a step declares a team. Without a
-   `profiles:` block the legacy two-level flow runs unchanged
-   (`Defaults` / `Economy` / `Custom` per group). Choices are recorded
-   as `run_profile`, `tuning_<group-id>` / `tuning_step_<step-id>`,
-   `team_mode`, `cap_<name>` outputs plus a human-readable
-   `tuning_summary`. A group **with** a `steps:` list is applied at
-   dispatch — the conductor passes
-   `resolve-team --model <m> --effort <e>`, which overrides the step's
-   and every team member's pins (still going through retired-id
-   substitution and the effort clamp). A group **without** `steps:` is
-   advisory: the workflow consumes the choice itself via the
-   `{{tuning_<id>}}` / `{{tuning_summary}}` templates (how `ticket-auto`
-   binds its per-phase models inside `process-tickets`).
-
-5. **Stage selection (`preflight.step-select`)** — reads the top-level
-   `step-select:` block (`get-step-select`). Skipped entirely when a
-   profile level already applied its step-preset/skip (see 4). One
-   preset question (`Full` / declared presets / `Custom`), and on
-   Custom one multiSelect question per `ask-group` listing entries to
-   skip — bundled workflows author entries per-STEP (an entry id that
-   IS a step id needs no `steps:` list), so Custom is per-step
-   granularity.
-   Deselected stages have their steps **pre-marked `skipped` in run
-   state** before the first wave; downstream consolidation steps must
-   use `trigger-rule: none-failed` so user-skipped dependencies don't
-   skip-propagate through the DAG (see the trigger-rule list above).
-
-### Profiles
-
-The optional top-level `profiles:` block maps each budget level
-(`low` / `medium` / `max` — the `/wise-profile` vocabulary) to
-workflow-specific settings: `tuning` values per group, a
-`step-preset` (or explicit `skip` list), a `team-mode`
-(`solo` collapses every `agent:`-list team to its lead via
-`resolve-team --team-mode solo`, which returns an additive
-`collapsed: {from, dropped}` key), and `caps` (positive integers
-recorded as `cap_<name>` outputs and consumed by prompts as
-`{{cap_<name>}}` — e.g. `process-tickets.md`'s fix/review-cycle
-caps). Convention: `medium: {}` — an empty mapping means "the
-workflow's declared defaults", so a run that never touches the
-questionary behaves exactly as authored. Profiles scale token budget
-ONLY (model tiers, optional-step scope, team size, caps) — never
-correctness rules; `validate_repo.py` runs `get-profiles` over every
-bundled workflow so schema errors fail CI, and at run time an invalid
-block degrades to the legacy flow with a `WARN:` (never a blocked
-run). Dispatch precedence: `tuning_step_<sid>` > `tuning_<gid>` >
-declared pins.
-
-`low` carries one MUST rule on top of whatever the block declares:
-**a `low` run never dispatches Opus 5.** The conductor records
-`opus_model` (`claude-opus-4-8` on `low`, else `opus`) next to
-`run_profile` at pre-flight — prompts that dispatch Opus-tier subagents
-themselves read it as `{{opus_model}}` — and passes `--profile <level>`
-to every `resolve-team` / `resolve-model` call, so the engine swaps
-every Opus-family step pin to Opus 4.8 (see
-[Model availability and fallback](#model-availability-and-fallback)).
-The same rule reaches the standalone skills through
-`references/profile-read.md`'s `PROFILE_OPUS_MODEL`.
-
-### Why pin
-
-Pre-flight prompts are asked unconditionally by default — that's
-safest but noisy for workflows where one of the three questions has
-a wrong-answer option. Example: `ticket-plan` has
-AskUserQuestion-driven prompt steps, so offering Synchronous
-at pre-flight is a footgun — picking it breaks the workflow before
-it starts. Pinning `control-mode: auto-advance` in the definition
-removes the question entirely (and skips the between-wave menu its
-mostly-one-step-per-wave DAG would otherwise trigger). When every key is `prompt` (the
-default), omit the block — pre-0.42 workflow files didn't have it
-and they still behave the same.
-
-All resolved answers persist in `state.yaml` so resume doesn't
-re-ask.
-
-## Dependencies
-
-Two layers:
-
-- **Plugin-level** — the wise `plugin.json` can declare
-  `"dependencies": [...]`, which Claude Code auto-installs with wise
-  (v2.1.110+; see
-  https://code.claude.com/docs/en/plugin-dependencies.md).
-  Currently empty on purpose: a marketplace-qualified dependency
-  breaks wise loading in the Claude desktop app (CONTRIBUTING §2.3),
-  so shipped workflows degrade gracefully instead.
-- **Workflow-level** — each definition's `requires:` list. Probed at
-  run start. If anything is missing the conductor prints the exact
-  `/plugin install` commands and asks:
-  - `I've installed them, re-check` — re-probe; if still missing,
-    re-prompt; if OK, continue.
-  - `Abort` — stop without creating a run directory.
-  wise never auto-installs plugins.
-
-## Run state
+### `approval`
 
 ```yaml
-version: 1
-run_id: 01J9Z2N0S3KHK2H9TMNWQJP6TN     # ULID
-workflow_name: release-checklist
-workflow_version: 1
-workspace: /path/to/your-project
-claude_session_id: 684af09c-b0e3-40bc-bebb-6c05e473c563   # the session the run was started in; null on legacy runs
-session_label: 01J9Z2N0S3KHK2H9TMNWQJP6TN_release-checklist  # suggested /rename target; advisory only
-started_at: 2026-04-19T10:30:00Z
-last_activity_at: 2026-04-19T10:32:15Z
-completed_at: null
-status: running                     # initializing | running | paused | completed | failed | cancelled
-control_mode: wave-sync
-worktree: null                      # or { path, branch, created_by_ws }
-project: { path, name, kind }       # null when project-selection: any
-outputs: { release_kind: minor }
-steps:
-  - id: list-projects
-    status: completed
-    run_id: 01J9Z2N0SX4ABCDEF123456    # ULID of THIS step execution
-    started_at: 2026-04-19T10:30:02Z
-    completed_at: 2026-04-19T10:30:05Z
-    log: logs/list-projects.01J9Z2N0SX4ABCDEF123456.log
-  ...
+- id: approve
+  type: approval
+  message: "Tests green. Tag {{release_kind}}?"
 ```
 
-`state.yaml` is the canonical truth; everything else (TodoWrite,
-user-facing summaries) is derived.
+Opens a gate with options `approve` / `reject`. `approve` completes the
+step (verdict `approved`), `reject` fails it (verdict `rejected`). Under
+`control-mode: synchronous` the gate is auto-approved.
 
-**Run history cap.** Each new run prunes older runs in the same
-workspace so the total stays at **25** (override with
-`WISE_RUN_HISTORY_CAP`). Non-terminal runs (`initializing` / `running`
-/ `paused` / `failed`) are protected — the cap only reclaims
-*terminal* runs (`completed` / `cancelled`), oldest first by
-`last_activity_at`. The pruned run's state.yaml and step logs are
-deleted from `~/.local/share/wise/runs/<cwd-slug>/<ulid>/`; the user's Claude Code
-session transcripts (`~/.claude/projects/…`) are never touched.
+### `ask`
 
-## Resume
-
-`/wise-workflow-resume <run-ulid>` loads the state, reconciles Claude
-Code sessions (see below), resets any mid-flight `running` step to
-`pending` (with a fresh step-run-ulid on re-entry — the old log stays
-for debugging), and re-enters the conductor's main loop using the
-persisted control mode and worktree. Completed steps are never
-re-run.
-
-**Session re-tag (no prompt).** Before re-entering the loop, resume
-silently re-tags the run with the session you're resuming from. A
-skill can't invoke `/resume` on the user's behalf, so "switch back
-to the original session" would mean blocking the run on a command
-the user has to type themselves — worse UX than just continuing
-here, where the user already is. Instead:
-
-- **Match, stored-null (legacy run), or current-session untagged** —
-  no notice; proceed.
-- **Mismatch** — overwrite `claude_session_id` with the current
-  session UUID and emit one info line:
-  `(Previously started in session <stored-label>; continuing here.)`
-  (or `…, which is no longer available; continuing here.` when the
-  original's `.jsonl` has been wiped). Resume then proceeds
-  normally.
-
-The `session_label` is preserved so future `/rename` lookups still
-work; only the UUID pointer moves. The original session's
-transcript remains on disk under `~/.claude/projects/<slug>/` for
-reference — if you really want to go back, `/resume <old-label>`
-from your prompt bar at any time.
-
-For genuinely re-run-worthy steps (e.g. "re-run the test step after I
-fixed the flaky bit"), use the `Modify` option in wave-sync mode or
-manually set `steps[i].status=pending` via editing `state.yaml`.
-
-## Progress reporting
-
-Every state transition is surfaced in-chat. Before a wave dispatches,
-the conductor announces each step it's about to run:
-
-```
-Wave 2 — 3 step(s):
-  - ▶ run-tests (bash): $ make codecept unit (cwd: …/learning-site-spa)
-  - ▶ lint (bash): $ npm run lint (cwd: …/learning-site-spa)
-  - ▶ a11y-audit (skill): invoke wise:a11y
+```yaml
+- id: pick-next
+  type: ask
+  message: "Which improvement next?"
+  options: [tests, docs, performance]
+  allow_text: true           # default: true when `options` is empty, else false
+  output: next_focus         # CAP_RE; default: the step id
 ```
 
-After the wave returns, every step's outcome is reported on its own
-line:
+Opens a gate; the answer is recorded as the output and as the verdict
+`<output>=<value>`. An empty answer, or a value outside `options` when
+`allow_text` is false, is refused (`INVALID_PARAMS`), the gate stays
+open. `ask` never fails. v1 `question` (rename `message`), `header`,
+`skip_label`, `confirm_label` are errors.
 
-```
-Wave 2 results:
-  - ✓ run-tests: exit 0 in 42s
-  - ✓ lint: exit 0 in 8s
-  - ✗ a11y-audit: 3 violations found (see logs/a11y-audit.01K….log)
-```
+### `units`
 
-Skips (from `trigger-rule` not being met) get their own line with
-the reason:
+The per-unit pipeline (ticket or plan file) as code. See [Unit
+pipelines](#unit-pipelines).
 
-```
-Skipping:
-  - ⊘ approve-merge (approval) — all-success not met: dep run-tests is failed
-```
-
-All modes produce this output — wave-sync adds the
-continue/pause/abort/modify menu after each wave; synchronous and
-auto-advance chain straight to the next wave. The one-line per step
-is a summary; the full output still lives in
-`logs/<step-id>.<step-run-ulid>.log` under the run directory.
-
-## The user-control caveat
-
-Claude Code's main conversation can only do one thing at a time, and
-subagents can't prompt back into the main session. A workflow run
-therefore occupies the conversation while it executes. **Wave-sync**
-is the closest practical approximation to "work alongside a running
-workflow": between waves you have the full session and can chat,
-steer, or abort. Synchronous mode trades that interactivity for
-less ceremony. **Auto-advance** sits between the two — it drops the
-between-wave menu like synchronous, but still stops at the
-workflow's own in-step prompts (asks, approvals, interactive
-questions), so the run pauses for real decisions without asking you
-to start each wave.
-
-**Synchronous mode is silent by design.** Between the "Run <id>
-started" line and the final summary, the only user-visible output
-comes from approval gates. Step output goes to the per-step log
-file under `<run-dir>/logs/`. If a sync-mode run appears to hang
-after the first step, tail the active run's state file to confirm
-steps are transitioning:
-
-```
-watch -n 1 cat "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root)/<run-ulid>/state.yaml"
+```yaml
+- id: process
+  type: units
+  pipeline: ticket                 # ticket | plan
+  items: "{{ticket_list}}"         # rendered, then parsed
+  groups: { plan: plan, implement: implement, review: review, fix: implement, watch: watch }
+  caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
+  reviewers: [copilot-pull-request-reviewer]   # default
+  parallel: 2                      # units at once, default 1
+  resume: unit                     # fixer resumes the reviewer's session
 ```
 
-If `status: running` and `last_activity_at` keeps advancing, the run
-is healthy — just quiet. If `last_activity_at` is stale, that's a
-real stall; resume it with `/wise-workflow-resume <run-ulid>` in a
-fresh session.
+| Field | Notes |
+|---|---|
+| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd). |
+| `items` | String. After rendering: a JSON array of strings or `{ref}` objects, else split on `,` `;` newline. Deduplicated. |
+| `groups` | Non-empty mapping phase -> tuning group id for `plan`, `implement`, `review`, `fix`, `watch`. Unknown phase warns. `fix` falls back to `implement`'s group. |
+| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. |
+| `reviewers` | GitHub logins for `gh pr edit --add-reviewer`. |
+| `parallel` | Positive int. Git operations are serialised per step. |
+| `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (a different CLI cannot resume the session, so the fixer starts clean); `fresh` (default) starts each child clean. |
 
-## Authoring workflows
+Outputs: `{units: UnitRow[]}` (`{{units}}` renders the rows as JSON).
+Verdict: `units=N merged=N open=N failed=N skipped=N`.
 
-Interactively: `/wise-workflow-create <name>` — the wizard walks you
-through the schema step-by-step. Writes to
-`${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>/workflow.yaml`.
+### `trigger-rule`
 
-By hand: create a YAML file at that path matching the schema above.
-Validate with a dry run — `/wise-workflow-run <name>` will reject a
-malformed definition cleanly rather than explode mid-run.
+Set on the dependent step. Evaluated once every `depends_on` entry is
+terminal (`completed` \| `failed` \| `skipped` \| `cancelled`).
 
-See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) [§9](../../CONTRIBUTING.md#9-workflow-subsystem) for the full
-schema reference and the author walkthrough in prose.
+| Rule | Runs when | Skips when |
+|---|---|---|
+| `all-success` (default) | every dep `completed` | any dep failed, skipped or cancelled |
+| `one-success` | at least one dep `completed` | none completed |
+| `all-done` | every dep terminal | never |
+| `none-failed` | no dep failed or cancelled (all skipped is fine) | any dep failed or cancelled |
+| `none-failed-min-one-success` | `none-failed` and at least one `completed` | as `none-failed`, or all skipped |
 
-## Python dependency
+Skip verdict: `trigger-rule <rule> not satisfied: <dep>=<status>, ...`.
+Prefer `none-failed` behind step-select so a deselected stage does not
+skip-propagate.
 
-The workflow subsystem requires Python 3 with PyYAML and python-ulid.
-`scripts/bootstrap-deps.sh` probes on every workflow command and
-offers to install via `mise` (recommended) or directly via brew if
-Python isn't on PATH. If Python is present but modules are missing it
-runs `pip install --user` and retries.
+### `when`
+
+Evaluated after the trigger rule. False skips the step with verdict
+`when: <expr> is false`.
+
+```
+or      := and ('||' and)*
+and     := eq ('&&' eq)*
+eq      := unary (('==' | '!=') unary)*
+unary   := '!' unary | primary
+primary := '(' or ')' | 'text' | "text" | number | true | false | identifier
+```
+
+Identifiers are dotted names resolved against `outputs`, `inputs`,
+`answers` (a bare name is looked up in that order; `answers.gap_mode`,
+`inputs.gap_mode` address one root). An unset identifier is undefined:
+`==` against anything is false, `!=` is true. Numbers and booleans
+compare with strings by text. Truthy: non-empty string, non-zero
+number, `true`, non-empty array. An unparseable expression is treated
+as true and emits `warn` `when-unparseable:<step>:...`.
+
+```yaml
+when: "readiness == 'gaps' && gap_mode == 'ask'"
+```
+
+Order the guarding condition first: an output that was never recorded
+is undefined, so `x != ''` alone is true.
+
+## Templating
+
+`render.ts` replaces, in this order and by plain text substitution:
+
+| Placeholder | Value |
+|---|---|
+| `${CLAUDE_PLUGIN_ROOT}` | The plugin root (children have no such variable). Every agent child also gets the plugin root and the run dir as `--add-dir`, so the `references/` and `agents/` files a prompt cites are readable. |
+| `{{workflow.dir}}` | Absolute folder of the definition; empty for flat form. |
+| `{{run.dir}}` | The run directory. |
+| `{{run.id}}` | The run ULID. |
+| `{{project.path}}`, `{{project.name}}`, `{{project.kind}}` | From `state.project`. |
+| `{{<name>}}` | `state.outputs` merged over `state.inputs` (an output wins). Non-string values render as JSON. |
+
+No expressions. Unresolved placeholders stay verbatim (the bundled
+`report` steps rely on this to detect a step that never ran). Rendering
+recurses into every string, list and mapping of the step, including
+`schema`, `items`, `message`, `run`. Use `{{run.dir}}` for run-scoped
+files (`{{run.dir}}/plans/PLAN-<ref>.md`, `{{run.dir}}/research/*.md`,
+`{{run.dir}}/report.md`).
+
+## Harness, model and effort
+
+### Which harness runs a step
+
+`step.harness` > `group.default.harness` > `claude`. Every harness a
+run needs is probed before the run directory exists; a missing login
+fails `wise_run` with `AUTH_REQUIRED` and `login_cmd`.
+
+| Harness | Binary | Subscription probe | Login command | API-key variable | Config dir variable |
+|---|---|---|---|---|---|
+| `claude` | `claude` | `claude auth status` (`loggedIn: true`) | `claude auth login` | `ANTHROPIC_API_KEY` | `CLAUDE_CONFIG_DIR` |
+| `codex` | `codex` | `codex login status` | `codex login` | `OPENAI_API_KEY` | `CODEX_HOME` |
+| `grok` | `grok` | `$GROK_HOME/auth.json` (default `~/.grok/auth.json`) non-empty | `grok login` | `XAI_API_KEY` | `GROK_HOME` |
+| `gemini` | `gemini` | adapter landing (plan M5.3) | `gemini` | | |
+
+`auth: api-key` copies the key variable into the child; `subscription`
+(default) never does. Usage is folded per pool (`subscription`,
+`api-key`), per harness and per step.
+
+### Model and effort resolution
+
+`resolve.ts`, applied at run start per enabled `agent` step and per
+`units` phase (`state.resolved[<step>]` and `[<step>.<phase>]`):
+
+1. Retired id swap: a known retired full id (`claude-opus-4-1-20250805`
+   and the like) becomes its alias, with `reason`.
+2. Low-profile Opus rule: dormant for workflows. The run profile is
+   fixed to `medium`, so the rule that sends every Opus-family pin to
+   `claude-opus-4-8` under `low` never fires; `resolve.ts` keeps it for
+   callers that pass `low`.
+3. Capability clamp (`MODEL_EFFORT_SUPPORT`): `opus`, `fable`, `sonnet`
+   take every effort; `haiku` has none, the effort is dropped.
+4. Policy ceiling (`MODEL_EFFORT_CEILING`): `opus` and `claude-opus-5`
+   (dated snapshots `-YYYYMMDD` included) cap at `high`;
+   `claude-opus-4-8` caps at `xhigh`; anything else has no ceiling.
+   Override with `WISE_EFFORT_CEILING="opus=xhigh,claude-opus-5=medium"`,
+   `"<model>=off"`, or bare `off`. Unparseable pairs are ignored.
+
+`model: inherit` (or no pin) omits `--model`, the child uses its own
+default. An empty effort omits the flag.
+
+### Effort per harness
+
+| wise effort | claude `--effort` | codex `model_reasoning_effort` | grok `--reasoning-effort` | gemini |
+|---|---|---|---|---|
+| `low` | low | low | low | dropped |
+| `medium` | medium | medium | medium | dropped |
+| `high` | high | high | high | dropped |
+| `xhigh` | xhigh | xhigh | xhigh | dropped |
+| `max` | max | max | max | dropped |
+
+### Mode per harness (`mode`)
+
+| wise mode | claude `--permission-mode` | codex `-s` sandbox | grok |
+|---|---|---|---|
+| `approval-required` | `default` | `read-only` | `--permission-mode dontAsk` |
+| `auto` (default) | `acceptEdits` | `workspace-write` | `--permission-mode acceptEdits` |
+| `full-access` | `bypassPermissions` | `danger-full-access` | `--always-approve` |
+
+Under `preflight.permissions: full` (or the run answer) every child
+runs the `full-access` row whatever its step `mode` says.
+
+Headless children cannot answer permission prompts. Claude children get
+`--allowedTools mcp__wise-engine,<allowed_tools>`, `--add-dir <run dir>`
+(a unit child also gets its worktree), `--strict-mcp-config` and an
+`--mcp-config` holding only the engine server (D18, D19). Codex gets
+`--add-dir` and `approval_policy=never`; grok gets `--allow <rule>` per
+`allowed_tools`. Permission denials appear in the step log and as a
+warning on the result.
+
+### Child environment
+
+Children start from an empty environment plus `HOME`, `PATH`, `LANG`,
+`LC_ALL`, `TERM`, `TMPDIR`, `SHELL`, `USER`, every `XDG_*`, what git
+and gh need to reach a remote (`SSH_AUTH_SOCK`, `SSH_AGENT_PID`,
+`GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_CONFIG_GLOBAL`, `GNUPGHOME`,
+`GPG_TTY`, `GH_HOST`, `GH_CONFIG_DIR`, the `*_PROXY` variables,
+`SSL_CERT_FILE`, `SSL_CERT_DIR`; never `GH_TOKEN`), the harness
+config-dir variable when set, the key variable only under `api-key`,
+and the engine channel variables. `CLAUDECODE`, `CLAUDE_CODE_*` and
+`CLAUDE_*SESSION*` are never inherited. The same allowlist applies to
+bash steps and to the engine's own git and gh calls in the unit
+phases.
+
+### Fallback and rate limits
+
+A child exit classified `rate_limited` parks that harness with
+exponential backoff (1, 2, 4, 8 minutes, cap 30), returns the step to
+`pending` and emits `warn`. While parked, a step whose `fallback`
+(step, else group) names another harness runs there with
+`model: inherit`; the fallback is auth-probed on first use and skipped
+with `warn` when logged out. An `auth` exit fails the run and kills its
+other children.
+
+### Concurrency
+
+Children in flight are capped globally and per harness: global 4,
+`claude` 2, `codex` 1, `gemini` 1, `grok` 1. Override in
+`~/.config/wise/engine.json`:
+
+```json
+{ "concurrency": { "global": 6, "claude": 3, "codex": 2 } }
+```
+
+## Pre-flight questionary
+
+`wise_preflight {workflow, cwd, answers?}` returns `{workflow, version,
+questions, defaults, requires_missing}`. Question ids double as answer
+keys. The questionary is staged: the answers so far decide which
+questions come next, so the conductor calls it again with everything
+answered until `questions` is empty. An answered question is never
+repeated.
+
+| Id | Kind | Options | Default |
+|---|---|---|---|
+| `harness.<group>` | `choice` | the group's default harness first, then every other harness with an adapter and a subscription login | the group's default harness |
+| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/src/models.ts`) | the group's pinned model when the catalog has it, else the catalog's first entry |
+| `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
+| `step-select` | `multi` | optional step ids, labelled by `description` | all |
+| `input.<name>` | `text` | | context value, else `default`, else empty when optional |
+
+Per unlocked group the stages run in order: `harness.<group>` only when
+more than one harness is offered, then `model.<group>` only when the
+catalog has more than one entry, then `effort.<group>` only when the
+model takes more than one effort. A skipped stage takes its default. A
+locked group asks nothing and runs its default. `step-select` and
+`input.<name>` are stage-free and appear on the first call.
+
+The catalog (2026-09-05): claude `claude-fable-5-1`, `claude-opus-5`,
+`claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
+`claude-haiku-4-5` (medium); codex `gpt-6-astra`, `gpt-5.6-sol`,
+`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); grok `grok-4.6`; gemini
+`gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
+
+The conductor renders every question with `AskUserQuestion` (a choice
+with more than four options shows the first four and names the rest in
+the question text, answered through the Other field), skips
+`locked: true` questions and inputs filled positionally, then calls
+`wise_run {workflow, cwd, answers, context, inputs}`. `wise_run`
+completes the answers itself (defaults for every stage still open), so
+a partial answer set starts a run; only a required input without a
+value fails with `MISSING_ANSWERS`. Answers, inputs, context and the
+resolved caps are persisted in `state.json`, so resume never re-asks.
+
+A `harness.<group>` answer other than the default runs the group's
+steps on that harness with the model and effort chosen from its
+catalog. Steps that pin `harness:` themselves (and the `skill:` sugar)
+are unaffected.
+
+`context` is what the children may not refetch from the transcript:
+`ticket[] {ref, title?, body?, url?}`, `guidance`, `decisions
+{key: value}`, `links[]`. Children read it with `wise_context`.
+
+## Run lifecycle and gate protocol
+
+### Statuses
+
+| Status | Meaning |
+|---|---|
+| `initializing` | Run directory being created. |
+| `running` | Scheduler active. |
+| `gated` | Parked on an `approval` / `ask` gate or a child `wise_ask`. Answer it; not resumable. |
+| `paused` | Daemon restarted with the run in flight; `wise_resume` continues it. |
+| `completed` | Terminal. |
+| `failed` | A step failed, a gate was rejected, or the run errored. Resumable. |
+| `cancelled` | Terminal. |
+
+Step statuses: `pending`, `running`, `completed`, `failed`, `skipped`,
+`cancelled`. Every step execution gets a fresh step run ULID; a
+resumed `running` step goes back to `pending` and keeps its cursor.
+
+### Events
+
+`events.jsonl`, one line per event with a `seq`. Fields: `type`,
+`step?`, `verdict?` (200 chars), `outputs?`, `usage?`, `harness?`,
+`model?`, `effort?`, `message?`, `kind?`, `data?`.
+
+| Type | When |
+|---|---|
+| `run.started` | Verdict `<name> control=<mode> steps=<enabled>/<total>`. |
+| `step.started` | Carries harness, model, effort for agent steps; `message` is the step's `description` when it has one. |
+| `step.progress` | Live child status `turn N, tool X <target>, Nk tokens, <elapsed>: <latest assistant text>`, emitted when the tool changes, when its target changes (at most one per 5 s), else one per 30 s; and child `wise_report` lines (`kind` progress \| blocker \| decision \| finding). |
+| `step.done` | Verdict plus clipped primitive outputs. |
+| `unit.phase`, `unit.done` | `units` steps: phase start with harness and model; unit verdict and reason. |
+| `usage` | Tokens folded into `state.usage` per pool, harness and step. |
+| `gate.opened`, `gate.answered` | Gate lifecycle. |
+| `warn` | Rate limit, stale child, auto-approval, unparseable `when`, daemon restart. |
+| `run.done`, `run.failed` | Terminal (`run.done` also on cancel with verdict `cancelled`). |
+
+### Gates
+
+One gate is open at a time. `wise_wait {run_id, after?, timeout_ms?}`
+long-polls (default 110 s, max 600 s, progress notification every 30 s)
+and returns `{events, status, gate?, done}`. Gate shape: `{gate_id,
+step, kind: approval | ask, message, options?, allow_text?}`. The
+conductor asks the user and calls `wise_answer {run_id, gate_id,
+value}`; `value` is the option value, free text when `allow_text`, or a
+string array for multi. `GATE_STALE`: the gate closed, wait again. A
+child `wise_ask` opens an `ask` gate the same way; the answer is
+delivered to the child as a tool result (and as a nudge on Claude).
+
+### Stale children
+
+After `stale_after` seconds without output the engine nudges the child
+(Claude only: "You have been idle for N minutes. Finish with your
+structured result now."), then kills it after another window. Verdict
+`failed: stale (no activity, killed)`; the cursor is kept for `resume:
+unit`.
+
+### Resume, cancel, daemon
+
+`wise_resume {run_id}`: refused for `completed`, `cancelled` and `gated`
+(answer instead); `running` is a no-op; `paused` / `failed` reset
+in-flight steps to `pending` and reschedule with `warn` "run resumed".
+Completed steps never re-run. `wise_cancel {run_id, reason?}` kills the
+child process groups, marks running steps `cancelled`, emits `run.done`.
+
+The daemon starts on demand (MCP server or CLI), one per user (lock
+file), exits after 30 idle minutes (gated and paused runs do not keep
+it alive), rotates its log at 10 MB. On restart every `running` run
+becomes `paused` with `warn` "daemon restarted, run paused" and the
+recorded child process group (`<run dir>/daemon.json`) is killed. A
+client with another plugin version gets `DAEMON_VERSION_MISMATCH`.
+
+Run history: each run prunes terminal runs in the same cwd beyond
+`WISE_RUN_HISTORY_CAP` (default 25), oldest by `last_activity_at`.
+Non-terminal runs are never pruned.
+
+## Run directory
+
+```
+<data root>/runs/<cwd-slug>/<run-ulid>/
+├── state.json                     # the ledger: status, answers, inputs, context, resolved,
+│                                  #   caps, usage, steps, outputs, gate (atomic write)
+├── events.jsonl                   # one event per line, seq ascending
+├── daemon.json                    # daemon pid and child pgid (crash recovery)
+├── logs/
+│   ├── <step>.<step-run-ulid>.raw.jsonl   # vendor event stream
+│   └── <step>.<step-run-ulid>.log         # header (harness, model, effort, mode, exit,
+│                                          #   usage, tools) plus text and JSON excerpts
+├── units/
+│   ├── <branch>.json              # UnitLedger: unit, last_phase, verdict, reason, review,
+│   │                              #   watch, cleaned, blueprint, plan_path, cursors, usage
+│   └── <branch>.findings.md       # review / CI / bot findings handed to the fixer
+├── plans/PLAN-<ref>.md            # engine-written plans (BLUEPRINT-<ref>.md on gaps)
+├── worktrees/<branch>/            # one worktree per unit; removed on `merged`
+├── checkpoints/<step>.json        # wise_checkpoint payloads
+├── research/                      # workflow convention (ticket-plan writes here)
+└── report.md                      # workflow convention (the bundled report steps)
+```
+
+`state.json` is the truth; `wise_status` and `wise-engine report` are
+derived from it. Never under the project tree, never auto-cleaned.
+
+## Child channel
+
+Every child loads one MCP server, `wise-engine` (`bash
+engine/engine.sh unit-mcp`), with `WISE_STEP_TOKEN`,
+`WISE_ENGINE_SOCKET`, `WISE_DATA_ROOT` in its environment. The token is
+scoped to one step of one run; a wrong token is `TOKEN_INVALID`.
+
+| Tool | Params | Result |
+|---|---|---|
+| `wise_report` | `kind` progress \| blocker \| decision \| finding, `text` (200 chars), `data?` (1 kB) | `{accepted, seq}`; appears as `step.progress`. |
+| `wise_ask` | `question`, `options?`, `allow_text?` | `{value}`. Interactive runs: an `ask` gate to the conductor. Synchronous runs: answered from `context.decisions` (exact key, partial key, an option named in a value, else the first option), else error `needs-human` with a `warn`. |
+| `wise_context` | `key`: `ticket`, `guidance`, `decisions`, `links`, a dotted path (`ticket.0.body`), an output name, a step id, an input name | `{value}` or `{value: null}`. |
+| `wise_checkpoint` | `data` | `{path}` of `checkpoints/<step>.json`. |
+
+Main to child: `wise_nudge {run_id, step, message}` writes a user
+message into a Claude child's stdin (`--input-format stream-json`);
+codex and grok have no open stdin, `delivered: false`.
+
+## Unit pipelines
+
+`units.ts` and `phases/` run the ticket -> PR and plan -> PR loops the
+v1 prose orchestrators used to describe. Phases in order:
+
+| Phase | Kind | Does |
+|---|---|---|
+| `claim` | code | Ownership gate: our ledger = ours (resume); merged PR = shipped; foreign branch or worktree = skip. Resolves `base`. |
+| `worktree` | code | `git worktree add` under `<run dir>/worktrees/`, applies `.worktreeinclude` once (`includes-done`). |
+| `plan` | model | Writes `<run dir>/plans/PLAN-<ref>.md` (plan pipeline: re-plans the seed at HEAD). |
+| `implement` | model | Task waves, one commit per task, in the worktree. |
+| `review` | model | Three-lens panel (correctness, security, tests) writing `units/<branch>.findings.md`. |
+| `fix` | model | Applies findings from review, CI or bot comments; commits. |
+| `push` | code | `git push -u origin <branch>`. |
+| `pr` | code | `gh pr create` with the repo template filled, or reuse. |
+| `request-review` | code | `gh pr edit --add-reviewer` per `reviewers`. |
+| `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. |
+| `cleanup` | code | On `merged`: remove worktree, delete local branch, `cleaned: true`. Runs after a failure too. |
+
+Branch and worktree naming (`phases/common.ts`): a ticket ref with a
+project key (`PROJ-777`) is the branch verbatim; a bare number becomes
+`abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
+file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
+Worktree: `<run dir>/worktrees/<branch>`.
+
+### Model phases
+
+| Phase | Mode | Default timeout | Pinned default when no group | Pre-granted tools |
+|---|---|---|---|---|
+| `plan` | `auto` | 30 min | claude / opus / high | Read, Glob, Grep, Write, Edit, `Bash(git:*)`, `Bash(gh:*)`, `Bash(ls:*)`, WebFetch, WebSearch |
+| `implement` | `full-access` | 90 min | claude / opus / high | edit tools, build tools (`git`, `npm`, `npx`, `pnpm`, `yarn`, `bun`, `make`, `just`, `go`, `cargo`, `python3`, `pytest`, `cd`, `cat`, `ls`), Task, Agent |
+| `review` | `auto` | 30 min | claude / opus / medium under `low`, else high | Read, Glob, Grep, Write, Task, read-only `git` subcommands |
+| `fix` | `full-access` | 45 min | implement's group | edit and build tools, `Bash(gh:*)` |
+| `watch` | `full-access` | 15 min | claude / sonnet | edit tools, `Bash(gh:*)`, `Bash(git:*)`, `Bash(date:*)` |
+
+The step's `timeout` and `max_turns` apply to every phase. Prompts are
+templates under `engine/src/prompts/units/` (`ticket/plan.md`,
+`plan/plan.md`, `shared/{implement,review,fix,watch}.md`); the
+workflow hands them `guidance`, `decisions`, the ticket block or seed
+plan, and paths. Structured results:
+
+| Phase | Schema |
+|---|---|
+| `plan` | `{plan_path, status: ready \| insufficient-context \| no-access, blueprint_path?}`. `no-access` fails with `plan-no-access`; `insufficient-context` fails with `plan-insufficient-context` and records the `BLUEPRINT-<ref>.md`. |
+| `implement` | `{waves, tasks, done, failed, commits}`. `done == 0` or no new commits fails the unit. |
+| `review` | `{findings, blocking, verdict: approve \| changes-requested}`. |
+| `fix` | `{fixed, skipped, commits}`. Commits are counted by git, not trusted. |
+| `watch` | `{ci: green \| red \| pending, bot_reviews: resolved \| open \| stuck \| pending, human_comment, merged, verdict: ready \| wait \| fix \| blocked \| needs-human}`. |
+
+### Loops and caps
+
+| Cap | Default (`CAP_DEFAULTS`) | Used by |
+|---|---|---|
+| `max_review_cycles` | 2 | review -> fix cycles before pushing anyway (`review.converged: false`). |
+| `max_fix_attempts` | 3 | fix + push rounds in the watch loop; exhaustion -> `exhausted`. |
+| `watch_minutes` | 45 | wall clock of the watch loop; at the cap: `all-green` when the last CI was green, else `exhausted`. |
+| `watch_poll_seconds` | 60 | sleep between watch passes. |
+| `watch_stable_passes` | 2 | consecutive green-and-covered passes before merging. |
+
+A cap applies only when the step lists it in `caps` and
+`profiles.medium.caps` sets it; otherwise the default. Watch loop per
+pass: `merged` -> `merged`; human comment or `needs-human` ->
+`human-intervention`;
+`blocked` -> `blocked`; red CI or open bot reviews -> fix and push (a
+fix without a commit -> `partial`); a requested bot silent for 15
+minutes on the same head -> one substitute universal review per head;
+stable target reached -> `gh pr merge --squash` (then `--merge` when
+squash is disallowed) -> `merged`, else `all-green`.
+
+Verdicts: `merged` \| `all-green` \| `blocked` \| `partial` \|
+`exhausted` \| `human-intervention` \| `failed` \| `skipped`. Only
+`merged` removes the worktree; every other verdict keeps it for a human.
+On resume `claim` and `worktree` re-run, other completed phases are
+skipped, a unit with a verdict is skipped.
+
+## MCP tools
+
+Server `wise-engine` from `plugins/wise/.mcp.json` (`bash
+${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`, tool timeout 660 s). The
+descriptions the model reads are in `engine/src/mcp.ts`.
+
+| Tool | Params | Returns |
+|---|---|---|
+| `wise_preflight` | `workflow`, `cwd`, `answers?` | `{workflow, version, questions, defaults, requires_missing}`. Read-only; call again with the answers so far until `questions` is empty. |
+| `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `AUTH_REQUIRED {login_cmd}`. |
+| `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
+| `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |
+| `wise_status` | `run_id?` | One `RunSummary` (`run_id, workflow, status, started_at, last_activity_at, completed_at?, cwd, gate?, children?, usage_total?`) or every run, newest activity first. |
+| `wise_cancel` | `run_id`, `reason?` | `{status: cancelled}`. |
+| `wise_nudge` | `run_id`, `step`, `message` | `{delivered}`. |
+| `wise_resume` | `run_id` | `{run_id, status}`. |
+
+Errors come back as `{"error": {code, message, ...}}`. Codes:
+`WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID`, `RUN_NOT_FOUND`, `GATE_STALE`,
+`HARNESS_UNAVAILABLE`, `AUTH_REQUIRED`, `BUDGET_EXCEEDED`,
+`DAEMON_VERSION_MISMATCH`, `NOT_IMPLEMENTED`, `ALREADY_RUNNING`,
+`TOKEN_INVALID`, plus `DAEMON_UNAVAILABLE` from the MCP server itself.
+
+## CLI
+
+`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh <command>` (bun, else Node
+24; exit 69 when neither is present).
+
+| Command | Purpose |
+|---|---|
+| `preflight <workflow> [--answers <json>] [--context <json>]` | The questionary spec for the answers so far. |
+| `compile-check <workflow>...` | Validate definitions; exit 1 on any error. Issues carry `path`, `level`, `message`, `hint`. |
+| `migrate <workflow.yaml> [--write] [--out <path>]` | Rewrite v1 as v2. Dry run by default; `--write` keeps `<file>.v1.bak`; exit 1 when the result still has errors. |
+| `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |
+| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--follow] [--timeout-ms]` | Start a run through the daemon. `--follow` streams events and answers gates from stdin. |
+| `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
+| `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. A long-lived MCP server re-reads that id from disk before every `wise_preflight` / `wise_run`, so a plugin update under an open desktop session also replaces the daemon. |
+| `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
+| `unit-mcp [--token <t>]` | The child-side MCP server. |
+| `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
+| `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
+| `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text]` | One child run on any harness through the adapters, no daemon or ledger: prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`); exit 1 on a failed child. An effort the model does not list is a usage error, never a silent clamp. How a skill runs its procedure on another harness (`--on`). |
+| `version`, `help` | |
+
+Options: `--json` (default) \| `--text`, `--user-root <dir>`,
+`--bundled-root <dir>`, `--data-root`, `--socket`, `--no-start`. Exit
+codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
+69 daemon unavailable, 70 internal, 75 daemon already running.
+
+## Environment
+
+| Variable | Effect |
+|---|---|
+| `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_RUNTIME_DIR` | Data root, engine config, socket location. |
+| `CLAUDE_PLUGIN_DATA`, `WISE_DATA_DIR` | User definitions root (see [Where things live](#where-things-live)). |
+| `WISE_EFFORT_CEILING` | Policy ceiling overrides. |
+| `WISE_RUN_HISTORY_CAP` | Terminal runs kept per cwd, default 25. |
+| `WISE_SESSION_STALE_SECS` | Seconds since `last_activity_at` after which a non-terminal run tagged with the same harness session counts as abandoned rather than a conflict, default 1800. |
+| `CLAUDE_CODE_SESSION_ID`, `WISE_SESSION_ID` | Session id the profile store is keyed on (else newest transcript, else `local-<cwd-slug>`); skills only. |
+| `WISE_STEP_TOKEN`, `WISE_ENGINE_SOCKET`, `WISE_DATA_ROOT` | Set by the engine in every child for `unit-mcp`. |
+
+## Authoring
+
+1. `mkdir <user root>/<name>` and write `workflow.yaml` (or run
+   `/wise-workflow-create <name>`).
+2. `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh compile-check <path>`
+   until it prints no errors. Warnings (`until`, `group` on a bash
+   step, unknown keys) are allowed but mean something is ignored.
+3. `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh preflight <name>` to
+   see the questionary a conductor will render.
+4. Run it with `/wise-workflow-run <name>`.
+
+Rules that keep runs cheap and resumable: children see only their
+prompt, so hand results between steps through `schema` outputs and
+files under `{{run.dir}}`; ask every user decision at pre-flight
+(inputs with `validate`, an `ask` escape value, `when:` guards on the
+mid-run `ask` step); pin `control-mode: synchronous` only when the
+workflow has no `approval` step that needs a human. The repo validator
+(`python3 scripts/validate_repo.py`) runs `compile-check` on every
+bundled `version: 2` definition. Bundled workflows:
+`example-workflow` (every step type), `ticket-plan`, `ticket-auto`,
+`impl-plan-auto`, `code-review` (see their READMEs).
+
+## Migration from v1
+
+```
+bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh migrate <workflow.yaml>            # dry run: prints the v2 YAML and the notes
+bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh migrate <workflow.yaml> --write    # in place, original kept as <file>.v1.bak
+```
+
+Rules (`migrate.ts`):
+
+| v1 | v2 |
+|---|---|
+| `version: 1` or missing | `version: 2` |
+| `project-selection: prompt` / `any` | `ask` / `none` |
+| `agents:` | dropped |
+| `requires: [{plugin: x}]` | `requires: {plugins: [x]}` |
+| `preflight.rename_session`, `.tuning`, `.step-select` | dropped |
+| `control-mode: wave-sync` / `auto-advance` / `prompt` | `interactive` |
+| `preflight.worktree: prompt` | `current` (warning) |
+| tuning group `default: "opus / high"` | `default: {harness: claude, model: opus, effort: high}` |
+| tuning group `steps: [a, b]` | dropped; `group: <id>` set on steps `a`, `b`; a missing default is derived from a bound step's pins, else `{harness: claude}` with a MANUAL note |
+| profile tuning `"default"`, `step-preset`, `skip`, `team-mode` | dropped (warning) |
+| input `options: [a, b]` | `validate: ^(a\|b)$`, labels folded into `prompt` |
+| input named `ticket`, `ticket_id`, `tickets` / `guidance`, `config_prompt` | `from-context: ticket[].ref` / `guidance` |
+| `step-select.optional` objects, `presets` | ids only, `label` to the step's `description`; presets dropped; a multi-step entry is MANUAL |
+| `type: prompt` / `interactive` / `supervised-prompt` / `skill` | `type: agent` |
+| `agent: <role>` | prompt prefix "Act as the wise `<role>` agent (see `${CLAUDE_PLUGIN_ROOT}/agents/<role>.md`)"; a team is folded to the lead plus lenses with a MANUAL note; `auto` / `off` dropped |
+| `until: "^(a\|b)$"` | `schema {properties: {<output>: {enum: [a, b]}}}` plus `outputs`, prompt instruction appended; a non-enum regex keeps `until` with a warning |
+| `max_iterations: n` (1..10) | `max_turns: n`, else dropped |
+| `command` | `run` |
+| `cwd` other than `{{project.path}}` | `cd "<cwd>" \|\| exit 1` prefixed to `run` |
+| `success` | dropped (exit code 0) |
+| `question` | `message` |
+| `header` | dropped |
+| `skip_label`, `confirm_label`, `confirm_value` | `options` (plus `allow_text: true` when no confirm label) with a MANUAL note about `when:` guards |
+| `when: [a, b]` | `when: "a && b"` |
+| step `model` / `effort` / `harness` equal to the group's | dropped; `model: inherit` dropped |
+| `surface` | dropped |
+| `skill` with `payload` | prompt "Run /<skill> with: <payload>", `harness: claude`; without payload the `skill:` sugar stays |
+
+Manual after migration: `interactive` bodies that asked the user
+mid-run (use `wise_ask` from the child, or pre-flight inputs plus
+`when:`); `supervised-prompt` watchdog settings (use `timeout` and
+`stale_after`); teams (one lead child, or several `agent` steps in one
+wave); `surface` output review (write a file under `{{run.dir}}` and
+mention it in the verdict); anything the notes mark MANUAL. Legacy v1
+runs (`state.yaml`) are followed by the prose conductor under
+`references/legacy-conductor/` until plan M3.4 removes it together
+with `scripts/workflows.py`.

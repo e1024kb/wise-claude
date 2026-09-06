@@ -1,0 +1,21 @@
+version: 2
+name: units-parallel
+description: Two ticket units in parallel; the harness cap must still hold for their children.
+tuning:
+  groups:
+    - id: build
+      default: { harness: claude, model: haiku, effort: low }
+profiles:
+  medium:
+    caps: { watch_poll_seconds: 1, watch_stable_passes: 1 }
+inputs:
+  - name: tickets
+    prompt: "Which tickets?"
+steps:
+  - id: process
+    type: units
+    pipeline: ticket
+    items: "{{tickets}}"
+    parallel: 2
+    groups: { plan: build, implement: build, review: build, watch: build }
+    caps: [watch_poll_seconds, watch_stable_passes]

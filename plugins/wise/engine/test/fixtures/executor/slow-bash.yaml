@@ -1,0 +1,10 @@
+version: 2
+name: slow-bash
+description: A long bash step; drives the cancel-kills-children test.
+steps:
+  - id: slow
+    type: bash
+    run: |
+      echo $$ > "{{pid_file}}"
+      sleep 30
+    timeout: 60

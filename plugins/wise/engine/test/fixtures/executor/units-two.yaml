@@ -1,0 +1,21 @@
+version: 2
+name: units-two
+description: Two ticket units through the pipeline; model phases run on the injected starter.
+tuning:
+  groups:
+    - id: build
+      default: { harness: claude, model: haiku, effort: low }
+profiles:
+  medium:
+    caps: { max_fix_attempts: 3, max_review_cycles: 2, watch_poll_seconds: 1, watch_stable_passes: 1 }
+inputs:
+  - name: tickets
+    prompt: "Which tickets?"
+steps:
+  - id: process
+    type: units
+    pipeline: ticket
+    items: "{{tickets}}"
+    groups: { plan: build, implement: build, watch: build }
+    caps: [max_fix_attempts, max_review_cycles, watch_poll_seconds, watch_stable_passes]
+    reviewers: [copilot-pull-request-reviewer]

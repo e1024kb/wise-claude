@@ -1,0 +1,43 @@
+version: 2
+name: sync-ceiling
+description: Three sequential agent steps under a 150-token profile ceiling; synchronous mode rejects the ceiling on its own.
+preflight:
+  control-mode: synchronous
+profiles:
+  low:
+    caps: { tokens: 150 }
+  medium:
+    caps: { tokens: 150 }
+steps:
+  - id: a
+    type: agent
+    model: haiku
+    prompt: "a: answer. JSON only."
+    schema:
+      type: object
+      properties:
+        answer_a: { type: string }
+      required: [answer_a]
+    outputs: [answer_a]
+  - id: b
+    type: agent
+    model: haiku
+    depends_on: [a]
+    prompt: "b: answer. JSON only."
+    schema:
+      type: object
+      properties:
+        answer_b: { type: string }
+      required: [answer_b]
+    outputs: [answer_b]
+  - id: c
+    type: agent
+    model: haiku
+    depends_on: [b]
+    prompt: "c: answer. JSON only."
+    schema:
+      type: object
+      properties:
+        answer_c: { type: string }
+      required: [answer_c]
+    outputs: [answer_c]

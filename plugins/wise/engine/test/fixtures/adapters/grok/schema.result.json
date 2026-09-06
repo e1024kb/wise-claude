@@ -1,0 +1,32 @@
+{
+  "text": "{\"answer\":\"pong\",\"n\":42}",
+  "stopReason": "end_turn",
+  "sessionId": "01a06ead-86d2-7412-b4e2-ca1ef24f3925",
+  "requestId": "e139de77-73d6-4e19-b419-7ab75d506246",
+  "thought": "The user wants me to reply with a specific JSON format: answer='pong' and n=42. They explicitly said not to use tools. The system reminder about response format says I should respond with JSON matchin...",
+  "usage": {
+    "input_tokens": 21102,
+    "cache_read_input_tokens": 5760,
+    "cache_creation_input_tokens": 0,
+    "output_tokens": 254,
+    "reasoning_tokens": 240,
+    "total_tokens": 27116
+  },
+  "num_turns": 1,
+  "total_cost_usd": 0.00792336,
+  "total_cost_usd_ticks": 79233600,
+  "modelUsage": {
+    "grok-4.6-build": {
+      "inputTokens": 21102,
+      "outputTokens": 254,
+      "cacheReadInputTokens": 5760,
+      "cacheCreationInputTokens": 0,
+      "modelCalls": 1,
+      "costUSD": 0.00792336
+    }
+  },
+  "structuredOutput": {
+    "answer": "pong",
+    "n": 42
+  }
+}

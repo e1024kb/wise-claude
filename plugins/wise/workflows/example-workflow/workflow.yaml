@@ -1,140 +1,140 @@
-version: 1
+version: 2
 name: example-workflow
 description: >-
-  Reference workflow that exercises every step type AND the parallel-
-  wave dispatcher. Harmless to run — lists the available workflows,
-  classifies the current project, then runs a wide fan-out wave of
-  three parallel subagent prompts, an agent team (multiple roster roles
-  worked together and conductor-synthesized), and three parallel bash
-  steps (each with a randomised sleep to simulate different execution
-  times), finally asking for an approval. Use this to verify the
-  workflow subsystem after an install or schema change.
+  Reference workflow that exercises every v2 step type AND the parallel
+  wave dispatcher. Harmless to run: classifies the current project, runs
+  a fan-out wave of two agent prompts and three bash steps (each with a
+  randomised sleep to simulate different execution times), asks one
+  question, then asks for approval. Use this to verify the workflow
+  subsystem after an install or schema change.
 author: e1024kb
 
-project-selection: prompt
+project-selection: current
 
-# Default agent policy for prompt steps: prompt steps with no explicit
-# `agent:` are auto-routed to the best-fit roster role. Individual steps
-# below override this to also smoke-test the `off` and forced-role paths.
-agents: auto
+preflight:
+  control-mode: interactive
+  worktree: current
+
+# Two tuning groups so the staged pre-flight questionary is smoke-tested
+# too: both default to haiku, `summarize` has codex as fallback harness.
+tuning:
+  groups:
+    - id: classify
+      label: "Classification"
+      default: { harness: claude, model: haiku, effort: low }
+    - id: summarize
+      label: "Summaries"
+      default: { harness: claude, model: haiku, effort: low }
+      fallback: [codex]
+
+
+inputs:
+  - name: focus
+    prompt: "What should the summary focus on?"
+    optional: true
+    from-context: guidance
 
 steps:
-  - id: list-workflows
-    type: skill
-    skill: wise:wise-workflow-list
-    payload: {}
-    depends_on: []
-
   - id: classify
-    type: prompt
+    type: agent
+    group: classify
     prompt: |
-      The run is operating on the project {{project.name}}
-      ({{project.kind}}) at {{project.path}}.
-      Reply with exactly one word — the project's kind.
-    until: "^(frontend|backend|fullstack|other)$"
-    max_iterations: 2
+      The run is operating on the project {{project.name}} ({{project.kind}})
+      at {{project.path}}. Classify the project's kind. Do not use tools.
+      Return the field directly as the structured result (no wrapping, no
+      JSON-in-a-string): `release_kind`.
+    schema:
+      type: object
+      properties:
+        release_kind: { type: string, enum: [frontend, backend, fullstack, other] }
+      required: [release_kind]
+      additionalProperties: false
     outputs: [release_kind]
-    agent: off                  # plain general-purpose subagent (opt out of policy)
-    model: haiku                # demonstrate the per-call model override
-    depends_on: [list-workflows]
+    max_turns: 2
 
-  # --- parallel subagent wave (all three run concurrently) ---------------
+  # --- parallel wave (two agents + three bash steps run concurrently) ----
 
   - id: summarize-project
-    type: prompt
+    type: agent
+    group: summarize
     prompt: |
-      In one short sentence, summarise what a {{project.kind}} project
-      called {{project.name}} typically does. No lists, no preamble —
-      just the sentence.
-    max_iterations: 1
-    agent: technical-writer     # force a specific roster role
-    effort: low                 # demonstrate the per-step effort nudge
-    depends_on: [classify]
-
-  - id: suggest-next-step
-    type: prompt
-    prompt: |
-      Suggest one concrete improvement a {{project.kind}} project called
-      {{project.name}} might want. Reply with a single short sentence.
-    max_iterations: 1
-    agent: auto                 # explicit auto-select (conductor picks the role)
+      In one short sentence, summarise what a {{release_kind}} project called
+      {{project.name}} typically does. Focus: {{focus}}. No lists, no preamble.
+      Return the field directly as the structured result (no wrapping, no
+      JSON-in-a-string): `summary` = the sentence itself.
+    schema:
+      type: object
+      properties:
+        summary: { type: string }
+      required: [summary]
+      additionalProperties: false
+    outputs: [summary]
+    max_turns: 2
     depends_on: [classify]
 
   - id: pick-emoji
-    type: prompt
+    type: agent
+    group: summarize
     prompt: |
-      Pick one emoji that best represents a {{project.kind}} project.
-      Reply with just the emoji on its own line.
-    until: "^.+$"
-    max_iterations: 1
+      Pick one emoji that best represents a {{release_kind}} project.
+      Return the field directly as the structured result (no wrapping, no
+      JSON-in-a-string): `project_emoji` = the emoji alone.
+    schema:
+      type: object
+      properties:
+        project_emoji: { type: string }
+      required: [project_emoji]
+      additionalProperties: false
     outputs: [project_emoji]
-    # no agent: → inherits the workflow `agents: auto` policy
+    max_turns: 2
     depends_on: [classify]
-
-  - id: team-verdict
-    type: prompt
-    prompt: |
-      Give a one-line take on what a {{project.kind}} project called
-      {{project.name}} should prioritise next. One sentence.
-    max_iterations: 1
-    model: haiku                # shared default for members without an override
-    agent:                      # a TEAM — members run concurrently, conductor synthesizes
-      - role: architect
-        lead: true              # integrates the peers before the conductor's synthesis
-      - role: product-manager
-      - qa-engineer             # bare string → inherits the step's model: haiku
-    depends_on: [classify]
-
-  # --- parallel bash wave (all three run concurrently with random sleeps)
 
   - id: echo-greeting
     type: bash
-    command: |
+    run: |
       sleep $((RANDOM % 3 + 1))
       echo "hello from {{project.name}} (release kind {{release_kind}})"
-    cwd: "{{project.path}}"
-    success:
-      exit_code: 0
     timeout: 15
     depends_on: [classify]
 
   - id: echo-timestamp
     type: bash
-    command: |
+    run: |
       sleep $((RANDOM % 3 + 1))
       date -u +%Y-%m-%dT%H:%M:%SZ
-    cwd: "{{project.path}}"
-    success:
-      exit_code: 0
+    outputs: [stamp]
     timeout: 15
     depends_on: [classify]
 
   - id: echo-pwd
     type: bash
-    command: |
-      sleep $((RANDOM % 3 + 1))
-      pwd
-    cwd: "{{project.path}}"
-    success:
-      exit_code: 0
+    run: pwd
     timeout: 15
     depends_on: [classify]
 
-  # --- final gate (fans the parallel wave back in) -----------------------
+  # --- gates (fan the parallel wave back in) -----------------------------
+
+  - id: pick-next
+    type: ask
+    message: "Which improvement should the summary recommend next?"
+    options: [tests, docs, performance]
+    allow_text: true
+    output: next_focus
+    depends_on: [summarize-project]
 
   - id: approve-summary
     type: approval
     message: |
       Smoke test finished.
       Project: {{project.name}} (kind: {{release_kind}}) {{project_emoji}}
-      Parallel wave: 3 subagent prompts + 1 agent team + 3 bash steps completed.
+      Summary: {{summary}}
+      Next: {{next_focus}}
       Approve to mark the run complete?
     depends_on:
       - summarize-project
-      - suggest-next-step
       - pick-emoji
-      - team-verdict
       - echo-greeting
       - echo-timestamp
       - echo-pwd
+      - pick-next
     trigger-rule: all-success

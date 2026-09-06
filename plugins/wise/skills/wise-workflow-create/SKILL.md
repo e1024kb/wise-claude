@@ -241,11 +241,11 @@ If all three came back as `prompt`, leave `workflow["preflight"]`
 empty — the YAML render in §6 omits empty blocks so the produced
 file matches pre-0.42 shape exactly.
 
-The wizard does not walk the opt-in questionaries or budget profiles
+The wizard does not walk the opt-in questionaries or unit caps
 interactively — but when it renders the YAML in §6, it appends a
 commented example of the three related blocks (`preflight.tuning` /
 `preflight.step-select` set to `prompt`, plus skeleton `tuning:`,
-`step-select:`, and `profiles:` stanzas copied from
+`step-select:`, and `profiles.medium.caps` stanzas copied from
 `docs/wise/workflows.md`'s schema comment) so an author who wants
 them can uncomment and adapt instead of hunting the docs.
 

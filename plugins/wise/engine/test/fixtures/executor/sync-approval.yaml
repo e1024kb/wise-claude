@@ -1,0 +1,13 @@
+version: 2
+name: sync-approval
+description: Synchronous control mode auto-approves the gate with a warn event.
+preflight:
+  control-mode: synchronous
+steps:
+  - id: prep
+    type: bash
+    run: echo prepared
+  - id: approve
+    type: approval
+    message: "Ship it?"
+    depends_on: [prep]

@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a06ead-00e9-7ea1-a0fe-56e3d5f05ff2"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"answer\":\"pong\",\"n\":42}"}}
+{"type":"turn.completed","usage":{"input_tokens":13697,"cached_input_tokens":1408,"cache_write_input_tokens":0,"output_tokens":19,"reasoning_output_tokens":0}}

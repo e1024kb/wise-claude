@@ -53,13 +53,20 @@ Run once after installing:
 /wise-init
 ```
 
-This wizard walks you through installing Python 3 + `pyyaml` /
-`python-ulid` / `typing_extensions`, Node ≥22, and the `gh` CLI
-(plus `gh auth login`). It skips deps that are already present, so
+This wizard walks you through installing bun or Node ≥24 (the workflow
+engine runtime), logging the `claude` CLI in (`claude auth login`, so
+the engine can spawn `claude -p` under your subscription), self-checks
+the engine and its `wise-engine` MCP server, reports the optional
+`codex` / `grok` / `gemini` CLIs and their logins, the `gh` CLI
+(plus `gh auth login`), markitdown, and Python 3 + `pyyaml` /
+`python-ulid` / `typing_extensions` (still used by
+`/wise-workflow-list` / `-create` / `-remove` and the legacy v1
+conductor until plan M3.4). It skips deps that are already present, so
 re-runs are cheap — expect to re-run it after every `/plugin install
-wise@…` since that wipes the cached dep registry the wizard writes.
-Workflow engine skills (`/wise-workflow-run`, etc.) use the cache as
-a fast-path on every subsequent invocation instead of re-probing.
+wise@…` since that wipes the cached dep registry the wizard writes. The
+engine daemon (`wise-engined`) starts on demand from the plugin's
+`.mcp.json` server `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
+`wise_*` tool means the runtime is missing: run `/wise-init`.
 
 ## Commands
 
@@ -69,14 +76,14 @@ below.
 
 | Invocation | Description |
 |---|---|
-| `/wise-init` | First-time setup wizard — walks you through installing Python, Node, and the `gh` CLI, then caches the probe results so future workflow runs skip the live check. Re-run any time your environment changes or after `/plugin install wise@…` (which wipes the cache by design). |
+| `/wise-init` | First-time setup wizard - walks you through installing bun or Node 24 (the engine runtime), the `claude` CLI login, the `gh` CLI, markitdown and Python, replaces a daemon left on an older engine build, checks git over ssh from the engine's child environment, then caches the probe results. Re-run any time your environment changes or after `/plugin install wise@…` (which wipes the cache by design). |
 | `/wise-skills-create <skill-name>` | Scaffold a new action or reference skill via Claude Code's `skill-creator`. Marketplace-repo only. |
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |
 | `/wise-workflow-create <name>` | Wizard to scaffold a new user workflow. |
-| `/wise-workflow-run [<workflow-name>]` | Start a workflow run. The main conversation is the conductor. |
-| `/wise-workflow-resume [<run-ulid>]` | Resume an interrupted or paused run. |
-| `/wise-workflow-status [<run-ulid>]` | List runs in cwd, or dump one run's state. |
+| `/wise-workflow-run [<workflow-name>]` | Start a workflow run on the wise engine. The main conversation is the conductor: pre-flight questions, run context, one line per event, gates. |
+| `/wise-workflow-resume [<run-ulid>]` | Resume a paused or failed engine run, or answer a gated one, then follow it. |
+| `/wise-workflow-status [<run-ulid>]` | List engine runs, or show one run and its open gate. |
 | `/wise-workflow-remove <name>` | Delete a user workflow (bundled ones are immutable). |
 | `/wise-commit-message [--copy]` | Draft a Conventional-Commits subject line from the pending diff. Read-only — drafts and hands back. |
 | `/wise-commit` | Stage every working-tree change (`git add -A`), draft the subject, run `git commit`. Local only. |
@@ -89,7 +96,6 @@ below.
 | `/wise-pr-watch-auto [<max-fix-attempts>]` | Autonomous `/wise-pr-watch` — watch CI, auto-fix failures + bot review comments, loop to green; merges the PR when all checks pass (branch protection respected); a stuck Copilot / CodeRabbit falls back to wise's own review panel instead of blocking; no prompts. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. Executors run **supervised** (a watchdog nudges any that hang); tune with `WISE_WORKER_*` env. |
 | `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (dispatches the `code-simplifier` agent, then drafts a Conventional-Commits subject and commits). NO prompts, never pushes. |
-| `/wise-code-review-auto [<base-branch>] [--profile low\|medium\|max]` | Autonomously code-review the current branch and apply the fixes — the heavyweight branch gate of the two-tier quality model: a panel of parallel reviewer subagents over `origin/<base>..HEAD` (always the 3-lens set — correctness, security, tests — with each reviewer's effort set by the session profile; at `max` every kept finding is adversarially verified before apply), bounded findings applied and committed. NO prompts, never pushes. |
 | `/wise-human-writing [<draft or pointer>]` | Rewrite a draft into the plugin's human-first outbound style — the command half of the `wise-human-writing` hybrid skill (see [§ Skills](#skills)). |
 | `/wise-tickets [<ticket-ref or draft>]` | Restructure an oversized ticket or draft to the canonical ticket shape, and — when asked — apply it back to the tracker; the command half of the `wise-tickets` hybrid skill (see [§ Skills](#skills)). |
 | `/wise-supervise [<team-name>]` | Attach a watchdog / supervisor loop to a running team of background agents — probe each member, nudge the idle-but-unfinished or off-goal ones, escalate the persistently stuck. The automation of manually typing "ping all your subagents, are you on track?". |
@@ -170,50 +176,43 @@ list-skills`.
 ## Workflows
 
 A **workflow** in wise is a named, reusable, multi-step procedure
-defined in YAML. You compose wise actions, third-party skills, shell
-commands, and approval gates into a single `/wise-workflow-run <name>`
-invocation; the main Claude Code conversation becomes the
-**conductor** and drives the DAG wave by wave (parallel fan-out
-where steps share `depends_on`, serial where they don't), persists
-per-run state at `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/state.yaml` (honours `XDG_DATA_HOME`),
-and supports both interactive (wave-sync) and headless
-(synchronous) execution modes. Workflows you interrupt can be
-resumed from their last-completed step via
+defined in YAML (schema version 2) and run by the TypeScript engine
+under [`engine/`](./engine/). You compose harness children, shell
+commands and gates into a single `/wise-workflow-run <name>`
+invocation. The engine runs as a per-user daemon (`wise-engined`,
+started on demand by the plugin's `wise-engine` MCP server), spawns the
+vendor CLIs headless (`claude -p`, `codex exec`, `grok -p`, `gemini -p`)
+under your existing logins, schedules the step DAG (steps whose
+dependencies are all done run together), and persists every run under
+`~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` (`state.json` +
+`events.jsonl`, honours `XDG_DATA_HOME`). The Claude Code conversation
+is a thin conductor: it renders the pre-flight questions, hands the run
+what it already knows (ticket bodies, guidance, decisions), prints one
+line per engine event and answers gates. It never sees step output.
+Interrupted runs resume from the ledger via
 `/wise-workflow-resume <run-ulid>`.
 
-Workflows let you codify recipes like "run tests, open a PR, tag a
-release" once, then invoke them repeatably. Six step types are
-supported — `skill` (invoke another plugin skill), `prompt` (Task
-subagent, parallelisable), `interactive` (main-thread, full
-AskUserQuestion access), `bash` (deterministic shell), `approval`
-(pause for confirmation, auto-approved in synchronous mode), and
-`ask` (capture a free-text or binary user answer).
+Five step types: `agent` (one headless harness child with a `prompt`,
+an optional JSON `schema` and named `outputs`), `bash` (deterministic
+shell), `approval` (gate: approve / reject), `ask` (gate that records an
+answer as an output), and `units` (the ticket -> PR and plan -> PR
+pipelines as engine code: claim, worktree, plan, implement, review /
+fix, push, PR, request review, watch, merge, cleanup).
 
-A `prompt` step can be dispatched to a role from the **SDLC agent
-roster** (`wise:architect`, `wise:software-engineer`,
-`wise:code-reviewer`, … — see [Agent roster](#agent-roster)) instead of
-the generic `general-purpose` subagent, and can pin a `model:` and a
-reasoning `effort:`. Set the workflow-level `agents: auto` policy to
-route every prompt step to a best-fit role, or bind a step explicitly
-with `agent: <role> | auto | off`. Steps run **in-conversation** (Task
-subagents, subscription-covered — no extra API billing): `model:` is the
-real per-step knob (a retired model auto-falls-back to its alias with a
-notice), and `effort:` is a best-effort prompt directive clamped to the
-resolved model's capability and then to its policy ceiling (Opus 5 tops
-out at `high`; override with `WISE_EFFORT_CEILING`). Under the `low`
-session profile (`/wise-profile low`) every Opus-family pin resolves to
-`claude-opus-4-8` — a `low` run never dispatches Opus 5. Full reference:
-[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort)
-and [Effort ceilings](../../docs/wise/workflows.md#effort-ceilings).
+Every `agent` step and every `units` phase binds to a **tuning group**
+(`{harness, model, effort}` plus optional presets) that the pre-flight
+questionary offers; **budget profiles** (`low` / `medium` / `max`, the
+`/wise-profile` vocabulary) override groups and set the caps the
+pipelines read. Models resolve through a retired-id table, a capability
+clamp and a policy ceiling (Opus 5 tops out at `high`; override with
+`WISE_EFFORT_CEILING`); under `low` every Opus-family pin resolves to
+`claude-opus-4-8`. Children run under the vendor's subscription login
+unless a step says `auth: api-key`.
 
-The project a run operates on is resolved from the current context:
-`project-selection: current` auto-detects it from the current git
-repository, `prompt` asks you to confirm or override, `any` skips
-project resolution.
-
-**Full reference** — definition schema, step-type semantics,
-run-state format, resume behaviour, worktree support, dependency
-probing, and the author-side walkthrough — lives in
+**Full reference** - the v2 schema, step-type semantics, the `when`
+grammar, templating, harness / model / effort resolution, the gate
+protocol, the run directory, the child channel tools, the unit
+pipelines, the engine CLI and the v1 migration rules - lives in
 [**`docs/wise/workflows.md`**](../../docs/wise/workflows.md). Start
 there when writing your first workflow.
 
@@ -225,9 +224,11 @@ related skills.
 
 | Workflow | Invocation | Summary |
 |---|---|---|
-| [`example-workflow`](./workflows/example-workflow/README.md) | `/wise-workflow-run example-workflow` | Reference workflow exercising every step type + parallel-wave dispatch. Safe to run. |
-| [`ticket-plan`](./workflows/ticket-plan/README.md) | `/wise-workflow-run ticket-plan` | Tracker ticket → detect tracker + probe access → type-routed parallel research (design spec + related items + grill multi-source context sweep + codebase audit) → gap check (on gaps: a `BLUEPRINT-<ref>.md` with targeted questions, answerable inline or after asking the team) → autonomous decisions → SP-estimated implementation plan → approval. |
-| [`ticket-auto`](./workflows/ticket-auto/README.md) | `/wise-workflow-run ticket-auto` | Autonomous ticket → PR pipeline — a Lead Architect + 3 Senior Engineers take each ticket through plan → implement (in a worktree) → commit → push → PR → request review → watch + fix CI to green → merge, end to end, no user prompts. One PR per ticket; a PR is merged when its checks pass, else left open for a human. |
+| [`example-workflow`](./workflows/example-workflow/README.md) | `/wise-workflow-run example-workflow` | Reference workflow exercising every v2 step type, two tuning groups asked in stages, an input and a parallel wave. Safe to run. |
+| [`code-review`](./workflows/code-review/README.md) | `/wise-workflow-run code-review` | Review the branch before it is pushed: three parallel read-only reviewers (correctness, security, tests) over `origin/<base>..HEAD`, a curator, an optional adversarial verification pass, then a fixer that applies the kept findings and commits them (`report` mode writes the findings file only). Harness, model and effort per agent at pre-flight; never pushes. |
+| [`ticket-plan`](./workflows/ticket-plan/README.md) | `/wise-workflow-run ticket-plan` | Tracker ticket → detect tracker + probe access → type-routed parallel research (design spec + related items + grill multi-source context sweep + codebase audit) → gap check (on gaps: a `BLUEPRINT-<ref>.md` with targeted questions) → autonomous decisions → SP-estimated implementation plan → setup. Every decision is a pre-flight input with an `ask` escape value. |
+| [`ticket-auto`](./workflows/ticket-auto/README.md) | `/wise-workflow-run ticket-auto` | Autonomous ticket → PR pipeline as one `units` step: per ticket claim a branch and worktree, plan, implement, review / fix loop, push, PR, request bot reviews, watch CI and the bots, fix, merge when green and quiet. No prompts after launch; one PR per ticket; anything not merged stays open for a human with its worktree kept. |
+| [`impl-plan-auto`](./workflows/impl-plan-auto/README.md) | `/wise-workflow-run impl-plan-auto` | The same `units` pipeline fed ready `PLAN-*.md` files (for example from `/wise-revise`): re-plan the seed at HEAD, implement, review, PR, watch, merge. |
 
 ## Agent roster
 
@@ -244,17 +245,16 @@ a real Claude Code plugin subagent — after install they appear in
 | `wise:sre` | `wise:ux-designer` | `wise:technical-writer` |
 | `wise:code-reviewer` | | |
 
-The workflow engine dispatches `prompt` steps to these roles via the
-`agent:` step field and the `agents:` workflow policy (see
-[Workflows](#workflows) above and
-[`docs/wise/workflows.md`](../../docs/wise/workflows.md#agents-model-and-effort)).
-`agent:` takes a single role **or a list** — a list is a **team** of roles run
-together (with an optional `lead`) and synthesized into one step result.
-Each role carries scoped `tools`, `model: inherit`, and a default
-`effort` tuned to its cognitive load; add or edit a role per the
-procedure in [`AGENTS.md`](./AGENTS.md). `plugins/wise/agents/*.md` is the
-single canonical source; the repo-root [`AGENTS.md`](../../AGENTS.md)
-documents the roster for any agent reading the repo's project instructions.
+The YAML v2 engine has no roster binding field: an `agent` step is one
+headless harness child, and a Claude child reaches the roster through its
+own `Task` / `Agent` tool when the prompt asks it to ("Act as the wise
+`architect` agent", or "run three reviewers as `wise:code-reviewer`,
+`wise:security-engineer`, `wise:qa-engineer`"). Each role carries scoped
+`tools`, `model: inherit`, and a default `effort` tuned to its cognitive
+load; add or edit a role per the procedure in [`AGENTS.md`](./AGENTS.md).
+`plugins/wise/agents/*.md` is the single canonical source; the repo-root
+[`AGENTS.md`](../../AGENTS.md) documents the roster for any agent reading
+the repo's project instructions.
 
 ## Skills
 
@@ -339,8 +339,9 @@ documented under [`docs/wise/`](../../docs/wise/):
   adding or modifying wise skills via `/wise-skills-create` /
   `/wise-skills-edit`.
 - [`workflows.md`](../../docs/wise/workflows.md) — the workflow
-  subsystem: definitions, step types, run state, resume, worktrees,
-  dependency handling.
+  engine: YAML v2 schema, step types, tuning and profiles, harness /
+  model / effort resolution, gate protocol, run directory, unit
+  pipelines, MCP tools, CLI, v1 migration.
 - [`insights.md`](../../docs/wise/insights.md) — the self-improvement
   loop: `/wise-insights-mine` / `-refine` / `-reset`, the SessionEnd
   capture hook, the ledger / candidates / decisions data model, the
@@ -361,8 +362,10 @@ of the following mechanisms, and update the table below.
 
 | Dependency | Kind | Registered in | Used by |
 |---|---|---|---|
-| Python 3 + PyYAML + python-ulid + typing_extensions | CLI / runtime — workflow engine's YAML + state store | `plugins/wise/scripts/init.sh` + `plugins/wise/scripts/bootstrap-deps.sh` (probes); registry cached by `/wise-init` at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` | every workflow engine skill (`wise-workflow-run`, `wise-workflow-list`, …) |
-| Node ≥22 | CLI / runtime — npx-driven MCP servers | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | MCP servers launched via npx |
+| bun or Node ≥24 | CLI / runtime - the TypeScript workflow engine (`engine/engine.sh` picks bun, else Node 24; TypeScript run as source, no build) | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` | the `wise-engine` MCP server and daemon behind `wise-workflow-run` / `-resume` / `-status` |
+| `wise-engine` MCP server (`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`) | MCP server - `wise_preflight`, `wise_run`, `wise_wait`, `wise_answer`, `wise_status`, `wise_cancel`, `wise_nudge`, `wise_resume`; starts the `wise-engined` daemon on demand | `plugins/wise/.mcp.json` (tool timeout 660 s) | the three conductor skills |
+| `claude` CLI login (`claude auth login`); optionally `codex login`, `grok login`, `gemini` | CLI binaries - the harnesses the engine spawns headless under your subscription | probed by the engine before every run (`AUTH_REQUIRED` carries the login command); `/wise-init` checks `claude` | every `agent` step and `units` phase |
+| Python 3 + PyYAML + python-ulid + typing_extensions | CLI / runtime - the v1 workflow scripts (`scripts/workflows.py`) still behind `/wise-workflow-list` / `-create` / `-remove` and the legacy v1 conductor; removed in plan M3.4 | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | `wise-workflow-list`, `wise-workflow-create`, `wise-workflow-remove` |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 | [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `plugins/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |
 | [`code-simplifier` plugin](https://github.com/anthropics/claude-plugins-official) (`claude-plugins-official`) — ships the `code-simplifier` agent | Plugin-to-plugin — **optional, install manually**: `/plugin install code-simplifier@claude-plugins-official` (not declared in `plugin.json` `dependencies:`; see CONTRIBUTING §2.3) | documented here only | the per-commit simplify pass (`references/simplify-pass.md`): the commit routine (`/wise-commit`, `/wise-commit-push`), the implement phase, `/wise-simplify-auto` |
@@ -386,9 +389,9 @@ without the cleanup; only `/wise-simplify-auto` refuses.
   the Claude desktop app drop wise silently at session start
   (CONTRIBUTING §2.3). The consuming skill must degrade gracefully
   when the plugin is absent.
-- **MCP server** → add to `plugins/wise/.mcp.json`. Claude Code
-  auto-registers the server when the plugin loads. Note that MCP tool
-  ids are derived from the plugin name
+- **MCP server** → add to `plugins/wise/.mcp.json` (today: the
+  `wise-engine` server). Claude Code auto-registers the server when the
+  plugin loads. Note that MCP tool ids are derived from the plugin name
   (`mcp__plugin_<plugin>_<server>__<tool>`); both the `.mcp.json`
   entry AND the consuming skills' `allowed-tools` list must stay in
   sync.
@@ -437,7 +440,7 @@ testing. Invariants for agents editing the plugin are in
   frontmatter. It appears in autocomplete as `/<name>` on the next
   `/reload-plugins`.
 - **Workflows are a first-class subsystem, not a bolt-on.** The
-  conductor runs in the main Claude Code conversation; state is
-  per-workspace YAML; parallelism uses Claude Code's one-message-
-  multiple-tool-calls pattern; dependencies are probed (never
-  auto-installed).
+  engine is a daemon behind an MCP server; the conversation only asks
+  and answers; state is a per-run ledger off the project tree;
+  parallelism is the engine's scheduler under per-harness concurrency
+  caps; harness logins are probed (never performed) before a run.

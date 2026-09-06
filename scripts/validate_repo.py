@@ -3,7 +3,9 @@
 
 Cross-checks the invariants this repo relies on contributor discipline
 for today: JSON manifests parse, every bundled workflow.yaml is
-internally consistent (step ids/types/trigger-rules/depends_on), every
+internally consistent (v1: step ids/types/trigger-rules/depends_on via
+workflows.py; `version: 2`: delegated to the TS engine's
+`engine.sh compile-check`), every
 skill's frontmatter is well-formed (`name:` matches its directory,
 `description` non-empty, only known keys, no forbidden v1 fields,
 allowed-tools entries parse), the skill catalog stays in sync with
@@ -90,6 +92,47 @@ def check_json_manifests(errors: list[str]) -> None:
             errors.append(f"{rel}: invalid JSON ({exc})")
 
 
+def _is_v2_workflow(workflow_yaml: Path) -> bool:
+    """True when the file declares `version: 2` (validated by the TS engine)."""
+    try:
+        data = yaml.safe_load(workflow_yaml.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    return isinstance(data, dict) and data.get("version") == 2
+
+
+def check_workflow_v2(errors: list[str], workflow_yaml: Path) -> None:
+    """Delegate a `version: 2` definition to the TS engine's compile-check
+    (`plugins/wise/engine/engine.sh compile-check <path>`), which owns the
+    v2 schema. One error line per issue the engine reports."""
+    import subprocess
+
+    rel = workflow_yaml.relative_to(REPO_ROOT)
+    engine = REPO_ROOT / WISE_PLUGIN_DIR / "engine" / "engine.sh"
+    try:
+        proc = subprocess.run(
+            ["bash", str(engine), "compile-check", str(workflow_yaml)],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        errors.append(f"{rel}: engine compile-check could not run ({exc})")
+        return
+    if proc.returncode == 0:
+        return
+    try:
+        report = json.loads(proc.stdout)
+        issues = [
+            f"{i.get('path') or '<root>'}: {i.get('message')}"
+            for entry in report
+            for i in entry.get("issues", [])
+            if i.get("level") == "error"
+        ]
+    except (json.JSONDecodeError, AttributeError):
+        issues = []
+    detail = "; ".join(issues) or proc.stderr.strip() or f"exit {proc.returncode}"
+    errors.append(f"{rel}: engine compile-check failed ({detail})")
+
+
 def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> None:
     workflows_dir = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
     for workflow_yaml in sorted(workflows_dir.glob("*/workflow.yaml")):
@@ -102,6 +145,11 @@ def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> N
             continue
         if not isinstance(data, dict):
             errors.append(f"{rel}: top-level YAML is not a mapping")
+            continue
+        if data.get("version") == 2:
+            # v2 definitions: the TS engine owns the schema (step types,
+            # depends_on, tuning / profiles / step-select all in one pass).
+            check_workflow_v2(errors, workflow_yaml)
             continue
 
         top_name = data.get("name")
@@ -184,6 +232,8 @@ def check_workflow_schemas(errors: list[str], workflows_module) -> None:
     workflows_dir = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
     for workflow_yaml in sorted(workflows_dir.glob("*/workflow.yaml")):
         rel = workflow_yaml.relative_to(REPO_ROOT)
+        if _is_v2_workflow(workflow_yaml):
+            continue  # already covered by check_workflow_v2 (engine compile-check)
         for label, fn in getters:
             out, err = io.StringIO(), io.StringIO()
             try:

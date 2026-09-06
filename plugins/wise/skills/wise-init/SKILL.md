@@ -2,9 +2,12 @@
 name: wise-init
 description: >-
   First-time setup wizard — walk the user through installing wise's
-  system deps (Python 3 + pyyaml/ulid/typing_extensions, Node ≥22, gh
-  CLI + `gh auth login`, markitdown for file-to-markdown extraction)
-  and cache the probe results so workflow runs skip the live check.
+  system deps (Python 3 + pyyaml/ulid/typing_extensions, bun or Node ≥24,
+  the `claude` CLI login, gh CLI + `gh auth login`, markitdown for file-to-markdown extraction),
+  self-check the workflow engine and its `wise-engine` MCP server, replace a daemon left
+  running on an older engine build, check git over ssh from the engine's child environment,
+  report the optional harness CLIs (codex, grok, gemini), and cache the probe results so
+  workflow runs skip the live check.
   Idempotent — re-running only prompts for gaps.
   Invoked as `/wise-init` (bare alias) or `/wise:wise-init` (canonical).
   Use when the user says "init wise", "set up wise", "install wise deps",
@@ -51,10 +54,12 @@ it under 4 lines:
 
 ```
 First-time setup. I'll walk you through the system deps wise needs —
-Python 3, Node ≥22, the gh CLI (with auth), and markitdown (file →
-markdown text extraction). Re-runs are safe: I skip what's already
-installed. After this I cache the probe results so future workflow
-runs skip the live check.
+Python 3, bun or Node ≥24 (the workflow engine runtime), the claude
+CLI login, the gh CLI (with auth), and markitdown (file → markdown text
+extraction) — then self-check the engine and its MCP server and report
+the optional harness CLIs (codex, grok, gemini). Re-runs are safe: I
+skip what's already installed. After this I cache the probe results so
+future workflow runs skip the live check.
 ```
 
 ### 2. Python (and its pip modules)
@@ -163,26 +168,133 @@ Claude-side state:
 }
 ```
 
-### 3. Node ≥22
+### 3. Engine runtime: bun (preferred) or Node ≥24
 
-Same pattern as §2, but with `init.sh probe-node`. Bare keys
-`STATUS`, `BINARY`, `VERSION`, `MAJOR` → `NODE_STATUS`,
+**3a. Probe bun first.**
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-bun
+```
+
+Bare keys `STATUS`, `BINARY`, `VERSION` → `BUN_STATUS`, `BUN_BINARY`,
+`BUN_VERSION`.
+
+- **`BUN_STATUS=ok`:** print `bun <ver> ✓ at <binary>` and skip to §3c.
+- **`BUN_STATUS=missing`:** fall through to §3b; bun is optional when
+  Node ≥24 is present.
+
+**3b. Probe Node.** Same pattern as §2, with `init.sh probe-node`. Bare
+keys `STATUS`, `BINARY`, `VERSION`, `MAJOR` → `NODE_STATUS`,
 `NODE_BINARY`, `NODE_VERSION`, `NODE_MAJOR`.
 
 - **`NODE_STATUS=ok`:** print `Node <ver> ✓ at <binary>` and move on.
-- **`NODE_STATUS=too-old`:** `AskUserQuestion`:
-  - Question: `Detected Node <ver> at <binary>, but wise needs Node 22+. How would you like to upgrade?`
+- **`NODE_STATUS=too-old` or `missing` (and no bun):** `AskUserQuestion`:
+  - Question: `wise's workflow engine needs bun or Node 24+. Detected <ver or nothing>. How would you like to install a runtime?`
   - Options:
-    - `mise (recommended)` — description: `mise use -g node@22`
-    - `brew` — description: `brew install node@22 && brew link --overwrite --force node@22`
-    - `Manual` — description: `I'll upgrade Node myself — hold the wizard.`
+    - `bun (recommended)` — description: `brew install oven-sh/bun/bun`
+    - `mise` — description: `mise use -g node@24`
+    - `brew` — description: `brew install node@24 && brew link --overwrite --force node@24`
+    - `Manual` — description: `I'll install it myself — hold the wizard.`
   Same `Done — re-probe` loop as §2b.
-- **`NODE_STATUS=missing`:** same install options, but `brew install node` (no `@22` clause since there's nothing to upgrade from).
+
+**3c. Probe the claude CLI login.** The engine runs workflow steps as
+`claude -p` children under the user's subscription login. A desktop-app
+session does not log the terminal CLI in, so this is a common gap.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-claude-auth
+```
+
+Bare keys `STATUS`, `BINARY`, `METHOD` → `CLAUDE_AUTH_STATUS`,
+`CLAUDE_AUTH_BINARY`, `CLAUDE_AUTH_METHOD`.
+
+- **`CLAUDE_AUTH_STATUS=ok`:** print `claude login ✓ (<method>)`.
+- **`CLAUDE_AUTH_STATUS=logged-out`:** tell the user to run
+  `claude auth login` in a terminal (not inside this session), wait for
+  `Done — re-probe`, re-run the probe.
+- **`CLAUDE_AUTH_STATUS=missing`:** the `claude` binary is not on PATH;
+  print the install hint from https://code.claude.com/docs and stop the
+  wizard at this step (workflows cannot run without it).
 
 Record:
 
 ```json
-{"status": "ok" | "missing", "binary": "...", "version": "..."}
+{
+  "runtime": {"kind": "bun" | "node", "binary": "...", "version": "..."} | null,
+  "claude_auth": {"status": "ok" | "logged-out" | "missing", "method": "..."}
+}
+```
+
+**3d. Engine self-check.** Skip when §3 found no runtime. A plugin
+install copies the engine without its dependencies; the first engine
+call installs them (one `installing runtime dependencies` line on
+stderr, then the answer).
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" version
+```
+
+- Prints `wise-engine <version> (<bun|node> <ver>)`: print it and go on.
+- Exit 69 or an install error: print the stderr verbatim. Usual causes:
+  no network for the dependency fetch, or neither bun nor npm on PATH.
+  Record `engine.status: failed` and continue with §4 (the wizard
+  finishes; workflows will not run until this passes).
+
+Next, the daemon. A daemon started before a plugin update keeps
+serving the old code until a client replaces it, and a desktop session
+holds its socket open, so check the build here:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" daemon status
+```
+
+- `engined not running`: nothing to do; the first tool call starts it.
+- `engined running: pid <n>, v<build>, <socket>`: print it and go on.
+- The line ends with `(version mismatch)`: the daemon runs another
+  build than the engine on disk. Run
+  `bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" daemon stop`, print
+  `stale daemon (v<old>) stopped; the next call starts <engine version>`,
+  and re-run `daemon status` to confirm `not running`. `stop` waits
+  for active runs; if it reports runs still active, say so and leave
+  the daemon alone (a run in flight keeps its build).
+
+Then, in the same message, call the `wise_status` MCP tool with no
+arguments.
+
+- Result (a run list, possibly empty): MCP `ok`.
+- Tool not available in this session: MCP `restart-needed`. Print
+  `The wise-engine MCP server loads at session start; open a new
+  session after installing the plugin, then re-run /wise-init.`
+- `DAEMON_UNAVAILABLE`: MCP `failed`; print the error's message.
+
+**3e. Harness CLIs.** The engine can also dispatch steps to `codex`,
+`grok` and `gemini`; each is optional and a workflow that names one
+fails at pre-flight with `AUTH_REQUIRED` and the login command when it
+is missing.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" auth
+```
+
+One `HARNESS=<name> INSTALLED=yes|no LOGIN=ok|missing LOGIN_CMD=<cmd>`
+line per harness. Print one row each; for `LOGIN=missing` on an
+installed harness, show `LOGIN_CMD` as the thing to run in a terminal
+and never run it yourself. The `claude` row must be `LOGIN=ok` here
+(same fact as §3c, probed the engine's way); if it is not, the exit
+code is 1: repeat the §3c guidance.
+
+Record:
+
+```json
+{
+  "engine": {"version": "...", "status": "ok" | "failed", "mcp": "ok" | "restart-needed" | "failed",
+             "daemon": "not-running" | "current" | "replaced" | "stale-busy"},
+  "harnesses": {
+    "codex":  {"installed": true|false, "login": "ok" | "missing", "login_cmd": "..."},
+    "grok":   {...},
+    "gemini": {...}
+  }
+}
 ```
 
 ### 4. gh CLI + auth
@@ -228,6 +340,43 @@ Record:
   "version": "...",
   "authenticated": true | false,
   "login": "<handle or empty>"
+}
+```
+
+**4d. git over ssh from the engine's child environment.** Engine
+children (harness CLIs, bash steps, the unit phases' own `git` and
+`gh` calls) start from a clean environment; git reaches an ssh remote
+only through the agent socket it inherits. A key that is not loaded in
+the agent fails every `git@github.com` call with
+`Permission denied (publickey)`, and a workflow dies at its first
+`ls-remote`.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-git-ssh
+```
+
+Bare keys `STATUS`, `AGENT`, `HOST`, `DETAIL` → `GIT_SSH_STATUS`,
+`GIT_SSH_AGENT`, `GIT_SSH_HOST`, `GIT_SSH_DETAIL`.
+
+- **`GIT_SSH_STATUS=ok`:** print `git over ssh ✓ (<DETAIL>)`.
+- **`GIT_SSH_STATUS=denied`:** `AskUserQuestion`:
+  - Question: `git over ssh is denied from the engine's environment (<DETAIL>). Load your key into the agent in a terminal: ssh-add --apple-use-keychain ~/.ssh/<key> (macOS) or ssh-add ~/.ssh/<key>. If AGENT=unset, start the app from a login that exports SSH_AUTH_SOCK.`
+  - Header: `git ssh`
+  - Options: `Done — re-probe`; `Skip for now` — description:
+    `Continue. Any workflow that pushes or fetches over ssh fails at its first git call until this passes; https remotes with gh credentials are unaffected.`
+- **`GIT_SSH_STATUS=unreachable`:** print the detail; a network
+  problem, not a setup gap. Record and move on.
+- **`GIT_SSH_STATUS=missing-ssh`:** print `ssh not on PATH`; record.
+- **`GIT_SSH_STATUS=unknown`:** print the detail verbatim; record.
+
+Record:
+
+```json
+{
+  "status": "ok" | "denied" | "unreachable" | "missing-ssh" | "unknown",
+  "agent": "set" | "unset",
+  "host": "github.com",
+  "detail": "..."
 }
 ```
 
@@ -315,10 +464,14 @@ plugin version:
   "plugin_version": "<contents of plugin.json's version field>",
   "completed_at": "<utc ISO8601, see below>",
   "deps": {
-    "python":     { ... from §2c ... },
-    "node":       { ... from §3 ... },
-    "gh":         { ... from §4 ... },
-    "markitdown": { ... from §5c ... }
+    "python":      { ... from §2c ... },
+    "node":        { ... runtime from §3a/§3b ... },
+    "claude_auth": { ... from §3c ... },
+    "engine":      { ... from §3d ... },
+    "harnesses":   { ... from §3e ... },
+    "gh":          { ... from §4 ... },
+    "git_ssh":     { ... from §4d ... },
+    "markitdown":  { ... from §5c ... }
   }
 }
 ```
@@ -352,8 +505,14 @@ Print a one-block report:
 /wise-init complete.
 
   Python 3.12.5       ✓
-  Node 22.20.0        ✓
+  bun 1.4.1           ✓
+  claude login        ✓ (claude.ai)
+  wise-engine 5.0.0   ✓  MCP ✓  daemon current
+  codex               ✓ logged in
+  grok                ✓ logged in
+  gemini              ⚠ installed, not logged in (optional)
   gh 2.54.0 (auth: your-username) ✓
+  git over ssh        ✓ (github.com, agent set)
   markitdown 0.1.3    ✓
 
 Registry cached at:
@@ -365,7 +524,12 @@ or after `/plugin install wise@…` (which wipes the cache by design).
 ```
 
 Adjust the row's checkmark to `⚠` and the label suffix when a dep
-ended up `missing` or `authenticated: false`. Be honest — don't
+ended up `missing` or `authenticated: false`. Optional harness rows
+are `⚠`, never `✗`: a missing codex, grok or gemini blocks nothing
+until a workflow names it. `MCP restart-needed` is the one row that
+ends with an instruction (open a new session); `daemon replaced` names
+the old build that was stopped, `daemon stale-busy` says a run kept
+it. A `git over ssh ⚠ denied` row repeats the ssh-add hint. Be honest — don't
 claim success for something the user skipped.
 
 ## Guardrails
