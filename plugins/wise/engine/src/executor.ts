@@ -34,7 +34,7 @@ import {
   writeCheckpoint,
 } from "./channel.ts";
 import type { ChannelTimers, ChildTracker, StaleWatch } from "./channel.ts";
-import { clearChild, ledgerHandlers, readChild, recordChild } from "./daemon.ts";
+import { clearChild, ledgerHandlers, recordChild } from "./daemon.ts";
 import type { DaemonHandlers, DaemonRuntime, Handler } from "./daemon.ts";
 import { defaultRoots, loadAndValidate, locateDef, probeRequires } from "./defs.ts";
 import type { DefRoots } from "./defs.ts";
@@ -920,9 +920,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
           }
           const untrack = (): void => {
             if (live.children.get(id) === child) live.children.delete(id);
-            if (handle.pid !== undefined && readChild(live.runDir)?.pid === handle.pid) {
-              clearChild(live.runDir);
-            }
+            if (handle.pid !== undefined) clearChild(live.runDir, handle.pid);
           };
           untrackAll.push(untrack);
           return untrack;
@@ -1162,9 +1160,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
         live.trackers.delete(step.id);
         live.staleWatches.get(step.id)?.stop();
         live.staleWatches.delete(step.id);
-        if (run.handle.pid !== undefined && readChild(live.runDir)?.pid === run.handle.pid) {
-          clearChild(live.runDir);
-        }
+        if (run.handle.pid !== undefined) clearChild(live.runDir, run.handle.pid);
         if (live.stopped) {
           scheduleAll();
           return;

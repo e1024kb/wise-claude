@@ -220,7 +220,42 @@ export function childPath(runDir: string): string {
   return join(runDir, "daemon.json");
 }
 
-/** Record the process group of the run's live child so cancel and restart can kill it. */
+function normalizeRecord(value: unknown): ChildRecord | null {
+  if (typeof value !== "object" || value === null) return null;
+  const parsed = value as Partial<ChildRecord>;
+  if (typeof parsed.pgid !== "number" || typeof parsed.pid !== "number") return null;
+  return {
+    pgid: parsed.pgid,
+    pid: parsed.pid,
+    started_at: typeof parsed.started_at === "string" ? parsed.started_at : "",
+  };
+}
+
+function writeChildren(runDir: string, children: ChildRecord[]): void {
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(childPath(runDir), JSON.stringify({ children }) + "\n", "utf8");
+}
+
+/**
+ * Every live child process group recorded for the run. A run has many concurrent children
+ * (units × phases, plus parallel agent steps), so the sidecar holds a list; the single-record
+ * shape older builds wrote still reads back as a one-element list.
+ */
+export function readChildren(runDir: string): ChildRecord[] {
+  try {
+    const parsed = JSON.parse(readFileSync(childPath(runDir), "utf8")) as unknown;
+    const list = (parsed as { children?: unknown }).children;
+    if (Array.isArray(list)) {
+      return list.map(normalizeRecord).filter((r): r is ChildRecord => r !== null);
+    }
+    const one = normalizeRecord(parsed);
+    return one ? [one] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record the process group of a live child so cancel and restart can kill it. */
 export function recordChild(
   runDir: string,
   child: { pgid: number; pid: number; started_at?: string },
@@ -230,27 +265,24 @@ export function recordChild(
     pid: child.pid,
     started_at: child.started_at ?? utcNow(),
   };
-  mkdirSync(runDir, { recursive: true });
-  writeFileSync(childPath(runDir), JSON.stringify(rec) + "\n", "utf8");
+  writeChildren(runDir, [...readChildren(runDir).filter((r) => r.pid !== rec.pid), rec]);
   return rec;
 }
 
+/** The most recently recorded live child, or `null`. */
 export function readChild(runDir: string): ChildRecord | null {
-  try {
-    const parsed = JSON.parse(readFileSync(childPath(runDir), "utf8")) as Partial<ChildRecord>;
-    if (typeof parsed.pgid !== "number" || typeof parsed.pid !== "number") return null;
-    return {
-      pgid: parsed.pgid,
-      pid: parsed.pid,
-      started_at: typeof parsed.started_at === "string" ? parsed.started_at : "",
-    };
-  } catch {
-    return null;
-  }
+  return readChildren(runDir).at(-1) ?? null;
 }
 
-export function clearChild(runDir: string): void {
-  rmSync(childPath(runDir), { force: true });
+/** Drop one child by pid, or every record when no pid is given. */
+export function clearChild(runDir: string, pid?: number): void {
+  if (pid === undefined) {
+    rmSync(childPath(runDir), { force: true });
+    return;
+  }
+  const left = readChildren(runDir).filter((r) => r.pid !== pid);
+  if (left.length === 0) rmSync(childPath(runDir), { force: true });
+  else writeChildren(runDir, left);
 }
 
 // ---- run lookup --------------------------------------------------------------------------------------
@@ -331,11 +363,10 @@ export function recoverRuns(
 ): RecoveryReport {
   const report: RecoveryReport = { paused: [], killed: [] };
   for (const dir of listRunDirs(runsRoot)) {
-    const child = readChild(dir);
-    if (child) {
+    for (const child of readChildren(dir)) {
       if (groupAlive(child.pgid) && killGroup(child.pgid)) report.killed.push(child.pgid);
-      clearChild(dir);
     }
+    clearChild(dir);
     const state = readStateSafe(dir);
     if (!state || state.status !== "running") continue;
     const reset = resetRunning(dir);
@@ -527,11 +558,8 @@ export function ledgerHandlers(rt: DaemonRuntime, tuning: WaitTuning = {}): Daem
     if (state.status === "completed") {
       throw new RpcError(RPC_INVALID_PARAMS, `cancel: run ${runId} is already completed`);
     }
-    const child = readChild(runDir);
-    if (child) {
-      killGroup(child.pgid);
-      clearChild(runDir);
-    }
+    for (const child of readChildren(runDir)) killGroup(child.pgid);
+    clearChild(runDir);
     const now = utcNow();
     for (const step of Object.values(state.steps)) {
       if (step.status === "running") {

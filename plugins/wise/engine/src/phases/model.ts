@@ -235,12 +235,14 @@ export function renderPhasePrompt(
   phase: ModelPhase,
   vars: Record<string, unknown>,
 ): string {
-  const text = renderVars(loadTemplate(pipeline, phase), vars);
-  const left = unresolvedPlaceholders(text);
+  const template = loadTemplate(pipeline, phase);
+  // Check the TEMPLATE, not the rendered output: a `{{...}}` sequence inside an injected value
+  // (a ticket body about mustache templating, say) is data, not an authoring placeholder.
+  const left = unresolvedPlaceholders(template).filter((k) => !(k in vars));
   if (left.length > 0) {
     throw new Error(`${pipeline}/${phase} prompt: unresolved placeholder(s) ${left.join(", ")}`);
   }
-  return text;
+  return renderVars(template, vars);
 }
 
 function projectKind(worktree: string): string {

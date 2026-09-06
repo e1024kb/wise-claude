@@ -22,6 +22,7 @@ import {
   daemonPaths,
   DaemonError,
   readChild,
+  readChildren,
   readLock,
   recordChild,
   startDaemon,
@@ -454,10 +455,38 @@ describe("daemon", () => {
     assert.equal(rec.pgid, 1234);
     assert.match(rec.started_at, /Z$/);
     assert.deepEqual(readChild(runDir), rec);
-    assert.deepEqual(JSON.parse(readFileSync(childPath(runDir), "utf8")), rec);
+    assert.deepEqual(JSON.parse(readFileSync(childPath(runDir), "utf8")), { children: [rec] });
     clearChild(runDir);
     assert.equal(readChild(runDir), null);
     clearChild(runDir);
+  });
+
+  test("child sidecar: concurrent children are all recorded and cleared by pid", () => {
+    const r = mkRoot();
+    const runDir = join(r.dataRoot, "runs", "ws", "01RUN");
+    const a = recordChild(runDir, { pgid: 100, pid: 100 });
+    const b = recordChild(runDir, { pgid: 200, pid: 200 });
+    assert.deepEqual(readChildren(runDir), [a, b], "a second child does not overwrite the first");
+    assert.deepEqual(readChild(runDir), b, "readChild reports the most recent");
+    clearChild(runDir, 100);
+    assert.deepEqual(readChildren(runDir), [b]);
+    clearChild(runDir, 200);
+    assert.equal(existsSync(childPath(runDir)), false, "the last child removes the sidecar");
+    assert.deepEqual(readChildren(runDir), []);
+  });
+
+  test("child sidecar: a single-record sidecar from an older build still reads back", () => {
+    const r = mkRoot();
+    const runDir = join(r.dataRoot, "runs", "ws", "01RUN");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(
+      childPath(runDir),
+      JSON.stringify({ pgid: 7, pid: 7, started_at: "2026-01-01T00:00:00Z" }) + "\n",
+      "utf8",
+    );
+    assert.deepEqual(readChildren(runDir), [
+      { pgid: 7, pid: 7, started_at: "2026-01-01T00:00:00Z" },
+    ]);
   });
 
   test("stopDaemon: idle shutdown removes the socket; a dead socket reports not running", async () => {

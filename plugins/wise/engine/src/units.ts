@@ -595,7 +595,16 @@ export async function runUnitsStep(input: UnitsStepInput): Promise<UnitsStepResu
   }
 
   const rows: UnitRow[] = [];
-  const queue = [...input.items];
+  // Dedupe by branch, not by raw item: two spellings of one ticket ("ABC-1" and its browse url)
+  // map to the same branch, worktree and unit ledger, so a second unit would race the first.
+  const seenBranch = new Set<string>();
+  const items = input.items.filter((item) => {
+    const branch = makeUnit(config.pipeline, item, cwd, runDir).branch;
+    if (seenBranch.has(branch)) return false;
+    seenBranch.add(branch);
+    return true;
+  });
+  const queue = [...items];
   const workers = Math.max(1, Math.min(step.parallel ?? 1, queue.length));
   const worker = async (): Promise<void> => {
     for (;;) {
@@ -608,7 +617,7 @@ export async function runUnitsStep(input: UnitsStepInput): Promise<UnitsStepResu
   await Promise.all(Array.from({ length: workers }, worker));
   // Report rows in item order regardless of which worker finished first.
   const order = new Map(
-    input.items.map((item, i) => [makeUnit(config.pipeline, item, cwd, runDir).branch, i]),
+    items.map((item, i) => [makeUnit(config.pipeline, item, cwd, runDir).branch, i]),
   );
   rows.sort((a, b) => (order.get(a.unit.branch) ?? 0) - (order.get(b.unit.branch) ?? 0));
   const log = flushLog();

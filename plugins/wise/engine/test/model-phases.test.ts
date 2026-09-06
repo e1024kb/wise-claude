@@ -223,6 +223,11 @@ describe("model phases", () => {
     }
     const { plan_path: _dropped, ...partial } = sample;
     assert.throws(() => renderPhasePrompt("ticket", "plan", partial), /unresolved/);
+    // A `{{...}}` inside an injected VALUE is data (a ticket about mustache templating), not an
+    // authoring placeholder: it must survive rendering instead of failing the unit.
+    const braces = { ...sample, guidance: "render {{name}} with the mustache template" };
+    const rendered = renderPhasePrompt("ticket", "plan", braces);
+    assert.match(rendered, /render \{\{name\}\} with the mustache template/);
   });
 
   test("resolveUnitPhases: groups per phase, fix follows implement, review/watch defaults, step override", () => {

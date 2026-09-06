@@ -110,6 +110,14 @@ describe("units", () => {
     assert.equal(cfg.tickets[0]?.title, "First");
   });
 
+  test("two spellings of one ticket collapse into a single unit", async () => {
+    const h = harness();
+    const res = await runUnitsStep(h.input({ items: ["PROJ-1", "https://t/browse/PROJ-1"] }));
+    assert.equal(res.outputs.units.length, 1, "the url spelling maps to the same branch");
+    assert.equal(res.outputs.units[0]?.unit.ref, "PROJ-1");
+    assert.equal(res.verdict, "units=1 merged=0 open=0 failed=0 skipped=1");
+  });
+
   test("two tickets, no agent runtime: claim + worktree real, model phases skipped, cleanup closes the ledger", async () => {
     const h = harness();
     const res = await runUnitsStep(h.input());
