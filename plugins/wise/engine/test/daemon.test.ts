@@ -1,6 +1,6 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -25,6 +25,7 @@ import {
   readChildren,
   readLock,
   recordChild,
+  recoverRuns,
   startDaemon,
 } from "../src/daemon.ts";
 import type { Daemon, DaemonOptions } from "../src/daemon.ts";
@@ -473,6 +474,28 @@ describe("daemon", () => {
     clearChild(runDir, 200);
     assert.equal(existsSync(childPath(runDir)), false, "the last child removes the sidecar");
     assert.deepEqual(readChildren(runDir), []);
+  });
+
+  test("crash recovery kills EVERY recorded child group, not just the last", async () => {
+    const r = mkRoot();
+    const { runDir } = makeRun(r);
+    // Two detached children, each its own group leader (pgid === pid).
+    const kids = [0, 1].map(() =>
+      spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
+        detached: true,
+        stdio: "ignore",
+      }),
+    );
+    for (const k of kids) {
+      assert.ok(k.pid);
+      recordChild(runDir, { pgid: k.pid, pid: k.pid });
+    }
+    const report = recoverRuns(join(r.dataRoot, "runs"));
+    for (const k of kids) {
+      assert.ok(report.killed.includes(k.pid ?? -1), `pgid ${k.pid} killed`);
+    }
+    assert.equal(existsSync(childPath(runDir)), false);
+    await Promise.all(kids.map((k) => new Promise((res) => k.once("exit", res))));
   });
 
   test("child sidecar: a single-record sidecar from an older build still reads back", () => {

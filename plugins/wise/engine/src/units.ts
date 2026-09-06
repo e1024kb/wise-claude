@@ -600,7 +600,12 @@ export async function runUnitsStep(input: UnitsStepInput): Promise<UnitsStepResu
   const seenBranch = new Set<string>();
   const items = input.items.filter((item) => {
     const branch = makeUnit(config.pipeline, item, cwd, runDir).branch;
-    if (seenBranch.has(branch)) return false;
+    if (seenBranch.has(branch)) {
+      // The branch is lossy (a plan basename, a sanitised free-text ref), so say which item
+      // collapsed into which branch rather than letting it vanish from the row count.
+      lines.push(`[${item}] duplicate of an earlier item (branch ${branch}); skipped`);
+      return false;
+    }
     seenBranch.add(branch);
     return true;
   });

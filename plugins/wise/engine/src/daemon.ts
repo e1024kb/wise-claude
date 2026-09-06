@@ -231,9 +231,18 @@ function normalizeRecord(value: unknown): ChildRecord | null {
   };
 }
 
+/** Tmp file then rename, like `state.json`: a crash mid-write must not lose the whole child list. */
 function writeChildren(runDir: string, children: ChildRecord[]): void {
   mkdirSync(runDir, { recursive: true });
-  writeFileSync(childPath(runDir), JSON.stringify({ children }) + "\n", "utf8");
+  const path = childPath(runDir);
+  const tmp = path + ".tmp";
+  try {
+    writeFileSync(tmp, JSON.stringify({ children }) + "\n", "utf8");
+    renameSync(tmp, path);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 /**
@@ -558,7 +567,9 @@ export function ledgerHandlers(rt: DaemonRuntime, tuning: WaitTuning = {}): Daem
     if (state.status === "completed") {
       throw new RpcError(RPC_INVALID_PARAMS, `cancel: run ${runId} is already completed`);
     }
-    for (const child of readChildren(runDir)) killGroup(child.pgid);
+    // Guard on liveness like recovery does: a leaked record whose pgid the OS has recycled
+    // would otherwise take a SIGTERM meant for this run.
+    for (const child of readChildren(runDir)) if (groupAlive(child.pgid)) killGroup(child.pgid);
     clearChild(runDir);
     const now = utcNow();
     for (const step of Object.values(state.steps)) {
