@@ -15,6 +15,10 @@ import {
   probeAuth,
   RATE_LIMIT_RE,
   startClaude,
+  initializeMessage,
+  INIT_REQUEST_ID,
+  permissionRequestOf,
+  permissionResponse,
   userMessage,
 } from "../src/adapters/claude.ts";
 import type { SpawnExit } from "../src/adapters/spawn.ts";
@@ -68,11 +72,17 @@ test("buildArgv: base shape, mode mapping, stdin prompt, never --bare", () => {
     "haiku",
     "--permission-mode",
     "default",
-    "--strict-mcp-config",
+    "--permission-prompt-tool",
+    "stdio",
     "--mcp-config",
     '{"mcpServers":{}}',
   ]);
   assert.equal(argv.includes("--bare"), false);
+  assert.equal(
+    argv.includes("--strict-mcp-config"),
+    false,
+    "children inherit the CLI's MCP servers",
+  );
   assert.equal(argv.includes("ping"), false, "prompt travels over stdin");
 });
 
@@ -105,7 +115,7 @@ test("buildArgv: schema, effort, max_turns, resume, system, mcp_config", () => {
   assert.equal(after("--max-turns"), "7");
   assert.equal(after("--resume"), "13ceb80d-3fbe-4726-a052-f66bf181c9f6");
   assert.equal(after("--append-system-prompt"), "Be terse.");
-  assert.ok(argv.includes("--strict-mcp-config"));
+  assert.equal(argv.includes("--strict-mcp-config"), false);
   assert.deepEqual(JSON.parse(after("--mcp-config") ?? ""), {
     mcpServers: { wise: { command: "wise-engine", args: ["unit-mcp"] } },
   });
@@ -485,7 +495,9 @@ const ECHO_SCRIPT = `
     let i;
     while ((i = buf.indexOf("\\n")) >= 0) {
       const line = buf.slice(0, i); buf = buf.slice(i + 1);
-      const msg = JSON.parse(line); n += 1;
+      const msg = JSON.parse(line);
+      if (msg.type !== "user") continue;
+      n += 1;
       const text = msg.message.content[0].text;
       process.stdout.write(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "got " + text }] } }) + "\\n");
       process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "fake-sess", result: "got " + text, num_turns: n, total_cost_usd: n * 0.01, usage: { input_tokens: n, output_tokens: 2 * n, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) + "\\n");
@@ -502,7 +514,7 @@ const COALESCE_SCRIPT = `
   process.stdin.on("data", (c) => {
     buf += c;
     const lines = buf.split("\\n"); buf = lines.pop();
-    const texts = lines.filter(Boolean).map((l) => JSON.parse(l).message.content[0].text);
+    const texts = lines.filter(Boolean).map((l) => JSON.parse(l)).filter((m) => m.type === "user").map((m) => m.message.content[0].text);
     if (texts.length === 0) return;
     n += 1;
     process.stdout.write(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "got " + texts.join("+") }] } }) + "\\n");
@@ -694,4 +706,154 @@ test("buildArgv: engine MCP server and step rules are pre-granted via --allowedT
   assert.ok(i > 0);
   assert.equal(argv[i + 1], "mcp__wise-engine,Bash(git:*),Bash(mkdir:*)");
   assert.equal(buildArgv(BASE_REQ).includes("--allowedTools"), false);
+});
+
+test("buildArgv: mcp_policy engine-only keeps --strict-mcp-config", () => {
+  const argv = buildArgv({ ...BASE_REQ, mcp_policy: "engine-only" });
+  assert.ok(argv.includes("--strict-mcp-config"));
+  assert.equal(argv.indexOf("--strict-mcp-config") < argv.indexOf("--mcp-config"), true);
+  assert.equal(
+    buildArgv({ ...BASE_REQ, mcp_policy: "inherit" }).includes("--strict-mcp-config"),
+    false,
+  );
+});
+
+test("permission protocol: initialize handshake, can_use_tool request and response shapes", () => {
+  const init = JSON.parse(initializeMessage());
+  assert.deepEqual(init, {
+    type: "control_request",
+    request_id: INIT_REQUEST_ID,
+    request: { subtype: "initialize", hooks: {} },
+  });
+  const req = permissionRequestOf({
+    type: "control_request",
+    request_id: "r1",
+    request: { subtype: "can_use_tool", tool_name: "WebFetch", input: { url: "https://x" } },
+  });
+  assert.deepEqual(req, { request_id: "r1", tool_name: "WebFetch", input: { url: "https://x" } });
+  assert.equal(
+    permissionRequestOf({
+      type: "control_request",
+      request_id: "r2",
+      request: { subtype: "initialize" },
+    }),
+    undefined,
+  );
+  assert.equal(permissionRequestOf({ type: "assistant" }), undefined);
+  assert.deepEqual(
+    JSON.parse(permissionResponse("r1", { behavior: "allow", updatedInput: { a: 1 } })),
+    {
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: "r1",
+        response: { behavior: "allow", updatedInput: { a: 1 } },
+      },
+    },
+  );
+});
+
+test("parser: a can_use_tool control request is decided and reported through onPermission", () => {
+  const seen: string[] = [];
+  const parser = createStreamParser({
+    pool: "subscription",
+    now: () => "T",
+    onPermission: (r, d) => seen.push(`${d.behavior} ${r.tool_name} ${r.request_id}`),
+  });
+  const lines = [
+    {
+      type: "control_request",
+      request_id: "a",
+      request: { subtype: "can_use_tool", tool_name: "WebFetch", input: {} },
+    },
+    {
+      type: "control_request",
+      request_id: "b",
+      request: { subtype: "can_use_tool", tool_name: "mcp__jira__getJiraIssue", input: {} },
+    },
+    {
+      type: "control_request",
+      request_id: "c",
+      request: { subtype: "can_use_tool", tool_name: "mcp__slack__slack_send_message", input: {} },
+    },
+    {
+      type: "control_request",
+      request_id: "d",
+      request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "rm -rf x" } },
+    },
+    { type: "control_response", response: { subtype: "success", request_id: INIT_REQUEST_ID } },
+  ];
+  parser.feed(lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  assert.deepEqual(seen, [
+    "allow WebFetch a",
+    "allow mcp__jira__getJiraIssue b",
+    "deny mcp__slack__slack_send_message c",
+    "deny Bash d",
+  ]);
+  assert.deepEqual(parser.snapshot().permissions, [
+    "allow:WebFetch",
+    "allow:mcp__jira__getJiraIssue",
+    "deny:mcp__slack__slack_send_message",
+    "deny:Bash",
+  ]);
+  assert.equal(parser.snapshot().turns, 0, "control traffic is not a turn");
+});
+
+/** A fake CLI that asks permission for WebFetch and reports what the engine answered. */
+const PERMISSION_SCRIPT = `
+  process.stdout.write(JSON.stringify({ type: "system", subtype: "init", session_id: "fake-sess", tools: [] }) + "\\n");
+  let buf = ""; let sawInit = false; let asked = false;
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (c) => {
+    buf += c;
+    let i;
+    while ((i = buf.indexOf("\\n")) >= 0) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg.type === "control_request" && msg.request.subtype === "initialize") {
+        sawInit = true;
+        process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: msg.request_id, response: { commands: [] } } }) + "\\n");
+        continue;
+      }
+      if (msg.type === "user" && !asked) {
+        asked = true;
+        process.stdout.write(JSON.stringify({ type: "control_request", request_id: "perm-1", request: { subtype: "can_use_tool", tool_name: "WebFetch", input: { url: "https://example.com" } } }) + "\\n");
+        process.stdout.write(JSON.stringify({ type: "control_request", request_id: "perm-2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "rm x" } } }) + "\\n");
+        continue;
+      }
+      if (msg.type === "control_response") {
+        const r = msg.response;
+        const text = r.request_id + "=" + r.response.behavior + (r.response.updatedInput ? ":" + r.response.updatedInput.url : "") + (r.response.message ? ":denied" : "");
+        process.stdout.write(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } }) + "\\n");
+        if (r.request_id === "perm-2") {
+          process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "fake-sess", result: "init=" + sawInit, num_turns: 1, total_cost_usd: 0.01, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) + "\\n");
+        }
+      }
+    }
+  });
+  process.stdin.on("end", () => process.exit(0));
+`;
+
+test("startClaude: answers the child's can_use_tool requests over stdin after the initialize handshake", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "wise-fake-claude-"));
+  const script = join(scratch, "perm.cjs");
+  writeFileSync(script, PERMISSION_SCRIPT);
+  const { bin, dir } = fakeBin(`exec "${process.execPath}" "${script}"`);
+  const texts: string[] = [];
+  const run = startClaude(
+    { ...BASE_REQ, prompt: "go", cwd: dir, timeout_ms: 10_000 },
+    (e) => {
+      const p = e.parsed as
+        | { type?: string; message?: { content?: { text?: string }[] } }
+        | undefined;
+      if (p?.type === "assistant") texts.push(p.message?.content?.[0]?.text ?? "");
+    },
+    { bin, parentEnv: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } },
+  );
+  const res = await run.done;
+  assert.equal(res.exit, "ok", res.error);
+  assert.equal(res.text, "init=true", "the initialize request reached the child first");
+  assert.deepEqual(texts, ["perm-1=allow:https://example.com", "perm-2=deny:denied"]);
+  assert.deepEqual(run.snapshot().permissions, ["allow:WebFetch", "deny:Bash"]);
 });

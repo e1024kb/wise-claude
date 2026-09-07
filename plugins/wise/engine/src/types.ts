@@ -15,6 +15,10 @@ export type AuthMode = (typeof AUTH_MODES)[number];
 export const RUN_MODES = ["approval-required", "auto", "full-access"] as const;
 export type RunMode = (typeof RUN_MODES)[number];
 
+/** Which MCP servers a Claude child loads: the CLI's own plus the engine's, or the engine's only. */
+export const MCP_POLICIES = ["inherit", "engine-only"] as const;
+export type McpPolicy = (typeof MCP_POLICIES)[number];
+
 /**
  * Run-wide child permissions. `allowlist` (default): each step's `mode` and `allowed_tools`.
  * `full`: every child runs `full-access` (claude bypassPermissions, codex danger-full-access, gemini
@@ -84,7 +88,18 @@ export type Question = {
 };
 export type Answers = Record<string, string | string[]>;
 
-export type ContextTicket = { ref: string; title?: string; body?: string; url?: string };
+/**
+ * A ticket in the run context. The conductor passes `body` once; the engine writes it to
+ * `<run dir>/context/tickets/<ref>.md` at run creation and children get `path` instead.
+ */
+export type ContextTicket = {
+  ref: string;
+  title?: string;
+  body?: string;
+  url?: string;
+  /** Engine-written markdown file with the ticket's content; children `Read` it. */
+  path?: string;
+};
 export type Context = {
   ticket?: ContextTicket[];
   guidance?: string;
@@ -275,6 +290,12 @@ export type StepOverrides = {
   stale_after?: number;
   /** Harness permission rules granted to the child (Claude `--allowedTools`, e.g. `Bash(git:*)`). */
   allowed_tools?: string[];
+  /**
+   * Which MCP servers a Claude child loads (D18 revised): `inherit` (default) gives it the same
+   * servers the `claude` CLI itself has (user, project, plugin, claude.ai connectors) plus the
+   * engine's; `engine-only` keeps `--strict-mcp-config` for steps that need no outside tool.
+   */
+  mcp?: McpPolicy;
   /** Lets the `low` profile run this step under `auth: api-key` (M6.2). */
   "allow-api"?: boolean;
 };
@@ -487,8 +508,10 @@ export type RunReq = {
   timeout_ms: number;
   auth: AuthMode;
   env?: Record<string, string>;
-  /** Engine-provided MCP servers for the child (D18: Claude runs with `--strict-mcp-config`). */
+  /** Engine-provided MCP servers for the child (the engine channel), merged with the CLI's own. */
   mcp_config?: { mcpServers: Record<string, unknown> };
+  /** `engine-only` adds `--strict-mcp-config`; default `inherit` (D18 revised, v5.0.0-rc.3). */
+  mcp_policy?: McpPolicy;
   /** Extra directories the child may read and write (Claude `--add-dir`); the run dir always. */
   add_dirs?: string[];
   /** Permission rules pre-granted to the child; the engine MCP server is always added. */

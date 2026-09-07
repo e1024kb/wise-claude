@@ -228,10 +228,14 @@ describe("unit-mcp", () => {
       assert.equal(await get("prep_out"), "prepared");
       assert.deepEqual(await get("prep"), { prep_out: "prepared" });
       assert.equal(await get("guidance"), "keep it small");
-      assert.equal(await get("ticket.0.body"), "the ticket body");
-      assert.deepEqual(await get("ticket"), [
-        { ref: "LEC-1", title: "T", body: "the ticket body" },
-      ]);
+      // The body went to a file at run creation; children get the path and read it.
+      assert.equal(await get("ticket.0.body"), null);
+      const ticketPath = join(runDir, "context", "tickets", "LEC-1.md");
+      assert.deepEqual(await get("ticket"), [{ ref: "LEC-1", title: "T", path: ticketPath }]);
+      assert.match(
+        readFileSync(ticketPath, "utf8"),
+        /^---\nref: "LEC-1"\ntitle: "T"\n[\s\S]*# LEC-1: T\n\nthe ticket body\n$/,
+      );
       assert.equal(await get("nope"), null);
     });
 

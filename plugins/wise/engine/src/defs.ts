@@ -14,6 +14,7 @@ import {
   AUTH_MODES,
   EFFORTS,
   HARNESSES,
+  MCP_POLICIES,
   PHASES,
   PROFILE_LEVELS,
   RUN_MODES,
@@ -648,6 +649,7 @@ const STEP_BASE_KEYS = [
   "stale_after",
   "allowed_tools",
   "allow-api",
+  "mcp",
 ] as const;
 const STEP_KEYS: Record<StepType, readonly string[]> = {
   agent: [...STEP_BASE_KEYS, "prompt", "skill", "schema", "outputs", "until"],
@@ -796,6 +798,10 @@ function validateStepBase(
   if (step["allow-api"] !== undefined) {
     if (typeof step["allow-api"] === "boolean") base["allow-api"] = step["allow-api"];
     else iss.error(`${p}.allow-api`, "allow-api must be a boolean");
+  }
+  if (step.mcp !== undefined) {
+    if (oneOf(MCP_POLICIES, step.mcp)) base.mcp = step.mcp;
+    else iss.error(`${p}.mcp`, `mcp must be one of ${MCP_POLICIES.join(" | ")}`);
   }
   return base;
 }

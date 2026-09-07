@@ -265,12 +265,26 @@ export function enginePlanPath(ctx: PhaseCtx): string {
   return join(ctx.runDir, "plans", `PLAN-${ctx.unit.ref}.md`);
 }
 
+/**
+ * The ticket as the plan prompt sees it: a pointer to the engine-written context file when the
+ * conductor fetched the ticket (the child reads it, the body never rides in the prompt), the body
+ * itself only for a context that carried one without a file, else the instruction to fetch.
+ */
 function ticketBlock(ctx: PhaseCtx): string {
   const t = ctx.config.tickets.find((x) => x.ref === ctx.unit.ref);
   if (!t) return `Ticket ${ctx.unit.ref}: not in the run context; fetch it (step 1).`;
   const lines = [`Ticket ${t.ref}${t.title ? `: ${t.title}` : ""}`];
   if (t.url) lines.push(`url: ${t.url}`);
-  lines.push("", t.body?.trim() || "(no description in the context; fetch it, step 1)");
+  if (t.path) {
+    lines.push(
+      `file: ${t.path}`,
+      "",
+      "The file holds the description, acceptance criteria, comments, links and attachments the " +
+        "conductor fetched. Read it (whole, or by section) instead of fetching the ticket again.",
+    );
+  } else {
+    lines.push("", t.body?.trim() || "(no description in the context; fetch it, step 1)");
+  }
   return lines.join("\n");
 }
 

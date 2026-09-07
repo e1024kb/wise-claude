@@ -165,7 +165,7 @@ is unmet, before the auth probes and before a run directory exists.
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
 | `worktree` | `current` (default) \| `new` | Recorded. The engine runs steps in `cwd`; `units` steps make their own worktrees under the run directory. |
-| `permissions` | `allowlist` (default) \| `full` | `full` runs every child (agent steps and unit model phases) in `full-access` regardless of its `mode`, so a tool the step did not list is never a permission denial; `allowlist` keeps each step's `mode` and `allowed_tools`. The `ticket-auto`, `impl-plan-auto` and `ticket-plan` workflows pin `full`. |
+| `permissions` | `allowlist` (default) \| `full` | `full` runs every child (agent steps and unit model phases) in `full-access` regardless of its `mode`, so a tool the step did not list is never a permission denial; `allowlist` keeps each step's `mode` and `allowed_tools`, and the engine answers every other prompt by shape (read-only tools allowed, the rest denied; see "Child MCP servers and permissions"). The `ticket-auto`, `impl-plan-auto` and `ticket-plan` workflows pin `full`. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
 `wave-sync`, `auto-advance`, `prompt`. A run answer `control-mode` or
@@ -290,6 +290,7 @@ Common fields (`StepBase` and `StepOverrides`):
 | `timeout` | agent, bash, units | Seconds. Default 1800 for agent and bash; per-phase defaults for units. |
 | `stale_after` | agent, units | Idle seconds before the stale policy acts. Default 600. |
 | `allowed_tools` | agent, units | Claude permission rules (`Bash(git:*)`, `WebFetch`) pre-granted to the child; grok gets them as `--allow`. |
+| `mcp` | agent, units | `inherit` (default) \| `engine-only`. Which MCP servers a Claude child loads: the `claude` CLI's own (user, project, plugin, claude.ai connectors) plus the engine's channel server, or the engine's only (`--strict-mcp-config`) for steps that need no outside tool, such as report writers. |
 | `allow-api` | agent, units | Landing in the same release (M6.2). |
 
 ### `agent`
@@ -529,13 +530,49 @@ default. An empty effort omits the flag.
 Under `preflight.permissions: full` (or the run answer) every child
 runs the `full-access` row whatever its step `mode` says.
 
-Headless children cannot answer permission prompts. Claude children get
-`--allowedTools mcp__wise-engine,<allowed_tools>`, `--add-dir <run dir>`
-(a unit child also gets its worktree), `--strict-mcp-config` and an
-`--mcp-config` holding only the engine server (D18, D19). Codex gets
-`--add-dir` and `approval_policy=never`; grok gets `--allow <rule>` per
-`allowed_tools`. Permission denials appear in the step log and as a
-warning on the result.
+### Child MCP servers and permissions
+
+A Claude child gets `--allowedTools mcp__wise-engine,<allowed_tools>`,
+`--add-dir <run dir>` (a unit child also gets its worktree) and an
+`--mcp-config` holding the engine's channel server (D19). Since
+v5.0.0-rc.3 (D18 revised) it also inherits every MCP server the
+`claude` CLI itself has: user and project config, plugin servers,
+claude.ai connectors. The CLI defers MCP tool schemas until a tool is
+looked up, so the inherited inventory costs a child about 3k prompt
+tokens, not the 27k measured before deferral. `mcp: engine-only` on a
+step restores `--strict-mcp-config` for children that need nothing
+outside the engine.
+
+The inventory is the CLI's, not the conductor's: a connector that only
+the desktop app holds, or a server `claude mcp list` reports as "Needs
+authentication", is unreachable from every child until it is
+authorized for the CLI (`claude mcp`, or `/mcp` in an interactive
+terminal session). `/wise-init` probes this (`probe-mcp`) from the
+engine's child environment. Ticket content never depends on it: the
+conductor fetches tickets before `wise_run` and the engine writes them
+to `<run dir>/context/tickets/` (see "Run context").
+
+Headless children cannot answer permission prompts themselves, so the
+engine is the permission host: every Claude child runs with
+`--permission-prompt-tool stdio`, the engine sends the SDK's
+`initialize` control request before the first user message, and each
+tool call the child's mode would prompt for arrives on stdout as a
+`control_request` (`can_use_tool`) that the engine answers on stdin.
+The policy (`permissions.ts`) is shape-based so it holds for any server
+the child inherits: read-only built-ins (`Read`, `Glob`, `Grep`,
+`WebFetch`, `WebSearch`, `ToolSearch`, ...) and read-shaped MCP tools
+(a `get` / `list` / `search` / `read` / `fetch` / `view` / `query` verb
+first, or second behind a vendor prefix: `getJiraIssue`,
+`slack_read_channel`, `query-docs`) are allowed with the input
+unchanged; everything else (`Bash`, `Edit`, `create*`, `update*`,
+`send*`, `delete*`, an unrecognised verb) is denied with a message
+naming the fix: add the rule to `allowed_tools` or run under
+`permissions: full`. Rules in `allowed_tools` never prompt, so they
+never reach the policy. Decisions appear in the step log; denials also
+as a warning on the result.
+
+Codex gets `--add-dir` and `approval_policy=never`; grok gets
+`--allow <rule>` per `allowed_tools`.
 
 ### Child environment
 
@@ -616,9 +653,23 @@ steps on that harness with the model and effort chosen from its
 catalog. Steps that pin `harness:` themselves (and the `skill:` sugar)
 are unaffected.
 
+### Run context
+
 `context` is what the children may not refetch from the transcript:
 `ticket[] {ref, title?, body?, url?}`, `guidance`, `decisions
 {key: value}`, `links[]`. Children read it with `wise_context`.
+
+The conductor fetches every ticket before `wise_run` (its MCP
+connectors, a CLI, or a public URL) and passes the content once as
+`body`: description, acceptance criteria, comments, links and
+attachments as markdown sections. At run creation the engine writes
+each body to `<run dir>/context/tickets/<ref>.md` (front matter `ref`,
+`title`, `url`, `fetched_at`, `source`; the ref URI-encoded) plus a
+`context/index.md`, and keeps `{ref, title, url, path}` in
+`state.context`. Prompts and `wise_context` carry the path, never the
+body; a child `Read`s the file, whole or by section, when it needs it.
+A ticket passed without a body stays as given. `context/` is open to
+later steps that want to leave markdown for the steps after them.
 
 ## Run lifecycle and gate protocol
 
@@ -732,7 +783,7 @@ scoped to one step of one run; a wrong token is `TOKEN_INVALID`.
 |---|---|---|
 | `wise_report` | `kind` progress \| blocker \| decision \| finding, `text` (200 chars), `data?` (1 kB) | `{accepted, seq}`; appears as `step.progress`. |
 | `wise_ask` | `question`, `options?`, `allow_text?` | `{value}`. Interactive runs: an `ask` gate to the conductor. Synchronous runs: answered from `context.decisions` (exact key, partial key, an option named in a value, else the first option), else error `needs-human` with a `warn`. |
-| `wise_context` | `key`: `ticket`, `guidance`, `decisions`, `links`, a dotted path (`ticket.0.body`), an output name, a step id, an input name | `{value}` or `{value: null}`. |
+| `wise_context` | `key`: `ticket`, `guidance`, `decisions`, `links`, a dotted path (`ticket.0.path`), an output name, a step id, an input name | `{value}` or `{value: null}`. A ticket entry is `{ref, title?, url?, path?}`; `path` is the engine-written file to `Read`, `body` appears only when no file was written. |
 | `wise_checkpoint` | `data` | `{path}` of `checkpoints/<step>.json`. |
 
 Main to child: `wise_nudge {run_id, step, message}` writes a user

@@ -163,6 +163,7 @@ steps:
   - id: report
     type: agent
     model: sonnet
+    mcp: engine-only
     prompt: |
       Write the end-of-run report for an unattended impl-plan-auto run
       ({{run.id}}) on {{project.name}} at {{project.path}}.
