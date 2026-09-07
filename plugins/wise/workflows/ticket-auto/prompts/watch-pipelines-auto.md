@@ -201,10 +201,17 @@ stopping.
 3. **Reviewer inventory.** Which bots are going to review this PR:
    - Copilot: `copilot-pull-request-reviewer` in `gh pr view --json
      reviewRequests` OR any Copilot footprint → `COPILOT_EXPECTED=1`.
-     Otherwise one attach attempt (`request-review-auto.md` §2). An
-     explicit not-a-valid-user / not-enabled reply → `COPILOT_STATE=absent`,
-     `COPILOT_EXPECTED=0`. Any other failure: retry once, then
-     `COPILOT_STATE=stuck reason=attach-failed`, `COPILOT_STUCK=1`.
+     Otherwise one attach attempt: `gh pr edit <pr_number>
+     --add-reviewer copilot-pull-request-reviewer`. A zero exit is an
+     accepted attach even when `reviewRequests` stays empty — Copilot
+     does not appear there on every repo, it just reviews a few minutes
+     later — so treat Copilot as expected and let the settle wait
+     decide. Only an explicit not-a-valid-user / not-enabled error from
+     the CLI → `COPILOT_STATE=absent`, `COPILOT_EXPECTED=0`. A GraphQL
+     `requestReviews` NOT_FOUND on the bot's node id is NOT that proof
+     (it fails on repos where the CLI attach works). Any other CLI
+     failure: retry once, then `COPILOT_STATE=stuck
+     reason=attach-failed`, `COPILOT_STUCK=1`.
    - CodeRabbit: a `CodeRabbit` check run on the PR OR
      `bot_footprint coderabbit` → `CR_EXPECTED=1`. Neither, and the head
      was pushed less than `BOT_GRACE` ago → decide at the first settle
@@ -236,8 +243,10 @@ progress "settle head=$HEAD_SHA docs_only=$DOCS_ONLY"
 
 Loop — at every tick read all three signals, then decide:
 
-1. **CI.** `gh pr checks <pr_number> --json name,state,conclusion,link`
-   → `CI_STATE` ∈ {`pending`, `green`, `red`}. `pending` past `CI_MAX`
+1. **CI.** `gh pr checks <pr_number> --json name,state,link` — `state`
+   is the terminal value (`SUCCESS` / `FAILURE` / `CANCELLED` /
+   `SKIPPED` / `PENDING`; there is no `conclusion` field) →
+   `CI_STATE` ∈ {`pending`, `green`, `red`}. `pending` past `CI_MAX`
    since `SETTLE_STARTED` → treat the still-pending checks as `red`
    with `reason=ci-timeout` (a check that never reports is a failing
    check for this round).
@@ -356,7 +365,7 @@ progress "gather head=$HEAD_SHA"
 
 Collect, in one pass:
 
-1. **Failing checks** — every check with conclusion `FAILURE` /
+1. **Failing checks** — every check whose `state` is `FAILURE` /
    `CANCELLED` (plus the `ci-timeout` ones), classified by name
    (case-insensitive): `lint|eslint|oxlint|prettier|rubocop|phpcs` →
    `lint`; `test|unit|integration|e2e|vitest|jest|pytest|codecept` →
