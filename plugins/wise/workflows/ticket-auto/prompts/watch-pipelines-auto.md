@@ -164,13 +164,13 @@ human_spoke() {   # exact-login allowlist; own comments subtracted by url. Cover
     # review comment PLUS an empty COMMENTED review wrapper under the
     # operator's login. The wrapper carries no words of its own, so it is
     # never a human signal; the comment itself is subtracted by url.
-    gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp --jq '
-      [.[][]] | .[] | select(.submitted_at >= "'"$RUN_STARTED"'")
+    gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --jq '
+      .[] | select(.submitted_at >= "'"$RUN_STARTED"'")
           | select((.body | length) > 0 or .state != "COMMENTED")
           | select(.html_url as $u | ['"$own"'] | index($u) | not)
           | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
-    gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --slurp --jq '
-      [.[][]] | .[] | select(.created_at >= "'"$RUN_STARTED"'")
+    gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --jq '
+      .[] | select(.created_at >= "'"$RUN_STARTED"'")
           | select(.html_url as $u | ['"$own"'] | index($u) | not)
           | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
   } | grep -v '^$' | head -1
@@ -183,15 +183,17 @@ bot_logins() {
   esac
 }
 bot_review_done() {   # $1 bot, $2 sha — a review by that bot on exactly that head?
-                       # --slurp folds every paginated page into one array before the
-                       # jq `any` runs, so a match on a later page is never dropped.
-  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp \
-    | jq "[.[][]] | any(.[]; (.user.login as \$l | $(bot_logins "$1") | index(\$l)) and .commit_id==\"$2\")"
+                       # `--paginate --jq` runs the expression per page and prints one
+                       # boolean per page (`--slurp` cannot combine with `--jq`), so a
+                       # match on ANY page reads as a `true` line: grep for it.
+  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
+    --jq "any(.[]; (.user.login as \$l | $(bot_logins "$1") | index(\$l)) and .commit_id==\"$2\")" \
+    | grep -qx true && echo true || echo false
 }
 bot_footprint() {     # $1 bot — any review or comment by that bot on this PR, ever?
   local r c
-  r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp \
-        | jq "[.[][]] | any(.[]; .user.login as \$l | $(bot_logins "$1") | index(\$l))")
+  r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
+        --jq "any(.[]; .user.login as \$l | $(bot_logins "$1") | index(\$l))" | grep -qx true && echo true || echo false)
   c=$(gh pr view <pr_number> --json comments \
         --jq "any(.comments[]; .author.login as \$l | $(bot_logins "$1") | index(\$l))")
   [ "$r" = true ] || [ "$c" = true ] && echo true || echo false
@@ -605,14 +607,17 @@ earlier reads:
          }
        }
      }' -F o="${OWNER_REPO%/*}" -F r="${OWNER_REPO#*/}" -F n=<pr_number> \
-     | jq -s --argjson resolve_all "$RESOLVE_ALL_THREADS" '
-         [.[].data.repository.pullRequest.reviewThreads.nodes] | add
+     --jq '.data.repository.pullRequest.reviewThreads.nodes
          | map(select(.isResolved | not))
-         | map(select($resolve_all == 1 or (.comments.nodes[0].author.login as $l |
+         | map(select('"$RESOLVE_ALL_THREADS"' == 1 or (.comments.nodes[0].author.login as $l |
              ["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot",
               "coderabbitai[bot]","coderabbitai"] | index($l))))
-         | length'
+         | length' \
+     | paste -sd+ - | bc
    ```
+
+   (`--paginate --jq` prints one count per page; the `paste | bc` sums
+   them — `--slurp` cannot combine with `--jq`.)
 
    Non-zero → the run missed something: go back to §2 (they are items)
    rather than merging on a stale count.
