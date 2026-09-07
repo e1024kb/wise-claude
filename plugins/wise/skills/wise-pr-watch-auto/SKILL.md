@@ -24,7 +24,7 @@ description: >-
   types `/wise-pr-watch-auto`. For the interactive version use
   `/wise-pr-watch`.
 argument-hint: "[<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max] [--on <harness>[:<model>[:<effort>]] | --on ask]"
-allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*), Bash(mkdir:*), Bash(touch:*), Bash(tail:*), AskUserQuestion
+allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*), Bash(mkdir:*), Bash(touch:*), Bash(tail:*), Bash(rm:*), Bash(stat:*), Bash(chmod:*), Bash(id:*), Bash(mv:*), AskUserQuestion
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + bulk-fix loop
@@ -56,14 +56,20 @@ Read `$ARGUMENTS` and split into whitespace-separated tokens:
 - `--profile <low|medium|max>` — per-run override of the session
   token-budget profile.
 - `--minutes <n>` — wall-clock budget for the whole run (default 120).
-  The loop stops with `exhausted reason=wall-clock` when it runs out.
+  `n` must be an integer in `1..1440` (one minute to one day). The loop
+  stops with `exhausted reason=wall-clock` when it runs out.
 - The first remaining token, if present, is `max_fix_attempts` — the
   cap on commit-producing rounds. Ignore anything else.
 - A `--profile` / `--minutes` with no value, or a value out of range, is
-  an error — stop before the loop with:
+  an error — stop before the loop with the matching message:
 
   ```
   Unknown --profile value: <value>
+  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max]
+  ```
+
+  ```
+  Unknown --minutes value: <value> (must be an integer 1-1440)
   Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max]
   ```
 
@@ -99,7 +105,7 @@ sanctioned prompt in this skill. While the child runs, tail its
 heartbeat instead of waiting blind:
 
 ```bash
-tail -n 5 "${TMPDIR:-/tmp}/wise-pr-watch/<owner>-<repo>/<pr_number>/progress.log"
+tail -n 5 "${TMPDIR:-/tmp}/wise-pr-watch/<owner>/<repo>/<pr_number>/progress.log"
 ```
 
 The reference relays the child's verdict line; §3 below applies to it.
@@ -172,9 +178,11 @@ accepted as-is and resolved rather than fixed — say so.
 - Stand down the moment a human comments.
 - Stop cleanly at the round cap, the wall-clock budget and the
   unchanged-head catch; converge on nits instead of chasing them.
-- State lives under `${TMPDIR:-/tmp}/wise-pr-watch/<owner>-<repo>/<pr>/`
-  and is removed only when the PR is merged or closed, so a killed or
-  re-invoked run resumes its counters and trigger bookkeeping.
+- State lives under `${TMPDIR:-/tmp}/wise-pr-watch/<owner>/<repo>/<pr>/`
+  (owner and repo as separate path segments, never joined — a joined
+  `owner-repo` string can collide across repos) and is removed only
+  when the PR is merged or closed, so a killed or re-invoked run
+  resumes its counters and trigger bookkeeping.
 - `Task` is granted for the `dispatch_mode=task` handlers (one bot-thread
   subagent, one Sonar subagent per round) and the review fallback's
   reviewer panel. Nothing else spawns subagents.

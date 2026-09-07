@@ -39,7 +39,9 @@ Source of truth for the `/wise-pr-watch-auto` skill.
 - `project.path` — absolute path to the repo working tree.
 - `max_fix_attempts` — cap on commit-producing rounds (default 10).
 - `watch_minutes` — **optional** wall-clock budget for the whole run
-  (default 120). The loop stops with `exhausted reason=wall-clock` when it
+  (default 120), an integer in `1..1440` (one minute to one day — the
+  same range the `--minutes` flag validates before calling this
+  fragment). The loop stops with `exhausted reason=wall-clock` when it
   runs out, whatever phase it is in.
 - `profile` — **optional** `low` / `medium` (default) / `max`. Scales only
   the model tier the fix subagent prompts request at `low`; never the
@@ -66,11 +68,35 @@ PR resumes its bookkeeping instead of starting over:
 
 ```bash
 OWNER_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
-STATE="${TMPDIR:-/tmp}/wise-pr-watch/${OWNER_REPO//\//-}/<pr_number>"
+STATE="${TMPDIR:-/tmp}/wise-pr-watch/${OWNER_REPO%/*}/${OWNER_REPO#*/}/<pr_number>"
 mkdir -p "$STATE"
+chmod 700 "$STATE" 2>/dev/null || true
+# Refuse a pre-existing state dir this process does not own, or one that is
+# group/world-writable — an attacker-writable $TMPDIR must never let another
+# user plant a state.env this run then trusts.
+DIR_UID="$(stat -f '%u' "$STATE" 2>/dev/null || stat -c '%u' "$STATE" 2>/dev/null)"
+DIR_PERM="$(stat -f '%Lp' "$STATE" 2>/dev/null || stat -c '%a' "$STATE" 2>/dev/null)"
+if [ "$DIR_UID" != "$(id -u)" ] || [ "$(( 0$DIR_PERM & 0022 ))" -ne 0 ]; then
+  echo "Refusing unsafe state dir (owner/permissions): $STATE" >&2
+  exit 1
+fi
 touch "$STATE/own-comment-urls" "$STATE/own-trigger-urls" "$STATE/handled-threads"
-[ -f "$STATE/state.env" ] && . "$STATE/state.env"    # resume: latches, counters, fallback record
-RUN_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+load_state() {   # parse only allow-listed KEY=value lines — never `source` a state
+                  # file, which would execute arbitrary shell if $STATE were ever compromised
+  [ -f "$STATE/state.env" ] || return 0
+  while IFS='=' read -r key value; do
+    case "$key" in
+      TOTAL_ROUNDS|NIT_ROUNDS|COPILOT_STUCK|CODERABBIT_STUCK|FALLBACK_RUNS|FALLBACK_SHA|\
+      FALLBACK_STATE|FALLBACK_APPLIED|CR_AUTO|COPILOT_AUTO|LAST_REVIEWED_SHA|RUN_STARTED)
+        printf -v "$key" '%s' "$value" ;;
+    esac
+  done < "$STATE/state.env"
+}
+load_state    # resume: latches, counters, fallback record, the human-gate watermark
+RUN_STARTED="${RUN_STARTED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"   # persists across
+                                                                 # invocations — the human
+                                                                 # gate must not re-open a
+                                                                 # window a prior run already covered
 DEADLINE=$(( $(date +%s) + ${watch_minutes:-120} * 60 ))
 ROUNDS=0                                   # commit-producing rounds THIS invocation (the cap)
 TOTAL_ROUNDS="${TOTAL_ROUNDS:-0}"          # across invocations (reported, never capped)
@@ -88,7 +114,7 @@ save_state() {
     echo "FALLBACK_RUNS=$FALLBACK_RUNS"; echo "FALLBACK_SHA=$FALLBACK_SHA"
     echo "FALLBACK_STATE=$FALLBACK_STATE"; echo "FALLBACK_APPLIED=$FALLBACK_APPLIED"
     echo "CR_AUTO=${CR_AUTO:-unknown}"; echo "COPILOT_AUTO=${COPILOT_AUTO:-unknown}"
-    echo "LAST_REVIEWED_SHA=${LAST_REVIEWED_SHA:-}"
+    echo "LAST_REVIEWED_SHA=${LAST_REVIEWED_SHA:-}"; echo "RUN_STARTED=$RUN_STARTED"
   } > "$STATE/state.env.tmp" && mv "$STATE/state.env.tmp" "$STATE/state.env"
 }
 progress() {   # one line per phase change — the caller tails this file
@@ -122,15 +148,25 @@ FALLBACK_MAX=3        # §4c local review-fallback runs per PR
 pr_state() {   # OPEN | MERGED | CLOSED — read at EVERY tick
   gh pr view <pr_number> --json state --jq .state
 }
-human_spoke() {   # exact-login allowlist; own comments subtracted by url
+BOT_ALLOWLIST='["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot",
+  "coderabbitai[bot]","coderabbitai","sonarqubecloud[bot]","sonarqubecloud",
+  "sonarcloud[bot]","sonarcloud"]'
+human_spoke() {   # exact-login allowlist; own comments subtracted by url. Covers issue
+                  # comments, PR reviews, and review comments — a human can intervene on
+                  # any of the three surfaces, not just the issue thread.
   local own; own="$(sed 's/.*/"&"/' "$STATE/own-comment-urls" | paste -sd, -)"
-  gh pr view <pr_number> --json comments --jq '
+  local from_comments from_reviews from_review_comments
+  from_comments="$(gh pr view <pr_number> --json comments --jq '
     [.comments[] | select(.createdAt >= "'"$RUN_STARTED"'")] |
     .[] | select(.url as $u | ['"$own"'] | index($u) | not)
-        | select(.author.login as $l |
-      ["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot",
-       "coderabbitai[bot]","coderabbitai","sonarqubecloud[bot]","sonarqubecloud",
-       "sonarcloud[bot]","sonarcloud"] | index($l) | not) | .author.login'
+        | select(.author.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .author.login')"
+  from_reviews="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp | jq -r '
+    [.[][]] | .[] | select(.submitted_at >= "'"$RUN_STARTED"'")
+        | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login')"
+  from_review_comments="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --slurp | jq -r '
+    [.[][]] | .[] | select(.created_at >= "'"$RUN_STARTED"'")
+        | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login')"
+  printf '%s\n%s\n%s\n' "$from_comments" "$from_reviews" "$from_review_comments" | grep -v '^$' | head -1
 }
 bot_logins() {
   case "$1" in
@@ -140,13 +176,15 @@ bot_logins() {
   esac
 }
 bot_review_done() {   # $1 bot, $2 sha — a review by that bot on exactly that head?
-  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-    --jq "any(.[]; (.user.login as \$l | $(bot_logins "$1") | index(\$l)) and .commit_id==\"$2\")"
+                       # --slurp folds every paginated page into one array before the
+                       # jq `any` runs, so a match on a later page is never dropped.
+  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp \
+    | jq "[.[][]] | any(.[]; (.user.login as \$l | $(bot_logins "$1") | index(\$l)) and .commit_id==\"$2\")"
 }
 bot_footprint() {     # $1 bot — any review or comment by that bot on this PR, ever?
   local r c
-  r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-        --jq "any(.[]; .user.login as \$l | $(bot_logins "$1") | index(\$l))")
+  r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp \
+        | jq "[.[][]] | any(.[]; .user.login as \$l | $(bot_logins "$1") | index(\$l))")
   c=$(gh pr view <pr_number> --json comments \
         --jq "any(.comments[]; .author.login as \$l | $(bot_logins "$1") | index(\$l))")
   [ "$r" = true ] || [ "$c" = true ] && echo true || echo false
@@ -155,8 +193,11 @@ cr_check() {          # CodeRabbit check-run description for the current head ("
   gh pr checks <pr_number> --json name,state,description \
     --jq '.[] | select(.name=="CodeRabbit") | .description' 2>/dev/null | head -1
 }
-tick() {              # the ONE wait primitive: sleep, then run the gates that end the run
-  sleep "$POLL"
+tick() {              # the ONE wait primitive: sleep (bounded by the remaining
+                      # wall-clock budget, never past it), then run the end-the-run gates
+  local remaining=$(( DEADLINE - $(date +%s) ))
+  [ "$remaining" -le 0 ] && exit_with "exhausted reason=wall-clock"
+  sleep "$(( remaining < POLL ? remaining : POLL ))"
   [ "$(date +%s)" -ge "$DEADLINE" ] && exit_with "exhausted reason=wall-clock"
   case "$(pr_state)" in
     MERGED) exit_with "merged-externally" ;;
@@ -237,7 +278,14 @@ HEAD_SHA="$(git rev-parse HEAD)"
 PUSHED_AT="$(git log -1 --format=%cI "$HEAD_SHA")"
 SETTLE_STARTED=$(date +%s)
 # docs-only = nothing but prose changed since the last head a bot reviewed (whole PR on the first settle)
-DOCS_ONLY=$(git diff --name-only "${LAST_REVIEWED_SHA:-origin/$BASE}...$HEAD_SHA" | grep -vqE '\.(md|mdx|txt|rst)$|^docs/|^\.github/.*\.md$' && echo 0 || echo 1)
+DIFF_NAMES="$(git diff --name-only "${LAST_REVIEWED_SHA:-origin/$BASE}...$HEAD_SHA")"; DIFF_OK=$?
+if [ "$DIFF_OK" -ne 0 ]; then
+  DOCS_ONLY=0   # git diff failed — fail closed: an unreadable diff is never docs-only
+elif printf '%s\n' "$DIFF_NAMES" | grep -vqE '\.(md|mdx|txt|rst)$|^docs/|^\.github/.*\.md$'; then
+  DOCS_ONLY=0
+else
+  DOCS_ONLY=1
+fi
 progress "settle head=$HEAD_SHA docs_only=$DOCS_ONLY"
 ```
 
@@ -530,13 +578,30 @@ earlier reads:
 3b. Every stuck bot (`stuck` / `bypassed` / `gave-up`) is covered:
    `FALLBACK_STATE=ran` AND `FALLBACK_SHA == HEAD_SHA`. A `ran` on an
    older head does not count.
-4. **Zero unresolved bot threads — verified live**, outdated included
-   when `RESOLVE_ALL_THREADS=1`:
+4. **Zero unresolved bot threads — verified live**, paginated (a PR can
+   have more than 100 review threads) and, with `RESOLVE_ALL_THREADS=0`,
+   counting only threads a bot opened — a human thread this run never
+   gathers or resolves must not block it forever:
 
    ```bash
-   gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved isOutdated comments(first:1){nodes{author{login}}}}}}}}' \
-     -F o="${OWNER_REPO%/*}" -F r="${OWNER_REPO#*/}" -F n=<pr_number> \
-     --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not)] | length'
+   gh api graphql --paginate -f query='
+     query($o:String!,$r:String!,$n:Int!,$endCursor:String){
+       repository(owner:$o,name:$r){
+         pullRequest(number:$n){
+           reviewThreads(first:100, after:$endCursor){
+             pageInfo{hasNextPage endCursor}
+             nodes{isResolved isOutdated comments(first:1){nodes{author{login}}}}
+           }
+         }
+       }
+     }' -F o="${OWNER_REPO%/*}" -F r="${OWNER_REPO#*/}" -F n=<pr_number> \
+     | jq -s --argjson resolve_all "$RESOLVE_ALL_THREADS" '
+         [.[].data.repository.pullRequest.reviewThreads.nodes] | add
+         | map(select(.isResolved | not))
+         | map(select($resolve_all == 1 or (.comments.nodes[0].author.login as $l |
+             ["copilot-pull-request-reviewer[bot]","copilot-pull-request-reviewer","Copilot",
+              "coderabbitai[bot]","coderabbitai"] | index($l))))
+         | length'
    ```
 
    Non-zero → the run missed something: go back to §2 (they are items)
@@ -546,6 +611,10 @@ earlier reads:
 7. `SONAR_STATE` is `clean` or `absent`, with `SONAR_SHA == HEAD_SHA`.
 8. `NEEDS_APPROVAL` is `0` — otherwise skip the attempt and emit
    `all-green reason=approval-required`.
+9. **Fresh human-gate recheck** — `human_spoke`, called again right now
+   rather than trusted from the last `tick`. A handler or fix round can
+   run long enough for a human to comment while nothing was polling;
+   non-empty → do not merge, treat as `human-intervention` (§8).
 
 Then read the fact, not the plan:
 
@@ -569,10 +638,12 @@ one line>`. Never force, never override protection.
 1. §4b trigger-cleanup — on **every** path, including
    `merged-externally` and `closed` (a trigger must never outlive the
    run on a PR that is no longer open).
-2. State: on `merged` / `merged-externally` / `closed` → `rm -rf
-   "$STATE"`. On every other verdict keep `$STATE` (a re-invocation
-   resumes it) and write the verdict as the last line of `progress.log`.
-3. `save_state`.
+2. `save_state`, then, when `$STATE` is being kept, write the verdict as
+   the last line of `progress.log` — both writes must land before any
+   removal in the next step, never after.
+3. State: on `merged` / `merged-externally` / `closed` → `rm -rf
+   "$STATE"` (now that step 2's writes are done). On every other verdict
+   keep `$STATE` so a re-invocation resumes it.
 4. Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```

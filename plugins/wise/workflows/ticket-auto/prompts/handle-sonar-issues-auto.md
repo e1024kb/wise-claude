@@ -264,25 +264,31 @@ Emit `SONAR-AUTO: aborted reason=apply-failed-on=<file:line>`.
 
 ### 3. Commit, fire MCP status calls, push
 
+This section only sets `OUTCOME` (and, on an abort, returns
+immediately). It never prints a `SONAR-AUTO:` line itself — §5 is the
+one and only place this fragment emits its final line, so a caller
+parsing for that marker never sees it twice.
+
 - **Commit (no push yet).** If any staged change exists, drive
   `${CLAUDE_PLUGIN_ROOT}/references/pr/commit-from-fix.md` with
   `push=no`, `fix_kind=sonar`,
   `fix_summary="resolved <K> SonarCloud issue(s)"`. `COMMIT: ok` →
   continue; `COMMIT: skip` (only MCP-Accepts, nothing local) → continue;
-  `COMMIT: failed` → emit `SONAR-AUTO: aborted reason=commit-failed`.
+  `COMMIT: failed` → set `OUTCOME="aborted reason=commit-failed"`, stop
+  here, go straight to §5.
 - **MCP status calls.** For every id in `MCP_STATUS_CALLS`, invoke the
   Sonar MCP `change_issue_status` now. Failures log + continue (the
   local commit already landed).
-- **Push.** With `push=no`: skip this step and emit
-  `SONAR-AUTO: handled committed=yes pushed=no resolved=<K>` (or
+- **Push.** With `push=no`: skip this step and set
+  `OUTCOME="handled committed=yes pushed=no resolved=<K>"` (or
   `committed=no` when nothing was committed). Otherwise, if §2 produced
-  a commit, run a single `git push` (never
-  force, never `--no-verify`). On failure emit
-  `SONAR-AUTO: aborted reason=push-failed`. On success emit
-  `SONAR-AUTO: handled committed=yes resolved=<K>` — the caller
-  re-enters §1 (the push may trigger fresh Sonar analysis, so the new
-  head must be re-verified to 0). If only MCP-Accepts fired (no local
-  commit, nothing to push), emit `SONAR-AUTO: handled committed=no resolved=<K>`.
+  a commit, run a single `git push` (never force, never `--no-verify`).
+  On failure set `OUTCOME="aborted reason=push-failed"`. On success set
+  `OUTCOME="handled committed=yes resolved=<K>"` — the caller re-enters
+  §1 (the push may trigger fresh Sonar analysis, so the new head must
+  be re-verified to 0). If only MCP-Accepts fired (no local commit,
+  nothing to push), set `OUTCOME="handled committed=no resolved=<K>"`.
+  Then go to §5.
 
 ### 4. Fetch-fail — blocked, postpone (do NOT guess clean)
 
@@ -292,11 +298,12 @@ for; a fetch that fails for any other reason - auth, network, a guessed
 key, an unreadable probe - proves nothing either way. Never downgrade
 any of those to `not-configured`.
 
-On AUTH-FAIL / FETCH-FAIL, emit
-`SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved|footprint-probe-failed>`. Never write
-`all-clear` on a failed fetch — by construction there is no 0-issues
-result to trust. The caller postpones Sonar (keeps working everything
-else, leaves the PR open instead of merging, reminds the operator).
+On AUTH-FAIL / FETCH-FAIL, set
+`OUTCOME="blocked-fetch reason=<auth|fetch|bad-key|key-unresolved|footprint-probe-failed>"`
+and go to §5, which emits it — never write `all-clear` on a failed
+fetch — by construction there is no 0-issues result to trust. The
+caller postpones Sonar (keeps working everything else, leaves the PR
+open instead of merging, reminds the operator).
 Include the verifiable page URL in the surfaced reminder so the operator
 can triage:
 `https://sonarcloud.io/project/issues?id=$SONAR_KEY&pullRequest=<pr_number>&issueStatuses=OPEN,CONFIRMED`.
@@ -310,7 +317,11 @@ ever discovered - name the probe that could not run rather than a URL.
 
 ### 5. Emit the final line
 
-Alone on its own line, the FINAL line of this fragment's output:
+This is the ONLY point in the fragment that prints a `SONAR-AUTO:`
+line — every earlier section sets `OUTCOME` (or, for `not-configured` /
+`all-clear` / the §2 apply-time failure, decides its outcome text
+inline) and lands here once. Emit it, alone on its own line, as the
+FINAL line of this fragment's output:
 
 ```
 SONAR-AUTO: not-configured                             # 404 proved no such project - out of the gate

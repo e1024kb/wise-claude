@@ -50,8 +50,14 @@ each queue is its own mini-pipeline. The interactive
   still commits and pushes). Used only after two consecutive nit-only
   rounds.
 - `head_sha` — **required**. The PR head SHA the caller already
-  confirmed this bot finished reviewing. Only comments anchored to
-  the reviewed commit are evaluated here.
+  confirmed this bot finished reviewing. Gates non-outdated comments:
+  only ones anchored to `head_sha` enter the queue. `include_outdated=yes`
+  is the one deliberate exception — outdated unresolved threads may be
+  anchored to an earlier head (that is what "outdated" means: the anchor
+  moved since the comment was posted), and §3's extra check re-verifies
+  each one against the code at `head_sha` before it is fixed or marked
+  `superseded`, so `head_sha` still governs what the code is judged
+  against even when it does not gate which threads enter the queue.
 - `ticket_ref`, `plan_path` — **optional** ticket context. The
   major/critical path (§5) uses them to weigh a bot concern against
   what the ticket actually asked for.
@@ -91,7 +97,12 @@ An item enters THIS queue when:
   enter the queue flagged `outdated`.
 
 OR — it's a **review with state `CHANGES_REQUESTED`** from a matching
-bot author (the top-level `body` counts as one actionable item).
+bot author (the top-level `body` counts as one actionable item). A
+review-level item has no review-thread `id` — it never enters
+`FIXED_THREAD_IDS` / `DISMISS_THREAD_IDS` and §7b never tries to
+resolve it (there is no thread to resolve); §5 still lands `Fixed` /
+`Dismissed` / `Blocked` for it, `Fixed` and `Dismissed` just skip the
+reply-then-resolve step §7 runs for thread-anchored items.
 
 Skip items from a bot outside `bot_filter`, from humans, bot
 issue-comment summaries, `APPROVED` / `COMMENTED` summary-only reviews,
@@ -140,8 +151,10 @@ other item and fixed against the current lines.
 reply "Accepted as-is; converging the review loop." — no edit. Count
 them in `dismissed`; report them as `accepted=<n>` too.
 
-Record per item `{ item, tier, thread_id, body, suggestion?,
-ai_prompt?, outdated? }`. Keep `MINOR` / `MAJOR` counts for the verdict.
+Record per item `{ item, tier, thread_id?, body, suggestion?,
+ai_prompt?, outdated? }` — `thread_id` is absent for the review-level
+`CHANGES_REQUESTED` item (§2). Keep `MINOR` / `MAJOR` counts for the
+verdict.
 
 ### 4. Minor path — quick focused fix
 
@@ -190,20 +203,28 @@ Then form an **independent** judgement and land exactly one outcome:
 - **`Fixed` (considered fix).** The problem is real. Apply a fix that
   genuinely resolves the concern — it MAY differ from the bot's
   literal suggestion; Claude is not bound to the suggestion block.
-  `git add -- "<path>"`, append the thread id to `FIXED_THREAD_IDS`.
+  `git add -- "<path>"`; when the item has a `thread_id` (§2 line-level
+  item), append it to `FIXED_THREAD_IDS`. The review-level
+  `CHANGES_REQUESTED` item has none — it has no thread to resolve, so
+  just stage the fix; the bot's own re-review of the pushed head is
+  what clears its `CHANGES_REQUESTED` state.
 - **`Dismissed` (false positive).** Claude is confident the comment
   is wrong, not applicable, or already handled elsewhere. No code
-  change. Append the thread id to `DISMISS_THREAD_IDS` and store a
-  short reasoned reply (one or two factual sentences — no apology, no
-  boilerplate; wording per
+  change. When the item has a `thread_id`, append it to
+  `DISMISS_THREAD_IDS` and store a short reasoned reply (one or two
+  factual sentences — no apology, no boilerplate; wording per
   `${CLAUDE_PLUGIN_ROOT}/skills/wise-human-writing/SKILL.md`) in
-  `DISMISS_REPLIES` keyed by thread id; §7 posts it
-  before resolving the thread.
+  `DISMISS_REPLIES` keyed by thread id; §7 posts it before resolving
+  the thread. The review-level item has no thread and no
+  `addPullRequestReviewThreadReply` target — record the reasoning for
+  the verdict only, no GitHub write-back.
 - **`Blocked` (cannot confidently resolve).** Claude disagrees with
   the bot but is not certain, OR the only fix it sees is risky, broad,
   or out of the ticket's scope. Do NOT edit code, do NOT resolve the
   thread, do NOT push a workaround. Append `<path>:<line>` plus a
-  one-line reason to `BLOCKED_ITEMS`.
+  one-line reason to `BLOCKED_ITEMS` (the review-level item has no
+  `path:line` of its own — use the PR's changed-files summary instead,
+  e.g. `<pr_url>:review`).
 
 **There is no `Skip` outcome.** Every actionable item ends `Fixed`,
 `Dismissed`, or `Blocked`.
@@ -335,7 +356,10 @@ present only under `accept_nits=yes`.
 
 - `all-clear` — §2's actionable list was empty.
 - `handled` — every actionable comment was `Fixed` or `Dismissed`,
-  every handled thread resolved. Requires `resolved == fixed + dismissed`.
+  every handled thread resolved. Requires `resolved == fixed +
+  dismissed - review_level`, where `review_level` is 1 when the queue
+  contained the threadless `CHANGES_REQUESTED` review item (§2), else 0
+  — that one item is never resolved as a thread.
 - `blocked` — at least one comment ended `Blocked`; `blocked=` carries
   the semicolon-joined `file:line` list. `fixed` / `dismissed` /
   `resolved` still report what WAS handled.
