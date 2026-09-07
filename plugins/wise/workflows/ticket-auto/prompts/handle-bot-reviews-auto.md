@@ -18,9 +18,10 @@ delegate, and the `resolveReviewThread` mutation from
   a comment; an unattended run cannot. Every actionable comment ends
   `Fixed`, `Dismissed` (with a reasoned reply), or `Blocked`.
 
-`watch-pipelines-auto.md` §5 calls this fragment once per bot, so
-each queue is its own mini-pipeline. The interactive
-`handle-bot-reviews.md` still drives the `wise-pr-watch` flow.
+`watch-pipelines-auto.md` §3 calls this fragment once per round with
+`bot_filter=all`, so one queue covers both bots and the round makes one
+commit and one push. The interactive `handle-bot-reviews.md` still
+drives the `wise-pr-watch` flow.
 
 ## Context the caller supplies
 
@@ -263,14 +264,14 @@ clean thread list. This is not best-effort.
 `DISMISS_THREAD_IDS`, BEFORE resolving it, post the stored reply:
 
 ```bash
-gh api graphql -f query='
+u="$(gh api graphql -f query='
   mutation($threadId: ID!, $body: String!) {
     addPullRequestReviewThreadReply(
       input: { pullRequestReviewThreadId: $threadId, body: $body }
     ) { comment { url } }
   }
-' -F threadId="$THREAD_ID" -f body="$REPLY_BODY" --jq '.data.addPullRequestReviewThreadReply.comment.url' 2>/dev/null \
-  | { read -r u; [ -n "$u" ] && REPLY_URLS+=("$u"); } || true
+' -F threadId="$THREAD_ID" -f body="$REPLY_BODY" --jq '.data.addPullRequestReviewThreadReply.comment.url' 2>/dev/null)"
+[ -n "$u" ] && REPLY_URLS+=("$u")   # no pipeline: an append inside `| { … }` runs in a subshell and is lost
 ```
 
 Keep every url in `REPLY_URLS` — the verdict line reports them as

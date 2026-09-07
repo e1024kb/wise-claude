@@ -87,7 +87,8 @@ load_state() {   # parse only allow-listed KEY=value lines — never `source` a 
   while IFS='=' read -r key value; do
     case "$key" in
       TOTAL_ROUNDS|NIT_ROUNDS|COPILOT_STUCK|CODERABBIT_STUCK|FALLBACK_RUNS|FALLBACK_SHA|\
-      FALLBACK_STATE|FALLBACK_APPLIED|CR_AUTO|COPILOT_AUTO|LAST_REVIEWED_SHA|RUN_STARTED)
+      FALLBACK_STATE|FALLBACK_APPLIED|CR_AUTO|COPILOT_AUTO|LAST_REVIEWED_SHA|RUN_STARTED|\
+      COPILOT_REQUESTED|SAME_HEAD_SETTLES|LAST_SETTLED_SHA)
         printf -v "$key" '%s' "$value" ;;
     esac
   done < "$STATE/state.env"
@@ -104,6 +105,9 @@ NIT_ROUNDS="${NIT_ROUNDS:-0}"              # consecutive rounds whose items were
 COPILOT_STUCK="${COPILOT_STUCK:-0}"; CODERABBIT_STUCK="${CODERABBIT_STUCK:-0}"
 FALLBACK_RUNS="${FALLBACK_RUNS:-0}"; FALLBACK_SHA="${FALLBACK_SHA:-}"
 FALLBACK_STATE="${FALLBACK_STATE:-not-needed}"; FALLBACK_APPLIED="${FALLBACK_APPLIED:-0}"
+COPILOT_REQUESTED="${COPILOT_REQUESTED:-}"   # head sha Copilot was last re-requested for (§1 / §5)
+SAME_HEAD_SETTLES="${SAME_HEAD_SETTLES:-0}"  # consecutive settles on an unchanged head (§6 stuck-loop)
+LAST_SETTLED_SHA="${LAST_SETTLED_SHA:-}"
 SONAR_STATE=""; SONAR_SHA=""
 BLOCKED=""                                 # rolled-up blocked file:line list
 
@@ -115,7 +119,23 @@ save_state() {
     echo "FALLBACK_STATE=$FALLBACK_STATE"; echo "FALLBACK_APPLIED=$FALLBACK_APPLIED"
     echo "CR_AUTO=${CR_AUTO:-unknown}"; echo "COPILOT_AUTO=${COPILOT_AUTO:-unknown}"
     echo "LAST_REVIEWED_SHA=${LAST_REVIEWED_SHA:-}"; echo "RUN_STARTED=$RUN_STARTED"
+    echo "COPILOT_REQUESTED=$COPILOT_REQUESTED"; echo "SAME_HEAD_SETTLES=$SAME_HEAD_SETTLES"
+    echo "LAST_SETTLED_SHA=$LAST_SETTLED_SHA"
   } > "$STATE/state.env.tmp" && mv "$STATE/state.env.tmp" "$STATE/state.env"
+}
+exit_with() {  # $* = the verdict tail after "WATCH-AUTO: " — the ONE way out of the loop.
+               # Runs §8 in order: push anything left local, trigger cleanup, state, verdict.
+  local verdict="$*"
+  if [ "$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)" -gt 0 ]; then
+    git push 2>/dev/null || verdict="$verdict unpushed=$(git rev-parse HEAD)"
+  fi
+  trigger_cleanup                          # §4b — on EVERY path, external merge included
+  save_state
+  case "$verdict" in merged*|closed*) rm -rf "$STATE" ;; *) progress "verdict $verdict" ;; esac
+  printf 'WATCH-AUTO: %s url=<pr_url> rounds=%s\n' "${verdict%% *}" "$TOTAL_ROUNDS"
+  # …with the remaining tokens of $verdict (reason=, items=, unpushed=) and the
+  # §8 annotations appended by the agent; then STOP — nothing runs after this.
+  exit 0
 }
 progress() {   # one line per phase change — the caller tails this file
   printf '%s %s\n' "$(date -u +%H:%M:%SZ)" "$*" >> "$STATE/progress.log"
@@ -155,7 +175,8 @@ human_spoke() {   # exact-login allowlist; own comments subtracted by url. Cover
                   # comments, PR reviews, and review comments — a human can intervene on
                   # any of the three surfaces, not just the issue thread. `gh --jq` only.
   local own; own="$(sed 's/.*/"&"/' "$STATE/own-comment-urls" | paste -sd, -)"
-  {
+  local out
+  out="$( set -o pipefail; {
     gh pr view <pr_number> --json comments --jq '
       [.comments[] | select(.createdAt >= "'"$RUN_STARTED"'")] |
       .[] | select(.url as $u | ['"$own"'] | index($u) | not)
@@ -173,7 +194,9 @@ human_spoke() {   # exact-login allowlist; own comments subtracted by url. Cover
       .[] | select(.created_at >= "'"$RUN_STARTED"'")
           | select(.html_url as $u | ['"$own"'] | index($u) | not)
           | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
-  } | grep -v '^$' | head -1
+  } )" || return 1      # ANY surface failing → non-zero: "the gate could not run"
+  printf '%s\n' "$out" | grep -v '^$' | head -1
+  return 0
 }
 bot_logins() {
   case "$1" in
@@ -217,10 +240,12 @@ tick() {              # the ONE wait primitive: sleep (bounded by the remaining
 }
 ```
 
-`exit_with <verdict…>` is §8: trigger cleanup, state handling, verdict
-line. `human_spoke` failing twice is "the gate could not run", never
-"nobody spoke". Any login not on the allowlist is human — fail toward
-stopping.
+`exit_with <verdict…>` is §8 as a function (defined above): push
+anything still local, trigger cleanup, state, verdict line, stop. The
+`case` inside is the only gate the shell runs; every other decision in
+this file is the agent's. `human_spoke` failing twice is "the gate
+could not run", never "nobody spoke". Any login not on the allowlist is
+human — fail toward stopping.
 
 **Pre-flight — read once, before the first round:**
 
@@ -300,9 +325,11 @@ progress "settle head=$HEAD_SHA docs_only=$DOCS_ONLY"
 
 Loop — at every tick read all three signals, then decide:
 
-1. **CI.** `gh pr checks <pr_number> --json name,state,link` — `state`
-   is the terminal value (`SUCCESS` / `FAILURE` / `CANCELLED` /
-   `SKIPPED` / `PENDING`; there is no `conclusion` field) →
+1. **CI.** `gh pr checks <pr_number> --json name,state,link || true` —
+   `state` is the terminal value (`SUCCESS` / `FAILURE` / `CANCELLED` /
+   `SKIPPED` / `PENDING`; there is no `conclusion` field). The command
+   exits 8 while anything is pending and 1 when a check failed even
+   though the JSON is complete — read the JSON, never the exit code →
    `CI_STATE` ∈ {`pending`, `green`, `red`}. `pending` past `CI_MAX`
    since `SETTLE_STARTED` → treat the still-pending checks as `red`
    with `reason=ci-timeout` (a check that never reports is a failing
@@ -310,8 +337,9 @@ Loop — at every tick read all three signals, then decide:
 2. **Copilot** (when `COPILOT_EXPECTED=1`): `bot_review_done copilot
    $HEAD_SHA` → `COPILOT_STATE=reviewed`. No footprint on the head
    `BOT_GRACE` after `PUSHED_AT` and not yet re-requested for this head
-   → one `gh pr edit <pr_number> --add-reviewer
-   copilot-pull-request-reviewer` (see §5), then keep waiting. A status notice created after
+   (`COPILOT_REQUESTED != HEAD_SHA`) → one `gh pr edit <pr_number>
+   --add-reviewer copilot-pull-request-reviewer`, set
+   `COPILOT_REQUESTED="$HEAD_SHA"`, `save_state`, keep waiting. A status notice created after
    `SETTLE_STARTED` by an exact-login Copilot, not attached to a review
    of `HEAD_SHA`, matching (case-insensitive) `unable to review`,
    `wasn't able to review`, `was not able to review`, `couldn't review`,
@@ -362,7 +390,8 @@ Loop — at every tick read all three signals, then decide:
 5. **Settled** when `CI_STATE != pending` and every expected bot is
    terminal (`reviewed` / `skipped` / `absent` / `stuck` / `bypassed` /
    `gave-up`). Record `LAST_REVIEWED_SHA="$HEAD_SHA"` when any bot
-   `reviewed` it. Run §4b's trigger-cleanup, `progress "settled
+   `reviewed` it. Bump the §6 stuck-loop counter (`SAME_HEAD_SETTLES`,
+   `LAST_SETTLED_SHA`). Run §4b's trigger-cleanup, `progress "settled
    ci=$CI_STATE copilot=$COPILOT_STATE coderabbit=$CODERABBIT_STATE"`,
    then §4c if any bot is stuck, then §2. Otherwise `tick` and loop.
 
@@ -374,12 +403,13 @@ a state.
 #### 4b. Trigger-cleanup (on every settle exit, and again at §8)
 
 ```bash
-if [ -s "$STATE/own-trigger-urls" ]; then
+trigger_cleanup() {   # defined with the §0 helpers; called on every settle exit and by exit_with
+  [ -s "$STATE/own-trigger-urls" ] || return 0
   while read -r _sha u; do
     gh api -X DELETE "repos/$OWNER_REPO/issues/comments/${u##*issuecomment-}" 2>/dev/null || true
   done < "$STATE/own-trigger-urls"
   : > "$STATE/own-trigger-urls"
-fi
+}
 ```
 
 Best-effort (403 leaves the comment). Keep the urls in
@@ -457,15 +487,19 @@ summary-only reviews are not items. Human comments are not items — the
   nit-only (`NIT_ROUNDS >= 2` — §3's handler reports `minor=<n>
   major=<m>` per round) → **nit-convergence**: do not fix. Run §3's handler
   with `accept_nits=yes` so it replies "Accepted as-is; converging the
-  review loop" on each remaining minor thread and resolves it, no code
-  change, no push; then go to §7 with `converged=nits-accepted`. A bot
-  that posts a fresh nit on every head cannot otherwise end the loop.
-  Majors are never accepted this way.
+  review loop" on each remaining minor thread and resolves it. Read its
+  line: `major=0` and `committed=no` → go to §7 with
+  `converged=nits-accepted`. `major>0` (the handler still fixes and
+  pushes majors in this mode) or `committed=yes` → a push happened:
+  bookkeeping as §3 step 5, then §5. A bot that posts a fresh nit on
+  every head cannot otherwise end the loop. Majors are never accepted
+  this way.
 - Otherwise → §3.
 
 ### 3. Bulk-fix — one pass, one commit, one push
 
-Order inside a round. Nothing pushes until step 4.
+Order inside a round. The round makes exactly ONE push — the handler's
+(step 3) or, when the handler had nothing, step 4's.
 
 1. **Failing checks first** (they are the reason bots may not have
    reviewed). Per check: `gh run view --log-failed <run-id> 2>&1 | head
@@ -507,8 +541,10 @@ Order inside a round. Nothing pushes until step 4.
    (never `--force`, never `--no-verify`). Push failure → §8
    `partial accepted=push-failed unpushed=<sha>`.
 5. **Bookkeeping.** If anything was pushed: `ROUNDS+=1`,
-   `TOTAL_ROUNDS+=1`; `NIT_ROUNDS` = `NIT_ROUNDS+1` when every thread
-   item this round was minor, else `0`; `save_state`; `progress "pushed
+   `TOTAL_ROUNDS+=1`; `NIT_ROUNDS` = `NIT_ROUNDS+1` when the handler
+   reported `minor>0` and `major=0` (a round with no thread items at
+   all — CI-only, Sonar-only — resets it to `0`, it does not count as
+   nit-only), else `0`; `save_state`; `progress "pushed
    $(git rev-parse HEAD) round=$ROUNDS nit_rounds=$NIT_ROUNDS"`; go to
    §5. If nothing was pushed (only dismissals / resolves, or `BLOCKED`
    only) → go to §7.
@@ -533,8 +569,8 @@ progress "re-review-window head=$HEAD_SHA"
   <pr_number> --add-reviewer copilot-pull-request-reviewer`. Without the
   repo's automatic-review rule Copilot reviews only on request, and a
   request is idempotent and posts nothing, so it is the one trigger the
-  loop may send freely (record `copilot-requested=<sha>` in state so a
-  head is requested once).
+  loop may send freely (`COPILOT_REQUESTED="$HEAD_SHA"`, persisted, so
+  a head is requested once).
 - A `CodeRabbit` check run on `HEAD_SHA` (any description) or a
   CodeRabbit footprint on it → `CR_AUTO=1`, CodeRabbit is coming.
 - CI checks queued / running → CI is coming.
@@ -544,7 +580,9 @@ the rest; a bot marked coming but silent past `BOT_GRACE` is stalled,
 and the stalled path posts the one trigger — that is the only time a
 trigger follows a push). None of them, and the diff since the last
 reviewed head is `DOCS_ONLY` → mark each expected bot `skipped
-reason=docs-only`, go to §7. None of them and the diff has code →
+reason=docs-only` and go to **§2 gather** on the new head (it re-probes
+Sonar so `SONAR_SHA` matches, and recounts threads) — never straight to
+§7. None of them and the diff has code →
 still §1 settle: the bots get their `BOT_GRACE` there before the
 stalled path decides.
 
@@ -583,7 +621,11 @@ Independent bounds, all reported on the verdict:
   verdict on its own).
 - A settle whose head is unchanged across three consecutive settles
   (nothing pushed, nothing new) → the loop is not making progress:
-  `exhausted reason=stuck-loop`.
+  `exhausted reason=stuck-loop`. Backing state: at every settled step
+  (§1 step 5) `SAME_HEAD_SETTLES` = `SAME_HEAD_SETTLES+1` when
+  `HEAD_SHA == LAST_SETTLED_SHA`, else `0`; then
+  `LAST_SETTLED_SHA="$HEAD_SHA"`, `save_state`; `>= 3` → `exit_with
+  "exhausted reason=stuck-loop"`.
 
 ### 7. Merge when fully resolved
 
@@ -659,6 +701,12 @@ one line>`. Never force, never override protection.
 
 ### 8. Terminal verdict — `exit_with`
 
+0. Push anything still local: if `HEAD` is ahead of its upstream (a
+   §3 step 1 / 2 commit, or a §2 Sonar commit, on a path that never
+   reached the round's push) run one `git push`; on failure append
+   `unpushed=<sha>` to the verdict. A run never ends with a fix commit
+   that only exists on this machine and no mention of it.
+
 1. §4b trigger-cleanup — on **every** path, including
    `merged-externally` and `closed` (a trigger must never outlive the
    run on a PR that is no longer open).
@@ -677,7 +725,7 @@ WATCH-AUTO: closed url=<pr_url> rounds=<n>
 WATCH-AUTO: all-green url=<pr_url> reason=<approval-required|blocked|behind|dirty|review-fallback-failed|sonar-unchecked|<gh message>> rounds=<n> [same annotations] [unpushed=<sha>]
 WATCH-AUTO: blocked url=<pr_url> items=<file:line;file:line;...> rounds=<n>
 WATCH-AUTO: partial url=<pr_url> accepted=<comma-separated-markers> rounds=<n> [unpushed=<sha>]
-WATCH-AUTO: exhausted url=<pr_url> reason=<rounds|wall-clock|stuck-loop|lint|tests|other> rounds=<n> items=<n>
+WATCH-AUTO: exhausted url=<pr_url> reason=<rounds|wall-clock|stuck-loop> rounds=<n> [items=<n>] [unpushed=<sha>]
 WATCH-AUTO: human-intervention url=<pr_url> [reason=comment-gate-unreadable] rounds=<n>
 ```
 

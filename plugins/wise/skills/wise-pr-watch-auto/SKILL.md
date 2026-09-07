@@ -24,7 +24,7 @@ description: >-
   types `/wise-pr-watch-auto`. For the interactive version use
   `/wise-pr-watch`.
 argument-hint: "[<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max] [--on <harness>[:<model>[:<effort>]] | --on ask]"
-allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*), Bash(mkdir:*), Bash(touch:*), Bash(tail:*), Bash(rm:*), Bash(stat:*), Bash(chmod:*), Bash(id:*), Bash(mv:*), AskUserQuestion
+allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*), Bash(mkdir:*), Bash(touch:*), Bash(tail:*), Bash(rm:*), Bash(stat:*), Bash(chmod:*), Bash(id:*), Bash(mv:*), Bash(sed:*), Bash(paste:*), Bash(printf:*), Bash(bc:*), AskUserQuestion
 ---
 
 # /wise-pr-watch-auto — autonomous CI watch + bulk-fix loop
