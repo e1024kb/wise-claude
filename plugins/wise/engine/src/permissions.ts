@@ -11,7 +11,14 @@ export type PermissionDecision =
   | { behavior: "allow"; updatedInput: unknown }
   | { behavior: "deny"; message: string };
 
-/** Built-in tools that only read; anything else built in is denied unless pre-granted. */
+/**
+ * Built-in tools that only read; anything else built in is denied unless pre-granted.
+ *
+ * `Skill` and `TodoWrite` are deliberately absent: a skill's own `allowed-tools` frontmatter
+ * pre-approves tools for the turn that invokes it, so auto-allowing `Skill` would let a step reach
+ * a mutating tool without ever hitting `decidePermission`; `TodoWrite` writes state, so it fails
+ * the "only read" bar this set exists to hold.
+ */
 export const READ_ONLY_BUILTINS = new Set([
   "Read",
   "Glob",
@@ -20,9 +27,7 @@ export const READ_ONLY_BUILTINS = new Set([
   "WebFetch",
   "WebSearch",
   "ToolSearch",
-  "TodoWrite",
   "TodoRead",
-  "Skill",
   "ListMcpResourcesTool",
   "ReadMcpResourceTool",
 ]);

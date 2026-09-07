@@ -65,3 +65,11 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   assert.equal(decidePermission("Edit", {}).behavior, "deny");
   assert.equal(decidePermission("mcp__slack__slack_send_message", {}).behavior, "deny");
 });
+
+test("decidePermission: Skill and TodoWrite are not auto-allowed", () => {
+  // `Skill` can activate a skill whose own `allowed-tools` pre-approves mutating tools without
+  // ever reaching this decision; `TodoWrite` writes state. Neither belongs in READ_ONLY_BUILTINS.
+  assert.equal(decidePermission("Skill", {}).behavior, "deny");
+  assert.equal(decidePermission("TodoWrite", {}).behavior, "deny");
+  assert.equal(decidePermission("TodoRead", {}).behavior, "allow");
+});

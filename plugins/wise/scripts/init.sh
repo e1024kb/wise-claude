@@ -339,11 +339,17 @@ probe_mcp() {
     name="${line%%: *}"
     state="${line##* - }"
     count=$((count + 1))
-    case "$state" in
-      *Connected*)              connected+="${name};"; connected_count=$((connected_count + 1)) ;;
-      *"Needs authentication"*) needs_auth+="${name};" ;;
-      *)                        failed+="${name};" ;;
-    esac
+    # Exact match only: a state like `! Connected · tools fetch failed` contains the substring
+    # "Connected" but is not a healthy connection, and must fall through to `failed`. The state
+    # carries a one-character status mark (`✔`, `!`, `✘`) plus optional whitespace before the word.
+    if [[ "$state" =~ ^[^A-Za-z]*Connected$ ]]; then
+      connected+="${name};"
+      connected_count=$((connected_count + 1))
+    elif [[ "$state" == *"Needs authentication"* ]]; then
+      needs_auth+="${name};"
+    else
+      failed+="${name};"
+    fi
   done <<<"$out"
   echo "COUNT=$count"
   echo "CONNECTED=${connected%;}"
@@ -362,7 +368,10 @@ probe_mcp() {
     echo "DETAIL=$count servers connected"
   else
     echo "STATUS=partial"
-    echo "DETAIL=$connected_count connected, needs auth: ${needs_auth%;}, failed: ${failed%;}"
+    local detail="$connected_count connected"
+    [[ -n "$needs_auth" ]] && detail+=", needs auth: ${needs_auth%;}"
+    [[ -n "$failed" ]] && detail+=", failed: ${failed%;}"
+    echo "DETAIL=$detail"
   fi
 }
 

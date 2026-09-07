@@ -399,8 +399,10 @@ Bare keys `STATUS`, `COUNT`, `CONNECTED`, `NEEDS_AUTH`, `FAILED`,
 
 - **`MCP_STATUS=ok`:** print `MCP servers ✓ (<COUNT> connected)`.
 - **`MCP_STATUS=partial`:** print one line per name in `MCP_NEEDS_AUTH`
-  and `MCP_FAILED`, then `AskUserQuestion`:
-  - Question: `These MCP servers are not usable from workflow children: <names>. Authorize each one in a terminal: run claude mcp (or /mcp inside an interactive claude session), pick the server, complete its login. A server the desktop app has but the CLI does not needs to be added to the CLI with claude mcp add.`
+  and `MCP_FAILED`, then `AskUserQuestion`. `MCP_NEEDS_AUTH` and
+  `MCP_FAILED` are different problems — authenticating fixes the
+  first, not the second — so give each its own guidance:
+  - Question: `These MCP servers are not usable from workflow children: <MCP_NEEDS_AUTH names> need authentication — run claude mcp (or /mcp inside an interactive claude session), pick the server, complete its login; a server the desktop app has but the CLI does not needs claude mcp add. <MCP_FAILED names> failed to connect — that isn't an auth problem, check the server's command/config with claude mcp get <name>.`
   - Header: `MCP servers`
   - Options: `Done — re-probe`; `Skip for now` — description:
     `Continue. Children can still use the connected servers, CLIs and public URLs; a workflow that needs one of the listed servers fails at its first fetch unless the conductor fetches the ticket itself (it does for tickets).`
@@ -569,7 +571,11 @@ or after `/plugin install wise@…` (which wipes the cache by design).
 ```
 
 Adjust the row's checkmark to `⚠` and the label suffix when a dep
-ended up `missing` or `authenticated: false`. Optional harness rows
+ended up `missing` or `authenticated: false`. The `MCP servers` row's
+connected count is the length of `MCP_CONNECTED`, never `MCP_COUNT` —
+`MCP_COUNT` is every parsed server, connected or not, so using it here
+overstates the connected count whenever `MCP_NEEDS_AUTH` or
+`MCP_FAILED` is non-empty. Optional harness rows
 are `⚠`, never `✗`: a missing codex, grok or gemini blocks nothing
 until a workflow names it. `MCP restart-needed` is the one row that
 ends with an instruction (open a new session); `daemon replaced` names

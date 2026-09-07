@@ -89,3 +89,22 @@ test("persistContext: bodies become context/tickets/<ref>.md, the state keeps re
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("persistContext: a duplicate ref is coalesced, last body wins, one returned entry", () => {
+  const dir = scratch();
+  try {
+    const ctx = {
+      ticket: [
+        { ref: "LEC-772", title: "First", body: "first body" },
+        { ref: "LEC-772", title: "Second", body: "second body" },
+      ],
+    };
+    const out = persistContext(dir, ctx, { now: () => "2026-09-07T00:00:00.000Z" });
+    const path = ticketFilePath(dir, "LEC-772");
+    assert.deepEqual(out, { ticket: [{ ref: "LEC-772", title: "Second", path }] });
+    assert.match(readFileSync(path, "utf8"), /second body/);
+    assert.equal(readFileSync(path, "utf8").includes("first body"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

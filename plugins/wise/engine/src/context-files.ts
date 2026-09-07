@@ -63,16 +63,29 @@ function indexMarkdown(tickets: ContextTicket[]): string {
 export type PersistOpts = { now?: () => string };
 
 /**
+ * Coalesce duplicate `ref`s, last one wins. `ticketFilePath` derives its filename from `ref`
+ * alone, so two tickets sharing a ref would write the same file in turn; keeping only the last
+ * one keeps the returned entry's `path` matching the body actually left on disk.
+ */
+function dedupeByRef(tickets: ContextTicket[]): ContextTicket[] {
+  const byRef = new Map<string, ContextTicket>();
+  for (const t of tickets) byRef.set(t.ref, t);
+  return [...byRef.values()];
+}
+
+/**
  * Write every ticket that carries a body under `context/tickets/` and return the context the run
  * keeps: those tickets with `path` set and `body` dropped, everything else untouched. A context
- * without ticket bodies creates nothing and is returned as is.
+ * without ticket bodies creates nothing and is returned as is. Duplicate `ref`s are coalesced
+ * first (see `dedupeByRef`).
  */
 export function persistContext(runDir: string, context: Context, opts: PersistOpts = {}): Context {
-  const tickets = context.ticket ?? [];
+  const rawTickets = context.ticket ?? [];
   const withBody = new Set(
-    tickets.filter((t) => typeof t.body === "string" && t.body.trim().length > 0),
+    rawTickets.filter((t) => typeof t.body === "string" && t.body.trim().length > 0),
   );
   if (withBody.size === 0) return context;
+  const tickets = dedupeByRef(rawTickets);
   const now = opts.now ?? (() => new Date().toISOString());
   const fetchedAt = now();
   mkdirSync(join(contextDir(runDir), TICKETS_DIR), { recursive: true });
