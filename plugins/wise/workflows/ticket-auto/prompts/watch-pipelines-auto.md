@@ -132,8 +132,8 @@ exit_with() {  # $* = the verdict tail after "WATCH-AUTO: " — the ONE way out 
   trigger_cleanup                          # §4b — on EVERY path, external merge included
   save_state
   case "$verdict" in merged*|closed*) rm -rf "$STATE" ;; *) progress "verdict $verdict" ;; esac
-  printf 'WATCH-AUTO: %s url=<pr_url> rounds=%s\n' "${verdict%% *}" "$TOTAL_ROUNDS"
-  # …with the remaining tokens of $verdict (reason=, items=, unpushed=) and the
+  printf 'WATCH-AUTO: %s url=<pr_url> rounds=%s\n' "$verdict" "$TOTAL_ROUNDS"
+  # $verdict already carries every token (reason=, items=, unpushed=) plus the
   # §8 annotations appended by the agent; then STOP — nothing runs after this.
   exit 0
 }
@@ -174,28 +174,30 @@ BOT_ALLOWLIST='["copilot-pull-request-reviewer[bot]","copilot-pull-request-revie
 human_spoke() {   # exact-login allowlist; own comments subtracted by url. Covers issue
                   # comments, PR reviews, and review comments — a human can intervene on
                   # any of the three surfaces, not just the issue thread. `gh --jq` only.
+                  # Each surface is captured into its own variable with `|| return 1` —
+                  # `set -o pipefail` inside a `{ …; …; }` group only guards pipelines,
+                  # it does not make the group fail when an EARLIER of several
+                  # sequential commands fails but a LATER one succeeds.
   local own; own="$(sed 's/.*/"&"/' "$STATE/own-comment-urls" | paste -sd, -)"
-  local out
-  out="$( set -o pipefail; {
-    gh pr view <pr_number> --json comments --jq '
+  local out1 out2 out3
+  out1="$(gh pr view <pr_number> --json comments --jq '
       [.comments[] | select(.createdAt >= "'"$RUN_STARTED"'")] |
       .[] | select(.url as $u | ['"$own"'] | index($u) | not)
-          | select(.author.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .author.login'
-    # A reply posted through addPullRequestReviewThreadReply lands as a
-    # review comment PLUS an empty COMMENTED review wrapper under the
-    # operator's login. The wrapper carries no words of its own, so it is
-    # never a human signal; the comment itself is subtracted by url.
-    gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --jq '
+          | select(.author.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .author.login')" || return 1
+  # A reply posted through addPullRequestReviewThreadReply lands as a
+  # review comment PLUS an empty COMMENTED review wrapper under the
+  # operator's login. The wrapper carries no words of its own, so it is
+  # never a human signal; the comment itself is subtracted by url.
+  out2="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --jq '
       .[] | select(.submitted_at >= "'"$RUN_STARTED"'")
           | select((.body | length) > 0 or .state != "COMMENTED")
           | select(.html_url as $u | ['"$own"'] | index($u) | not)
-          | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
-    gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --jq '
+          | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login')" || return 1
+  out3="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --jq '
       .[] | select(.created_at >= "'"$RUN_STARTED"'")
           | select(.html_url as $u | ['"$own"'] | index($u) | not)
-          | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
-  } )" || return 1      # ANY surface failing → non-zero: "the gate could not run"
-  printf '%s\n' "$out" | grep -v '^$' | head -1
+          | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login')" || return 1
+  printf '%s\n%s\n%s\n' "$out1" "$out2" "$out3" | grep -v '^$' | head -1
   return 0
 }
 bot_logins() {
@@ -208,18 +210,28 @@ bot_logins() {
 bot_review_done() {   # $1 bot, $2 sha — a review by that bot on exactly that head?
                        # `--paginate --jq` runs the expression per page and prints one
                        # boolean per page (`--slurp` cannot combine with `--jq`), so a
-                       # match on ANY page reads as a `true` line: grep for it.
-  gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-    --jq "any(.[]; (.user.login as \$l | $(bot_logins "$1") | index(\$l)) and .commit_id==\"$2\")" \
-    | grep -qx true && echo true || echo false
+                       # match on ANY page reads as a `true` line: grep for it. A `gh`
+                       # failure returns non-zero instead of printing `false` — an
+                       # unreadable gate is never "not reviewed".
+  local out
+  out="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
+    --jq "any(.[]; (.user.login as \$l | $(bot_logins "$1") | index(\$l)) and .commit_id==\"$2\")")" || return 1
+  printf '%s\n' "$out" | grep -qx true && echo true || echo false
 }
 bot_footprint() {     # $1 bot — any review or comment by that bot on this PR, ever?
+                       # A `gh` failure on either surface returns non-zero instead of
+                       # printing `false` — an unreadable gate is never "no footprint".
   local r c
-  r=$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
-        --jq "any(.[]; .user.login as \$l | $(bot_logins "$1") | index(\$l))" | grep -qx true && echo true || echo false)
-  c=$(gh pr view <pr_number> --json comments \
-        --jq "any(.comments[]; .author.login as \$l | $(bot_logins "$1") | index(\$l))")
+  r="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate \
+        --jq "any(.[]; .user.login as \$l | $(bot_logins "$1") | index(\$l))")" || return 1
+  c="$(gh pr view <pr_number> --json comments \
+        --jq "any(.comments[]; .author.login as \$l | $(bot_logins "$1") | index(\$l))")" || return 1
   [ "$r" = true ] || [ "$c" = true ] && echo true || echo false
+}
+bot_gate_read() {     # retry-then-abort wrapper for bot_review_done / bot_footprint:
+                       # a gh failure on either, even after one retry, is
+                       # "gate unreadable" — abort rather than read it as "not reviewed".
+  "$@" || "$@" || exit_with "human-intervention reason=comment-gate-unreadable"
 }
 cr_check() {          # CodeRabbit check-run description for the current head ("" = no check run)
   gh pr checks <pr_number> --json name,state,description \
@@ -335,8 +347,8 @@ Loop — at every tick read all three signals, then decide:
    since `SETTLE_STARTED` → treat the still-pending checks as `red`
    with `reason=ci-timeout` (a check that never reports is a failing
    check for this round).
-2. **Copilot** (when `COPILOT_EXPECTED=1`): `bot_review_done copilot
-   $HEAD_SHA` → `COPILOT_STATE=reviewed`. No footprint on the head
+2. **Copilot** (when `COPILOT_EXPECTED=1`): `bot_gate_read bot_review_done
+   copilot $HEAD_SHA` → `COPILOT_STATE=reviewed`. No footprint on the head
    `BOT_GRACE` after `PUSHED_AT` and not yet re-requested for this head
    (`COPILOT_REQUESTED != HEAD_SHA`) → one `gh pr edit <pr_number>
    --add-reviewer copilot-pull-request-reviewer`, set
@@ -350,7 +362,7 @@ Loop — at every tick read all three signals, then decide:
    `rate limit` / `an error occurred` never qualify alone. `BOT_MAX`
    elapsed → `stuck reason=review-timeout`, `COPILOT_STUCK=1`.
 3. **CodeRabbit** (when `CR_EXPECTED=1`), check-run first:
-   - `bot_review_done coderabbit $HEAD_SHA` → `reviewed`.
+   - `bot_gate_read bot_review_done coderabbit $HEAD_SHA` → `reviewed`.
    - `cr_check` reads `Review in progress` / check `pending` → keep
      waiting, bounded by `BOT_MAX`.
    - `Review rate limited` (or a CodeRabbit status comment after
@@ -383,8 +395,8 @@ Loop — at every tick read all three signals, then decide:
      trigger with no review → `gave-up reason=timeout`,
      `CODERABBIT_STUCK=1`.
 4. **Latched bots.** A bot with `*_STUCK=1` from an earlier head gets
-   ONE `bot_review_done` call per settle instead of the full wait: `true`
-   → clear the latch, `reviewed`; otherwise carry the stuck state
+   ONE `bot_gate_read bot_review_done` call per settle instead of the
+   full wait: `true` → clear the latch, `reviewed`; otherwise carry the stuck state
    forward at once. When clearing leaves no bot stuck: keep
    `FALLBACK_STATE=ran` + `FALLBACK_SHA` only if `FALLBACK_SHA == HEAD_SHA`,
    else reset both (`not-needed`, `""`) — always as a pair.
