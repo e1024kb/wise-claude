@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { persistContext, ticketFilePath, ticketMarkdown } from "../src/context-files.ts";
+import {
+  UNTRUSTED_NOTE,
+  persistContext,
+  ticketFilePath,
+  ticketMarkdown,
+} from "../src/context-files.ts";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "wise-context-"));
@@ -66,6 +71,8 @@ test("persistContext: bodies become context/tickets/<ref>.md, the state keeps re
         "---",
         "",
         "# LEC-772: Fix it",
+        "",
+        UNTRUSTED_NOTE,
         "",
         "## Description",
         "Do it.",

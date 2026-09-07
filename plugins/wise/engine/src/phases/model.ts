@@ -320,6 +320,7 @@ async function runChild(
     timeout: ctx.config.timeout ?? PHASE_TIMEOUT_MS[phase] / 1000,
   };
   if (ctx.config.max_turns !== undefined) step.max_turns = ctx.config.max_turns;
+  if (ctx.config.mcp !== undefined) step.mcp = ctx.config.mcp;
   const release = agent.acquire ? await agent.acquire(resolved.harness, ctx.signal) : () => {};
   try {
     const run = startAgentStep({

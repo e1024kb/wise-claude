@@ -8,6 +8,7 @@ import type { AgentHandle, AgentStarter, ChannelConfig } from "../steps/agent.ts
 import type {
   ContextTicket,
   Harness,
+  McpPolicy,
   Permissions,
   ProfileLevel,
   Resolved,
@@ -109,6 +110,8 @@ export type UnitsConfig = {
   decisions?: Record<string, string>;
   /** E8: `unit` lets the fixer resume the reviewer's session; `fresh` (default) starts clean. */
   resume: "unit" | "fresh";
+  /** Which MCP servers every model child loads (`mcp` on the units step); absent = inherit. */
+  mcp?: McpPolicy;
   /** Step-level wall clock override for every model child, seconds. */
   timeout?: number;
   max_turns?: number;

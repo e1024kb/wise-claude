@@ -415,6 +415,58 @@ describe("model phases", () => {
     for (const c of s.calls) assert.equal(c.req.mode, "full-access", c.phase);
   });
 
+  test("units `mcp: engine-only` reaches every model child's request", async () => {
+    const f = fixture();
+    const s = scriptedStarter({
+      plan: planReady,
+      implement: implementCommit,
+      review: reviewOnce,
+      fix: fixCommit,
+      watch: watchGreen,
+    });
+    const res = await runUnitsStep(
+      withAgent(f, s.starter, { step: { ...STEP, mcp: "engine-only" } }),
+    );
+    assert.equal(res.outputs.units[0]?.verdict, "merged");
+    assert.ok(s.calls.length >= 5);
+    for (const c of s.calls) assert.equal(c.req.mcp_policy, "engine-only", c.phase);
+    const dflt = scriptedStarter({
+      plan: planReady,
+      implement: implementCommit,
+      review: reviewOnce,
+      fix: fixCommit,
+      watch: watchGreen,
+    });
+    await runUnitsStep(withAgent(fixture(), dflt.starter));
+    for (const c of dflt.calls) assert.equal(c.req.mcp_policy, undefined, c.phase);
+  });
+
+  test("a ticket persisted to a file: the plan prompt names the file, not the body", async () => {
+    const f = fixture();
+    f.state.context = {
+      ticket: [
+        {
+          ref: "PROJ-1",
+          title: "First",
+          url: "https://t/PROJ-1",
+          path: "/run/context/tickets/PROJ-1.md",
+        },
+      ],
+    };
+    const s = scriptedStarter({
+      plan: planReady,
+      implement: implementCommit,
+      review: reviewOnce,
+      fix: fixCommit,
+      watch: watchGreen,
+    });
+    await runUnitsStep(withAgent(f, s.starter));
+    const prompt = s.ofPhase("plan")[0]?.req.prompt ?? "";
+    assert.match(prompt, /file: \/run\/context\/tickets\/PROJ-1\.md/);
+    assert.match(prompt, /Read it/);
+    assert.equal(prompt.includes("Do the thing."), false);
+  });
+
   test("default `resume: fresh`: the fixer gets no cursor", async () => {
     const f = fixture();
     const s = scriptedStarter({

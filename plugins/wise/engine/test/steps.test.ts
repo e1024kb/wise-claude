@@ -107,6 +107,15 @@ test("buildRunReq: step overrides (mode, auth, timeout seconds), resume only und
   assert.equal(dflt.resume, undefined, "default policy is fresh");
 });
 
+test("buildRunReq: step `mcp` becomes `mcp_policy`; absent stays absent (inherit)", () => {
+  const only = buildRunReq(input({ ...AGENT, mcp: "engine-only" }, CANNED));
+  assert.equal(only.mcp_policy, "engine-only");
+  const inherit = buildRunReq(input({ ...AGENT, mcp: "inherit" }, CANNED));
+  assert.equal(inherit.mcp_policy, "inherit");
+  const dflt = buildRunReq(input({ ...AGENT }, CANNED));
+  assert.equal(dflt.mcp_policy, undefined, "no step field: the adapter's default applies");
+});
+
 test("buildRunReq: gemini has no effort control; empty effort is omitted", () => {
   const starter = CANNED;
   const gem = buildRunReq(

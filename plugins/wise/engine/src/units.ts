@@ -165,6 +165,7 @@ export function configFor(step: UnitsStep, state: State): UnitsConfig {
   if (state.permissions !== undefined) cfg.permissions = state.permissions;
   if (state.context.guidance !== undefined) cfg.guidance = state.context.guidance;
   if (state.context.decisions !== undefined) cfg.decisions = state.context.decisions;
+  if (step.mcp !== undefined) cfg.mcp = step.mcp;
   if (step.timeout !== undefined) cfg.timeout = step.timeout;
   if (step.max_turns !== undefined) cfg.max_turns = step.max_turns;
   return cfg;

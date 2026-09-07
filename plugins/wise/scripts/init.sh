@@ -327,7 +327,11 @@ probe_mcp() {
   # under-reports; mirror the engine's list, never the app's CLAUDE_CODE_* variables.
   local -a clean=(env -i "HOME=$HOME" "PATH=$PATH")
   local v
-  for v in LANG LC_ALL TERM TMPDIR SHELL USER HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR CLAUDE_CONFIG_DIR; do
+  for v in LANG LC_ALL TERM TMPDIR SHELL USER \
+    SSH_AUTH_SOCK SSH_AGENT_PID GIT_SSH GIT_SSH_COMMAND GIT_CONFIG_GLOBAL GNUPGHOME GPG_TTY \
+    GH_HOST GH_CONFIG_DIR \
+    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR \
+    CLAUDE_CONFIG_DIR "${!XDG_@}"; do
     [[ -n "${!v:-}" ]] && clean+=("$v=${!v}")
   done
   local out
