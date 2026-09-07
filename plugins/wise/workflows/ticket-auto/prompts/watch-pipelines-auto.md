@@ -153,20 +153,27 @@ BOT_ALLOWLIST='["copilot-pull-request-reviewer[bot]","copilot-pull-request-revie
   "sonarcloud[bot]","sonarcloud"]'
 human_spoke() {   # exact-login allowlist; own comments subtracted by url. Covers issue
                   # comments, PR reviews, and review comments — a human can intervene on
-                  # any of the three surfaces, not just the issue thread.
+                  # any of the three surfaces, not just the issue thread. `gh --jq` only.
   local own; own="$(sed 's/.*/"&"/' "$STATE/own-comment-urls" | paste -sd, -)"
-  local from_comments from_reviews from_review_comments
-  from_comments="$(gh pr view <pr_number> --json comments --jq '
-    [.comments[] | select(.createdAt >= "'"$RUN_STARTED"'")] |
-    .[] | select(.url as $u | ['"$own"'] | index($u) | not)
-        | select(.author.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .author.login')"
-  from_reviews="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp | jq -r '
-    [.[][]] | .[] | select(.submitted_at >= "'"$RUN_STARTED"'")
-        | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login')"
-  from_review_comments="$(gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --slurp | jq -r '
-    [.[][]] | .[] | select(.created_at >= "'"$RUN_STARTED"'")
-        | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login')"
-  printf '%s\n%s\n%s\n' "$from_comments" "$from_reviews" "$from_review_comments" | grep -v '^$' | head -1
+  {
+    gh pr view <pr_number> --json comments --jq '
+      [.comments[] | select(.createdAt >= "'"$RUN_STARTED"'")] |
+      .[] | select(.url as $u | ['"$own"'] | index($u) | not)
+          | select(.author.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .author.login'
+    # A reply posted through addPullRequestReviewThreadReply lands as a
+    # review comment PLUS an empty COMMENTED review wrapper under the
+    # operator's login. The wrapper carries no words of its own, so it is
+    # never a human signal; the comment itself is subtracted by url.
+    gh api "repos/$OWNER_REPO/pulls/<pr_number>/reviews?per_page=100" --paginate --slurp --jq '
+      [.[][]] | .[] | select(.submitted_at >= "'"$RUN_STARTED"'")
+          | select((.body | length) > 0 or .state != "COMMENTED")
+          | select(.html_url as $u | ['"$own"'] | index($u) | not)
+          | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
+    gh api "repos/$OWNER_REPO/pulls/<pr_number>/comments?per_page=100" --paginate --slurp --jq '
+      [.[][]] | .[] | select(.created_at >= "'"$RUN_STARTED"'")
+          | select(.html_url as $u | ['"$own"'] | index($u) | not)
+          | select(.user.login as $l | '"$BOT_ALLOWLIST"' | index($l) | not) | .user.login'
+  } | grep -v '^$' | head -1
 }
 bot_logins() {
   case "$1" in
@@ -486,7 +493,10 @@ Order inside a round. Nothing pushes until step 4.
    pushes**, commits once, and pushes once — carrying the step 1 / 2
    commits with it. Read its line: append `blocked=<…>` to `BLOCKED`;
    note `committed=<yes|no>`, `minor=<n>`, `major=<m>`; append every
-   resolved thread id it reports to `$STATE/handled-threads`.
+   resolved thread id it reports to `$STATE/handled-threads`, and every
+   url in its `replies=` list through `record_own_comment` — those
+   dismiss replies were posted under the operator's login and the human
+   gate must not read them back as a reviewer speaking.
 4. **Push** — only if the handler did not (`committed=no` or
    `all-clear`) and steps 1 / 2 left local commits: one `git push`
    (never `--force`, never `--no-verify`). Push failure → §8

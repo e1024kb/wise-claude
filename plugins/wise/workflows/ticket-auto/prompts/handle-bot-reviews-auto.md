@@ -267,10 +267,15 @@ gh api graphql -f query='
   mutation($threadId: ID!, $body: String!) {
     addPullRequestReviewThreadReply(
       input: { pullRequestReviewThreadId: $threadId, body: $body }
-    ) { comment { id } }
+    ) { comment { url } }
   }
-' -F threadId="$THREAD_ID" -f body="$REPLY_BODY" >/dev/null 2>&1 || true
+' -F threadId="$THREAD_ID" -f body="$REPLY_BODY" --jq '.data.addPullRequestReviewThreadReply.comment.url' 2>/dev/null \
+  | { read -r u; [ -n "$u" ] && REPLY_URLS+=("$u"); } || true
 ```
+
+Keep every url in `REPLY_URLS` — the verdict line reports them as
+`replies=` so the caller can subtract them from its human-comment gate
+(they are posted under the operator's login).
 
 This deliberately overrides `handle-bot-reviews.md`'s "never reply
 inline on GitHub in the bot queue" guardrail — a false-positive
@@ -343,16 +348,17 @@ As the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
 BOT-REVIEWS-AUTO: all-clear bot=<bot_filter>
-BOT-REVIEWS-AUTO: handled bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> minor=<n> major=<m> committed=<yes|no> [accepted=<n>] threads=<id,id,...>
-BOT-REVIEWS-AUTO: blocked bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> minor=<n> major=<m> blocked=<file:line;file:line;...> committed=<yes|no> threads=<id,id,...>
+BOT-REVIEWS-AUTO: handled bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> minor=<n> major=<m> committed=<yes|no> [accepted=<n>] threads=<id,id,...> [replies=<url,url,...>]
+BOT-REVIEWS-AUTO: blocked bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> minor=<n> major=<m> blocked=<file:line;file:line;...> committed=<yes|no> threads=<id,id,...> [replies=<url,url,...>]
 BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=<reason>
 BOT-REVIEWS-AUTO: error bot=<bot_filter> reason=unknown-bot-filter
 ```
 
 `minor=` / `major=` are §3's tier counts for the whole queue (the caller's
 nit-convergence rule reads them); `threads=` lists every thread id §7b
-resolved, so the caller can remember them across rounds; `accepted=` is
-present only under `accept_nits=yes`.
+resolved, so the caller can remember them across rounds; `replies=`
+lists the url of every dismiss reply §7a posted (present when at least
+one was); `accepted=` is present only under `accept_nits=yes`.
 
 - `all-clear` — §2's actionable list was empty.
 - `handled` — every actionable comment was `Fixed` or `Dismissed`,
