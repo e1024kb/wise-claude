@@ -20,6 +20,10 @@ an unverified Sonar state, and reminds the operator to set the token.
 
 - `pr_number`, `pr_url` — the PR.
 - `current_branch` — the PR's head branch (for the push after fixes).
+- `push` — **optional** `yes` (default) / `no`. `no` = commit locally,
+  fire the MCP status calls, but do NOT push — the caller bundles the
+  commit into its own single push (`watch-pipelines-auto.md` §3). The
+  verdict then reads `committed=yes pushed=no`.
 - `project.path` — absolute path to the repo working tree.
 - `config_prompt` — **optional** operator standing guidance. Honor its
   guardrails (e.g. files to stay out of) when choosing Fix vs Accept.
@@ -269,7 +273,10 @@ Emit `SONAR-AUTO: aborted reason=apply-failed-on=<file:line>`.
 - **MCP status calls.** For every id in `MCP_STATUS_CALLS`, invoke the
   Sonar MCP `change_issue_status` now. Failures log + continue (the
   local commit already landed).
-- **Push.** If §2 produced a commit, run a single `git push` (never
+- **Push.** With `push=no`: skip this step and emit
+  `SONAR-AUTO: handled committed=yes pushed=no resolved=<K>` (or
+  `committed=no` when nothing was committed). Otherwise, if §2 produced
+  a commit, run a single `git push` (never
   force, never `--no-verify`). On failure emit
   `SONAR-AUTO: aborted reason=push-failed`. On success emit
   `SONAR-AUTO: handled committed=yes resolved=<K>` — the caller
@@ -308,7 +315,7 @@ Alone on its own line, the FINAL line of this fragment's output:
 ```
 SONAR-AUTO: not-configured                             # 404 proved no such project - out of the gate
 SONAR-AUTO: all-clear                                  # fetched, 0 open issues
-SONAR-AUTO: handled committed=<yes|no> resolved=<N>    # every fetched issue Fixed/Accepted
+SONAR-AUTO: handled committed=<yes|no> [pushed=no] resolved=<N>    # every fetched issue Fixed/Accepted; pushed=no only under push=no
 SONAR-AUTO: blocked-fetch reason=<auth|fetch|bad-key|key-unresolved|footprint-probe-failed>  # couldn't verify - postpone, do NOT merge
 SONAR-AUTO: aborted reason=<apply-failed-on=…|commit-failed|push-failed>
 ```

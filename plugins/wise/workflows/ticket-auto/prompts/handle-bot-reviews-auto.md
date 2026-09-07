@@ -28,10 +28,27 @@ each queue is its own mini-pipeline. The interactive
 - `pr_url` — PR url (for the verdict line).
 - `current_branch` — PR's head branch (for the push after fixes).
 - `project.path` — absolute path to the repo working tree.
-- `bot_filter` — **required**. One of `copilot` or `coderabbit`.
-  Anything else → emit `BOT-REVIEWS-AUTO: error bot=<bot_filter> reason=unknown-bot-filter`
+- `bot_filter` — **required**. One of `copilot`, `coderabbit`, or
+  `all` (both bots in ONE queue — the bulk mode `watch-pipelines-auto.md`
+  §3 uses so a round makes one commit and one push). Anything else →
+  emit `BOT-REVIEWS-AUTO: error bot=<bot_filter> reason=unknown-bot-filter`
   and return.
-- `bot_display_name` — **required**. `Copilot` or `CodeRabbit`.
+- `bot_display_name` — **required**. `Copilot`, `CodeRabbit`, or
+  `Copilot + CodeRabbit` for `all`.
+- `include_outdated` — **optional** `yes` / `no` (default). `yes` pulls
+  unresolved threads GitHub flagged `isOutdated` into the queue as well:
+  the anchor moved, the concern may or may not still hold, and a
+  `required_review_thread_resolution` branch rule counts them. §3
+  re-checks each against the current code — still valid → the normal
+  tiered path; superseded → `Dismissed` with a reply naming the commit
+  that addressed it, then resolved.
+- `accept_nits` — **optional** `yes` / `no` (default). `yes` is the
+  caller's nit-convergence mode: every `minor` item is NOT fixed but
+  `Dismissed` with the reply "Accepted as-is; converging the review
+  loop." and resolved, so no code changes and no push happen for
+  nits. `major` items still take the full §5 path (a fix on that path
+  still commits and pushes). Used only after two consecutive nit-only
+  rounds.
 - `head_sha` — **required**. The PR head SHA the caller already
   confirmed this bot finished reviewing. Only comments anchored to
   the reviewed commit are evaluated here.
@@ -67,15 +84,19 @@ An item enters THIS queue when:
   - `copilot` → `Copilot` OR `copilot-pull-request-reviewer` OR a
     login starting with `copilot-`
   - `coderabbit` → `coderabbitai` OR `coderabbitai[bot]`
+  - `all` → either of the above
 - AND its thread is NOT `isResolved: true`,
-- AND its thread is NOT `isOutdated: true`.
+- AND its thread is NOT `isOutdated: true` — unless
+  `include_outdated=yes`, in which case outdated unresolved threads
+  enter the queue flagged `outdated`.
 
 OR — it's a **review with state `CHANGES_REQUESTED`** from a matching
 bot author (the top-level `body` counts as one actionable item).
 
-Skip items from the other bot, from humans, bot issue-comment
-summaries, `APPROVED` / `COMMENTED` summary-only reviews, and
-already-resolved or outdated threads.
+Skip items from a bot outside `bot_filter`, from humans, bot
+issue-comment summaries, `APPROVED` / `COMMENTED` summary-only reviews,
+already-resolved threads, and (without `include_outdated=yes`) outdated
+threads.
 
 If the actionable list is empty → clean up this invocation's scratch
 dir (`rm -rf "$SCRATCH"`), emit
@@ -106,8 +127,21 @@ judgement:
 `major`.** The major path applies more scrutiny, never less — so
 mis-classifying up is safe; mis-classifying down is not.
 
+**Outdated items** (`include_outdated=yes`) get one extra check first:
+read the current code at the thread's `path` around its original
+`line`. If the concern no longer applies — the code the bot flagged is
+gone or already changed the way it asked — mark the item `superseded`:
+it takes §5's `Dismissed` outcome with the reply "Addressed in
+<short-sha> — the flagged code no longer exists in this form." and is
+resolved, no edit. Otherwise it is classified `minor` / `major` like any
+other item and fixed against the current lines.
+
+**`accept_nits=yes`**: every `minor` item becomes `Dismissed` with the
+reply "Accepted as-is; converging the review loop." — no edit. Count
+them in `dismissed`; report them as `accepted=<n>` too.
+
 Record per item `{ item, tier, thread_id, body, suggestion?,
-ai_prompt? }`.
+ai_prompt?, outdated? }`. Keep `MINOR` / `MAJOR` counts for the verdict.
 
 ### 4. Minor path — quick focused fix
 
@@ -179,7 +213,8 @@ Then form an **independent** judgement and land exactly one outcome:
 If §4 / §5 staged at least one change, drive
 `${CLAUDE_PLUGIN_ROOT}/references/pr/commit-from-fix.md`
 with `push=no`, `fix_kind=review-comments`, and
-`fix_summary="applied <K> <bot_display_name> review comment(s)"`.
+`fix_summary="applied <K> <bot_display_name> review comment(s)"` (for
+`all`: "applied <K> bot review comment(s)").
 Parse its `COMMIT:` line:
 
 - `COMMIT: ok … pushed=no` → continue to §7.
@@ -199,7 +234,9 @@ and return.
 ### 7. Phase C — remote side effects (mandatory)
 
 Every comment this run handled or dismissed MUST end as a resolved
-thread on the PR. This is not best-effort.
+thread on the PR, **before the push** — the fix and its thread close in
+the same round, so the re-review that the push triggers starts from a
+clean thread list. This is not best-effort.
 
 **7a. Reasoned replies on dismissed threads.** For each thread id in
 `DISMISS_THREAD_IDS`, BEFORE resolving it, post the stored reply:
@@ -285,11 +322,16 @@ As the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
 BOT-REVIEWS-AUTO: all-clear bot=<bot_filter>
-BOT-REVIEWS-AUTO: handled bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> committed=<yes|no>
-BOT-REVIEWS-AUTO: blocked bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> blocked=<file:line;file:line;...> committed=<yes|no>
+BOT-REVIEWS-AUTO: handled bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> minor=<n> major=<m> committed=<yes|no> [accepted=<n>] threads=<id,id,...>
+BOT-REVIEWS-AUTO: blocked bot=<bot_filter> fixed=<F> dismissed=<D> resolved=<R> minor=<n> major=<m> blocked=<file:line;file:line;...> committed=<yes|no> threads=<id,id,...>
 BOT-REVIEWS-AUTO: aborted bot=<bot_filter> reason=<reason>
 BOT-REVIEWS-AUTO: error bot=<bot_filter> reason=unknown-bot-filter
 ```
+
+`minor=` / `major=` are §3's tier counts for the whole queue (the caller's
+nit-convergence rule reads them); `threads=` lists every thread id §7b
+resolved, so the caller can remember them across rounds; `accepted=` is
+present only under `accept_nits=yes`.
 
 - `all-clear` — §2's actionable list was empty.
 - `handled` — every actionable comment was `Fixed` or `Dismissed`,
@@ -301,7 +343,7 @@ BOT-REVIEWS-AUTO: error bot=<bot_filter> reason=unknown-bot-filter
   `commit-failed`, `push-failed`, or
   `unresolved-threads=<id;id;...>`. A handled comment left unresolved
   is a failure, not a pass — it aborts rather than reporting `handled`.
-- `error` — `bot_filter` was not `copilot` or `coderabbit`.
+- `error` — `bot_filter` was not `copilot`, `coderabbit`, or `all`.
 
 `fixed` = §4 minor fixes + §5 `Fixed`. `dismissed` = §5 `Dismissed`.
 `resolved` = threads §7b actually resolved. `committed` tells the
@@ -329,8 +371,9 @@ caller whether a push happened and CI / the bots must be re-polled.
   resolves — never reply inline on a `Fixed` or `Blocked` thread.
 - Never push between phases — §6 commits with `push=no`, §8 is the
   single push.
-- Process only items matching `bot_filter`; the other bot gets its
-  own invocation.
+- Process only items matching `bot_filter`; with `copilot` /
+  `coderabbit` the other bot gets its own invocation, with `all` both
+  share one queue, one commit, one push.
 - Stop after 10 internal rounds in a single invocation (safety catch
   — a bot that re-posts on every commit is in a fight; escalate via
   the verdict line instead of looping forever).

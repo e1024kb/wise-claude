@@ -16,6 +16,10 @@ exactly like an engine child.
   which.
 - `SKILL_ARGS` — the caller's `$ARGUMENTS` with every `--on` token
   removed; passed to the child verbatim as the skill's arguments.
+- `TIMEOUT_S` — **optional** child timeout in seconds (default 3600).
+  A skill whose procedure has its own wall-clock budget (the PR watch
+  loop's `--minutes`) sets this above that budget, so the dispatcher
+  never kills a run that is about to emit its verdict.
 
 ## 1. Parse `--on`
 
@@ -97,12 +101,15 @@ caller can parse the outcome.
 bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh dispatch \
   --harness <harness> [--model <id>] [--effort <e>] \
   --mode full-access --cwd <git toplevel> \
-  --timeout-s 3600 --prompt-file <the file>
+  --timeout-s <TIMEOUT_S, default 3600> --prompt-file <the file>
 ```
 
 Long procedures (a PR watch loop) go through the Bash tool in the
 background; relay `started on <harness> <model>[ <effort>]` and poll
-the task result. `--mode full-access` because the dispatched skills
+the task result. When the skill documents a heartbeat file (the watch
+loop's `progress.log`), tail it between polls and relay its last line
+— the dispatcher prints nothing until the child exits, and a killed
+child prints nothing at all. `--mode full-access` because the dispatched skills
 edit, commit and push; a read-only caller may pass `--mode auto`
 instead when its skill never writes.
 
