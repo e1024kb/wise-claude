@@ -364,9 +364,10 @@ one was); `accepted=` is present only under `accept_nits=yes`.
 - `all-clear` — §2's actionable list was empty.
 - `handled` — every actionable comment was `Fixed` or `Dismissed`,
   every handled thread resolved. Requires `resolved == fixed +
-  dismissed - review_level`, where `review_level` is 1 when the queue
-  contained the threadless `CHANGES_REQUESTED` review item (§2), else 0
-  — that one item is never resolved as a thread.
+  dismissed - review_level`, where `review_level` is the COUNT of
+  threadless `CHANGES_REQUESTED` review items the queue contained (§2)
+  — 0 normally, up to 2 under `bot_filter=all` (one per bot) — since
+  none of those items is ever resolved as a thread.
 - `blocked` — at least one comment ended `Blocked`; `blocked=` carries
   the semicolon-joined `file:line` list. `fixed` / `dismissed` /
   `resolved` still report what WAS handled.

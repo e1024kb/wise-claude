@@ -256,9 +256,10 @@ human — fail toward stopping.
 
    ```bash
    BASE="${base:-$(gh pr view <pr_number> --json baseRefName --jq .baseRefName)}"
-   gh api "repos/$OWNER_REPO/rules/branches/$BASE" --jq '.[].type' 2>/dev/null > "$STATE/rules" || : > "$STATE/rules"
+   BASE_ENC="$(printf '%s' "$BASE" | sed 's/\//%2F/g')"   # base names like release/1.0 contain `/`; encode before it becomes a path segment
+   gh api "repos/$OWNER_REPO/rules/branches/$BASE_ENC" --jq '.[].type' 2>/dev/null > "$STATE/rules" || : > "$STATE/rules"
    grep -qx required_review_thread_resolution "$STATE/rules" && RESOLVE_ALL_THREADS=1 || RESOLVE_ALL_THREADS=0
-   NEEDS_APPROVAL=$(gh api "repos/$OWNER_REPO/rules/branches/$BASE" \
+   NEEDS_APPROVAL=$(gh api "repos/$OWNER_REPO/rules/branches/$BASE_ENC" \
      --jq '[.[] | select(.type=="pull_request") | .parameters.required_approving_review_count // 0] | max // 0' 2>/dev/null || echo 0)
    ```
 
