@@ -64,6 +64,9 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   );
   assert.equal(decidePermission("Edit", {}).behavior, "deny");
   assert.equal(decidePermission("mcp__slack__slack_send_message", {}).behavior, "deny");
+  // A built-in read-only tool: denying it would break resource directory reads in headless
+  // children.
+  assert.equal(decidePermission("ReadMcpResourceDirTool", {}).behavior, "allow");
 });
 
 test("decidePermission: Skill and TodoWrite are not auto-allowed", () => {

@@ -234,7 +234,7 @@ describe("unit-mcp", () => {
       assert.deepEqual(await get("ticket"), [{ ref: "LEC-1", title: "T", path: ticketPath }]);
       assert.match(
         readFileSync(ticketPath, "utf8"),
-        /^---\nref: "LEC-1"\ntitle: "T"\n[\s\S]*# LEC-1: T\n\n> Tracker text[^\n]*\n\nthe ticket body\n$/,
+        /^> Tracker text[^\n]*\n\n---\nref: "LEC-1"\ntitle: "T"\n[\s\S]*# LEC-1: T\n\nthe ticket body\n$/,
       );
       assert.equal(await get("nope"), null);
     });

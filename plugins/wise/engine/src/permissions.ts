@@ -30,6 +30,7 @@ export const READ_ONLY_BUILTINS = new Set([
   "TodoRead",
   "ListMcpResourcesTool",
   "ReadMcpResourceTool",
+  "ReadMcpResourceDirTool",
 ]);
 
 /** First-position verbs that mark an MCP tool as mutating, whatever follows. */
@@ -92,7 +93,6 @@ export const MUTATING_VERBS = new Set([
   "publish",
   "deploy",
   "install",
-  "remove",
   "rename",
   "clear",
   "reset",
