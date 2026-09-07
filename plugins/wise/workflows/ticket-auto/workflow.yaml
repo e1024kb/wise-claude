@@ -143,7 +143,8 @@ steps:
       pipeline never plans from an id alone or from guesses.
 
       First call the `wise_context` tool with key `ticket`. A ticket
-      whose entry there carries a body needs no probe.
+      whose entry there carries a `path` (the conductor fetched it; the
+      file holds the content) or a `body` needs no probe.
 
       For each remaining ref, identify the tracker from the URL host or
       the id shape: *.atlassian.net/browse/ or jira.* -> Jira;
@@ -153,18 +154,22 @@ steps:
       dev.azure.com/*/_workitems/ -> that tracker. WebSearch an unknown
       host; for a bare ambiguous id predict the most likely tracker,
       never ask. For each distinct tracker probe for a channel that
-      actually returns the ticket: a tracker MCP tool (a one-time
-      permission prompt on first use is expected), a CLI (`command -v
-      gh`, `command -v glab`, `command -v linear`, `command -v jira`;
-      e.g. `linear issue view <id>`), or `WebFetch` on a public URL. A login
-      page, a 401/403 or an empty body is not access.
+      actually returns the ticket: a tracker MCP tool (you have the
+      same MCP servers as the `claude` CLI; read-shaped tools are
+      granted, a server that is missing or "needs authentication" for
+      the CLI is not reachable here), a CLI (`command -v gh`, `command
+      -v glab`, `command -v linear`, `command -v jira`; e.g. `linear
+      issue view <id>`), or `WebFetch` on a public URL. A login page, a
+      401/403 or an empty body is not access.
 
       Every ticket reachable: `access` = `ok`, `detail` = one line per
       tracker and the channel that works. Any ticket unreachable:
       `access` = `blocked`, `detail` = one line per unreachable tracker
-      with the tickets that need it and the fix (install and
-      authenticate its MCP or CLI, or make the URL public), then
-      "fix tracker access and re-run /wise-workflow-run ticket-auto".
+      with the tickets that need it and the fix (authenticate its MCP
+      server for the CLI with `claude mcp`, install and log in to its
+      CLI, or make the URL public; the conductor can also fetch the
+      ticket itself before the run), then "fix tracker access and
+      re-run /wise-workflow-run ticket-auto".
 
       Return the fields directly, no wrapping: access, detail.
     schema:
@@ -198,6 +203,7 @@ steps:
   - id: report
     type: agent
     model: sonnet
+    mcp: engine-only
     prompt: |
       Write the end-of-run report for an unattended ticket-auto run
       ({{run.id}}) on {{project.name}} at {{project.path}}.

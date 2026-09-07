@@ -1,9 +1,11 @@
-// `claude` harness adapter (research-ts-engine.md P6, D3, D16, D18; M0 event shapes).
+// `claude` harness adapter (research-ts-engine.md P6, D3, D16, D18 revised; M0 event shapes).
 // Runs `claude -p --input-format stream-json --output-format stream-json` on the
 // unmodified binary, never `--bare`. The prompt and any mid-run nudge go over stdin
 // as NDJSON user messages; stdout NDJSON is parsed by a pure, testable stream parser.
 
 import { execFile } from "node:child_process";
+import { decidePermission } from "../permissions.ts";
+import type { PermissionDecision } from "../permissions.ts";
 import type {
   AuthMode,
   Adapter,
@@ -28,8 +30,10 @@ export const MODE_MAP: Record<RunMode, string> = {
   "full-access": "bypassPermissions",
 };
 
-/** D18: children never load the user's MCP servers. */
+/** The `--mcp-config` a child gets when the engine has no channel server for it. */
 export const EMPTY_MCP_CONFIG = { mcpServers: {} } as const;
+/** Request id of the SDK-style handshake the engine sends before the first user message. */
+export const INIT_REQUEST_ID = "wise-init";
 
 export const RATE_LIMIT_RE = /rate.?limit|429|overloaded/i;
 export const AUTH_RE = /Failed to authenticate|OAuth|not logged in|login/i;
@@ -62,13 +66,45 @@ export function buildArgv(req: RunReq): string[] {
     ...(req.allowed_tools ?? []),
   ];
   if (allowed.length > 0) argv.push("--allowedTools", allowed.join(","));
-  argv.push(
-    "--strict-mcp-config",
-    "--mcp-config",
-    JSON.stringify(req.mcp_config ?? EMPTY_MCP_CONFIG),
-  );
+  // Whatever the mode would prompt for comes back to the engine as a `can_use_tool` control
+  // request (permissions.ts decides); without a host every prompt is a silent denial.
+  argv.push("--permission-prompt-tool", "stdio");
+  // D18 revised: the child inherits the CLI's own MCP servers (user, project, plugin, claude.ai
+  // connectors) on top of the engine's channel server; `engine-only` keeps the strict flag.
+  if (req.mcp_policy === "engine-only") argv.push("--strict-mcp-config");
+  argv.push("--mcp-config", JSON.stringify(req.mcp_config ?? EMPTY_MCP_CONFIG));
   if (req.system !== undefined) argv.push("--append-system-prompt", req.system);
   return argv;
+}
+
+/** The `initialize` control request the SDK sends first; the CLI answers with its command list. */
+export function initializeMessage(): string {
+  return `${JSON.stringify({
+    type: "control_request",
+    request_id: INIT_REQUEST_ID,
+    request: { subtype: "initialize", hooks: {} },
+  })}\n`;
+}
+
+/** A `can_use_tool` request as it arrives on stdout. */
+export type PermissionRequest = { request_id: string; tool_name: string; input: unknown };
+
+/** Parse one stdout line into a permission request when it is one. */
+export function permissionRequestOf(parsed: unknown): PermissionRequest | undefined {
+  if (!isRec(parsed) || parsed.type !== "control_request" || !isRec(parsed.request))
+    return undefined;
+  const request_id = str(parsed.request_id);
+  const tool_name = str(parsed.request.tool_name);
+  if (parsed.request.subtype !== "can_use_tool" || !request_id || !tool_name) return undefined;
+  return { request_id, tool_name, input: parsed.request.input };
+}
+
+/** The stdin line answering one `can_use_tool` request. */
+export function permissionResponse(request_id: string, decision: PermissionDecision): string {
+  return `${JSON.stringify({
+    type: "control_response",
+    response: { subtype: "success", request_id, response: decision },
+  })}\n`;
 }
 
 /** One `--input-format stream-json` user message, newline-terminated. */
@@ -112,6 +148,8 @@ export type StreamSnapshot = {
   tool_uses: string[];
   results: number;
   denials: string[];
+  /** `can_use_tool` requests the engine answered, as `allow:<tool>` / `deny:<tool>`. */
+  permissions: string[];
 };
 
 export type StreamParser = {
@@ -170,13 +208,22 @@ export type ParserOpts = {
   pool: AuthMode;
   /** Called on every `result` event (drives stdin lifecycle in `startClaude`). */
   onResult?: (result: Rec) => void;
+  /** Called on every `can_use_tool` control request; the caller writes the answer to stdin. */
+  onPermission?: (request: PermissionRequest, decision: PermissionDecision) => void;
   now?: () => string;
 };
 
 export function createStreamParser(opts: ParserOpts): StreamParser {
   const lines = createLineSplitter();
   const now = opts.now ?? (() => new Date().toISOString());
-  const snap: StreamSnapshot = { tools: 0, turns: 0, tool_uses: [], results: 0, denials: [] };
+  const snap: StreamSnapshot = {
+    tools: 0,
+    turns: 0,
+    tool_uses: [],
+    results: 0,
+    denials: [],
+    permissions: [],
+  };
   let lastAssistantText = "";
   let result: Rec | undefined;
 
@@ -208,6 +255,13 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
       snap.results += 1;
       snap.denials = denialLines(parsed);
       opts.onResult?.(parsed);
+    } else if (type === "control_request") {
+      const request = permissionRequestOf(parsed);
+      if (request !== undefined) {
+        const decision = decidePermission(request.tool_name, request.input);
+        snap.permissions.push(`${decision.behavior}:${request.tool_name}`);
+        opts.onPermission?.(request, decision);
+      }
     }
     return ev;
   };
@@ -238,7 +292,12 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
 
   return {
     feed: (chunk) => lines.feed(chunk).map(ingest),
-    snapshot: () => ({ ...snap, tool_uses: [...snap.tool_uses], denials: [...snap.denials] }),
+    snapshot: () => ({
+      ...snap,
+      tool_uses: [...snap.tool_uses],
+      denials: [...snap.denials],
+      permissions: [...snap.permissions],
+    }),
     finish(exit) {
       lines.finish().forEach(ingest);
       const verdict = classify(exit);
@@ -306,6 +365,9 @@ export function startClaude(
           : Math.max(0, outstanding - 1);
       if (outstanding === 0) endStdin();
     },
+    onPermission: (request, decision) => {
+      if (stdinOpen) proc.stdin.write(permissionResponse(request.request_id, decision));
+    },
   });
   const send = (text: string): void => {
     if (!stdinOpen) throw new Error("claude stdin is closed");
@@ -320,7 +382,10 @@ export function startClaude(
     const res = parser.finish(exit);
     return res;
   });
-  if (proc.pid > 0) send(req.prompt);
+  if (proc.pid > 0) {
+    proc.stdin.write(initializeMessage());
+    send(req.prompt);
+  }
   return {
     pid: proc.pid,
     done,

@@ -61,6 +61,20 @@
 #       `denied` means every engine git call over ssh fails the same way
 #       (a key that only lives in the agent, or no agent at all).
 #
+#   probe-mcp
+#       Emits:
+#         STATUS=ok|partial|none|missing-claude|unknown
+#         COUNT=<n>                      (servers the CLI lists)
+#         CONNECTED=<name;name;...>      (health-check passed)
+#         NEEDS_AUTH=<name;name;...>     ("Needs authentication")
+#         FAILED=<name;name;...>         (any other non-connected state)
+#         DETAIL=<one line>
+#       Runs `claude mcp list` under the environment the engine gives
+#       its children (spawn.ts PASSTHROUGH_VARS + CLAUDE_CONFIG_DIR), so
+#       this is exactly the MCP inventory a workflow child inherits. A server that
+#       "needs authentication" here is unreachable from every child until
+#       `claude mcp` (or /mcp in a terminal session) authorizes it.
+#
 #   probe-markitdown
 #       Emits:
 #         STATUS=ok|missing
@@ -296,6 +310,75 @@ probe_git_ssh() {
   fi
 }
 
+# ---- mcp inventory --------------------------------------------------------
+
+probe_mcp() {
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "STATUS=missing-claude"
+    echo "COUNT=0"
+    echo "CONNECTED="
+    echo "NEEDS_AUTH="
+    echo "FAILED="
+    echo "DETAIL=claude not on PATH"
+    return 0
+  fi
+  # The engine's child env (adapters/spawn.ts PASSTHROUGH_VARS + claude.ts childEnv): the CLI
+  # reaches its keychain-held connector logins only with USER present, so HOME+PATH alone
+  # under-reports; mirror the engine's list, never the app's CLAUDE_CODE_* variables.
+  local -a clean=(env -i "HOME=$HOME" "PATH=$PATH")
+  local v
+  for v in LANG LC_ALL TERM TMPDIR SHELL USER \
+    SSH_AUTH_SOCK SSH_AGENT_PID GIT_SSH GIT_SSH_COMMAND GIT_CONFIG_GLOBAL GNUPGHOME GPG_TTY \
+    GH_HOST GH_CONFIG_DIR \
+    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR \
+    CLAUDE_CONFIG_DIR "${!XDG_@}"; do
+    [[ -n "${!v:-}" ]] && clean+=("$v=${!v}")
+  done
+  local out
+  out="$("${clean[@]}" claude mcp list 2>&1 || true)"
+  local connected="" needs_auth="" failed="" count=0 connected_count=0 name state
+  while IFS= read -r line; do
+    # `<name>: <url or command> - <mark> <state>`; the name never contains ": ".
+    [[ "$line" == *" - "* && "$line" == *": "* ]] || continue
+    name="${line%%: *}"
+    state="${line##* - }"
+    count=$((count + 1))
+    # Exact match only: a state like `! Connected · tools fetch failed` contains the substring
+    # "Connected" but is not a healthy connection, and must fall through to `failed`. The state
+    # carries a one-character status mark (`✔`, `!`, `✘`) plus optional whitespace before the word.
+    if [[ "$state" =~ ^[^A-Za-z]*Connected$ ]]; then
+      connected+="${name};"
+      connected_count=$((connected_count + 1))
+    elif [[ "$state" == *"Needs authentication"* ]]; then
+      needs_auth+="${name};"
+    else
+      failed+="${name};"
+    fi
+  done <<<"$out"
+  echo "COUNT=$count"
+  echo "CONNECTED=${connected%;}"
+  echo "NEEDS_AUTH=${needs_auth%;}"
+  echo "FAILED=${failed%;}"
+  if [[ $count -eq 0 ]]; then
+    if printf '%s' "$out" | grep -qi 'no mcp servers'; then
+      echo "STATUS=none"
+      echo "DETAIL=no MCP servers configured for the CLI"
+    else
+      echo "STATUS=unknown"
+      echo "DETAIL=$(printf '%s\n' "$out" | grep -v '^Checking MCP' | head -n 1)"
+    fi
+  elif [[ -z "$needs_auth" && -z "$failed" ]]; then
+    echo "STATUS=ok"
+    echo "DETAIL=$count servers connected"
+  else
+    echo "STATUS=partial"
+    local detail="$connected_count connected"
+    [[ -n "$needs_auth" ]] && detail+=", needs auth: ${needs_auth%;}"
+    [[ -n "$failed" ]] && detail+=", failed: ${failed%;}"
+    echo "DETAIL=$detail"
+  fi
+}
+
 # ---- markitdown -----------------------------------------------------------
 
 find_uv() {
@@ -383,6 +466,7 @@ case "${1:-}" in
   probe-claude-auth) probe_claude_auth ;;
   probe-gh)         probe_gh ;;
   probe-git-ssh)    probe_git_ssh "${2:-}" ;;
+  probe-mcp)        probe_mcp ;;
   probe-markitdown) probe_markitdown ;;
   *)
     cat <<'USAGE' >&2
@@ -395,6 +479,7 @@ Subcommands:
   probe-claude-auth Probe the claude CLI login used by engine children.
   probe-gh          Probe for the gh CLI + its auth state.
   probe-git-ssh     Probe git over ssh (ssh -T git@github.com) from the engine's child env.
+  probe-mcp         List the MCP servers a workflow child inherits (claude mcp list, child env).
   probe-markitdown  Probe for the markitdown converter + uv installer.
 
 Output format: KEY=VALUE lines. Callers can `source` the output

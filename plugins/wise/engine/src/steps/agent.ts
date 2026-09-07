@@ -53,7 +53,7 @@ export type AgentStarter = (
 /** Where the child's `wise-engine unit-mcp` finds the daemon (P8): no secrets in argv, all in env. */
 export type ChannelConfig = { engineRoot: string; socketPath: string; dataRoot: string };
 
-/** The one MCP server every child loads (D16, D18). `bash engine.sh unit-mcp` picks bun or node. */
+/** The MCP server every child loads on top of the CLI's own (D16, D18 revised). `bash engine.sh unit-mcp` picks bun or node. */
 export function childMcpConfig(
   channel: ChannelConfig,
   token: string,
@@ -125,6 +125,7 @@ export function buildRunReq(input: AgentStepInput): RunReq {
     add_dirs: [input.runDir, PLUGIN_ROOT, ...(input.addDirs ?? [])],
   };
   if (step.allowed_tools !== undefined) req.allowed_tools = step.allowed_tools;
+  if (step.mcp !== undefined) req.mcp_policy = step.mcp;
   if (resolved.effort !== "" && effortFor(resolved.harness, resolved.effort) !== undefined) {
     req.effort = resolved.effort as Effort;
   }

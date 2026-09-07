@@ -872,6 +872,19 @@ test("allowed_tools: list of non-empty strings, rejected otherwise", () => {
   assert.ok(validateDef(bad, "t.yaml").issues.some((i) => i.path.endsWith("allowed_tools")));
 });
 
+test("mcp: inherit | engine-only on steps, rejected otherwise", () => {
+  const base = {
+    name: "mcp",
+    version: 2,
+    steps: [{ id: "a", type: "agent", prompt: "x", mcp: "engine-only" }],
+  };
+  const ok = validateDef(base, "t.yaml");
+  assert.equal(ok.issues.filter((i) => i.level === "error").length, 0);
+  assert.equal(ok.def?.steps[0]?.mcp, "engine-only");
+  const bad = { ...base, steps: [{ ...base.steps[0], mcp: "all" }] };
+  assert.ok(validateDef(bad, "t.yaml").issues.some((i) => i.path.endsWith("mcp")));
+});
+
 test("allow-api: boolean on steps and tuning groups (M6.2), rejected otherwise", () => {
   const withGroup = (d: Doc, stepExtra: Doc = {}) =>
     doc({ tuning: { groups: [{ id: "paid", default: { harness: "codex" }, ...d }] } }, [

@@ -34,6 +34,7 @@ import {
   writeCheckpoint,
 } from "./channel.ts";
 import type { ChannelTimers, ChildTracker, StaleWatch } from "./channel.ts";
+import { persistContext } from "./context-files.ts";
 import { clearChild, ledgerHandlers, recordChild } from "./daemon.ts";
 import type { DaemonHandlers, DaemonRuntime, Handler } from "./daemon.ts";
 import { defaultRoots, loadAndValidate, locateDef, probeRequires } from "./defs.ts";
@@ -1549,11 +1550,12 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       }
     }
     writeState(runDir, state);
+    // Ticket bodies go to `context/tickets/*.md`; the state keeps `{ref, title, url, path}`.
     startRun(runDir, {
       project: projectOf(cwd),
       inputs,
       answers,
-      context,
+      context: persistContext(runDir, context),
       profile: applied.profile,
       permissions: permissionsOf(def, answers),
       resolved,

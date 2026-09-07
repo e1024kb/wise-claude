@@ -79,8 +79,10 @@ const DESCRIPTIONS: Record<UnitMcpToolName, string> = {
     "Give options when a choice is enough. In an unattended run the answer comes from the run's " +
     "recorded decisions or the first option; {error: 'needs-human'} means proceed with your best judgement.",
   wise_context:
-    "Fetch run context by key instead of guessing: ticket (array with body), guidance, decisions, " +
-    "links, a prior step's output by name or step id, or an input. Returns {value}; null when unknown.",
+    "Fetch run context by key instead of guessing: ticket (array of {ref, title, url, path}; Read " +
+    "`path` for the ticket's content, `body` appears only when no file was written), guidance, " +
+    "decisions, links, a prior step's output by name or step id, or an input. Returns {value}; " +
+    "null when unknown.",
   wise_checkpoint:
     "Save partial results as JSON so they survive if you are stopped. Overwrites the previous checkpoint.",
 };

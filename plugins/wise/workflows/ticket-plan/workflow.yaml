@@ -42,9 +42,11 @@ project-selection: current
 # would auto-answer them. worktree: current because the research is
 # read-only and `setup` manages the branch itself.
 #
-# No `requires:` block: tracker-agnostic; `ensure-access` probes for a
-# tracker MCP / CLI at run time and proposes install options when none
-# is found, rather than declaring a fixed tracker plugin up front.
+# No `requires:` block: tracker-agnostic. The conductor fetches the
+# ticket before the run (its body lands in <run dir>/context/tickets/);
+# `ensure-access` only probes for a tracker MCP / CLI when that did not
+# happen, and proposes install options when none is found, rather than
+# declaring a fixed tracker plugin up front.
 preflight:
   control-mode: interactive
   worktree: current
@@ -185,12 +187,14 @@ steps:
       before fetching ticket `{{ticket_ref}}`.
 
       First call the `wise_context` tool with key `ticket`. When it
-      returns an entry with a body, the conductor already pasted the
-      ticket: access is `ok`, stop here, probe nothing.
+      returns an entry with a `path` (the conductor fetched the ticket
+      into that file) or a `body`, access is `ok`, stop here, probe
+      nothing.
 
-      Otherwise probe for an integration: a tracker MCP, or a CLI (`command -v
-      gh`, `command -v glab`, etc.). MCP tools are not pre-granted; a
-      one-time permission prompt on first use is expected.
+      Otherwise probe for an integration: a tracker MCP tool (you have
+      the same MCP servers as the `claude` CLI; read-shaped tools are
+      granted without a prompt), or a CLI (`command -v gh`, `command -v
+      glab`, etc.).
 
       - If an MCP or CLI is available -> access is `ok`.
       - If nothing is available -> run a WebSearch for
@@ -220,8 +224,9 @@ steps:
     model: sonnet
     prompt: |
       First call the `wise_context` tool with key `ticket`. When it
-      returns an entry with a body, normalise from that and fetch
-      nothing. Otherwise fetch ticket `{{ticket_ref}}` from the
+      returns an entry with a `path`, Read that file and normalise from
+      it; with a `body`, normalise from that. Fetch nothing in either
+      case. Otherwise fetch ticket `{{ticket_ref}}` from the
       {{tracker_slug}} tracker with the access `ensure-access`
       established (the tracker's MCP, its CLI, or the user's manual
       paste). Do not search for tools or skills; use only what is named
@@ -786,6 +791,7 @@ steps:
   - id: finalize
     type: agent
     model: sonnet
+    mcp: engine-only
     prompt: |
       Print the closing summary. Link the ticket only with the `url`
       from the run context `ticket` entry (`wise_context` key

@@ -380,6 +380,51 @@ Record:
 }
 ```
 
+**4e. MCP servers a workflow child inherits.** Engine children run
+`claude -p` with the CLI's own MCP servers (user, project, plugin and
+claude.ai connectors) on top of the engine's channel server. That
+inventory is the CLI's, not this app session's: a connector authorized
+only in the desktop app, or a server the CLI lists as "Needs
+authentication", is unreachable from every child, and a workflow that
+needs a tracker fails at its first fetch.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-mcp
+```
+
+Bare keys `STATUS`, `COUNT`, `CONNECTED`, `NEEDS_AUTH`, `FAILED`,
+`DETAIL` → `MCP_STATUS`, `MCP_COUNT`, `MCP_CONNECTED`,
+`MCP_NEEDS_AUTH`, `MCP_FAILED`, `MCP_DETAIL` (name lists are
+`;`-separated).
+
+- **`MCP_STATUS=ok`:** print `MCP servers ✓ (<COUNT> connected)`.
+- **`MCP_STATUS=partial`:** print one line per name in `MCP_NEEDS_AUTH`
+  and `MCP_FAILED`, then `AskUserQuestion`. `MCP_NEEDS_AUTH` and
+  `MCP_FAILED` are different problems — authenticating fixes the
+  first, not the second — so give each its own guidance:
+  - Question: `These MCP servers are not usable from workflow children: <MCP_NEEDS_AUTH names> need authentication — run /mcp in an interactive claude session, pick the server, complete its login; claude mcp adds or inspects servers (e.g. a server the desktop app has but the CLI does not needs claude mcp add). <MCP_FAILED names> failed to connect — that isn't an auth problem, check the server's command/config with claude mcp get <name>.`
+  - Header: `MCP servers`
+  - Options: `Done — re-probe`; `Skip for now` — description:
+    `Continue. Children can still use the connected servers, CLIs and public URLs; a workflow that needs one of the listed servers fails at its first fetch unless the conductor fetches the ticket itself (it does for tickets).`
+- **`MCP_STATUS=none`:** print `no MCP servers configured for the CLI`;
+  record and move on (tracker access then relies on CLIs and the
+  conductor's own fetch).
+- **`MCP_STATUS=missing-claude`:** already reported by §3c; record.
+- **`MCP_STATUS=unknown`:** print the detail verbatim; record.
+
+Record:
+
+```json
+{
+  "status": "ok" | "partial" | "none" | "missing-claude" | "unknown",
+  "count": 9,
+  "connected": ["..."],
+  "needs_auth": ["..."],
+  "failed": ["..."],
+  "detail": "..."
+}
+```
+
 ### 5. markitdown (file → markdown extraction)
 
 The [`markitdown`](https://github.com/microsoft/markitdown) CLI powers
@@ -471,6 +516,7 @@ plugin version:
     "harnesses":   { ... from §3e ... },
     "gh":          { ... from §4 ... },
     "git_ssh":     { ... from §4d ... },
+    "mcp":         { ... from §4e ... },
     "markitdown":  { ... from §5c ... }
   }
 }
@@ -513,6 +559,7 @@ Print a one-block report:
   gemini              ⚠ installed, not logged in (optional)
   gh 2.54.0 (auth: your-username) ✓
   git over ssh        ✓ (github.com, agent set)
+  MCP servers         ⚠ 7 connected, needs auth: plugin:linear:linear
   markitdown 0.1.3    ✓
 
 Registry cached at:
@@ -524,7 +571,14 @@ or after `/plugin install wise@…` (which wipes the cache by design).
 ```
 
 Adjust the row's checkmark to `⚠` and the label suffix when a dep
-ended up `missing` or `authenticated: false`. Optional harness rows
+ended up `missing` or `authenticated: false`. The `MCP servers` row's
+connected count is the length of `MCP_CONNECTED`, never `MCP_COUNT` —
+`MCP_COUNT` is every parsed server, connected or not, so using it here
+overstates the connected count whenever `MCP_NEEDS_AUTH` or
+`MCP_FAILED` is non-empty. The row shows `⚠` whenever either is
+non-empty, appending `needs auth: <names>` and/or `failed: <names>` to
+the label — a non-empty `MCP_FAILED` must never be silently dropped
+from a row that otherwise reads as a success. Optional harness rows
 are `⚠`, never `✗`: a missing codex, grok or gemini blocks nothing
 until a workflow names it. `MCP restart-needed` is the one row that
 ends with an instruction (open a new session); `daemon replaced` names
