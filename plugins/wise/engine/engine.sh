@@ -6,9 +6,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -d "$here/node_modules/@modelcontextprotocol/sdk" ]; then
   echo "wise-engine: installing runtime dependencies in $here" >&2
   if command -v bun >/dev/null 2>&1; then
-    install_cmd="bun install --production"
+    install_cmd=(bun install --production)
   elif command -v npm >/dev/null 2>&1; then
-    install_cmd="npm install --omit=dev --no-audit --no-fund --loglevel=error"
+    install_cmd=(npm install --omit=dev --no-audit --no-fund --loglevel=error)
   else
     echo "wise-engine: need bun or npm to install dependencies" >&2
     exit 69
@@ -16,10 +16,10 @@ if [ ! -d "$here/node_modules/@modelcontextprotocol/sdk" ]; then
   # Not --silent: the MCP host only shows this stderr in its log, so the
   # install's own output is the only trace of why a first start failed.
   rc=0
-  (cd "$here" && $install_cmd >&2) || rc=$?
+  (cd "$here" && "${install_cmd[@]}" >&2) || rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "wise-engine: dependency install failed (exit $rc): \`$install_cmd\` in $here" >&2
-    echo "wise-engine: fix: cd \"$here\" && $install_cmd  # then start a new session or run /wise-init" >&2
+    echo "wise-engine: dependency install failed (exit $rc): \`${install_cmd[*]}\` in $here" >&2
+    echo "wise-engine: fix: cd \"$here\" && ${install_cmd[*]}  # then start a new session or run /wise-init" >&2
     exit 69
   fi
 fi
