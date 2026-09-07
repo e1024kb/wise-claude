@@ -308,7 +308,10 @@ Loop — at every tick read all three signals, then decide:
    with `reason=ci-timeout` (a check that never reports is a failing
    check for this round).
 2. **Copilot** (when `COPILOT_EXPECTED=1`): `bot_review_done copilot
-   $HEAD_SHA` → `COPILOT_STATE=reviewed`. A status notice created after
+   $HEAD_SHA` → `COPILOT_STATE=reviewed`. No footprint on the head
+   `BOT_GRACE` after `PUSHED_AT` and not yet re-requested for this head
+   → one `gh pr edit <pr_number> --add-reviewer
+   copilot-pull-request-reviewer` (see §5), then keep waiting. A status notice created after
    `SETTLE_STARTED` by an exact-login Copilot, not attached to a review
    of `HEAD_SHA`, matching (case-insensitive) `unable to review`,
    `wasn't able to review`, `was not able to review`, `couldn't review`,
@@ -525,7 +528,13 @@ progress "re-review-window head=$HEAD_SHA"
 ```
 
 - Copilot in `reviewRequests` again, or a Copilot review / comment on
-  `HEAD_SHA` → `COPILOT_AUTO=1`, Copilot is coming.
+  `HEAD_SHA` → `COPILOT_AUTO=1`, Copilot is coming. Neither, and Copilot
+  is expected → re-request it once for this head: `gh pr edit
+  <pr_number> --add-reviewer copilot-pull-request-reviewer`. Without the
+  repo's automatic-review rule Copilot reviews only on request, and a
+  request is idempotent and posts nothing, so it is the one trigger the
+  loop may send freely (record `copilot-requested=<sha>` in state so a
+  head is requested once).
 - A `CodeRabbit` check run on `HEAD_SHA` (any description) or a
   CodeRabbit footprint on it → `CR_AUTO=1`, CodeRabbit is coming.
 - CI checks queued / running → CI is coming.
