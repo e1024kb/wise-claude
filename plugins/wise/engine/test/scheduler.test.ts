@@ -4,6 +4,7 @@ import type { State, Step, StepStatus, WorkflowDef } from "../src/types.ts";
 import { TRIGGER_RULES } from "../src/types.ts";
 import {
   evaluateWhen,
+  evaluateWhenPartial,
   nextWave,
   stepById,
   triggerRuleSatisfied,
@@ -324,6 +325,44 @@ test("nextWave when: sees inputs and answers as well as outputs", () => {
     { inputs: { mode: "fast" }, answers: { profile: "low" } },
   );
   assert.deepEqual(readyIds(def, state), ["a"]);
+});
+
+// ---- evaluateWhenPartial ---------------------------------------------------------
+
+test("evaluateWhenPartial: settles on known inputs, stays open on names the scope lacks", () => {
+  const scope = { inputs: { review_mode: "auto", implement_mode: "plan-only" }, answers: {} };
+  // A gate the inputs alone decide.
+  assert.equal(evaluateWhenPartial("review_mode == 'ask'", scope), false);
+  assert.equal(evaluateWhenPartial("inputs.review_mode == 'auto'", scope), true);
+  // An output-dependent gate is open; a false `&&` side settles it anyway.
+  assert.equal(evaluateWhenPartial("implement_choice == 'yes'", scope), undefined);
+  assert.equal(evaluateWhenPartial("review_mode == 'ask' && user_comments != ''", scope), false);
+  assert.equal(
+    evaluateWhenPartial("implement_mode != 'plan-only' && implement_choice == 'yes'", scope),
+    false,
+  );
+  assert.equal(
+    evaluateWhenPartial("implement_mode == 'plan-only' && implement_choice == 'yes'", scope),
+    undefined,
+  );
+  // `||`: a true side settles it, two open sides do not, two false sides are false.
+  assert.equal(evaluateWhenPartial("readiness == 'gaps' || review_mode == 'auto'", scope), true);
+  assert.equal(evaluateWhenPartial("readiness == 'gaps' || findings != 0", scope), undefined);
+  assert.equal(evaluateWhenPartial("review_mode == 'x' || review_mode == 'y'", scope), false);
+  // `!` and bare truthiness propagate openness; a known empty value is settled, not open.
+  assert.equal(evaluateWhenPartial("!findings_path", scope), undefined);
+  assert.equal(evaluateWhenPartial("findings_path", scope), undefined);
+  assert.equal(evaluateWhenPartial("!review_mode", scope), false);
+  assert.equal(evaluateWhenPartial("guidance", { inputs: { guidance: "" } }), false);
+  // Literals and parentheses work as in the two-valued evaluator; parse errors still throw.
+  assert.equal(
+    evaluateWhenPartial("(true || findings != 0) && review_mode == 'auto'", scope),
+    true,
+  );
+  assert.throws(() => evaluateWhenPartial("review_mode ==", scope), /unexpected end/);
+  // The two-valued evaluator is unchanged: an unknown name is unset, never open.
+  assert.equal(evaluateWhen("implement_choice == 'yes'", scope), false);
+  assert.equal(evaluateWhen("implement_choice != 'yes'", scope), true);
 });
 
 // ---- evaluateWhen -----------------------------------------------------------------

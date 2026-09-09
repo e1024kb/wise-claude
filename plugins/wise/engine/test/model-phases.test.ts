@@ -34,7 +34,7 @@ import type { CallContext } from "../src/rpc.ts";
 import type { Harness, Phase, State, UnitsStep, Usage } from "../src/types.ts";
 import { CAP_DEFAULTS, runUnitsStep } from "../src/units.ts";
 import type { UnitsStepInput } from "../src/units.ts";
-import { fakeAdapter, pause } from "./fixtures/executor/fake.ts";
+import { fakeAdapter, pause, conductRun } from "./fixtures/executor/fake.ts";
 import { heldStarter } from "./fixtures/executor/held.ts";
 import { fakeExec, git, makeRepoPair } from "./fixtures/git.ts";
 import type { FakeExec, RepoPair } from "./fixtures/git.ts";
@@ -938,7 +938,8 @@ describe("model phases", () => {
         unitsExec: fakeExec(happyGh().rule),
       });
       executors.add(exec);
-      const { run_id } = await exec.handlers.run(
+      const { run_id } = await conductRun(
+        exec,
         {
           workflow: "units-parallel",
           cwd: pair.clone,
@@ -970,7 +971,8 @@ describe("model phases", () => {
       unitsExec: fakeExec(happyGh().rule),
     });
     executors.add(exec);
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       {
         workflow: "units-two",
         cwd: pair.clone,

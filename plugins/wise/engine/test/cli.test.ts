@@ -30,6 +30,7 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
     "implement",
   ];
   const answers = {
+    "step-select": ["analyze-design", "analyze-related", "research-context", "gap-analysis"],
     ...Object.fromEntries(groups.map((g) => [`harness.${g}`, "claude"])),
     "model.analyze-design": "claude-sonnet-5",
   };
@@ -53,8 +54,12 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
     assert.equal(typeof q.label, "string");
   }
   // The answered model unlocks its effort stage; the other group is still at its model stage.
+  // The stage-free inputs come first.
   assert.deepEqual(
-    j.questions.slice(0, 2).map((q) => q.id),
+    j.questions
+      .map((q) => q.id)
+      .filter((id) => !id.startsWith("input."))
+      .slice(0, 2),
     ["effort.analyze-design", "model.research-context"],
   );
   assert.equal(j.defaults["effort.analyze-design"], "medium");

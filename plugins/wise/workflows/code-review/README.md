@@ -73,12 +73,15 @@ parallel wave. `curate`, `apply` and `finalize` carry `none-failed` /
 `all-done` trigger rules, so a deselected `verify` or a skipped `apply`
 (`mode=report`, or an empty change set) never blocks the summary.
 
-Pre-flight asks, per tuning group (`correctness`, `security`, `tests`,
+Pre-flight asks one multi-select over the optional `verify` pass
+(selected by default) and the inputs below first; then, per tuning
+group a selected step uses (`correctness`, `security`, `tests`,
 `curate`, `verify`, `fix`; all default to `claude-opus-5 / high`),
-which CLI runs it when more than one is logged in, then which model
+which CLI runs it when more than one is installed, then which model
 from the engine's catalog for that CLI, then the effort that model
-takes; one multi-select over the optional `verify` pass (selected by
-default); and the inputs below. Answered questions are never repeated.
+takes. Every question is put to the user; deselecting `verify` drops
+its group, and `mode: report` drops the `fix` group (its `apply` step
+is gated on `mode == 'apply'`). Answered questions are never repeated.
 
 ## Steps
 

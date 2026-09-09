@@ -52,14 +52,27 @@ toplevel, else pwd; `answers` is `{}` on the first call.
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
   until they are installed.
 
-The questionary is staged. Per tuning group it asks, in order, which
-CLI runs the group (`harness.<group>`, offered only when more than one
-CLI is logged in), which model of that CLI (`model.<group>`, the
-engine's catalog), then the effort that model takes (`effort.<group>`).
-Each answer unlocks the next stage, so loop: render the questions
-returned, merge the answers into `answers`, call `wise_preflight` again
-with them, until `questions` is empty. An answered question is never
-returned twice.
+The questionary is staged. The first call returns `step-select`
+(which optional steps run) and the `input.<name>` questions. Once
+`step-select` is answered the tuning stages follow, for every group a
+step that will run uses (selected, and not ruled out by a `when:` the
+inputs already settle, such as `implement_mode: plan-only`): which CLI
+runs the group (`harness.<group>`, asked
+whenever more than one CLI is installed; a logged-out one is offered
+with its login command in the option), then which model of that CLI
+(`model.<group>`, the engine's catalog), then the effort that model
+takes (`effort.<group>`). Each answer unlocks the next stage, so loop:
+render the questions returned, merge the answers into `answers`, call
+`wise_preflight` again with them, until `questions` is empty. An
+answered question is never returned twice.
+
+MUST: every `harness.<group>`, `model.<group>`, `effort.<group>` and
+`step-select` question the engine returns is put to the user. Never
+answer one yourself, never take its default to save a call, never
+start the run with a stage still open. The only time a harness or
+model question is not asked is when the engine did not return it
+(one CLI installed, a one-model catalog, a one-effort model). `wise_run`
+refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
 Render each batch with one composite AskUserQuestion (four questions
 per call at most): `choice` single-select with the default option
@@ -108,8 +121,9 @@ with a ticket that has no body.
 
 `wise_run {workflow, cwd, answers, context, inputs}` returns
 `run_id`. Print `Run <run_id> started (<workflow>).` `MISSING_ANSWERS`
-lists required questions or inputs still without a value: ask them
-with AskUserQuestion and call `wise_run` again.
+lists every pre-flight question still without an answer (a tuning
+stage you skipped, a required input): go back to the §2 loop, ask
+them with AskUserQuestion, then call `wise_run` again.
 
 ## 4. Wait loop
 

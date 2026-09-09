@@ -51,7 +51,7 @@ import { RPC_INVALID_PARAMS } from "../src/protocol.ts";
 import { domainCode, domainError } from "../src/rpc.ts";
 import type { CallContext, RpcError } from "../src/rpc.ts";
 import type { Context, Event, RunRes, State } from "../src/types.ts";
-import { fakeAdapter, pause, schemaAnswer, usage } from "./fixtures/executor/fake.ts";
+import { fakeAdapter, pause, schemaAnswer, conductRun, usage } from "./fixtures/executor/fake.ts";
 import type { FakeAdapter } from "./fixtures/executor/fake.ts";
 import { heldStarter } from "./fixtures/executor/held.ts";
 import { fakeTimers } from "./fixtures/executor/timers.ts";
@@ -232,7 +232,7 @@ describe("executor", () => {
     assert.equal(byPath.workflow, "example-workflow");
     assert.deepEqual(
       byPath.questions.map((q) => q.id),
-      ["model.classify", "model.summarize", "input.focus"],
+      ["input.focus", "model.classify", "model.summarize"],
     );
     assert.deepEqual(byPath.defaults, {
       "model.classify": "claude-haiku-4-5",
@@ -255,7 +255,7 @@ describe("executor", () => {
     assert.ok(issues.some((i) => i.path === "version"));
   });
 
-  test("preflight: harness.<group> questions list the other logged-in adapters; run resolves the group onto it", async () => {
+  test("preflight: harness.<group> questions list every other installed adapter, logged in or not; run refuses a stage left unanswered", async () => {
     const r = mkRoot();
     const claude = claudeFake();
     const codex = fakeAdapter("codex", (req) => schemaAnswer(req), { loggedIn: true });
@@ -264,19 +264,57 @@ describe("executor", () => {
     const pre = await exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd }, ctx);
     assert.deepEqual(
       pre.questions.map((q) => q.id),
-      ["harness.classify", "harness.summarize", "input.focus"],
+      ["input.focus", "harness.classify", "harness.summarize"],
     );
     const hq = pre.questions.find((q) => q.id === "harness.classify");
     assert.deepEqual(
       hq?.options?.map((o) => o.value),
-      ["claude", "codex"],
+      ["claude", "codex", "grok"],
     );
     assert.equal(hq?.default, "claude");
-    // grok is not logged in, so not offered; every group defaults to claude, so claude is not probed.
+    // grok is installed but logged out: still offered, flagged with its login command.
+    assert.equal(
+      hq?.options?.find((o) => o.value === "grok")?.description,
+      "run these steps on grok; not logged in, run `grok login` first",
+    );
+    assert.equal(
+      hq?.options?.find((o) => o.value === "codex")?.description,
+      "run these steps on codex",
+    );
+    // Every group defaults to claude, so claude is probed too (a logged-out default still needs
+    // the flag), alongside the other installed CLIs.
     assert.deepEqual(grok.probes, ["subscription"]);
-    assert.deepEqual(claude.probes, []);
+    assert.deepEqual(codex.probes, ["subscription"]);
+    assert.deepEqual(claude.probes, ["subscription"]);
 
-    const { run_id } = await exec.handlers.run(
+    // A harness answer alone leaves the model stage open: run refuses instead of defaulting it.
+    const refused = await attempt(() =>
+      exec.handlers.run(
+        {
+          workflow: EXAMPLE,
+          cwd: r.cwd,
+          answers: { "harness.classify": "codex", "harness.summarize": "claude" },
+          context: {},
+          inputs: { focus: "x" },
+        },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(refused), "MISSING_ANSWERS");
+    const refusedData = (refused as RpcError).data as {
+      missing: string[];
+      questions: { id: string }[];
+    };
+    // The walk defaults the open stages to find what else lies behind them (haiku takes one effort).
+    assert.deepEqual(refusedData.missing, ["model.classify", "model.summarize", "effort.classify"]);
+    assert.deepEqual(
+      refusedData.questions.map((q) => q.id),
+      ["model.classify", "model.summarize", "effort.classify"],
+    );
+    assert.equal(r.rt.listRunDirs().length, 0, "nothing created");
+
+    const { run_id } = await conductRun(
+      exec,
       {
         workflow: EXAMPLE,
         cwd: r.cwd,
@@ -287,7 +325,7 @@ describe("executor", () => {
       ctx,
     );
     const state = readState(r.rt.requireRunDir(run_id));
-    // The unanswered stages took their defaults: codex's first catalog model at the group's effort.
+    // The conductor walk answered the later stages with their defaults: codex's first catalog model at the group's effort.
     assert.deepEqual(state.resolved.classify, {
       harness: "codex",
       model: "gpt-6-astra",
@@ -301,7 +339,7 @@ describe("executor", () => {
     await exec.handlers.cancel({ run_id }, ctx);
   });
 
-  test("preflight answers param: each call returns the next stage; run completes the rest", async () => {
+  test("preflight answers param: each call returns the next stage; the conductor walk completes the rest", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
     const s2 = await exec.handlers.preflight(
@@ -310,9 +348,9 @@ describe("executor", () => {
     );
     assert.deepEqual(
       s2.questions.map((q) => q.id),
-      ["effort.classify", "model.summarize", "input.focus"],
+      ["input.focus", "effort.classify", "model.summarize"],
     );
-    const eq = s2.questions[0];
+    const eq = s2.questions.find((q) => q.id === "effort.classify");
     assert.deepEqual(
       eq?.options?.map((o) => o.value),
       ["low", "medium"],
@@ -333,7 +371,8 @@ describe("executor", () => {
     );
     assert.deepEqual(s3.questions, [], "haiku has one effort: nothing left to ask");
 
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       {
         workflow: EXAMPLE,
         cwd: r.cwd,
@@ -363,7 +402,8 @@ describe("executor", () => {
       const r = mkRoot();
       const claude = claudeFake();
       const exec = make(r, { adapters: { claude } });
-      const { run_id, status } = await exec.handlers.run(
+      const { run_id, status } = await conductRun(
+        exec,
         {
           workflow: EXAMPLE,
           cwd: r.cwd,
@@ -499,7 +539,8 @@ describe("executor", () => {
   test("reject flow: approval reject fails the step and the run", { timeout: 30_000 }, async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "approval", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -526,7 +567,8 @@ describe("executor", () => {
     async () => {
       const r = mkRoot();
       const exec = make(r, { adapters: { claude: claudeFake() } });
-      const a = await exec.handlers.run(
+      const a = await conductRun(
+        exec,
         { workflow: "sync-approval", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       );
@@ -540,7 +582,8 @@ describe("executor", () => {
         false,
       );
 
-      const b = await exec.handlers.run(
+      const b = await conductRun(
+        exec,
         {
           workflow: "approval",
           cwd: r.cwd,
@@ -561,13 +604,15 @@ describe("executor", () => {
     const r = mkRoot();
     const claude = claudeFake();
     const exec = make(r, { adapters: { claude } });
-    const a = await exec.handlers.run(
+    const a = await conductRun(
+      exec,
       { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
     await untilStatus(r, a.run_id, ["completed", "failed"]);
     assert.equal(claude.calls[0]?.mode, "auto");
-    const b = await exec.handlers.run(
+    const b = await conductRun(
+      exec,
       {
         workflow: "single-agent",
         cwd: r.cwd,
@@ -592,7 +637,8 @@ describe("executor", () => {
       error: "timed out",
     }));
     const exec = make(r, { adapters: { claude } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -614,7 +660,8 @@ describe("executor", () => {
       exit: "ok",
     }));
     const exec = make(r, { adapters: { claude } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -632,7 +679,8 @@ describe("executor", () => {
     });
     const exec = make(r, { adapters: { claude } });
     const err = await attempt(() =>
-      exec.handlers.run(
+      conductRun(
+        exec,
         { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       ),
@@ -651,7 +699,8 @@ describe("executor", () => {
       "version: 2\nname: codex\nsteps:\n  - id: a\n    type: agent\n    harness: codex\n    model: gpt\n    prompt: hi\n",
     );
     const err2 = await attempt(() =>
-      exec2.handlers.run(
+      conductRun(
+        exec2,
         { workflow: join(r.root, "codex.yaml"), cwd: r.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       ),
@@ -671,7 +720,8 @@ describe("executor", () => {
       error: "not logged in",
     }));
     const exec = make(r, { adapters: { claude } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -693,7 +743,8 @@ describe("executor", () => {
     }));
     const codex = fakeAdapter("codex", (req) => schemaAnswer(req, { usage: usage(50, 5) }));
     const exec = make(r, { adapters: { claude, codex } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "fallback", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -729,7 +780,8 @@ describe("executor", () => {
     );
     const exec = make(r, { adapters: { claude } });
     const t0 = Date.now();
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "fallback-missing", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -758,7 +810,8 @@ describe("executor", () => {
       backoffMs: defaultBackoffMs,
       channel: { timers: t },
     });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "fallback", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -766,9 +819,11 @@ describe("executor", () => {
     assert.equal(state.status, "completed");
     assert.equal(claude.calls.length, 1);
     assert.equal(codex.calls.length, 1);
-    // Run start probed the primary harness only; the fallback was probed once, on first use.
-    assert.deepEqual(claude.probes, ["subscription"]);
-    assert.deepEqual(codex.probes, ["subscription"]);
+    // Pre-flight probed both claude (the group's default) and codex (the fallback) once each to
+    // flag the harness question; run start probed the primary harness again; the fallback was
+    // probed once more, on first use.
+    assert.deepEqual(claude.probes, ["subscription", "subscription"]);
+    assert.deepEqual(codex.probes, ["subscription", "subscription"]);
     const [first] = claude.calls;
     const [second] = codex.calls;
     assert.ok(first && second);
@@ -824,7 +879,8 @@ describe("executor", () => {
       loginCmd: "codex login",
     });
     const exec = make(r, { adapters: { claude, codex } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "fallback", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -832,7 +888,7 @@ describe("executor", () => {
     assert.equal(state.status, "completed");
     assert.equal(claude.calls.length, 2);
     assert.equal(codex.calls.length, 0);
-    assert.equal(codex.probes.length, 1, "probed once, lazily; the run still started");
+    assert.equal(codex.probes.length, 2, "once at pre-flight, once lazily; the run still started");
     assert.equal(state.steps.answer?.resolved?.harness, "claude");
     const events = readEvents(r.rt.requireRunDir(run_id));
     const warns = warnsOf(events);
@@ -863,7 +919,8 @@ describe("executor", () => {
       backoffMs: defaultBackoffMs,
       channel: { timers: t },
     });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "fallback", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -955,7 +1012,8 @@ describe("executor", () => {
               adapters: { codex: codexAdapter, grok: grokAdapter },
               channel: { inject: false },
             });
-            const { run_id } = await exec.handlers.run(
+            const { run_id } = await conductRun(
+              exec,
               { workflow: `direct-${harness}`, cwd: r.cwd, answers: {}, context: {}, inputs: {} },
               ctx,
             );
@@ -1003,7 +1061,8 @@ describe("executor", () => {
           defaultTimeoutMs: 240_000,
         });
         const t0 = Date.now();
-        const { run_id } = await exec.handlers.run(
+        const { run_id } = await conductRun(
+          exec,
           { workflow: "fallback", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
           ctx,
         );
@@ -1058,7 +1117,8 @@ describe("executor", () => {
         adapters: { claude },
         concurrency: { harness: { claude: 2 }, global: 4 },
       });
-      const { run_id } = await exec.handlers.run(
+      const { run_id } = await conductRun(
+        exec,
         { workflow: "three-parallel", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       );
@@ -1074,7 +1134,8 @@ describe("executor", () => {
       const r2 = mkRoot();
       const claude2 = fakeAdapter("claude", (req) => schemaAnswer(req), { delayMs: 30 });
       const exec2 = make(r2, { adapters: { claude: claude2 }, concurrency: { global: 1 } });
-      const b = await exec2.handlers.run(
+      const b = await conductRun(
+        exec2,
         { workflow: "three-parallel", cwd: r2.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       );
@@ -1145,7 +1206,8 @@ describe("executor", () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
     const pidFile = join(r.root, "slow.pid");
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       {
         workflow: "slow-bash",
         cwd: r.cwd,
@@ -1274,7 +1336,8 @@ describe("executor", () => {
     const exec = make(r, { adapters: { claude } });
     // units-two's items template renders to a leftover placeholder -> dispatchUnits fails the
     // step synchronously; without the deferred re-pass the run would stay `running` forever.
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       {
         workflow: "units-two",
         cwd: r.cwd,
@@ -1295,7 +1358,8 @@ describe("executor", () => {
     const pre = await exec.handlers.preflight({ workflow: "requires-missing", cwd: r.cwd }, ctx);
     assert.deepEqual(pre.requires_missing, ["tool:wise-no-such-tool-xyz"]);
     const refused = await attempt(() =>
-      exec.handlers.run(
+      conductRun(
+        exec,
         { workflow: "requires-missing", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       ),
@@ -1313,7 +1377,8 @@ describe("executor", () => {
     const exec = make(r, { probeRequires: () => ({ ok: true, missing: [] }) });
     const pre = await exec.handlers.preflight({ workflow: "requires-missing", cwd: r.cwd }, ctx);
     assert.deepEqual(pre.requires_missing, []);
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "requires-missing", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -1326,7 +1391,8 @@ describe("executor", () => {
     const r = mkRoot();
     const exec = make(r);
     const refused = await attempt(() =>
-      exec.handlers.run(
+      conductRun(
+        exec,
         { workflow: "required-input", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
         ctx,
       ),
@@ -1351,7 +1417,8 @@ describe("executor", () => {
       { answers: { "input.ticket": "LEC-3" }, context: {}, inputs: {} },
     ];
     for (const params of starts) {
-      const { run_id } = await exec.handlers.run(
+      const { run_id } = await conductRun(
+        exec,
         { workflow: "required-input", cwd: r.cwd, ...params },
         ctx,
       );
@@ -1361,12 +1428,41 @@ describe("executor", () => {
     exec.stop();
   });
 
+  test("inputs: an explicit `inputs` value gates a tuning group during staging same as an answer would", async () => {
+    const r = mkRoot();
+    const exec = make(r);
+    // `mode` arrives only via `inputs` (never `answers`), same as a workflow-step's `implement_mode`
+    // arrives via a conductor's direct `inputs`, not through the staged pre-flight walk. `run` must
+    // seed it as `input.mode` before building the staged questionary, or the `when: mode == 'on'`
+    // gate on `gated-step`'s tuning group still sees the input's declared default ("off") during
+    // staging and never surfaces `model.gated` for an answer — even though the group's step goes on
+    // to run with `mode` actually "on".
+    const refused = await attempt(() =>
+      exec.handlers.run(
+        { workflow: "gated-tuning", cwd: r.cwd, answers: {}, context: {}, inputs: { mode: "on" } },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(refused), "MISSING_ANSWERS");
+    const data = (refused as RpcError).data as { missing: string[] };
+    assert.ok(data.missing.includes("model.gated"), data.missing.join(","));
+
+    // `mode` left on its default never activates the group; nothing to answer.
+    const off = await exec.handlers.run(
+      { workflow: "gated-tuning", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      ctx,
+    );
+    await untilStatus(r, off.run_id, ["completed", "failed"]);
+    exec.stop();
+  });
+
   test("api-key steps run under the declared defaults; a `profile` answer is ignored", async () => {
     const r = mkRoot();
     const claude = claudeFake();
     const exec = make(r, { adapters: { claude } });
     for (const workflow of ["api-key-refused", "api-key"] as const) {
-      const { run_id } = await exec.handlers.run(
+      const { run_id } = await conductRun(
+        exec,
         { workflow, cwd: r.cwd, answers: { profile: "low" }, context: {}, inputs: {} },
         ctx,
       );
@@ -1385,7 +1481,8 @@ describe("executor", () => {
       return base;
     });
     const exec = make(r, { adapters: { claude } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "api-key", cwd: r.cwd, answers: { profile: "medium" }, context: {}, inputs: {} },
       ctx,
     );
@@ -1448,7 +1545,8 @@ describe("executor", () => {
   test("M6.2 ceiling gate: crossing caps.tokens parks the run on the crossing step; approve raises by the declared amount and continues", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "ceiling", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -1494,7 +1592,8 @@ describe("executor", () => {
   test("M6.2 ceiling gate rejected: the run fails with `ceiling`", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       { workflow: "ceiling", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
@@ -1519,7 +1618,8 @@ describe("executor", () => {
   test("M6.2 synchronous control mode rejects the ceiling on its own with a warn", async () => {
     const r = mkRoot();
     const exec = make(r, { adapters: { claude: claudeFake() } });
-    const { run_id } = await exec.handlers.run(
+    const { run_id } = await conductRun(
+      exec,
       {
         workflow: "sync-ceiling",
         cwd: r.cwd,

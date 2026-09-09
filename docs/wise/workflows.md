@@ -619,18 +619,30 @@ repeated.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|
-| `harness.<group>` | `choice` | the group's default harness first, then every other harness with an adapter and a subscription login | the group's default harness |
-| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/src/models.ts`) | the group's pinned model when the catalog has it, else the catalog's first entry |
-| `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `text` | | context value, else `default`, else empty when optional |
+| `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
+| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/src/models.ts`) | the group's pinned model when the catalog has it, else the catalog's first entry |
+| `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
-Per unlocked group the stages run in order: `harness.<group>` only when
-more than one harness is offered, then `model.<group>` only when the
-catalog has more than one entry, then `effort.<group>` only when the
-model takes more than one effort. A skipped stage takes its default. A
-locked group asks nothing and runs its default. `step-select` and
-`input.<name>` are stage-free and appear on the first call.
+`step-select` and `input.<name>` are stage-free and come on the first
+call. The tuning stages wait for the `step-select` answer (which steps
+run decides which groups matter) and are asked only for the groups a
+step that will run binds (`group:` on an agent step, a `units` phase).
+A step will run when `step-select` keeps it and its `when:` is not
+already false on the inputs known so far (the `input.<name>` answer,
+else the context pre-fill, else the declared default): the engine
+evaluates the gate three-valued, so `review_mode == 'ask' && ...` with
+`review_mode` on `auto` rules the step out, while a gate on a run
+output (`findings != 0`) stays open and keeps its group. A group no
+step binds is always asked; a group only ruled-out steps bind asks
+nothing and keeps its declared value. Per such group the
+stages run in order: `harness.<group>` only when more than one harness
+is installed, then `model.<group>` only when the catalog has more than
+one entry, then `effort.<group>` only when the model takes more than
+one effort. A stage with one possible value is settled silently; every
+other stage MUST be answered. A locked group asks nothing and runs its
+default.
 
 The catalog (2026-09-05): claude `claude-fable-5-1`, `claude-opus-5`,
 `claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
@@ -642,11 +654,15 @@ The conductor renders every question with `AskUserQuestion` (a choice
 with more than four options shows the first four and names the rest in
 the question text, answered through the Other field), skips
 `locked: true` questions and inputs filled positionally, then calls
-`wise_run {workflow, cwd, answers, context, inputs}`. `wise_run`
-completes the answers itself (defaults for every stage still open), so
-a partial answer set starts a run; only a required input without a
-value fails with `MISSING_ANSWERS`. Answers, inputs, context and the
-resolved caps are persisted in `state.json`, so resume never re-asks.
+`wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
+the same staged questionary over the answers it was given and refuses
+with `MISSING_ANSWERS` (listing the open questions) when any
+`step-select`, `harness.<group>`, `model.<group>` or `effort.<group>`
+question was left unanswered, or a required input has no value; the
+engine never fills a tuning stage with its default on the conductor's
+behalf. The CLI's `run` fills defaults itself before calling the
+daemon, for scripted use. Answers, inputs, context and the resolved caps
+are persisted in `state.json`, so resume never re-asks.
 
 A `harness.<group>` answer other than the default runs the group's
 steps on that harness with the model and effort chosen from its

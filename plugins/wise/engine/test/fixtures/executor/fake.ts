@@ -1,5 +1,17 @@
 // Fake harness adapter for executor tests: scripted RunRes per call, in-flight counter, auth knob.
-import type { Adapter, AuthMode, Harness, RunReq, RunRes, Usage } from "../../../src/types.ts";
+import type { Executor } from "../../../src/executor.ts";
+import { fillAnswers } from "../../../src/preflight.ts";
+import type { CallContext } from "../../../src/rpc.ts";
+import type {
+  Adapter,
+  Answers,
+  AuthMode,
+  Context,
+  Harness,
+  RunReq,
+  RunRes,
+  Usage,
+} from "../../../src/types.ts";
 
 export type Script = (req: RunReq, call: number) => RunRes | Promise<RunRes>;
 
@@ -77,4 +89,41 @@ export function fakeAdapter(id: Harness, script: Script, opts: FakeOpts = {}): F
     effortMap: (e) => e,
   };
   return fake;
+}
+
+export type StartParams = {
+  workflow: string;
+  cwd: string;
+  answers?: Answers;
+  context?: Context;
+  inputs?: Record<string, string>;
+};
+
+/**
+ * What a conductor does before `run`: walk the staged pre-flight, answering every question with
+ * its default unless `params.answers` names it, until nothing is left, then start the run with
+ * the full answer set. `run` refuses a pre-flight question left unanswered, so tests that are not
+ * about the questionary go through here.
+ */
+export async function conductRun(
+  exec: Executor,
+  params: StartParams,
+  ctx: CallContext,
+): Promise<{ run_id: string; status: string }> {
+  const { workflow, cwd } = params;
+  let answers: Answers = { ...params.answers };
+  // Seed each `inputs` entry as its `input.<name>` answer, same as `run` seeds it before its own
+  // staged evaluation: a `when:` gate on an explicit input must settle the same way here as it
+  // does at `run`, or this walk asks the wrong questions for a group whose step runs anyway.
+  for (const [name, value] of Object.entries(params.inputs ?? {})) answers[`input.${name}`] = value;
+  for (let pass = 0; pass < 32; pass++) {
+    const pre = await exec.handlers.preflight({ workflow, cwd, answers }, ctx);
+    const filled = fillAnswers(pre.questions, answers);
+    if (Object.keys(filled.answers).length === Object.keys(answers).length) break;
+    answers = filled.answers;
+  }
+  return exec.handlers.run(
+    { workflow, cwd, answers, context: params.context ?? {}, inputs: params.inputs ?? {} },
+    ctx,
+  );
 }

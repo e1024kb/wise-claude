@@ -12,12 +12,13 @@ import { basename, dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { defaultRoots, listDefs, loadDef, locateDef, onPath, validateDef } from "./defs.ts";
 import { adapterFor, hasAdapter } from "./adapters/index.ts";
-import { LOGIN_CMDS, probeOne, readyHarnesses } from "./auth.ts";
+import { installedHarnesses, LOGIN_CMDS, probeOne } from "./auth.ts";
 import { HARNESSES } from "./types.ts";
-import type { Harness } from "./types.ts";
+import type { Adapter, Harness } from "./types.ts";
 import { migrateDef, renderDef } from "./migrate.ts";
 import type { MigrationNote } from "./migrate.ts";
-import { buildQuestionary } from "./preflight.ts";
+import { buildQuestionaryWithAuth } from "./preflight.ts";
+import type { QuestionaryCtx } from "./preflight.ts";
 import type { Answers, Context, LocatedDef, ValidationIssue } from "./types.ts";
 import { buildId, runtimeName } from "./version.ts";
 import { daemonCommand } from "./daemon.ts";
@@ -130,6 +131,9 @@ function emit(io: Io, p: Parsed, data: unknown, text: () => string): void {
   io.out(p.flags.text === true ? text() + "\n" : JSON.stringify(data, null, 2) + "\n");
 }
 
+const adapterLookup = (h: Harness): Adapter | undefined =>
+  hasAdapter(h) ? adapterFor(h) : undefined;
+
 async function cmdPreflight(p: Parsed, io: Io): Promise<number> {
   const ref = p.positional[0];
   if (!ref) {
@@ -169,12 +173,12 @@ async function cmdPreflight(p: Parsed, io: Io): Promise<number> {
       return 64;
     }
   }
-  const ctx: { context?: Context; harnesses: Harness[] } = {
-    // Same probe the daemon runs, so this preview matches what a conductor sees.
-    harnesses: await readyHarnesses(def, (h) => (hasAdapter(h) ? adapterFor(h) : undefined)),
+  // Same offer the daemon builds, so this preview matches what a conductor sees.
+  const ctx: QuestionaryCtx = {
+    harnesses: installedHarnesses(def, adapterLookup, io.env ?? process.env),
   };
   if (context) ctx.context = context;
-  const q = buildQuestionary(def, ctx, answers);
+  const q = await buildQuestionaryWithAuth(def, ctx, answers, adapterLookup);
   const result = {
     workflow: located.name,
     version: def.version,

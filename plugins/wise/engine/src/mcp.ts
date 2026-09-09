@@ -263,11 +263,15 @@ const nudgeShape = {
 const DESCRIPTIONS: Record<McpToolName, string> = {
   wise_preflight:
     "Call before wise_run, in a loop. Returns the questions the answers so far leave open " +
-    "{workflow, version, questions, defaults}: ask them, then call again with every answer collected " +
-    "until questions is empty, then wise_run. Per tuning group the stages are harness.<group> (which " +
-    "logged-in CLI: claude, codex, grok, gemini; only asked when two or more are ready), model.<group> " +
-    "(that harness's model catalog) and effort.<group> (that model's efforts; skipped when it has one " +
-    "or none). step-select and input.<name> come with the first call. requires_missing lists " +
+    "{workflow, version, questions, defaults}: ask the user EVERY one of them, then call again with " +
+    "every answer collected until questions is empty, then wise_run. step-select (which optional " +
+    "steps run) and input.<name> come first; the tuning stages follow once step-select is answered, " +
+    "for the groups of steps that will run (selected, and not ruled out by a when: gate the inputs " +
+    "already settle): harness.<group> (which installed CLI: claude, codex, " +
+    "grok, gemini; asked whenever two or more are installed, a logged-out one is flagged with its " +
+    "login command), then model.<group> (that harness's model catalog), then effort.<group> (that " +
+    "model's efforts; skipped when it has one or none). Never answer a question for the user: wise_run " +
+    "refuses a run whose pre-flight questions were not all answered. requires_missing lists " +
     "plugin:<name> / tool:<name> the workflow declares but the machine lacks; wise_run refuses with " +
     "REQUIRES_MISSING until they are installed. Read-only, starts nothing.",
   wise_run:
@@ -275,8 +279,9 @@ const DESCRIPTIONS: Record<McpToolName, string> = {
     "answers: question id -> value from wise_preflight. context: build it from what this conversation " +
     "already knows (ticket refs with title and body, operator guidance, decisions made, links); child " +
     "agents never see the transcript, so anything missing here they must refetch. inputs: workflow inputs by name. " +
-    "AUTH_REQUIRED errors carry login_cmd: show it to the user verbatim. MISSING_ANSWERS lists required " +
-    "questions or inputs left without a value (ask the user, then retry).",
+    "AUTH_REQUIRED errors carry login_cmd: show it to the user verbatim. MISSING_ANSWERS lists every " +
+    "pre-flight question left unanswered (tuning stages included: the engine never defaults them) and " +
+    "every required input without a value; go back to the wise_preflight loop, ask them, then retry.",
   wise_wait:
     "Long-poll a run. Blocks until a new event past `after`, an open gate, the run ending, or timeout_ms " +
     `(default ${WAIT_DEFAULT_MS}, max ${WAIT_MAX_MS}), then returns {events, status, gate?, done}. ` +

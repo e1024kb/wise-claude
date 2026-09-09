@@ -535,6 +535,8 @@ export type RunRes = {
 export type RawEvent = { ts: string; harness: Harness; line: string; parsed?: unknown };
 export type Adapter = {
   id: Harness;
+  /** The CLI executable on PATH; a harness whose binary is missing is not installed. Absent: always installed. */
+  bin?: string;
   probeAuth(auth: AuthMode): Promise<{ ok: boolean; login_cmd?: string }>;
   run(req: RunReq, onEvent: (e: RawEvent) => void): Promise<RunRes>;
   effortMap(e: Effort): string | undefined;
