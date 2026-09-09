@@ -281,10 +281,11 @@ describe("executor", () => {
       hq?.options?.find((o) => o.value === "codex")?.description,
       "run these steps on codex",
     );
-    // Every group defaults to claude, so claude is not probed; the others are, for the flag.
+    // Every group defaults to claude, so claude is probed too (a logged-out default still needs
+    // the flag), alongside the other installed CLIs.
     assert.deepEqual(grok.probes, ["subscription"]);
     assert.deepEqual(codex.probes, ["subscription"]);
-    assert.deepEqual(claude.probes, []);
+    assert.deepEqual(claude.probes, ["subscription"]);
 
     // A harness answer alone leaves the model stage open: run refuses instead of defaulting it.
     const refused = await attempt(() =>
@@ -818,9 +819,10 @@ describe("executor", () => {
     assert.equal(state.status, "completed");
     assert.equal(claude.calls.length, 1);
     assert.equal(codex.calls.length, 1);
-    // Pre-flight probed codex once to flag the harness question; run start probed the primary
-    // harness only; the fallback was probed once more, on first use.
-    assert.deepEqual(claude.probes, ["subscription"]);
+    // Pre-flight probed both claude (the group's default) and codex (the fallback) once each to
+    // flag the harness question; run start probed the primary harness again; the fallback was
+    // probed once more, on first use.
+    assert.deepEqual(claude.probes, ["subscription", "subscription"]);
     assert.deepEqual(codex.probes, ["subscription", "subscription"]);
     const [first] = claude.calls;
     const [second] = codex.calls;

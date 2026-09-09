@@ -350,7 +350,9 @@ export function buildQuestionary(
 /**
  * `buildQuestionary` with the logged-out CLIs among `ctx.harnesses` flagged in their options.
  * Only a questionary that actually asks a `harness.<group>` question pays for the login probes,
- * so the common case stays I/O-free.
+ * so the common case stays I/O-free. `stageGroup` offers a group's default harness alongside
+ * `ctx.harnesses`, so the probe set must cover both — probing `ctx.harnesses` alone would leave
+ * a logged-out default harness shown with no "not logged in, run … first" hint.
  */
 export async function buildQuestionaryWithAuth(
   def: WorkflowDef,
@@ -359,8 +361,16 @@ export async function buildQuestionaryWithAuth(
   lookup: AdapterLookup,
 ): Promise<Questionary> {
   const q = buildQuestionary(def, ctx, answers);
-  if (!q.questions.some((question) => question.id.startsWith("harness."))) return q;
-  const loggedOut = await loggedOutHarnesses(ctx.harnesses ?? [], lookup);
+  const harnessGroupIds = q.questions
+    .filter((question) => question.id.startsWith("harness."))
+    .map((question) => question.id.slice("harness.".length));
+  if (!harnessGroupIds.length) return q;
+  const defaultHarnesses = harnessGroupIds.map((gid) => {
+    const group = def.tuning?.groups.find((g) => g.id === gid);
+    return group ? (groupBase(def, group).harness ?? "claude") : "claude";
+  });
+  const toProbe = [...new Set([...(ctx.harnesses ?? []), ...defaultHarnesses])];
+  const loggedOut = await loggedOutHarnesses(toProbe, lookup);
   if (!loggedOut.length) return q;
   return buildQuestionary(def, { ...ctx, loggedOut }, answers);
 }
