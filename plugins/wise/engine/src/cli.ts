@@ -174,7 +174,9 @@ async function cmdPreflight(p: Parsed, io: Io): Promise<number> {
     }
   }
   // Same offer the daemon builds, so this preview matches what a conductor sees.
-  const ctx: QuestionaryCtx = { harnesses: installedHarnesses(def, adapterLookup) };
+  const ctx: QuestionaryCtx = {
+    harnesses: installedHarnesses(def, adapterLookup, io.env ?? process.env),
+  };
   if (context) ctx.context = context;
   const q = await buildQuestionaryWithAuth(def, ctx, answers, adapterLookup);
   const result = {

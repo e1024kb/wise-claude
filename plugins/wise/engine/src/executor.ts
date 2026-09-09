@@ -1474,7 +1474,14 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     // input must have been answered by the conductor (D22): a stage it never reached is refused
     // below, never defaulted. The completed set is what resume sees.
     const harnesses = installedHarnesses(def, getAdapter, env);
-    const completed = completeAnswers(def, { harnesses }, given);
+    // Seed every explicit input as its `input.<name>` answer before the staged walk: `given` is
+    // only the conductor's pre-flight answers, but a `when:` gate on an explicit input (e.g.
+    // `implement_mode`) must see the same value during staging as the run itself sees below, or
+    // staging asks the wrong questions for a group whose step ends up running anyway. Matches the
+    // explicit-input precedence `inputs` (below) already has over `applied.inputs`.
+    const seeded: Answers = { ...given };
+    for (const [name, value] of Object.entries(explicitInputs)) seeded[`input.${name}`] = value;
+    const completed = completeAnswers(def, { harnesses }, seeded);
     const answers = completed.answers;
     const unanswered = completed.questions.filter(
       (q) => !q.locked && !q.id.startsWith("input.") && given[q.id] === undefined,

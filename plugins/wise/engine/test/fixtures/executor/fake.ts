@@ -112,6 +112,10 @@ export async function conductRun(
 ): Promise<{ run_id: string; status: string }> {
   const { workflow, cwd } = params;
   let answers: Answers = { ...params.answers };
+  // Seed each `inputs` entry as its `input.<name>` answer, same as `run` seeds it before its own
+  // staged evaluation: a `when:` gate on an explicit input must settle the same way here as it
+  // does at `run`, or this walk asks the wrong questions for a group whose step runs anyway.
+  for (const [name, value] of Object.entries(params.inputs ?? {})) answers[`input.${name}`] = value;
   for (let pass = 0; pass < 32; pass++) {
     const pre = await exec.handlers.preflight({ workflow, cwd, answers }, ctx);
     const filled = fillAnswers(pre.questions, answers);

@@ -216,7 +216,13 @@ function or3(left: Partial3, right: Partial3): boolean | typeof UNKNOWN {
 export function resolveIdentifierPartial(name: string, scope: Record<string, unknown>): unknown {
   const path = name.split(".");
   const owner = ownerOf(path[0] as string, scope);
-  return owner === undefined ? UNKNOWN : walk(owner, path);
+  if (owner === undefined) return UNKNOWN;
+  let cur: unknown = owner;
+  for (const seg of path) {
+    if (cur === null || typeof cur !== "object" || !Object.hasOwn(cur, seg)) return UNKNOWN;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
 }
 
 /**

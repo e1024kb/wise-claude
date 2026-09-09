@@ -1,0 +1,26 @@
+version: 2
+name: gated-tuning
+description: >-
+  One input gates a tuning group's step. Regression fixture for `run` seeding an explicit
+  `inputs` value as its `input.<name>` answer before the staged pre-flight evaluation, so a
+  `when:` gate on that input settles the same way during staging as it does at run time.
+inputs:
+  - name: mode
+    prompt: "Mode?"
+    default: "off"
+tuning:
+  groups:
+    - id: gated
+      default: { harness: claude, model: haiku }
+steps:
+  - id: gated-step
+    type: agent
+    group: gated
+    when: "mode == 'on'"
+    prompt: "gated: answer. JSON only."
+    schema:
+      type: object
+      properties:
+        answer: { type: string }
+      required: [answer]
+    outputs: [answer]

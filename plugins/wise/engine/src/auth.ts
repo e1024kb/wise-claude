@@ -58,7 +58,7 @@ export function binOnPath(bin: string, env: NodeJS.ProcessEnv = process.env): bo
     ? [bin]
     : (env.PATH ?? "")
         .split(delimiter)
-        .filter(Boolean)
+        .map((dir) => (dir === "" ? "." : dir))
         .map((dir) => join(dir, bin));
   for (const candidate of candidates) {
     try {

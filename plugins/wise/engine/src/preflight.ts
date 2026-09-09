@@ -5,7 +5,8 @@
 // unlocked by the answer before it: `harness.<group>` (which installed CLI), then
 // `model.<group>` (that harness's catalog), then `effort.<group>` (that model's efforts). The
 // conductor calls `preflight` again with the answers so far until no new question appears.
-// Pure: no I/O.
+// `buildQuestionary` and the helpers below it are pure: no I/O. `buildQuestionaryWithAuth`
+// (D22/D23) is the one exception: it probes login state for any `harness.<group>` question.
 
 import { HARNESSES } from "./types.ts";
 import type {

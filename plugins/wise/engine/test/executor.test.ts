@@ -1426,6 +1426,34 @@ describe("executor", () => {
     exec.stop();
   });
 
+  test("inputs: an explicit `inputs` value gates a tuning group during staging same as an answer would", async () => {
+    const r = mkRoot();
+    const exec = make(r);
+    // `mode` arrives only via `inputs` (never `answers`), same as a workflow-step's `implement_mode`
+    // arrives via a conductor's direct `inputs`, not through the staged pre-flight walk. `run` must
+    // seed it as `input.mode` before building the staged questionary, or the `when: mode == 'on'`
+    // gate on `gated-step`'s tuning group still sees the input's declared default ("off") during
+    // staging and never surfaces `model.gated` for an answer — even though the group's step goes on
+    // to run with `mode` actually "on".
+    const refused = await attempt(() =>
+      exec.handlers.run(
+        { workflow: "gated-tuning", cwd: r.cwd, answers: {}, context: {}, inputs: { mode: "on" } },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(refused), "MISSING_ANSWERS");
+    const data = (refused as RpcError).data as { missing: string[] };
+    assert.ok(data.missing.includes("model.gated"), data.missing.join(","));
+
+    // `mode` left on its default never activates the group; nothing to answer.
+    const off = await exec.handlers.run(
+      { workflow: "gated-tuning", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      ctx,
+    );
+    await untilStatus(r, off.run_id, ["completed", "failed"]);
+    exec.stop();
+  });
+
   test("api-key steps run under the declared defaults; a `profile` answer is ignored", async () => {
     const r = mkRoot();
     const claude = claudeFake();
