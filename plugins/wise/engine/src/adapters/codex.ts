@@ -407,6 +407,7 @@ export async function probeAuth(
 
 export const codexAdapter: Adapter = {
   id: "codex",
+  bin: CODEX_BIN,
   probeAuth: (auth) => probeAuth(auth),
   run: (req, onEvent) => startCodex(req, onEvent).done,
   effortMap,

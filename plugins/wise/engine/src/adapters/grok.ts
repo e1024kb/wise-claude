@@ -356,6 +356,7 @@ export async function probeAuth(
 
 export const grokAdapter: Adapter = {
   id: "grok",
+  bin: GROK_BIN,
   probeAuth: (auth) => probeAuth(auth),
   run: (req, onEvent) => startGrok(req, onEvent).done,
   effortMap,

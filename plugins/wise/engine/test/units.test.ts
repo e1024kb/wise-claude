@@ -16,7 +16,7 @@ import type { PhaseRunner } from "../src/phases/common.ts";
 import type { Phase, State, UnitsStep } from "../src/types.ts";
 import { configFor, isDone, NO_AGENT_RUNTIME, runUnitsStep } from "../src/units.ts";
 import type { UnitsStepInput } from "../src/units.ts";
-import { fakeAdapter, pause, schemaAnswer } from "./fixtures/executor/fake.ts";
+import { fakeAdapter, pause, schemaAnswer, conductRun } from "./fixtures/executor/fake.ts";
 import { commitFile, fakeExec, git, makeRepoPair, startsWith } from "./fixtures/git.ts";
 import type { FakeExec, RepoPair } from "./fixtures/git.ts";
 import {
@@ -354,7 +354,8 @@ describe("units", () => {
         unitsExec: fakeExec(happyGh().rule),
       });
       executors.add(exec);
-      const { run_id, status } = await exec.handlers.run(
+      const { run_id, status } = await conductRun(
+        exec,
         {
           workflow: "units-two",
           cwd: pair.clone,

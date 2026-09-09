@@ -19,7 +19,7 @@ import {
   startGemini,
   startGrok,
 } from "./adapters/index.ts";
-import { collectNeeds, LOGIN_CMDS, probeHarnesses, probeOne, readyHarnesses } from "./auth.ts";
+import { collectNeeds, installedHarnesses, LOGIN_CMDS, probeHarnesses, probeOne } from "./auth.ts";
 import {
   answerFromDecisions,
   clipReportData,
@@ -60,7 +60,7 @@ import type { EventInput } from "./ledger.ts";
 import type { Env } from "./paths.ts";
 import {
   applyAnswers,
-  buildQuestionary,
+  buildQuestionaryWithAuth,
   completeAnswers,
   resolveFromContext,
 } from "./preflight.ts";
@@ -1449,7 +1449,8 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const answers = { ...(optionalRecord(rec, "answers", "preflight") as Answers) };
     const located = locate(workflow);
     const def = validated(located);
-    const q = buildQuestionary(def, { harnesses: await readyHarnesses(def, getAdapter) }, answers);
+    const harnesses = installedHarnesses(def, getAdapter, env);
+    const q = await buildQuestionaryWithAuth(def, { harnesses }, answers, getAdapter);
     return {
       workflow: located.name,
       version: def.version,
@@ -1469,9 +1470,15 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
 
     const located = locate(workflow);
     const def = validated(located);
-    // A stage the conductor never reached takes its defaults; the completed set is what resume sees.
-    const completed = completeAnswers(def, {}, given);
+    // The staged walk over the same offer pre-flight made. Every pre-flight question other than an
+    // input must have been answered by the conductor (D22): a stage it never reached is refused
+    // below, never defaulted. The completed set is what resume sees.
+    const harnesses = installedHarnesses(def, getAdapter, env);
+    const completed = completeAnswers(def, { harnesses }, given);
     const answers = completed.answers;
+    const unanswered = completed.questions.filter(
+      (q) => !q.locked && !q.id.startsWith("input.") && given[q.id] === undefined,
+    );
     const applied = applyAnswers(def, answers);
     const controlMode = controlModeOf(def, answers);
 
@@ -1516,14 +1523,16 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       const fromContext = resolveFromContext(path, context);
       if (fromContext !== undefined) inputs[input.name] = fromContext;
     }
-    const missing = completed.missing.filter(
-      (id) => !(id.startsWith("input.") && inputs[id.slice(6)]),
-    );
+    const missing = [
+      ...unanswered.map((q) => q.id),
+      ...completed.missing.filter((id) => !(id.startsWith("input.") && inputs[id.slice(6)])),
+    ];
     if (missing.length > 0) {
-      throw domainError("MISSING_ANSWERS", `missing required answers: ${missing.join(", ")}`, {
-        missing,
-        questions: completed.questions.filter((q) => missing.includes(q.id)),
-      });
+      throw domainError(
+        "MISSING_ANSWERS",
+        `pre-flight questions left unanswered (ask them, never default them): ${missing.join(", ")}`,
+        { missing, questions: completed.questions.filter((q) => missing.includes(q.id)) },
+      );
     }
 
     // R1: nothing is created until every harness the run needs answers its auth probe.

@@ -1,9 +1,10 @@
-// Pre-flight questionary (D11/D12): the engine builds the questions, the harness asks them.
-// Per unlocked tuning group the questions come in stages, each unlocked by the answer before it:
-// `harness.<group>` (which ready CLI), then `model.<group>` (that harness's catalog), then
-// `effort.<group>` (that model's efforts). `step-select` and `input.<name>` are stage-free.
-// The conductor calls `preflight` again with the answers so far until no new question appears.
-// Pure: no I/O.
+// Pre-flight questionary (D11/D12/D22): the engine builds the questions, the harness asks them.
+// `step-select` comes first (with the stage-free `input.<name>` questions): which optional steps
+// run decides which tuning groups matter. Then, per unlocked group some enabled step binds, the
+// questions come in stages, each unlocked by the answer before it: `harness.<group>` (which
+// installed CLI), then `model.<group>` (that harness's catalog), then `effort.<group>` (that
+// model's efforts). The conductor calls `preflight` again with the answers so far until no new
+// question appears. Pure: no I/O.
 
 import { HARNESSES } from "./types.ts";
 import type {
@@ -19,6 +20,8 @@ import type {
   TuningGroup,
   WorkflowDef,
 } from "./types.ts";
+import { LOGIN_CMDS, loggedOutHarnesses } from "./auth.ts";
+import type { AdapterLookup } from "./auth.ts";
 import { PROFILE_DEFAULT } from "./profile.ts";
 import { listInputs } from "./defs.ts";
 import { catalogFor, catalogModel, defaultEffort, defaultModel } from "./models.ts";
@@ -29,10 +32,12 @@ export type Questionary = { questions: Question[]; defaults: Answers };
 export type QuestionaryCtx = {
   context?: Context;
   /**
-   * Harnesses ready to run besides a group's default (adapter present, logged in). Any of them
-   * puts a `harness.<group>` question on every unlocked group; none leaves the default harness.
+   * Harnesses installed besides a group's default (adapter present, CLI on PATH). Any of them
+   * puts a `harness.<group>` question on every active group; none leaves the default harness.
    */
   harnesses?: readonly Harness[];
+  /** The subset of `harnesses` not logged in: offered, but flagged with the login command. */
+  loggedOut?: readonly Harness[];
 };
 
 const isHarness = (v: string): v is Harness => (HARNESSES as readonly string[]).includes(v);
@@ -82,24 +87,29 @@ function stageGroup(
   def: WorkflowDef,
   group: TuningGroup,
   answers: Answers,
-  ready: readonly Harness[] | undefined,
+  installed: readonly Harness[] | undefined,
+  loggedOut: readonly Harness[] = [],
 ): Stage {
   const base = groupBase(def, group);
   const label = group.label ?? group.id;
   const stage: Stage = { base, questions: [] };
   const defaultHarness: Harness = base.harness ?? "claude";
 
-  // The default harness is always offered (the run's auth probe checks it); `ready` adds the rest.
-  const offered: Harness[] = [defaultHarness, ...(ready ?? []).filter((h) => h !== defaultHarness)];
+  // The default harness is always offered (the run's auth probe checks it); `installed` adds
+  // the rest. A logged-out CLI is still offered, flagged with its login command.
+  const offered: Harness[] = [
+    defaultHarness,
+    ...(installed ?? []).filter((h) => h !== defaultHarness),
+  ];
   const harnessAnswer = answerString(answers[`harness.${group.id}`]);
   if (harnessAnswer !== undefined && isHarness(harnessAnswer)) {
     stage.harness = harnessAnswer;
   } else if (offered.length > 1) {
-    const options: QuestionOption[] = offered.map((h) => ({
-      value: h,
-      label: h,
-      description: h === defaultHarness ? "the workflow's default" : `run these steps on ${h}`,
-    }));
+    const options: QuestionOption[] = offered.map((h) => {
+      const what = h === defaultHarness ? "the workflow's default" : `run these steps on ${h}`;
+      const login = loggedOut.includes(h) ? `; not logged in, run \`${LOGIN_CMDS[h]}\` first` : "";
+      return { value: h, label: h, description: what + login };
+    });
     stage.questions.push({
       id: `harness.${group.id}`,
       kind: "choice",
@@ -162,6 +172,42 @@ export function optionalStepIds(def: WorkflowDef): string[] {
   return def.steps.filter((s) => s.optional === true).map((s) => s.id);
 }
 
+/** Step ids that run for a `step-select` answer: every non-optional step plus the selected ones. */
+export function enabledStepIds(
+  def: WorkflowDef,
+  selected: readonly string[] | undefined,
+): Set<string> {
+  const optional = new Set(optionalStepIds(def));
+  const enabled = new Set<string>();
+  for (const step of def.steps) {
+    if (!optional.has(step.id) || selected === undefined || selected.includes(step.id))
+      enabled.add(step.id);
+  }
+  return enabled;
+}
+
+/**
+ * Tuning group ids the run will use: a group some enabled step binds (`group:` on an agent step,
+ * a `units` phase), or a group no step binds at all. A group only deselected steps bind is
+ * inactive: nothing is asked about it and it keeps its declared value.
+ */
+export function activeGroupIds(def: WorkflowDef, enabled: ReadonlySet<string>): Set<string> {
+  const bound = new Map<string, boolean>();
+  const bind = (gid: string, on: boolean): void => {
+    bound.set(gid, (bound.get(gid) ?? false) || on);
+  };
+  for (const step of def.steps) {
+    const on = enabled.has(step.id);
+    if (step.type === "agent" && step.group !== undefined) bind(step.group, on);
+    if (step.type === "units") for (const gid of Object.values(step.groups)) bind(gid, on);
+  }
+  const active = new Set<string>();
+  for (const group of def.tuning?.groups ?? []) {
+    if (bound.get(group.id) ?? true) active.add(group.id);
+  }
+  return active;
+}
+
 function stepSelectQuestion(def: WorkflowDef, optional: readonly string[]): Question {
   const byId = new Map<string, Step>(def.steps.map((s) => [s.id, s]));
   const options: QuestionOption[] = optional.map((id) => {
@@ -203,11 +249,12 @@ export function resolveFromContext(path: string, context: Context | undefined): 
 // ---- the questionary ---------------------------------------------------------------------------------
 
 /**
- * Build the questionary for the answers given so far, in order: per unlocked tuning group the
- * next unanswered stage (`harness.<group>` when two or more harnesses are ready, `model.<group>`,
- * `effort.<group>`; a stage with one possible value is skipped), `step-select` when the workflow
- * has optional steps, and `input.<name>` per declared input with `from-context` pre-fill.
- * Locked groups ask nothing. Answered questions are not repeated.
+ * Build the questionary for the answers given so far, in order: `step-select` when the workflow
+ * has optional steps, `input.<name>` per declared input with `from-context` pre-fill, then, once
+ * `step-select` is answered (or absent), per active unlocked tuning group the next unanswered
+ * stage (`harness.<group>` when two or more harnesses are installed, `model.<group>`,
+ * `effort.<group>`; a stage with one possible value is skipped). A group only deselected steps
+ * bind asks nothing, and neither does a locked group. Answered questions are not repeated.
  */
 export function buildQuestionary(
   def: WorkflowDef,
@@ -222,10 +269,6 @@ export function buildQuestionary(
     if (q.default !== undefined) defaults[q.id] = q.default;
   };
 
-  for (const group of def.tuning?.groups ?? []) {
-    if (group.locked) continue;
-    for (const q of stageGroup(def, group, answers, ctx.harnesses).questions) push(q);
-  }
   const optional = optionalStepIds(def);
   if (optional.length) push(stepSelectQuestion(def, optional));
   for (const input of listInputs(def)) {
@@ -237,7 +280,35 @@ export function buildQuestionary(
     if (preset !== undefined) q.default = preset;
     push(q);
   }
+
+  // Tuning waits for step-select: which steps run decides which groups are worth asking about.
+  const selected = answerList(answers["step-select"]);
+  if (optional.length && selected === undefined) return { questions, defaults };
+  const active = activeGroupIds(def, enabledStepIds(def, selected));
+  for (const group of def.tuning?.groups ?? []) {
+    if (group.locked || !active.has(group.id)) continue;
+    for (const q of stageGroup(def, group, answers, ctx.harnesses, ctx.loggedOut).questions)
+      push(q);
+  }
   return { questions, defaults };
+}
+
+/**
+ * `buildQuestionary` with the logged-out CLIs among `ctx.harnesses` flagged in their options.
+ * Only a questionary that actually asks a `harness.<group>` question pays for the login probes,
+ * so the common case stays I/O-free.
+ */
+export async function buildQuestionaryWithAuth(
+  def: WorkflowDef,
+  ctx: QuestionaryCtx,
+  answers: Answers,
+  lookup: AdapterLookup,
+): Promise<Questionary> {
+  const q = buildQuestionary(def, ctx, answers);
+  if (!q.questions.some((question) => question.id.startsWith("harness."))) return q;
+  const loggedOut = await loggedOutHarnesses(ctx.harnesses ?? [], lookup);
+  if (!loggedOut.length) return q;
+  return buildQuestionary(def, { ...ctx, loggedOut }, answers);
 }
 
 export type Applied = {
@@ -283,13 +354,7 @@ export function applyAnswers(def: WorkflowDef, answers: Answers): Applied {
     tuning[group.id] = value;
   }
 
-  const optional = new Set(optionalStepIds(def));
-  const selected = answerList(answers["step-select"]);
-  const enabledSteps = new Set<string>();
-  for (const step of def.steps) {
-    if (!optional.has(step.id) || selected === undefined || selected.includes(step.id))
-      enabledSteps.add(step.id);
-  }
+  const enabledSteps = enabledStepIds(def, answerList(answers["step-select"]));
 
   const inputs: Record<string, string> = {};
   for (const input of def.inputs ?? []) {
@@ -347,8 +412,9 @@ export function completeAnswers(
   const seen = new Map<string, Question>();
   let missing: string[] = [];
   let inputs: Record<string, string> = {};
-  // Every pass answers at least one more question or ends; the group count bounds the passes.
-  for (let pass = 0; pass < 3 * (def.tuning?.groups.length ?? 0) + 2; pass++) {
+  // Every pass answers at least one more question or ends; the group count bounds the passes
+  // (three stages per group, one for step-select and the inputs, one to confirm nothing is left).
+  for (let pass = 0; pass < 3 * (def.tuning?.groups.length ?? 0) + 3; pass++) {
     const q = buildQuestionary(def, ctx, answers);
     for (const question of q.questions) seen.set(question.id, question);
     const filled = fillAnswers(q.questions, answers);

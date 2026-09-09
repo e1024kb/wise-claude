@@ -454,6 +454,7 @@ export async function probeAuth(
 
 export const geminiAdapter: Adapter = {
   id: "gemini",
+  bin: GEMINI_BIN,
   probeAuth: (auth) => probeAuth(auth),
   run: (req, onEvent) => startGemini(req, onEvent).done,
   effortMap,

@@ -2,8 +2,11 @@
 // Each harness goes through its adapter's `probeAuth`; harnesses without an adapter fail closed
 // with `AUTH_REQUIRED` and the login command to show the user. E12 fallback harnesses are not
 // part of the up-front set: the executor probes them lazily on first use (`probeOne`) and skips
-// a logged-out fallback with a `warn` instead of failing the run.
+// a logged-out fallback with a `warn` instead of failing the run. `installedHarnesses` is the
+// pre-flight side: which installed CLIs a `harness.<group>` question may offer.
 
+import { accessSync, constants, statSync } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 import { domainError } from "./rpc.ts";
 import type { RpcError } from "./rpc.ts";
 import { HARNESSES } from "./types.ts";
@@ -49,19 +52,61 @@ export function collectNeeds(
   return out;
 }
 
+/** True when `bin` names an executable file on `PATH` (absolute paths are checked as is). */
+export function binOnPath(bin: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const candidates = isAbsolute(bin)
+    ? [bin]
+    : (env.PATH ?? "")
+        .split(delimiter)
+        .filter(Boolean)
+        .map((dir) => join(dir, bin));
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate, constants.X_OK);
+      if (statSync(candidate).isFile()) return true;
+    } catch {
+      // not here
+    }
+  }
+  return false;
+}
+
 /**
- * Harnesses a `harness.<group>` question may offer: every harness some unlocked tuning group
- * does not already default to, with an adapter and a subscription login. Groups all defaulting
- * to the same harness probe nothing for it (the Claude probe runs `claude auth status`).
+ * Harnesses a `harness.<group>` question offers besides a group's default: every harness with
+ * an adapter whose CLI is installed (its `bin` on PATH; an adapter without `bin` counts as
+ * installed), in `HARNESSES` order. Being logged in is not required: the question is asked
+ * whenever more than one CLI is installed, and a logged-out pick is flagged in its option
+ * (`loggedOutHarnesses`) and refused by the run's auth probe with the login command. Harnesses
+ * every unlocked group already defaults to are left out (the group offers its default itself).
+ * No I/O beyond the PATH lookup.
  */
-export async function readyHarnesses(def: WorkflowDef, lookup: AdapterLookup): Promise<Harness[]> {
+export function installedHarnesses(
+  def: WorkflowDef,
+  lookup: AdapterLookup,
+  env: NodeJS.ProcessEnv = process.env,
+): Harness[] {
   const groups = (def.tuning?.groups ?? []).filter((g) => !g.locked);
   const out: Harness[] = [];
   for (const h of HARNESSES) {
-    if (!groups.some((g) => (g.default.harness ?? "claude") !== h)) continue;
-    if (!lookup(h)) continue;
+    const everyGroupDefaultsToIt = groups.every((g) => (g.default.harness ?? "claude") === h);
+    if (everyGroupDefaultsToIt) continue;
+    const adapter = lookup(h);
+    if (!adapter) continue;
+    if (adapter.bin !== undefined && !binOnPath(adapter.bin, env)) continue;
+    out.push(h);
+  }
+  return out;
+}
+
+/** The subset of `harnesses` whose subscription login probe fails; probed in order. */
+export async function loggedOutHarnesses(
+  harnesses: readonly Harness[],
+  lookup: AdapterLookup,
+): Promise<Harness[]> {
+  const out: Harness[] = [];
+  for (const h of harnesses) {
     const probe = await probeOne(h, "subscription", lookup);
-    if (probe.ok) out.push(h);
+    if (!probe.ok) out.push(h);
   }
   return out;
 }

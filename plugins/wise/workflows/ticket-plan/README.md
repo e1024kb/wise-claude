@@ -139,23 +139,28 @@ auto-answer those gates.) Session naming is the harness's job; the
 
 All configuration happens at pre-flight, before the DAG launches. The
 engine builds the questionary from the definition's `tuning:` /
-`step-select:` / `inputs:` blocks and the conductor asks it in stages:
+`step-select:` / `inputs:` blocks and the conductor asks it in stages,
+stage selection and inputs first, tuning after:
 
-- **Tuning** - one group per model step: design spec
-  (`analyze-design`), deep-dive sweep (`research-context`), codebase
-  audit (`codebase-audit`), gap analysis, build plan, refine plan,
-  implement. Per group: which CLI runs it (asked only when another CLI
-  is logged in), then which model from the engine's catalog for that
-  CLI, then the effort that model takes. Defaults: `claude-opus-5 /
-  high` for all seven (the authoring four declare `xhigh`, which Opus
-  5's ceiling resolves to `high`). The sonnet steps pin their model
-  and are not tunable.
 - **Stage selection** - one multi-select over the optional research
   stages: design analysis, related tickets & docs, deep-dive sweep,
   gap analysis (the `resolve-gaps` question follows gap analysis on
   its own). Deselected steps are pre-marked `skipped` in run state;
   the `none-failed` trigger-rules above keep the DAG flowing past
-  them.
+  them. Asked first: the selection decides which tuning groups are
+  worth asking about.
+- **Tuning** - one group per model step: design spec
+  (`analyze-design`), deep-dive sweep (`research-context`), codebase
+  audit (`codebase-audit`), gap analysis, build plan, refine plan,
+  implement. Only the groups of selected steps are asked (deselect
+  the design analysis and its group is skipped). Per group: which CLI
+  runs it (asked whenever another CLI is installed, logged in or not),
+  then which model from the engine's catalog for that CLI, then the
+  effort that model takes. Every one of these questions goes to the
+  user; the run refuses to start on a skipped one. Defaults:
+  `claude-opus-5 / high` for all seven (the authoring four declare
+  `xhigh`, which Opus 5's ceiling resolves to `high`). The sonnet
+  steps pin their model and are not tunable.
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, model and effort per reviewer at its
   own pre-flight, so there is no review question here.

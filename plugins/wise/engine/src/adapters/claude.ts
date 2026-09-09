@@ -427,6 +427,7 @@ export async function probeAuth(
 
 export const claudeAdapter: Adapter = {
   id: "claude",
+  bin: CLAUDE_BIN,
   probeAuth: (auth) => probeAuth(auth),
   run: (req, onEvent) => startClaude(req, onEvent).done,
   effortMap,
