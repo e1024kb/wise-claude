@@ -55,7 +55,9 @@ toplevel, else pwd; `answers` is `{}` on the first call.
 The questionary is staged. The first call returns `step-select`
 (which optional steps run) and the `input.<name>` questions. Once
 `step-select` is answered the tuning stages follow, for every group a
-selected step uses: which CLI runs the group (`harness.<group>`, asked
+step that will run uses (selected, and not ruled out by a `when:` the
+inputs already settle, such as `implement_mode: plan-only`): which CLI
+runs the group (`harness.<group>`, asked
 whenever more than one CLI is installed; a logged-out one is offered
 with its login command in the option), then which model of that CLI
 (`model.<group>`, the engine's catalog), then the effort that model

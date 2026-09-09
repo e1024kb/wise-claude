@@ -627,10 +627,16 @@ repeated.
 
 `step-select` and `input.<name>` are stage-free and come on the first
 call. The tuning stages wait for the `step-select` answer (which steps
-run decides which groups matter) and are asked only for the groups an
-enabled step binds (`group:` on an agent step, a `units` phase); a
-group no step binds is always asked; a group only deselected steps
-bind asks nothing and keeps its declared value. Per such group the
+run decides which groups matter) and are asked only for the groups a
+step that will run binds (`group:` on an agent step, a `units` phase).
+A step will run when `step-select` keeps it and its `when:` is not
+already false on the inputs known so far (the `input.<name>` answer,
+else the context pre-fill, else the declared default): the engine
+evaluates the gate three-valued, so `review_mode == 'ask' && ...` with
+`review_mode` on `auto` rules the step out, while a gate on a run
+output (`findings != 0`) stays open and keeps its group. A group no
+step binds is always asked; a group only ruled-out steps bind asks
+nothing and keeps its declared value. Per such group the
 stages run in order: `harness.<group>` only when more than one harness
 is installed, then `model.<group>` only when the catalog has more than
 one entry, then `effort.<group>` only when the model takes more than

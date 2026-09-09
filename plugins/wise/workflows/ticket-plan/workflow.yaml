@@ -34,9 +34,12 @@ project-selection: current
 # created automatically, and the run stops after setup
 # (implement_mode: plan-only). Each mode keeps an `ask` value that
 # restores the mid-run question for exactly that decision; the
-# corresponding steps (`resolve-gaps`, `review-comments`, `refine-plan`)
-# are gated on those modes via `when:` expressions, and `setup` asks
-# (through the child `wise_ask` channel) only the pieces left on `ask`.
+# corresponding steps (`resolve-gaps`, `review-comments`, `refine-plan`,
+# `implement`) are gated on those modes via `when:` expressions, and
+# `setup` asks (through the child `wise_ask` channel) only the pieces
+# left on `ask`. Pre-flight evaluates those gates on the inputs it
+# knows, so a mode that rules a step out (`review_mode: auto`,
+# `implement_mode: plan-only`) also drops that step's tuning questions.
 #
 # control-mode: interactive so those gates pause the run; synchronous
 # would auto-answer them. worktree: current because the research is
@@ -759,7 +762,10 @@ steps:
     group: implement
     # Implementation commits need unattended git access.
     mode: full-access
-    when: "implement_choice == 'yes'"
+    # `implement_mode` first so pre-flight can settle the gate (and skip the
+    # `implement` tuning questions) on `plan-only`; `setup` maps the mode
+    # to `implement_choice`, which decides the `now` / `ask` cases.
+    when: "implement_mode != 'plan-only' && implement_choice == 'yes'"
     prompt: |
       The user chose to implement the plan now. Read
       ${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md

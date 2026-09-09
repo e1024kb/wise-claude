@@ -166,21 +166,66 @@ function walk(root: unknown, path: readonly string[]): unknown {
 
 const BARE_ROOTS = ["outputs", "inputs", "answers"] as const;
 
-/** Dotted names walk from the scope root; unknown roots fall back to outputs, inputs, answers. */
-export function resolveIdentifier(name: string, scope: Record<string, unknown>): unknown {
-  const path = name.split(".");
-  const head = path[0] as string;
-  if (Object.hasOwn(scope, head)) return walk(scope, path);
+/** The object a dotted name walks from: the scope itself, else the bare root that owns the head. */
+function ownerOf(head: string, scope: Record<string, unknown>): unknown {
+  if (Object.hasOwn(scope, head)) return scope;
   for (const root of BARE_ROOTS) {
     const bucket = scope[root];
-    if (bucket !== null && typeof bucket === "object" && Object.hasOwn(bucket, head)) {
-      return walk(bucket, path);
-    }
+    if (bucket !== null && typeof bucket === "object" && Object.hasOwn(bucket, head)) return bucket;
   }
   return undefined;
 }
 
-export function evaluateWhen(expr: string, scope: Record<string, unknown>): boolean {
+/** Dotted names walk from the scope root; unknown roots fall back to outputs, inputs, answers. */
+export function resolveIdentifier(name: string, scope: Record<string, unknown>): unknown {
+  const path = name.split(".");
+  const owner = ownerOf(path[0] as string, scope);
+  return owner === undefined ? undefined : walk(owner, path);
+}
+
+/**
+ * A value the scope cannot settle yet: at pre-flight the run outputs do not exist, and an input
+ * without an answer or default is still open. `undefined` is a settled "unset"; this is not.
+ */
+export const UNKNOWN: unique symbol = Symbol("when:unknown");
+type Partial3 = boolean | undefined;
+
+/** `truthy` lifted over `UNKNOWN`: `undefined` when the value is not settled. */
+function truthy3(value: unknown): Partial3 {
+  return value === UNKNOWN ? undefined : truthy(value);
+}
+
+/** `&&` over `UNKNOWN`: a single false side settles it, otherwise both must be known true. */
+function and3(left: Partial3, right: Partial3): boolean | typeof UNKNOWN {
+  if (left === false || right === false) return false;
+  if (left === true && right === true) return true;
+  return UNKNOWN;
+}
+
+/** `||` over `UNKNOWN`: a single true side settles it, otherwise both must be known false. */
+function or3(left: Partial3, right: Partial3): boolean | typeof UNKNOWN {
+  if (left === true || right === true) return true;
+  if (left === false && right === false) return false;
+  return UNKNOWN;
+}
+
+/**
+ * Like `resolveIdentifier`, but a head that no scope root and no bare root owns is `UNKNOWN`
+ * rather than unset: a name the scope does not carry yet, not one it carries as empty.
+ */
+export function resolveIdentifierPartial(name: string, scope: Record<string, unknown>): unknown {
+  const path = name.split(".");
+  const owner = ownerOf(path[0] as string, scope);
+  return owner === undefined ? UNKNOWN : walk(owner, path);
+}
+
+/**
+ * The evaluator proper, three-valued. `resolve` maps an identifier to its value or `UNKNOWN`;
+ * `UNKNOWN` propagates through `!`, `==` and `!=`, and through `&&` / `||` unless the other
+ * operand already settles the result (a false `&&` side, a true `||` side). Returns
+ * `undefined` when the expression cannot be settled.
+ */
+function evaluate3(expr: string, resolve: (name: string) => unknown): Partial3 {
   const tokens = tokenize(expr);
   let idx = 0;
   const peek = (): Token => tokens[idx] as Token;
@@ -203,7 +248,7 @@ export function evaluateWhen(expr: string, scope: Record<string, unknown>): bool
       case "ident":
         if (tok.value === "true") return true;
         if (tok.value === "false") return false;
-        return resolveIdentifier(tok.value, scope);
+        return resolve(tok.value);
       case "end":
         throw whenError(expr, "unexpected end of expression", tok.pos);
       default:
@@ -214,7 +259,8 @@ export function evaluateWhen(expr: string, scope: Record<string, unknown>): bool
   const parseUnary = (): unknown => {
     if (isOp("!")) {
       idx += 1;
-      return !truthy(parseUnary());
+      const t = truthy3(parseUnary());
+      return t === undefined ? UNKNOWN : !t;
     }
     return parsePrimary();
   };
@@ -224,6 +270,10 @@ export function evaluateWhen(expr: string, scope: Record<string, unknown>): bool
     while (isOp("==") || isOp("!=")) {
       const op = next().value;
       const right = parseUnary();
+      if (left === UNKNOWN || right === UNKNOWN) {
+        left = UNKNOWN;
+        continue;
+      }
       const eq = valuesEqual(left, right);
       left = op === "==" ? eq : !eq;
     }
@@ -234,8 +284,7 @@ export function evaluateWhen(expr: string, scope: Record<string, unknown>): bool
     let left = parseEq();
     while (isOp("&&")) {
       idx += 1;
-      const right = parseEq();
-      left = truthy(left) && truthy(right);
+      left = and3(truthy3(left), truthy3(parseEq()));
     }
     return left;
   };
@@ -244,8 +293,7 @@ export function evaluateWhen(expr: string, scope: Record<string, unknown>): bool
     let left = parseAnd();
     while (isOp("||")) {
       idx += 1;
-      const right = parseAnd();
-      left = truthy(left) || truthy(right);
+      left = or3(truthy3(left), truthy3(parseAnd()));
     }
     return left;
   };
@@ -255,7 +303,25 @@ export function evaluateWhen(expr: string, scope: Record<string, unknown>): bool
   if (tail.kind !== "end") {
     throw whenError(expr, `unexpected ${JSON.stringify(tail.value)}`, tail.pos);
   }
-  return truthy(result);
+  return truthy3(result);
+}
+
+/** Two-valued: every identifier resolves (unset is `undefined`), so the result always settles. */
+export function evaluateWhen(expr: string, scope: Record<string, unknown>): boolean {
+  return evaluate3(expr, (name) => resolveIdentifier(name, scope)) === true;
+}
+
+/**
+ * Three-valued: identifiers the scope does not carry are `UNKNOWN`. `true` / `false` when the
+ * known values alone settle the expression, `undefined` otherwise. Pre-flight uses it to drop
+ * the tuning questions of a step the inputs already rule out (`review_mode == 'ask' && ...`
+ * with `review_mode` set to `auto`) while leaving every output-dependent gate open.
+ */
+export function evaluateWhenPartial(
+  expr: string,
+  scope: Record<string, unknown>,
+): boolean | undefined {
+  return evaluate3(expr, (name) => resolveIdentifierPartial(name, scope));
 }
 
 // ---- next wave ----------------------------------------------------------------
@@ -278,7 +344,7 @@ export function whenScope(state: State): Record<string, unknown> {
 }
 
 /** `when:` is a string in v2; a v1 list of conditions is still accepted and AND-ed. */
-function whenConditions(when: unknown): string[] {
+export function whenConditions(when: unknown): string[] {
   if (Array.isArray(when)) return when.map((c) => String(c));
   if (when === undefined || when === null || when === "") return [];
   return [String(when)];

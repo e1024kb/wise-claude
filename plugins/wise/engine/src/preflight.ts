@@ -1,10 +1,11 @@
 // Pre-flight questionary (D11/D12/D22): the engine builds the questions, the harness asks them.
 // `step-select` comes first (with the stage-free `input.<name>` questions): which optional steps
-// run decides which tuning groups matter. Then, per unlocked group some enabled step binds, the
-// questions come in stages, each unlocked by the answer before it: `harness.<group>` (which
-// installed CLI), then `model.<group>` (that harness's catalog), then `effort.<group>` (that
-// model's efforts). The conductor calls `preflight` again with the answers so far until no new
-// question appears. Pure: no I/O.
+// run, and which `when:` gates the inputs already settle, decide which tuning groups matter.
+// Then, per unlocked group some step that will run binds, the questions come in stages, each
+// unlocked by the answer before it: `harness.<group>` (which installed CLI), then
+// `model.<group>` (that harness's catalog), then `effort.<group>` (that model's efforts). The
+// conductor calls `preflight` again with the answers so far until no new question appears.
+// Pure: no I/O.
 
 import { HARNESSES } from "./types.ts";
 import type {
@@ -25,6 +26,7 @@ import type { AdapterLookup } from "./auth.ts";
 import { PROFILE_DEFAULT } from "./profile.ts";
 import { listInputs } from "./defs.ts";
 import { catalogFor, catalogModel, defaultEffort, defaultModel } from "./models.ts";
+import { evaluateWhenPartial, whenConditions } from "./scheduler.ts";
 import type { CatalogModel } from "./models.ts";
 
 export type Questionary = { questions: Question[]; defaults: Answers };
@@ -187,17 +189,64 @@ export function enabledStepIds(
 }
 
 /**
- * Tuning group ids the run will use: a group some enabled step binds (`group:` on an agent step,
- * a `units` phase), or a group no step binds at all. A group only deselected steps bind is
- * inactive: nothing is asked about it and it keeps its declared value.
+ * The inputs pre-flight already knows the value of, keyed by name: the `input.<name>` answer,
+ * else the `from-context` value, else the declared default, else empty for an optional input.
+ * An input with none of these is left out (its `when:` references stay unsettled).
  */
-export function activeGroupIds(def: WorkflowDef, enabled: ReadonlySet<string>): Set<string> {
+export function knownInputs(
+  def: WorkflowDef,
+  answers: Answers,
+  context: Context | undefined,
+): Record<string, string> {
+  const known: Record<string, string> = {};
+  for (const input of def.inputs ?? []) {
+    const fromContext = input["from-context"]
+      ? resolveFromContext(input["from-context"], context)
+      : undefined;
+    const value =
+      answerString(answers[`input.${input.name}`]) ??
+      fromContext ??
+      input.default ??
+      (input.optional ? "" : undefined);
+    if (value !== undefined) known[input.name] = value;
+  }
+  return known;
+}
+
+/**
+ * False when the step's `when:` is already settled false by the known inputs (the run would
+ * skip it whatever the outputs turn out to be); true when it holds, is open, or does not parse
+ * (the scheduler treats an unparseable gate as true too).
+ */
+function mayRun(step: Step, scope: Record<string, unknown>): boolean {
+  for (const condition of whenConditions(step.when)) {
+    try {
+      if (evaluateWhenPartial(condition, scope) === false) return false;
+    } catch {
+      // unparseable: never block on a typo; the scheduler warns about it at run time
+    }
+  }
+  return true;
+}
+
+/**
+ * Tuning group ids the run will use: a group some step that will run binds (`group:` on an
+ * agent step, a `units` phase), or a group no step binds at all. A step will run when
+ * `step-select` keeps it and its `when:` is not already false on the known inputs (`whenScope`:
+ * `{inputs, answers}`, no outputs yet). A group only such ruled-out steps bind is inactive:
+ * nothing is asked about it and it keeps its declared value.
+ */
+export function activeGroupIds(
+  def: WorkflowDef,
+  enabled: ReadonlySet<string>,
+  whenScope: Record<string, unknown> = {},
+): Set<string> {
   const bound = new Map<string, boolean>();
   const bind = (gid: string, on: boolean): void => {
     bound.set(gid, (bound.get(gid) ?? false) || on);
   };
   for (const step of def.steps) {
-    const on = enabled.has(step.id);
+    const on = enabled.has(step.id) && mayRun(step, whenScope);
     if (step.type === "agent" && step.group !== undefined) bind(step.group, on);
     if (step.type === "units") for (const gid of Object.values(step.groups)) bind(gid, on);
   }
@@ -253,8 +302,9 @@ export function resolveFromContext(path: string, context: Context | undefined): 
  * has optional steps, `input.<name>` per declared input with `from-context` pre-fill, then, once
  * `step-select` is answered (or absent), per active unlocked tuning group the next unanswered
  * stage (`harness.<group>` when two or more harnesses are installed, `model.<group>`,
- * `effort.<group>`; a stage with one possible value is skipped). A group only deselected steps
- * bind asks nothing, and neither does a locked group. Answered questions are not repeated.
+ * `effort.<group>`; a stage with one possible value is skipped). A group bound only by steps
+ * that will not run (deselected, or with a `when:` the known inputs already make false) asks
+ * nothing, and neither does a locked group. Answered questions are not repeated.
  */
 export function buildQuestionary(
   def: WorkflowDef,
@@ -282,9 +332,12 @@ export function buildQuestionary(
   }
 
   // Tuning waits for step-select: which steps run decides which groups are worth asking about.
+  // The inputs known so far settle the `when:` gates they can (a mode left on its default rules
+  // its step out); gates on run outputs stay open and keep their groups.
   const selected = answerList(answers["step-select"]);
   if (optional.length && selected === undefined) return { questions, defaults };
-  const active = activeGroupIds(def, enabledStepIds(def, selected));
+  const whenScope = { inputs: knownInputs(def, answers, ctx.context), answers };
+  const active = activeGroupIds(def, enabledStepIds(def, selected), whenScope);
   for (const group of def.tuning?.groups ?? []) {
     if (group.locked || !active.has(group.id)) continue;
     for (const q of stageGroup(def, group, answers, ctx.harnesses, ctx.loggedOut).questions)

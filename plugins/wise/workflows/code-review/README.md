@@ -80,7 +80,8 @@ group a selected step uses (`correctness`, `security`, `tests`,
 which CLI runs it when more than one is installed, then which model
 from the engine's catalog for that CLI, then the effort that model
 takes. Every question is put to the user; deselecting `verify` drops
-its group. Answered questions are never repeated.
+its group, and `mode: report` drops the `fix` group (its `apply` step
+is gated on `mode == 'apply'`). Answered questions are never repeated.
 
 ## Steps
 

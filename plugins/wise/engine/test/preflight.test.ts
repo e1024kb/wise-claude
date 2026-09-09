@@ -8,9 +8,12 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { loadDef, validateDef } from "../src/defs.ts";
 import {
+  activeGroupIds,
   applyAnswers,
   buildQuestionary,
   completeAnswers,
+  enabledStepIds,
+  knownInputs,
   optionalStepIds,
   resolveFromContext,
 } from "../src/preflight.ts";
@@ -554,23 +557,88 @@ const INPUT_IDS = [
   "input.implement_mode",
 ];
 const ALL_STAGES = ["analyze-design", "analyze-related", "research-context", "gap-analysis"];
+/** Flow modes that keep every group's step in play (defaults rule refine-plan and implement out). */
+const ALL_MODES = { "input.review_mode": "ask", "input.implement_mode": "now" };
+/** The groups left when the flow modes sit on their defaults. */
+const DEFAULT_MODE_GROUPS = GROUPS.filter((g) => g !== "refine-plan" && g !== "implement");
 
 test("buildQuestionary order: step-select and inputs first, tuning stages once step-select is answered", () => {
   const def = ticketPlan();
   // First call: which steps run, and the stage-free inputs. No tuning yet: the selection decides
   // which groups are worth asking about.
   assert.deepEqual(questionIds(def), ["step-select", ...INPUT_IDS]);
-  // step-select answered: the first tuning stage of every active group, inputs still open.
+  // step-select answered: the first tuning stage of every active group, inputs still open. The
+  // mode inputs sit on their defaults (review auto, plan-only), which rule refine-plan and
+  // implement out before their groups are asked.
   const selected = buildQuestionary(def, {}, { "step-select": ALL_STAGES }).questions;
   assert.deepEqual(
     selected.map((q) => q.id),
-    [...INPUT_IDS, ...stageIds("model")],
+    [...INPUT_IDS, ...DEFAULT_MODE_GROUPS.map((g) => `model.${g}`)],
+  );
+  // Modes that keep those steps in play bring every group back.
+  const all = buildQuestionary(def, {}, { "step-select": ALL_STAGES, ...ALL_MODES }).questions;
+  assert.deepEqual(
+    all.map((q) => q.id).filter((id) => !id.startsWith("input.")),
+    stageIds("model"),
+  );
+});
+
+test("buildQuestionary: a when: gate the known inputs settle false drops the step's group", () => {
+  const def = ticketPlan();
+  const base = { "step-select": ALL_STAGES };
+  const ids = (answers: Record<string, string | string[]>): string[] =>
+    buildQuestionary(def, {}, answers)
+      .questions.map((q) => q.id)
+      .filter((id) => !id.startsWith("input."));
+  // review_mode: `refine-plan` is `review_mode == 'ask' && user_comments != '' && ...`; the
+  // output half stays open, so `ask` keeps the group and `auto` drops it.
+  assert.ok(ids({ ...base, "input.review_mode": "ask" }).includes("model.refine-plan"));
+  assert.ok(!ids({ ...base, "input.review_mode": "auto" }).includes("model.refine-plan"));
+  // implement_mode: `implement` is `implement_mode != 'plan-only' && implement_choice == 'yes'`;
+  // `now` and `ask` both leave the output half open and keep the group.
+  assert.ok(!ids({ ...base, "input.implement_mode": "plan-only" }).includes("model.implement"));
+  assert.ok(ids({ ...base, "input.implement_mode": "now" }).includes("model.implement"));
+  assert.ok(ids({ ...base, "input.implement_mode": "ask" }).includes("model.implement"));
+  // An unanswered input takes its declared default; the run context pre-fill counts too.
+  assert.deepEqual(knownInputs(def, {}, undefined), {
+    gap_mode: "defaults",
+    review_mode: "auto",
+    branch_mode: "auto",
+    implement_mode: "plan-only",
+  });
+  assert.equal(knownInputs(def, {}, { ticket: [{ ref: "LEC-1" }] }).ticket_id, "LEC-1");
+  // A dropped group keeps its declared value and its step is still enabled for the scheduler,
+  // whose own `when:` evaluation skips it at run time.
+  const applied = applyAnswers(def, base);
+  assert.deepEqual(applied.tuning.implement, {
+    harness: "claude",
+    model: "claude-opus-5",
+    effort: "high",
+  });
+  assert.ok(applied.enabledSteps.has("implement"));
+  // With no inputs known, every gate stays open and every group is active.
+  const enabled = enabledStepIds(def, ALL_STAGES);
+  const active = activeGroupIds(def, enabled, { inputs: {}, answers: {} });
+  assert.deepEqual([...active], [...GROUPS]);
+  // A gate that does not parse never blocks a group.
+  const typo = structuredClone(def);
+  const impl = typo.steps.find((s) => s.id === "implement");
+  assert.ok(impl);
+  impl.when = "implement_mode ==";
+  assert.ok(
+    activeGroupIds(typo, enabled, { inputs: { implement_mode: "plan-only" }, answers: {} }).has(
+      "implement",
+    ),
   );
 });
 
 test("buildQuestionary: a group only deselected steps bind is not asked and keeps its declared value", () => {
   const def = ticketPlan();
-  const some = buildQuestionary(def, {}, { "step-select": ["analyze-related"] }).questions;
+  const some = buildQuestionary(
+    def,
+    {},
+    { "step-select": ["analyze-related"], ...ALL_MODES },
+  ).questions;
   assert.deepEqual(
     some.map((q) => q.id).filter((id) => !id.startsWith("input.")),
     ["model.codebase-audit", "model.build-plan", "model.refine-plan", "model.implement"],
@@ -622,7 +690,7 @@ test("buildQuestionary: stages unlock one at a time and answered questions are n
     ["step-select", ...INPUT_IDS],
   );
   // Stage 1: harness per group, nothing else about the group yet.
-  const a1 = { "step-select": ALL_STAGES };
+  const a1 = { "step-select": ALL_STAGES, ...ALL_MODES };
   const s1 = buildQuestionary(def, { harnesses: ready }, a1);
   assert.deepEqual(
     s1.questions.map((q) => q.id).filter((id) => !id.startsWith("input.")),
@@ -679,13 +747,13 @@ test("buildQuestionary: stages unlock one at a time and answered questions are n
   const a4 = { ...a3, "effort.analyze-design": "medium" };
   assert.deepEqual(
     buildQuestionary(def, { harnesses: ready }, a4).questions.map((q) => q.id),
-    INPUT_IDS,
+    INPUT_IDS.filter((id) => !(id in ALL_MODES)),
   );
 });
 
 test("buildQuestionary: a single installed harness or an unprobed context skips the harness stage", () => {
   const def = ticketPlan();
-  const a = { "step-select": ALL_STAGES };
+  const a = { "step-select": ALL_STAGES, ...ALL_MODES };
   for (const ctx of [{}, { harnesses: ["claude"] as const }, { harnesses: [] as const }] as const) {
     const ids = buildQuestionary(def, ctx, a)
       .questions.map((q) => q.id)
@@ -788,18 +856,26 @@ test("applyAnswers: no answers resolves every unlocked group onto its catalog de
 test("completeAnswers: walks every stage to its defaults; explicit answers steer it", () => {
   const def = extendedTicketPlan();
   const ready = ["claude", "codex"] as const;
+  // No answers: the modes take their defaults, which rule refine-plan and implement out.
   const done = completeAnswers(def, { harnesses: ready }, {});
   assert.deepEqual(
     Object.entries(done.answers).filter(([id]) => !id.startsWith("input.")),
     [
       ["step-select", ALL_STAGES],
-      ...GROUPS.map((g) => [`harness.${g}`, "claude"]),
-      ...GROUPS.map((g) => [`model.${g}`, "claude-opus-5"]),
-      ...GROUPS.map((g) => [`effort.${g}`, "high"]),
+      ...DEFAULT_MODE_GROUPS.map((g) => [`harness.${g}`, "claude"]),
+      ...DEFAULT_MODE_GROUPS.map((g) => [`model.${g}`, "claude-opus-5"]),
+      ...DEFAULT_MODE_GROUPS.map((g) => [`effort.${g}`, "high"]),
     ],
   );
   assert.deepEqual(done.missing, ["input.ticket_id"]);
   assert.ok(done.questions.some((q) => q.id === "effort.build-plan"));
+  assert.ok(!done.questions.some((q) => q.id === "model.implement"));
+  // Modes that keep every step in play walk all seven groups.
+  const full = completeAnswers(def, { harnesses: ready }, ALL_MODES);
+  assert.deepEqual(
+    GROUPS.map((g) => full.answers[`effort.${g}`]),
+    GROUPS.map(() => "high"),
+  );
   const steered = completeAnswers(def, { harnesses: ready }, { "harness.analyze-design": "codex" });
   assert.equal(steered.answers["model.analyze-design"], "gpt-6-astra");
   assert.equal(steered.answers["effort.analyze-design"], "high");
@@ -830,7 +906,7 @@ test("models: catalog helpers", () => {
 
 test("harness.<group>: asked per active unlocked group when two or more harnesses are installed", () => {
   const def = extendedTicketPlan();
-  const a = { "step-select": ALL_STAGES };
+  const a = { "step-select": ALL_STAGES, ...ALL_MODES };
   const qs = buildQuestionary(def, { harnesses: ["claude", "codex", "grok"] }, a).questions;
   assert.deepEqual(
     qs.map((q) => q.id).filter((id) => id.startsWith("harness.")),

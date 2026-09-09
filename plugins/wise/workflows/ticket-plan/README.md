@@ -152,8 +152,12 @@ stage selection and inputs first, tuning after:
 - **Tuning** - one group per model step: design spec
   (`analyze-design`), deep-dive sweep (`research-context`), codebase
   audit (`codebase-audit`), gap analysis, build plan, refine plan,
-  implement. Only the groups of selected steps are asked (deselect
-  the design analysis and its group is skipped). Per group: which CLI
+  implement. Only the groups of steps that will run are asked:
+  deselect the design analysis and its group is skipped; leave
+  `review_mode` on `auto` and the refine-plan group is skipped; leave
+  `implement_mode` on `plan-only` and the implement group is skipped
+  (the engine settles those `when:` gates on the inputs at
+  pre-flight). Per group: which CLI
   runs it (asked whenever another CLI is installed, logged in or not),
   then which model from the engine's catalog for that CLI, then the
   effort that model takes. Every one of these questions goes to the
