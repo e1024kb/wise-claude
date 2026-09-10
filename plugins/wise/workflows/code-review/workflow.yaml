@@ -425,3 +425,13 @@ steps:
     timeout: 15
     depends_on: [apply]
     trigger-rule: all-done
+
+  - id: fail-incomplete-review
+    type: bash
+    when: "missing_reviews != 'none'"
+    run: |
+      echo "code-review incomplete: missing reviewer reports: {{missing_reviews}}" >&2
+      exit 1
+    timeout: 15
+    depends_on: [finalize]
+    trigger-rule: all-done

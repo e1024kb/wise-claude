@@ -289,7 +289,8 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
     if (exit.timedOut) return { exit: "timeout", error: clip(stderr) || "timed out" };
     const failure = snap.errors.at(-1);
     const notice = snap.warnings.at(-1);
-    const haystack = `${snap.errors.join("\n")}\n${snap.warnings.join("\n")}\n${stderr}`;
+    const terminalHaystack = `${snap.errors.join("\n")}\n${stderr}\n${exit.error ?? ""}`.trim();
+    const haystack = terminalHaystack || snap.warnings.join("\n");
     if (failure !== undefined || snap.completed === 0 || (exit.code !== null && exit.code !== 0)) {
       const detail =
         failure ??

@@ -5,8 +5,8 @@
 // on stdin. Rules the step pre-granted (`allowed_tools`) never reach here; `full-access` children
 // prompt for nothing. What does reach here is decided by shape: reading is allowed. Under
 // `approval-required`, changing things is denied unless the step declared it. Under `auto`,
-// ordinary local mutations and shell commands are allowed while destructive commands and
-// mutating external MCP calls stay denied.
+// ordinary local mutations and a small set of local inspection and validation commands are
+// allowed while shell wrappers and mutating external MCP calls stay denied.
 // `full-access` is normally handled by the CLI itself, but is accepted here for completeness.
 
 import type { Harness, Permissions, RunMode, State } from "./types.ts";
@@ -213,9 +213,33 @@ export const AUTO_MUTATING_BUILTINS = new Set([
   "TodoWrite",
 ]);
 
-/** Commands that `auto` never approves; bypass remains an explicit user choice. */
-export const DESTRUCTIVE_COMMAND_RE =
-  /(^|[\n;&|]\s*)(sudo\b|rm\s+(?:-[^\s]*r[^\s]*|--recursive)\b|git\s+reset\s+--hard\b|git\s+clean\s+[^\n]*-[^\n\s]*f|chmod\s+-R\b|chown\s+-R\b|mkfs\b|dd\s+if=|shutdown\b|reboot\b)/i;
+const SHELL_CONTROL_RE = /[\n\r;&|`<>]|\$\(/;
+const OUTSIDE_WORKSPACE_PATH_RE = /(^|\s)(?:~\/|\/)|(^|[\s'"])\.\.(?:\/|\s|$)/;
+const RG_EXEC_RE = /(^|\s)--pre(?:-glob)?(?:=|\s|$)/;
+const AUTO_BASH_PATTERNS = [
+  /^git\s+(?:status|diff|show|log|rev-parse|merge-base|branch|ls-files|ls-tree|cat-file)(?:\s|$)/,
+  /^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|lint|check|typecheck|build))(?:\s|$)/,
+  /^just\s+(?:test|check|lint|typecheck|validate)(?:\s|$)/,
+  /^make\s+(?:test|check|lint)(?:\s|$)/,
+  /^cargo\s+(?:test|check|clippy|fmt\s+--check)(?:\s|$)/,
+  /^go\s+test(?:\s|$)/,
+  /^(?:pytest|ruff\s+check|eslint|tsc\s+--noEmit)(?:\s|$)/,
+  /^(?:pwd|ls|rg|grep|jq|cat|head|tail|wc|test)(?:\s|$)/,
+] as const;
+
+/** True for one workspace-relative inspection or validation command with no shell control syntax. */
+export function isAutoBashCommand(command: string): boolean {
+  const value = command.trim();
+  if (
+    value.length === 0 ||
+    SHELL_CONTROL_RE.test(value) ||
+    OUTSIDE_WORKSPACE_PATH_RE.test(value) ||
+    RG_EXEC_RE.test(value)
+  ) {
+    return false;
+  }
+  return AUTO_BASH_PATTERNS.some((pattern) => pattern.test(value));
+}
 
 function commandOf(input: unknown): string {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return "";
@@ -240,7 +264,7 @@ export function decidePermission(
     if (AUTO_MUTATING_BUILTINS.has(toolName)) return { behavior: "allow", updatedInput: input };
     if (toolName === "Bash") {
       const command = commandOf(input);
-      if (command && !DESTRUCTIVE_COMMAND_RE.test(command)) {
+      if (isAutoBashCommand(command)) {
         return { behavior: "allow", updatedInput: input };
       }
       return {

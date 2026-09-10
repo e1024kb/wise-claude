@@ -201,6 +201,17 @@ function legacyPermissionAnswer(answers: Answers): RunMode | undefined {
     : undefined;
 }
 
+/** Provider permission answers whose values are outside the public run-mode vocabulary. */
+export function invalidProviderPermissionAnswers(answers: Answers): string[] {
+  return HARNESSES.map((harness) => `permissions.${harness}`).filter((id) => {
+    const value: unknown = answers[id];
+    return (
+      value !== undefined &&
+      (typeof value !== "string" || !(RUN_MODES as readonly string[]).includes(value))
+    );
+  });
+}
+
 function permissionQuestion(def: WorkflowDef, harness: Harness): Question {
   return {
     id: `permissions.${harness}`,

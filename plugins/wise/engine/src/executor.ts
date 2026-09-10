@@ -64,6 +64,7 @@ import {
   applyAnswers,
   buildQuestionaryWithAuth,
   completeAnswers,
+  invalidProviderPermissionAnswers,
   resolveFromContext,
 } from "./preflight.ts";
 import { priceUsage } from "./pricing.ts";
@@ -1451,11 +1452,22 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
 
   // ---- handlers ---------------------------------------------------------------------------------------
 
+  function assertValidProviderPermissions(answers: Answers): void {
+    const invalid = invalidProviderPermissionAnswers(answers);
+    if (invalid.length === 0) return;
+    throw domainError(
+      "MISSING_ANSWERS",
+      `invalid provider permission answer(s): ${invalid.join(", ")}`,
+      { missing: invalid, invalid },
+    );
+  }
+
   const preflight: Handler<"preflight"> = async (params) => {
     const rec = asRecord(params, "preflight");
     const workflow = requireString(rec, "workflow", "preflight");
     requireString(rec, "cwd", "preflight");
     const answers = { ...(optionalRecord(rec, "answers", "preflight") as Answers) };
+    assertValidProviderPermissions(answers);
     const located = locate(workflow);
     const def = validated(located);
     const harnesses = installedHarnesses(def, getAdapter, env);
@@ -1474,6 +1486,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     const workflow = requireString(rec, "workflow", "run");
     const cwd = requireString(rec, "cwd", "run");
     const given = { ...(optionalRecord(rec, "answers", "run") as Answers) };
+    assertValidProviderPermissions(given);
     const context = optionalRecord(rec, "context", "run") as Context;
     const explicitInputs = optionalRecord(rec, "inputs", "run") as Record<string, string>;
 

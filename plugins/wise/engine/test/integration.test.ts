@@ -99,6 +99,11 @@ test("code-review waits for every lens and gates missing reports before curation
   const curate = def.steps.find((step) => step.id === "curate");
   assert.deepEqual(curate?.depends_on, ["review-health", "review-errors"]);
   assert.match(String(curate?.when), /review_failure_action/);
+  const failure = def.steps.find((step) => step.id === "fail-incomplete-review");
+  assert.equal(failure?.type, "bash");
+  assert.equal(failure?.when, "missing_reviews != 'none'");
+  assert.deepEqual(failure?.depends_on, ["finalize"]);
+  assert.equal(failure?.["trigger-rule"], "all-done");
 });
 
 test("units workflows: plan, implement, review and fix run on Opus 5, watch on Sonnet 5; every cap is set", () => {

@@ -404,6 +404,15 @@ test("parser: exit classification table", () => {
       error: /^boom$/,
     },
     {
+      name: "terminal failure overrides an earlier rate-limit warning",
+      stream:
+        line({ type: "item.completed", item: { type: "error", message: "429 advisory" } }) +
+        line({ type: "turn.failed", error: { message: "workspace unavailable" } }),
+      exit: { code: 1 },
+      expect: "error",
+      error: /^workspace unavailable$/,
+    },
+    {
       name: "completed turn but non-zero exit",
       stream: OK_TURN,
       exit: { code: 2, stderr: "panic" },

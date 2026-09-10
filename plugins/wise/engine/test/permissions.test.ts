@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   decidePermission,
   effectiveMode,
+  isAutoBashCommand,
   isReadMcpTool,
   mcpToolPart,
   nameTokens,
@@ -76,7 +77,7 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   assert.equal(decidePermission("ReadMcpResourceDirTool", {}).behavior, "allow");
 });
 
-test("decidePermission: approval-required stays read-only; auto allows ordinary local mutations", () => {
+test("decidePermission: approval-required stays read-only; auto allows local edits and safe commands", () => {
   // `Skill` can activate a skill whose own `allowed-tools` pre-approves mutating tools without
   // ever reaching this decision; `TodoWrite` writes state. Neither belongs in READ_ONLY_BUILTINS.
   assert.equal(decidePermission("Skill", {}).behavior, "deny");
@@ -97,10 +98,21 @@ test("decidePermission: approval-required stays read-only; auto allows ordinary 
     "deny",
   );
   assert.equal(
+    decidePermission("Bash", { command: "sh -c 'rm -rf ./dist'" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: 'bash -c "rm -rf ./dist"' }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
     decidePermission("mcp__slack__slack_send_message", {}, { mode: "auto" }).behavior,
     "deny",
   );
   assert.equal(decidePermission("Skill", {}, { mode: "auto" }).behavior, "deny");
+  assert.equal(isAutoBashCommand("git status --short"), true);
+  assert.equal(isAutoBashCommand("rg --pre sh needle ."), false);
+  assert.equal(isAutoBashCommand("cat /etc/passwd"), false);
 });
 
 test("permission floors preserve stronger step requirements and support legacy state", () => {

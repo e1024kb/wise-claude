@@ -258,6 +258,31 @@ describe("executor", () => {
     assert.ok(issues.some((i) => i.path === "version"));
   });
 
+  test("preflight and run reject malformed provider permission answers", async () => {
+    const r = mkRoot();
+    const exec = make(r, { adapters: { claude: claudeFake() } });
+    const answers = { "permissions.claude": "allowlist" };
+    const preflightError = await attempt(() =>
+      exec.handlers.preflight({ workflow: "single-agent", cwd: r.cwd, answers }, ctx),
+    );
+    assert.equal(domainCode(preflightError), "MISSING_ANSWERS");
+    assert.deepEqual((preflightError as RpcError).data, {
+      code: "MISSING_ANSWERS",
+      missing: ["permissions.claude"],
+      invalid: ["permissions.claude"],
+    });
+
+    const runError = await attempt(() =>
+      exec.handlers.run(
+        { workflow: "single-agent", cwd: r.cwd, answers, context: {}, inputs: {} },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(runError), "MISSING_ANSWERS");
+    assert.deepEqual(r.rt.listRunDirs(), []);
+    exec.stop();
+  });
+
   test("preflight: harness.<group> questions list every other installed adapter, logged in or not; run refuses a stage left unanswered", async () => {
     const r = mkRoot();
     const claude = claudeFake();

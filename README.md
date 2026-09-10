@@ -80,8 +80,9 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
 - **bun** or **Node 24+** for the workflow engine (`plugins/wise/engine`,
   TypeScript run as source, no build), and `claude auth login` so the
-  engine can spawn `claude -p` under your subscription. `codex`, `grok`
-  and `gemini` are optional extra harnesses.
+  engine can spawn `claude -p` under your subscription. `codex`, `cursor-agent`,
+  `grok` and `gemini` are optional extra harnesses; install and authenticate any
+  provider before selecting it.
 - **Python 3** (with `pyyaml` + `python-ulid`) for `/wise-workflow-list`,
   `/wise-workflow-create`, `/wise-workflow-remove` and the legacy v1
   conductor; removed in plan M3.4.

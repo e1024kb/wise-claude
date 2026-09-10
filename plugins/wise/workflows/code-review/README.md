@@ -71,6 +71,8 @@ flowchart TD
     F --> G[verify<br/>agent, optional → kept, refuted]
     G --> H[apply<br/>agent, mode=apply → applied, skipped, committed]
     H --> I[finalize<br/>bash]
+    I --> M{reports missing?}
+    M -->|yes| N[fail-incomplete-review<br/>bash: fail run]
 ```
 
 The three reviewers share `depends_on: [count-commits]` and run as one
@@ -78,6 +80,8 @@ parallel wave. `review-health` waits for every lens even when one fails;
 the conditional `review-errors` gate lets the user continue with the
 available reports or stop and retry. A deselected `verify` or a skipped
 `apply` (`mode=report`, or an empty change set) never blocks the summary.
+After the summary, a missing report fails the run even when the user chose to
+curate the reports that were available.
 
 Pre-flight asks one multi-select over the optional `verify` pass
 (selected by default) and the inputs below first; then, per tuning
@@ -107,6 +111,7 @@ are never repeated.
 | `verify` | `agent` | Optional (`step-select`). Tries to refute every kept finding against the code, defaulting to refuted when ambiguous; rewrites the findings file with the survivors. `when: findings != 0`. `verify` group. |
 | `apply` | `agent` | `when: mode == 'apply' && findings_path`. Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |
 | `finalize` | `bash` | One summary line with the range, the counts and the findings file. `trigger-rule: all-done`. |
+| `fail-incomplete-review` | `bash` | Runs after `finalize` when any reviewer report is missing, so partial curation remains useful but the workflow still ends failed. |
 
 **Model tiering**: every group defaults to `opus / high`. The pre-flight
 answers override the group defaults at dispatch. See
