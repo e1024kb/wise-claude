@@ -194,6 +194,7 @@ export type StreamSnapshot = {
   commands: string[];
   file_changes: number;
   errors: string[];
+  warnings: string[];
 };
 
 export type StreamParser = {
@@ -240,6 +241,7 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
     commands: [],
     file_changes: 0,
     errors: [],
+    warnings: [],
   };
   let lastAgentText = "";
   let usage: Rec | undefined;
@@ -276,7 +278,7 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
       } else if (item.type === "file_change") {
         snap.file_changes += Array.isArray(item.changes) ? item.changes.length : 1;
       } else if (item.type === "error") {
-        snap.errors.push(str(item.message) ?? "codex item error");
+        snap.warnings.push(str(item.message) ?? "codex item warning");
       }
     }
     return ev;
@@ -286,14 +288,16 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
     const stderr = exit.stderr;
     if (exit.timedOut) return { exit: "timeout", error: clip(stderr) || "timed out" };
     const failure = snap.errors.at(-1);
-    const haystack = `${snap.errors.join("\n")}\n${stderr}`;
+    const notice = snap.warnings.at(-1);
+    const haystack = `${snap.errors.join("\n")}\n${snap.warnings.join("\n")}\n${stderr}`;
     if (failure !== undefined || snap.completed === 0 || (exit.code !== null && exit.code !== 0)) {
       const detail =
         failure ??
         exit.error ??
         (stderr.trim()
           ? clip(stderr)
-          : `no turn.completed event (exit code ${String(exit.code)}, signal ${String(exit.signal)})`);
+          : (notice ??
+            `no turn.completed event (exit code ${String(exit.code)}, signal ${String(exit.signal)})`));
       if (RATE_LIMIT_RE.test(haystack)) return { exit: "rate_limited", error: clip(detail) };
       if (AUTH_RE.test(haystack)) return { exit: "auth", error: clip(detail) };
       return { exit: "error", error: clip(detail) };
@@ -303,7 +307,12 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
 
   return {
     feed: (chunk) => lines.feed(chunk).map(ingest),
-    snapshot: () => ({ ...snap, commands: [...snap.commands], errors: [...snap.errors] }),
+    snapshot: () => ({
+      ...snap,
+      commands: [...snap.commands],
+      errors: [...snap.errors],
+      warnings: [...snap.warnings],
+    }),
     finish(exit) {
       lines.finish().forEach(ingest);
       const verdict = classify(exit);
@@ -314,6 +323,7 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
       };
       if (snap.thread_id !== undefined) res.cursor = snap.thread_id;
       if (verdict.error !== undefined) res.error = verdict.error;
+      if (snap.warnings.length > 0) res.warnings = [...snap.warnings];
       if (opts.expectJson && verdict.exit === "ok") {
         try {
           res.json = JSON.parse(lastAgentText);

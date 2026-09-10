@@ -250,6 +250,37 @@ describe("cli-client", () => {
     assert.equal(t.out, "");
   });
 
+  test("run --interactive: asks every open question in the terminal and never silently defaults", async () => {
+    const r = await run(
+      ["run", "wf", "--cwd", "/tmp/x", "--interactive"],
+      ["2\n", "LEC-9\n", "\n"],
+    );
+    assert.equal(r.code, 0, r.err + r.out);
+    assert.match(r.err, /Which claude model: Plan\?/);
+    assert.match(r.err, /1\. Opus 5/);
+    assert.match(r.err, /2\. Sonnet 5/);
+    assert.match(r.err, /Ticket ref\?/);
+    assert.match(r.err, /Notes\?/);
+    const params = calls("run")[0]?.params as {
+      answers: Record<string, unknown>;
+      inputs: Record<string, string>;
+    };
+    assert.deepEqual(params.answers, {
+      "model.plan": "claude-sonnet-5",
+      "input.ticket": "LEC-9",
+      "input.notes": "",
+    });
+    assert.deepEqual(params.inputs, { ticket: "LEC-9", notes: "" });
+    assert.equal(calls("preflight").length, 4);
+  });
+
+  test("run --interactive: closed stdin stops before run creation", async () => {
+    const r = await run(["run", "wf", "--interactive"], []);
+    assert.equal(r.code, 64);
+    assert.match(r.out, /PREFLIGHT_UNANSWERED/);
+    assert.equal(calls("run").length, 0);
+  });
+
   test("run: --answers and --input fill answers, defaults fill the rest, locked stay untouched", async () => {
     const r = await run([
       "run",

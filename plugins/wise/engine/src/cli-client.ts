@@ -8,17 +8,24 @@ import type { Interface } from "node:readline";
 import { connect, ConnectError, ensureDaemon } from "./client.ts";
 import type { Client, ClientOptions } from "./client.ts";
 import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "./protocol.ts";
-import type { ReportResult, RunParams, StatusResult, WaitResult } from "./protocol.ts";
+import type {
+  PreflightResult,
+  ReportResult,
+  RunParams,
+  StatusResult,
+  WaitResult,
+} from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
-import type { Answers, Context, Event, Gate, RunSummary, Usage } from "./types.ts";
+import type { Answers, Context, Event, Gate, Question, RunSummary, Usage } from "./types.ts";
 
 export const CLIENT_USAGE = `wise-engine <command> [options]
 
 Commands:
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input name=value ...]
-                 [--follow] [--timeout-ms <n>]
-                              preflight, fill answers, start a run; --follow streams events and
-                              answers gates from stdin (approve|reject, an option value, or text)
+                 [--interactive] [--follow] [--timeout-ms <n>]
+                              preflight, start a run; --interactive asks every question in the TUI,
+                              otherwise defaults are filled for scripts; --follow answers gates
+                              from stdin (approve|reject, an option value, or text)
   wait <run_id> [--after <seq>] [--timeout-ms <n>]
                               one wait call: events past <seq>, gate, status, done
   status [run_id]             one run or every run
@@ -52,7 +59,13 @@ export type ClientIo = {
 // ---- argv ----------------------------------------------------------------------------------
 
 /** Flags that never take a value, so `run --follow wf` keeps `wf` positional. */
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["text", "json", "follow", "no-start"]);
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
+  "text",
+  "json",
+  "interactive",
+  "follow",
+  "no-start",
+]);
 
 type Parsed = { cmd: string; positional: string[]; flags: Record<string, (string | true)[]> };
 
@@ -322,6 +335,84 @@ class LineSource {
 export { fillAnswers } from "./preflight.ts";
 export type { FilledAnswers } from "./preflight.ts";
 
+function optionValue(question: Question, raw: string): string | undefined {
+  const options = question.options ?? [];
+  const number = Number(raw);
+  if (Number.isInteger(number) && number >= 1 && number <= options.length) {
+    return options[number - 1]?.value;
+  }
+  const normalized = raw.toLocaleLowerCase();
+  return options.find(
+    (option) =>
+      option.value.toLocaleLowerCase() === normalized ||
+      option.label.toLocaleLowerCase() === normalized,
+  )?.value;
+}
+
+async function readQuestion(
+  question: Question,
+  stdin: LineSource,
+  io: ClientIo,
+): Promise<Answers[string] | null> {
+  const options = question.options ?? [];
+  for (;;) {
+    io.err(`\n${question.label}\n`);
+    for (const [index, option] of options.entries()) {
+      const note = option.description ? ` - ${option.description}` : "";
+      io.err(`  ${index + 1}. ${option.label}${note}\n`);
+    }
+    const fallback = question.default;
+    const hint = Array.isArray(fallback) ? fallback.join(",") : fallback;
+    io.err(hint === undefined ? "> " : `> [${hint}] `);
+    const line = await stdin.next();
+    if (line === null) return null;
+    const raw = line.trim();
+    if (raw === "" && fallback !== undefined) return fallback;
+    if (question.kind === "text") {
+      if (raw !== "" || question.optional) return raw;
+      io.err("A value is required.\n");
+      continue;
+    }
+    if (question.kind === "choice") {
+      const value = optionValue(question, raw);
+      if (value !== undefined) return value;
+      io.err(`Choose 1-${options.length}, an option label, or an option value.\n`);
+      continue;
+    }
+    if (raw.toLocaleLowerCase() === "none") return [];
+    const parts = raw.split(",");
+    const selected = parts
+      .map((part) => optionValue(question, part.trim()))
+      .filter((value): value is string => value !== undefined);
+    if (selected.length > 0 && selected.length === parts.length) {
+      return [...new Set(selected)];
+    }
+    io.err(
+      "Choose comma-separated option numbers, labels, or values; use 'none' for no selection.\n",
+    );
+  }
+}
+
+async function collectInteractiveAnswers(
+  client: Client,
+  workflow: string,
+  cwd: string,
+  given: Answers,
+  stdin: LineSource,
+  io: ClientIo,
+): Promise<{ pre: PreflightResult; answers: Answers } | null> {
+  const answers: Answers = { ...given };
+  for (let pass = 0; pass < 256; pass++) {
+    const pre = await client.call("preflight", { workflow, cwd, answers });
+    const question = pre.questions.find((item) => !item.locked && answers[item.id] === undefined);
+    if (!question || pre.requires_missing.length > 0) return { pre, answers };
+    const answer = await readQuestion(question, stdin, io);
+    if (answer === null) return null;
+    answers[question.id] = answer;
+  }
+  throw new UsageError("run: interactive preflight exceeded its question limit");
+}
+
 // ---- connection --------------------------------------------------------------------------------
 
 function clientOptions(p: Parsed, io: ClientIo): ClientOptions {
@@ -428,6 +519,30 @@ async function cmdRun(p: Parsed, io: ClientIo, out: Out): Promise<number> {
   const client = await open(p, io);
   const stdin = new LineSource(io.stdin ?? process.stdin);
   try {
+    if (bool(p, "interactive")) {
+      const collected = await collectInteractiveAnswers(client, workflow, cwd, given, stdin, io);
+      if (collected === null) {
+        out.error(
+          { code: "PREFLIGHT_UNANSWERED", workflow },
+          () => "stdin closed before interactive preflight was complete; no run started",
+        );
+        return 64;
+      }
+      const { pre, answers } = collected;
+      const inputs: Record<string, string> = {};
+      for (const [id, value] of Object.entries(answers)) {
+        if (id.startsWith("input.") && typeof value === "string") inputs[id.slice(6)] = value;
+      }
+      const params: RunParams = { workflow, cwd, answers, context, inputs };
+      const started = await client.call("run", params);
+      const record = { ...started, workflow: pre.workflow, answers };
+      if (bool(p, "follow")) {
+        out.line(record, () => `run ${started.run_id} started (${pre.workflow})`);
+        return await follow({ client, runId: started.run_id, timeoutMs, out, stdin });
+      }
+      out.emit(record, () => `run ${started.run_id} started (${pre.workflow})`);
+      return 0;
+    }
     // Staged questionary: each pass fills the defaults of the questions the answers so far open,
     // until a pass adds nothing (every stage settled, or only answerless questions remain).
     // A required input is stage-free, so a missing one ends the loop at once.

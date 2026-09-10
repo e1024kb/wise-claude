@@ -817,7 +817,7 @@ test("every bundled workflow validates as v2 with no issues", () => {
     "example-workflow": 8,
     "ticket-auto": 5,
     "impl-plan-auto": 4,
-    "code-review": 9,
+    "code-review": 11,
   };
   const all = listDefs({ userRoot: join(tmpdir(), "wise-no-user-root"), bundledRoot: BUNDLED });
   assert.deepEqual(all.map((i) => i.name).toSorted(), Object.keys(expectedSteps).toSorted());

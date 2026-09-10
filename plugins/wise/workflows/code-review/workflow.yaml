@@ -7,8 +7,8 @@ description: >-
   findings, an optional adversarial verification pass, then a fixer that
   applies the kept findings and commits them (or, in report mode, leaves
   the findings file for you). Pre-flight picks harness, model and effort
-  for every reviewer, the curator, the verifier and the fixer. No prompts
-  after launch; never pushes.
+  for every reviewer, the curator, the verifier and the fixer. A failed
+  reviewer opens a recovery choice before curation. Never pushes.
 author: e1024kb
 #
 # The heavyweight tier of the plugin's two-tier quality model (the
@@ -22,7 +22,7 @@ author: e1024kb
 project-selection: current
 
 preflight:
-  control-mode: synchronous
+  control-mode: interactive
   worktree: current
 
 # One tuning group per agent. Reviewers and the verifier only read; the
@@ -247,18 +247,55 @@ steps:
     allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
     depends_on: [count-commits]
 
+  - id: review-health
+    type: bash
+    when: "commit_count != 0"
+    run: |
+      set -eu
+      python3 - "{{run.dir}}" <<'WISE_REVIEW_HEALTH'
+      import json
+      import pathlib
+      import sys
+
+      run_dir = pathlib.Path(sys.argv[1])
+      state = json.loads((run_dir / "state.json").read_text())
+      unhealthy = []
+      for lens in ("correctness", "security", "tests"):
+          step = state["steps"].get(f"review-{lens}", {})
+          report = run_dir / "review" / f"{lens}.md"
+          if step.get("status") == "failed" or not report.is_file():
+              unhealthy.append(lens)
+      print(",".join(unhealthy) or "none")
+      WISE_REVIEW_HEALTH
+    outputs: [missing_reviews]
+    timeout: 15
+    depends_on: [review-correctness, review-security, review-tests]
+    trigger-rule: all-done
+
+  - id: review-errors
+    type: ask
+    when: "missing_reviews != 'none'"
+    message: |
+      These review lenses failed or did not produce reports: {{missing_reviews}}.
+      Continue with the available reports and keep the run marked failed,
+      or stop now and start a new review run after fixing the provider problem.
+    options: ["Continue with available reports", "Stop and start a new review run"]
+    output: review_failure_action
+    depends_on: [review-health]
+
   # --- curate: one findings file -----------------------------------------
 
   - id: curate
     type: agent
     group: curate
-    when: "commit_count != 0"
+    when: "commit_count != 0 && (missing_reviews == 'none' || review_failure_action == 'Continue with available reports')"
     prompt: |
       Merge the three reviewer reports for the branch in
       {{project.path}} (`origin/{{base}}..HEAD`) into one findings list.
       Read `{{run.dir}}/review/correctness.md`, `{{run.dir}}/review/security.md`
-      and `{{run.dir}}/review/tests.md` (a missing or empty file means
-      that reviewer found nothing).
+      and `{{run.dir}}/review/tests.md`. An empty file means that reviewer
+      found nothing. A missing file is a failed lens the user explicitly
+      chose to continue without.
 
       Dedupe by file:line. Keep only high-confidence, concrete findings:
       correctness bugs, security issues, and clear quality problems
@@ -291,7 +328,7 @@ steps:
       additionalProperties: false
     outputs: [findings, blocking, findings_path]
     allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
-    depends_on: [review-correctness, review-security, review-tests]
+    depends_on: [review-health, review-errors]
     trigger-rule: none-failed
 
   # --- verify (optional): refute each finding against the code -----------

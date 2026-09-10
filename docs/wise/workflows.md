@@ -615,12 +615,14 @@ Children in flight are capped globally and per harness: global 4,
 
 ## Pre-flight questionary
 
-`wise_preflight {workflow, cwd, answers?}` returns `{workflow, version,
-questions, defaults, requires_missing}`. Question ids double as answer
-keys. The questionary is staged: the answers so far decide which
-questions come next, so the conductor calls it again with everything
-answered until `questions` is empty. An answered question is never
-repeated.
+`wise_preflight {workflow, cwd, answers?, interactive?}` returns
+`{workflow, version, questions, defaults, requires_missing}`. With
+UI mode is the default. With `interactive: true`, the MCP server presents every question through the
+host's form elicitation UI and returns `questions: []` plus `answers`.
+Without it, question ids double as answer keys and the raw questionary
+is staged: the answers so far decide which questions come next, so an
+API client calls it again with everything answered until `questions` is
+empty. An answered question is never repeated.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|
@@ -657,11 +659,13 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 `composer-2.5`, `gpt-5.6-sol`, `claude-opus-5` (no effort flag); grok `grok-4.6`; gemini
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-The conductor renders every question with `AskUserQuestion` (a choice
-with more than four options shows the first four and names the rest in
-the question text, answered through the Other field), skips
-`locked: true` questions and inputs filled positionally, then calls
-`wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
+The conductor requests `interactive: true`, so the MCP server renders
+one question at a time through the host's form UI. A host without MCP
+form support may use its native structured picker against the raw
+questionary; it must never substitute ordinary chat. The terminal
+client provides the equivalent TUI with `run --interactive`. Locked
+questions and inputs filled positionally are skipped. The conductor
+then calls `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
 the same staged questionary over the answers it was given and refuses
 with `MISSING_ANSWERS` (listing the open questions) when any
 `step-select`, `harness.<group>`, `permissions.<harness>`, `model.<group>` or `effort.<group>`
@@ -896,7 +900,7 @@ descriptions the model reads are in `engine/src/mcp.ts`.
 
 | Tool | Params | Returns |
 |---|---|---|
-| `wise_preflight` | `workflow`, `cwd`, `answers?` | `{workflow, version, questions, defaults, requires_missing}`. Read-only; call again with the answers so far until `questions` is empty. |
+| `wise_preflight` | `workflow`, `cwd`, `answers?`, `interactive?` | By default, opens MCP form UI for each question and returns `questions: []` plus `answers`; fails with `INTERACTIVE_UI_REQUIRED` when the host lacks form support. `interactive: false` returns the raw `{workflow, version, questions, defaults, requires_missing}` questionary for API clients. Read-only. |
 | `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `AUTH_REQUIRED {login_cmd}`. |
 | `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
 | `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |
@@ -922,7 +926,7 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 | `compile-check <workflow>...` | Validate definitions; exit 1 on any error. Issues carry `path`, `level`, `message`, `hint`. |
 | `migrate <workflow.yaml> [--write] [--out <path>]` | Rewrite v1 as v2. Dry run by default; `--write` keeps `<file>.v1.bak`; exit 1 when the result still has errors. |
 | `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |
-| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--follow] [--timeout-ms]` | Start a run through the daemon. `--follow` streams events and answers gates from stdin. |
+| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--interactive] [--follow] [--timeout-ms]` | Start a run through the daemon. `--interactive` asks every preflight question in the terminal instead of filling defaults for a script; `--follow` streams events and answers gates from stdin. |
 | `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
 | `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. A long-lived MCP server re-reads that id from disk before every `wise_preflight` / `wise_run`, so a plugin update under an open desktop session also replaces the daemon. |
 | `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |

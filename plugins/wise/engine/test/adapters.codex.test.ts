@@ -319,6 +319,27 @@ test("parser: schema expected but final message is not JSON becomes error", () =
   assert.equal(res.cursor, "t1");
 });
 
+test("parser: advisory error items remain warnings after a completed turn", () => {
+  const stream =
+    line({ type: "thread.started", thread_id: "t-warning" }) +
+    line({ type: "turn.started" }) +
+    line({
+      type: "item.completed",
+      item: { type: "error", message: "Skill descriptions were shortened to fit the budget." },
+    }) +
+    line({
+      type: "item.completed",
+      item: { type: "agent_message", text: '{"findings":2}' },
+    }) +
+    line({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } });
+  const { res, snap } = parseAll(stream);
+  assert.equal(res.exit, "ok");
+  assert.deepEqual(res.json, { findings: 2 });
+  assert.deepEqual(res.warnings, ["Skill descriptions were shortened to fit the budget."]);
+  assert.deepEqual(snap.errors, []);
+  assert.deepEqual(snap.warnings, res.warnings);
+});
+
 // ---- parser: exit classification ---------------------------------------------------------------------
 
 test("parser: exit classification table", () => {
@@ -348,6 +369,13 @@ test("parser: exit classification table", () => {
       stream: line({ type: "error", message: "429 Too Many Requests" }),
       exit: { code: 1 },
       expect: "rate_limited",
+    },
+    {
+      name: "error item without completion remains a failure",
+      stream: line({ type: "item.completed", item: { type: "error", message: "rate limit" } }),
+      exit: { code: 1 },
+      expect: "rate_limited",
+      error: /rate limit/,
     },
     {
       name: "auth in error event",

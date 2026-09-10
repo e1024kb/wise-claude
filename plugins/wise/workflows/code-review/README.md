@@ -21,7 +21,8 @@ model and effort is a pre-flight choice. The definition is a
 `version: 2` workflow run by the TS engine: each step is an isolated
 harness child, so the reviewers hand their findings to the curator
 through files under `<run-dir>/review/` and only counts travel as
-outputs. No prompts after launch, never pushes.
+outputs. If a reviewer fails, the run pauses for a recovery choice. It
+never pushes.
 
 ## When to use
 
@@ -60,18 +61,23 @@ flowchart TD
     B --> C[review-correctness<br/>agent → correctness_findings]
     B --> D[review-security<br/>agent → security_findings]
     B --> E[review-tests<br/>agent → tests_findings]
-    C --> F[curate<br/>agent → findings, findings_path]
-    D --> F
-    E --> F
+    C --> J[review-health<br/>bash → missing_reviews]
+    D --> J
+    E --> J
+    J --> K{reports missing?}
+    K -->|yes| L[review-errors<br/>ask: continue or stop]
+    K -->|no| F[curate<br/>agent → findings, findings_path]
+    L -->|continue| F
     F --> G[verify<br/>agent, optional → kept, refuted]
     G --> H[apply<br/>agent, mode=apply → applied, skipped, committed]
     H --> I[finalize<br/>bash]
 ```
 
 The three reviewers share `depends_on: [count-commits]` and run as one
-parallel wave. `curate`, `apply` and `finalize` carry `none-failed` /
-`all-done` trigger rules, so a deselected `verify` or a skipped `apply`
-(`mode=report`, or an empty change set) never blocks the summary.
+parallel wave. `review-health` waits for every lens even when one fails;
+the conditional `review-errors` gate lets the user continue with the
+available reports or stop and retry. A deselected `verify` or a skipped
+`apply` (`mode=report`, or an empty change set) never blocks the summary.
 
 Pre-flight asks one multi-select over the optional `verify` pass
 (selected by default) and the inputs below first; then, per tuning
@@ -95,9 +101,11 @@ are never repeated.
 | `review-correctness` | `agent` | Correctness and logic lens over the diff: wrong conditions, unhandled error paths, broken invariants, races, leaks. Writes `<run-dir>/review/correctness.md`; read-only. `correctness` group. |
 | `review-security` | `agent` | Security and input-handling lens: injection, missing validation, secrets, skipped auth, unsafe defaults. Writes `<run-dir>/review/security.md`; read-only. `security` group. |
 | `review-tests` | `agent` | Test-coverage lens: untested behaviour, stale assertions, weakened tests, flaky patterns. Writes `<run-dir>/review/tests.md`; read-only. `tests` group. |
-| `curate` | `agent` | Merges the three reports, dedupes by `file:line`, keeps only concrete correctness / security / clear-quality findings on touched lines, respects the plan's `## Decisions Made` and the guidance. Writes `<run-dir>/review/findings.md`. `curate` group; `trigger-rule: none-failed`. |
+| `review-health` | `bash` | Waits for every reviewer and records any failed lens or missing report. `trigger-rule: all-done`. |
+| `review-errors` | `ask` | Opens only when a reviewer failed or its report is missing. The user chooses whether to continue with available reports or stop and start a fresh review after fixing the provider. |
+| `curate` | `agent` | Merges the available reports after the health check, dedupes by `file:line`, keeps only concrete correctness / security / clear-quality findings on touched lines, respects the plan's `## Decisions Made` and the guidance. Writes `<run-dir>/review/findings.md`. `curate` group. |
 | `verify` | `agent` | Optional (`step-select`). Tries to refute every kept finding against the code, defaulting to refuted when ambiguous; rewrites the findings file with the survivors. `when: findings != 0`. `verify` group. |
-| `apply` | `agent` | `when: mode == 'apply' && findings_path` (never runs when `curate` was skipped because a reviewer failed). Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |
+| `apply` | `agent` | `when: mode == 'apply' && findings_path`. Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |
 | `finalize` | `bash` | One summary line with the range, the counts and the findings file. `trigger-rule: all-done`. |
 
 **Model tiering**: every group defaults to `opus / high`. The pre-flight

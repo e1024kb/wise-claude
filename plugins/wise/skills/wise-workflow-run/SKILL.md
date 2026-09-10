@@ -37,8 +37,11 @@ instead.
 
 ## 2. Pre-flight
 
-`wise_preflight {workflow, cwd, answers}`; `cwd` is the absolute git
-toplevel, else pwd; `answers` is `{}` on the first call.
+`wise_preflight {workflow, cwd, answers, interactive: true}`; `cwd` is
+the absolute git toplevel, else pwd; `answers` is `{}` on the first
+call. The MCP server owns the interaction and opens one host form per
+question. On success it returns `questions: []` plus the collected
+`answers`; pass those answers to `wise_run`.
 
 - `WORKFLOW_NOT_FOUND`: say so, stop.
 - `WORKFLOW_INVALID` whose `issues[]` name a v1 construct (`path:
@@ -51,8 +54,17 @@ toplevel, else pwd; `answers` is `{}` on the first call.
   (`plugin:<name>` needs `/plugin install`, `tool:<name>` needs the
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
   until they are installed.
+- `PREFLIGHT_CANCELLED`: stop without starting a run.
+- `INTERACTIVE_UI_REQUIRED`: never print the questions or ask them in
+  ordinary chat. Call `wise_preflight` with `interactive: false` and
+  render its staged questions only through the harness's native
+  structured picker (`AskUserQuestion` on Claude Code,
+  `request_user_input` on Codex, or the equivalent GUI on another
+  harness). If this session has no native picker, stop and give the
+  terminal fallback:
+  `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh run <workflow> --cwd <cwd> --interactive --follow --text`.
 
-The questionary is staged. The first call returns `step-select`
+The questionary is staged. The first form asks `step-select`
 (which optional steps run) and the `input.<name>` questions. Once
 `step-select` is answered the tuning stages follow, for every group a
 step that will run uses (selected, and not ruled out by a `when:` the
@@ -63,10 +75,8 @@ with its login command in the option). Once all harness choices are settled,
 it asks `permissions.<harness>` once per selected or fallback provider
 (`Auto` recommended, `Approval required`, or `Bypass permissions`), then which model of that CLI
 (`model.<group>`, the engine's catalog), then the effort that model
-takes (`effort.<group>`). Each answer unlocks the next stage, so loop:
-render the questions returned, merge the answers into `answers`, call
-`wise_preflight` again with them, until `questions` is empty. An
-answered question is never returned twice.
+takes (`effort.<group>`). Each accepted form unlocks the next stage.
+An answered question is never returned twice.
 
 MUST: every `harness.<group>`, `permissions.<harness>`, `model.<group>`, `effort.<group>` and
 `step-select` question the engine returns is put to the user. Never
@@ -76,17 +86,13 @@ model question is not asked is when the engine did not return it
 (one CLI installed, a one-model catalog, a one-effort model). `wise_run`
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
-Render each batch with one composite AskUserQuestion (four questions
-per call at most): `choice` single-select with the default option
-first, `multi` multiSelect with defaults listed first, `text` free text
-with the default offered. Every question goes through the picker, never
-a printed list. A `choice` with more than four options: the first four
-(default first) are the picker's options, the rest are named in the
-question text (`Other: <label> (<value>), ...`) and reach you through
-the picker's Other field as a label or value; map that text back to the
-option's value. Skip `locked: true` questions and `input.<name>` filled
-positionally. Key answers by question id. Ask every question returned;
-never answer one for the user or drop it to save a call.
+The normal path never renders the questionary in model text: MCP form
+elicitation presents the choices, labels, descriptions and defaults in
+the host UI. In the native-picker fallback, use one structured picker
+question at a time, preserve the defaults and option values, skip
+`locked: true` questions and `input.<name>` filled positionally, and
+call raw `wise_preflight` after each answer to unlock the next stage.
+Never answer one for the user or drop it to save a call.
 
 ## 3. Context and start
 
@@ -124,8 +130,9 @@ with a ticket that has no body.
 `wise_run {workflow, cwd, answers, context, inputs}` returns
 `run_id`. Print `Run <run_id> started (<workflow>).` `MISSING_ANSWERS`
 lists every pre-flight question still without an answer (a tuning
-stage you skipped, a required input): go back to the §2 loop, ask
-them with AskUserQuestion, then call `wise_run` again.
+stage you skipped, a required input): go back to the §2 interactive
+preflight, then call `wise_run` again. Never repair it through plain
+chat.
 
 ## 4. Wait loop
 
