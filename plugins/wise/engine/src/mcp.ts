@@ -265,11 +265,12 @@ const DESCRIPTIONS: Record<McpToolName, string> = {
     "Call before wise_run, in a loop. Returns the questions the answers so far leave open " +
     "{workflow, version, questions, defaults}: ask the user EVERY one of them, then call again with " +
     "every answer collected until questions is empty, then wise_run. step-select (which optional " +
-    "steps run) and input.<name> come first; the tuning stages follow once step-select is answered, " +
+    "steps run) and input.<name> come first; provider and tuning stages follow once step-select is answered, " +
     "for the groups of steps that will run (selected, and not ruled out by a when: gate the inputs " +
-    "already settle): harness.<group> (which installed CLI: claude, codex, " +
-    "grok, gemini; asked whenever two or more are installed, a logged-out one is flagged with its " +
-    "login command), then model.<group> (that harness's model catalog), then effort.<group> (that " +
+    "already settle): harness.<group> (which installed CLI: claude, codex, cursor, gemini, " +
+    "grok; asked whenever two or more are installed, a logged-out one is flagged with its login " +
+    "command), then permissions.<harness> once per provider (auto is recommended; bypass permissions " +
+    "is available), then model.<group> (that harness's model catalog), then effort.<group> (that " +
     "model's efforts; skipped when it has one or none). Never answer a question for the user: wise_run " +
     "refuses a run whose pre-flight questions were not all answered. requires_missing lists " +
     "plugin:<name> / tool:<name> the workflow declares but the machine lacks; wise_run refuses with " +

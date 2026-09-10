@@ -204,6 +204,7 @@ test("test_start_run_merges_inputs_and_flips_running", () => {
       answers: { "control-mode": "wave-sync" },
       project: { path: "/tmp/proj", name: "proj", kind: "backend" },
       inputs: { ticket: "ABC-1" },
+      providerPermissions: { claude: "auto", cursor: "full-access" },
     },
     { now: "2099-01-01T00:00:00Z" },
   );
@@ -213,6 +214,7 @@ test("test_start_run_merges_inputs_and_flips_running", () => {
   assert.equal(state.project?.kind, "backend");
   assert.deepEqual(state.outputs, { ticket: "ABC-1" });
   assert.deepEqual(state.inputs, { ticket: "ABC-1" });
+  assert.deepEqual(state.provider_permissions, { claude: "auto", cursor: "full-access" });
   assert.ok(state.last_activity_at > before);
   assert.equal(state.last_activity_at, "2099-01-01T00:00:00Z");
   assert.deepEqual(readState(runDir), state);

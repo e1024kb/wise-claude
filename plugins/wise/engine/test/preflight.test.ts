@@ -62,6 +62,7 @@ function errorAt(list: ValidationIssue[], path: string, re?: RegExp): Validation
 function questionIds(def: WorkflowDef): string[] {
   return buildQuestionary(def).questions.map((q) => q.id);
 }
+const AUTO_CLAUDE = { "permissions.claude": "auto" } as const;
 
 // ---- get-preflight ------------------------------------------------------------------------------
 
@@ -69,7 +70,7 @@ test("test_preflight_new_keys_default_skip", () => {
   // No `preflight:` block: nothing pinned, the questionary is still built.
   const def = valid(doc());
   assert.equal(def.preflight, undefined);
-  assert.deepEqual(questionIds(def), []);
+  assert.deepEqual(questionIds(def), ["permissions.claude"]);
 });
 
 test("test_preflight_new_keys_accept_prompt", () => {
@@ -124,7 +125,7 @@ test("test_get_tuning_emits_step_defaults", () => {
     }),
   );
   // One harness ready (none given): the harness stage is silent, the model stage asks.
-  const [g0, g1] = buildQuestionary(def).questions;
+  const [g0, g1] = buildQuestionary(def, {}, AUTO_CLAUDE).questions;
   assert.equal(g0?.id, "model.authoring");
   assert.equal(g0?.label, "Which claude model: Plan authoring?");
   assert.deepEqual(
@@ -349,7 +350,11 @@ function profilesDoc(profiles: unknown): Doc {
 test("test_get_profiles_empty_when_absent", () => {
   const def = valid(doc());
   assert.equal(def.profiles, undefined);
-  assert.deepEqual(buildQuestionary(def).questions, [], "no profile question in v2");
+  assert.deepEqual(
+    buildQuestionary(def).questions.map((q) => q.id),
+    ["permissions.claude"],
+    "only the provider permission question is present",
+  );
 });
 
 test("test_get_profiles_full_shape", () => {
@@ -385,7 +390,7 @@ test("test_get_profiles_model_only_tuning_value", () => {
   assert.deepEqual(def.profiles?.medium?.tuning?.authoring, { model: "sonnet" });
   // A partial `medium` override keeps the group's other fields (P2 example) and seeds the model
   // question's default; `sonnet` caps at `medium` effort in the catalog.
-  const asked = buildQuestionary(def, {}, { "step-select": ["a"] }).questions;
+  const asked = buildQuestionary(def, {}, { "step-select": ["a"], ...AUTO_CLAUDE }).questions;
   assert.equal(asked.find((q) => q.id === "model.authoring")?.default, "claude-sonnet-5");
   assert.deepEqual(applyAnswers(def, {}).tuning.authoring, {
     harness: "claude",
@@ -570,13 +575,28 @@ test("buildQuestionary order: step-select and inputs first, tuning stages once s
   // step-select answered: the first tuning stage of every active group, inputs still open. The
   // mode inputs sit on their defaults (review auto, plan-only), which rule refine-plan and
   // implement out before their groups are asked.
-  const selected = buildQuestionary(def, {}, { "step-select": ALL_STAGES }).questions;
+  const selected = buildQuestionary(
+    def,
+    {},
+    {
+      "step-select": ALL_STAGES,
+      ...AUTO_CLAUDE,
+    },
+  ).questions;
   assert.deepEqual(
     selected.map((q) => q.id),
     [...INPUT_IDS, ...DEFAULT_MODE_GROUPS.map((g) => `model.${g}`)],
   );
   // Modes that keep those steps in play bring every group back.
-  const all = buildQuestionary(def, {}, { "step-select": ALL_STAGES, ...ALL_MODES }).questions;
+  const all = buildQuestionary(
+    def,
+    {},
+    {
+      "step-select": ALL_STAGES,
+      ...ALL_MODES,
+      ...AUTO_CLAUDE,
+    },
+  ).questions;
   assert.deepEqual(
     all.map((q) => q.id).filter((id) => !id.startsWith("input.")),
     stageIds("model"),
@@ -585,7 +605,7 @@ test("buildQuestionary order: step-select and inputs first, tuning stages once s
 
 test("buildQuestionary: a when: gate the known inputs settle false drops the step's group", () => {
   const def = ticketPlan();
-  const base = { "step-select": ALL_STAGES };
+  const base = { "step-select": ALL_STAGES, ...AUTO_CLAUDE };
   const ids = (answers: Record<string, string | string[]>): string[] =>
     buildQuestionary(def, {}, answers)
       .questions.map((q) => q.id)
@@ -637,7 +657,7 @@ test("buildQuestionary: a group only deselected steps bind is not asked and keep
   const some = buildQuestionary(
     def,
     {},
-    { "step-select": ["analyze-related"], ...ALL_MODES },
+    { "step-select": ["analyze-related"], ...ALL_MODES, ...AUTO_CLAUDE },
   ).questions;
   assert.deepEqual(
     some.map((q) => q.id).filter((id) => !id.startsWith("input.")),
@@ -645,7 +665,7 @@ test("buildQuestionary: a group only deselected steps bind is not asked and keep
     "analyze-design, research-context and gap-analysis were deselected",
   );
   // Nothing selected: the same, since the four optional steps are the deselected ones.
-  const none = buildQuestionary(def, {}, { "step-select": [] }).questions;
+  const none = buildQuestionary(def, {}, { "step-select": [], ...AUTO_CLAUDE }).questions;
   assert.ok(!none.some((q) => q.id.endsWith(".analyze-design")));
   const applied = applyAnswers(def, { "step-select": [] });
   assert.deepEqual(applied.tuning["analyze-design"], {
@@ -660,10 +680,16 @@ test("buildQuestionary: a group only deselected steps bind is not asked and keep
       { id: "a", type: "agent", prompt: "x", group: "g" },
     ]),
   );
-  assert.deepEqual(questionIds(plain), ["model.g"]);
+  assert.deepEqual(
+    buildQuestionary(plain, {}, AUTO_CLAUDE).questions.map((q) => q.id),
+    ["model.g"],
+  );
   // A group no step binds is always asked.
   const unbound = valid(doc({ tuning: { groups: [{ id: "g", default: { model: "opus" } }] } }));
-  assert.deepEqual(questionIds(unbound), ["model.g"]);
+  assert.deepEqual(
+    buildQuestionary(unbound, {}, AUTO_CLAUDE).questions.map((q) => q.id),
+    ["model.g"],
+  );
 });
 
 test("buildQuestionary: locked groups ask nothing and keep their declared value", () => {
@@ -682,7 +708,7 @@ test("buildQuestionary: locked groups ask nothing and keep their declared value"
 
 test("buildQuestionary: stages unlock one at a time and answered questions are not repeated", () => {
   const def = ticketPlan();
-  const ready = ["claude", "codex", "grok", "gemini"] as const;
+  const ready = ["claude", "codex", "cursor", "grok", "gemini"] as const;
   // Stage 0: step-select (and the inputs), nothing about any group yet.
   const s0 = buildQuestionary(def, { harnesses: ready });
   assert.deepEqual(
@@ -704,7 +730,7 @@ test("buildQuestionary: stages unlock one at a time and answered questions are n
   );
   assert.equal(hq?.default, "claude");
   assert.equal(s1.defaults["harness.analyze-design"], "claude");
-  // Stage 2: the model catalog of the harness each group picked.
+  // Stage 2: one permission floor for each provider selected by a group or fallback.
   const a2 = {
     ...a1,
     ...Object.fromEntries(
@@ -715,19 +741,44 @@ test("buildQuestionary: stages unlock one at a time and answered questions are n
   const ids2 = s2.questions.map((q) => q.id);
   assert.deepEqual(
     ids2.filter((id) => !id.startsWith("input.")),
+    ["permissions.claude", "permissions.codex"],
+  );
+  const permission = s2.questions.find((q) => q.id === "permissions.codex");
+  assert.equal(permission?.default, "auto");
+  assert.deepEqual(
+    permission?.options?.map((o) => [o.value, o.label]),
+    [
+      ["auto", "Auto (recommended)"],
+      ["approval-required", "Approval required"],
+      ["full-access", "Bypass permissions"],
+    ],
+  );
+  // Stage 3: the model catalog of the harness each group picked.
+  const aPermissions = {
+    ...a2,
+    "permissions.codex": "auto",
+    "permissions.claude": "auto",
+  };
+  const modelStage = buildQuestionary(def, { harnesses: ready }, aPermissions);
+  const modelIds = modelStage.questions.map((q) => q.id);
+  assert.deepEqual(
+    modelIds.filter((id) => !id.startsWith("input.")),
     stageIds("model"),
   );
-  const codexQ = s2.questions.find((q) => q.id === "model.analyze-design");
+  const codexQ = modelStage.questions.find((q) => q.id === "model.analyze-design");
   assert.equal(codexQ?.label, "Which codex model: Design spec?");
   assert.deepEqual(
     codexQ?.options?.map((o) => o.value),
     ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
   );
   assert.equal(codexQ?.default, "gpt-6-astra", "a Claude pin means nothing to codex: first entry");
-  assert.equal(s2.questions.find((q) => q.id === "model.build-plan")?.default, "claude-opus-5");
-  // Stage 3: the efforts of the chosen model; a one-effort model asks nothing.
+  assert.equal(
+    modelStage.questions.find((q) => q.id === "model.build-plan")?.default,
+    "claude-opus-5",
+  );
+  // Stage 4: the efforts of the chosen model; a one-effort model asks nothing.
   const a3 = {
-    ...a2,
+    ...aPermissions,
     ...Object.fromEntries(GROUPS.map((g) => [`model.${g}`, "claude-haiku-4-5"])),
     "model.analyze-design": "gpt-5.6-luna",
   };
@@ -755,7 +806,7 @@ test("buildQuestionary: a single installed harness or an unprobed context skips 
   const def = ticketPlan();
   const a = { "step-select": ALL_STAGES, ...ALL_MODES };
   for (const ctx of [{}, { harnesses: ["claude"] as const }, { harnesses: [] as const }] as const) {
-    const ids = buildQuestionary(def, ctx, a)
+    const ids = buildQuestionary(def, ctx, { ...a, ...AUTO_CLAUDE })
       .questions.map((q) => q.id)
       .filter((id) => !id.startsWith("input."));
     assert.ok(!ids.some((id) => id.startsWith("harness.")), JSON.stringify(ctx));
@@ -765,7 +816,7 @@ test("buildQuestionary: a single installed harness or an unprobed context skips 
   const grok = buildQuestionary(
     def,
     { harnesses: ["claude", "grok"] },
-    { ...a, "harness.analyze-design": "grok" },
+    { ...a, "harness.analyze-design": "grok", "permissions.grok": "auto", ...AUTO_CLAUDE },
   );
   assert.ok(!grok.questions.some((q) => q.id.endsWith(".analyze-design")));
   assert.deepEqual(
@@ -863,6 +914,7 @@ test("completeAnswers: walks every stage to its defaults; explicit answers steer
     [
       ["step-select", ALL_STAGES],
       ...DEFAULT_MODE_GROUPS.map((g) => [`harness.${g}`, "claude"]),
+      ["permissions.claude", "auto"],
       ...DEFAULT_MODE_GROUPS.map((g) => [`model.${g}`, "claude-opus-5"]),
       ...DEFAULT_MODE_GROUPS.map((g) => [`effort.${g}`, "high"]),
     ],

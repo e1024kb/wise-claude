@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decidePermission, isReadMcpTool, mcpToolPart, nameTokens } from "../src/permissions.ts";
+import {
+  decidePermission,
+  effectiveMode,
+  isReadMcpTool,
+  mcpToolPart,
+  nameTokens,
+  providerPermission,
+} from "../src/permissions.ts";
 
 test("nameTokens: camelCase, snake_case and kebab-case split the same way", () => {
   assert.deepEqual(nameTokens("getJiraIssue"), ["get", "jira", "issue"]);
@@ -60,7 +67,7 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   assert.equal(bash.behavior, "deny");
   assert.match(
     bash.behavior === "deny" ? bash.message : "",
-    /^Bash .*allowed_tools.*permissions: full/,
+    /^Bash .*allowed_tools.*Bypass permissions/,
   );
   assert.equal(decidePermission("Edit", {}).behavior, "deny");
   assert.equal(decidePermission("mcp__slack__slack_send_message", {}).behavior, "deny");
@@ -69,10 +76,42 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   assert.equal(decidePermission("ReadMcpResourceDirTool", {}).behavior, "allow");
 });
 
-test("decidePermission: Skill and TodoWrite are not auto-allowed", () => {
+test("decidePermission: approval-required stays read-only; auto allows ordinary local mutations", () => {
   // `Skill` can activate a skill whose own `allowed-tools` pre-approves mutating tools without
   // ever reaching this decision; `TodoWrite` writes state. Neither belongs in READ_ONLY_BUILTINS.
   assert.equal(decidePermission("Skill", {}).behavior, "deny");
   assert.equal(decidePermission("TodoWrite", {}).behavior, "deny");
   assert.equal(decidePermission("TodoRead", {}).behavior, "allow");
+  assert.equal(decidePermission("Edit", {}, { mode: "auto" }).behavior, "allow");
+  assert.equal(decidePermission("TodoWrite", {}, { mode: "auto" }).behavior, "allow");
+  assert.equal(
+    decidePermission("Bash", { command: "npm test" }, { mode: "auto" }).behavior,
+    "allow",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: "rm -rf ./dist" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: "echo ready\nrm -rf ./dist" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("mcp__slack__slack_send_message", {}, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(decidePermission("Skill", {}, { mode: "auto" }).behavior, "deny");
+});
+
+test("permission floors preserve stronger step requirements and support legacy state", () => {
+  assert.equal(effectiveMode("approval-required", "auto"), "auto");
+  assert.equal(effectiveMode("full-access", "auto"), "full-access");
+  assert.equal(effectiveMode(undefined, "approval-required"), "approval-required");
+  assert.equal(
+    providerPermission({ provider_permissions: { cursor: "full-access" } }, "cursor"),
+    "full-access",
+  );
+  assert.equal(providerPermission({ permissions: "full" }, "claude"), "full-access");
+  assert.equal(providerPermission({ permissions: "allowlist" }, "codex"), "approval-required");
+  assert.equal(providerPermission({}, "gemini"), "auto");
 });

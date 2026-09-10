@@ -495,10 +495,11 @@ test("every resolution carries the harness, defaulting to claude", () => {
   assert.equal(first(team(teamDef(tmp()), "solo")).harness, "claude");
 });
 
-test("effortFor: identity for claude/codex/grok, none for gemini", () => {
+test("effortFor: identity for claude/codex/grok, none for cursor/gemini", () => {
   for (const harness of HARNESSES) {
     for (const effort of EFFORTS) {
-      const expected: Effort | undefined = harness === "gemini" ? undefined : effort;
+      const expected: Effort | undefined =
+        harness === "cursor" || harness === "gemini" ? undefined : effort;
       assert.equal(effortFor(harness, effort), expected, `${harness}/${effort}`);
     }
   }

@@ -45,7 +45,7 @@ outputs. No prompts after launch, never pushes.
 ## Prerequisites
 
 - `/wise-init` completed at least once (bun or Node 24 for the engine,
-  `claude` logged in; `codex` / `grok` / `gemini` logins only when you
+  `claude` logged in; `codex` / `cursor-agent` / `gemini` / `grok` logins only when you
   pick them at pre-flight).
 - Run from inside the git repository on the branch under review, with
   every change committed. `origin/<base>` must exist (the workflow
@@ -81,7 +81,10 @@ which CLI runs it when more than one is installed, then which model
 from the engine's catalog for that CLI, then the effort that model
 takes. Every question is put to the user; deselecting `verify` drops
 its group, and `mode: report` drops the `fix` group (its `apply` step
-is gated on `mode == 'apply'`). Answered questions are never repeated.
+is gated on `mode == 'apply'`). Once the harnesses are settled, one
+permission-floor question is asked per selected or fallback provider
+(`Auto` recommended; `Bypass permissions` available). Answered questions
+are never repeated.
 
 ## Steps
 
@@ -131,7 +134,7 @@ tree), so a `report` run leaves nothing in the working tree.
 
 ```
 /wise-workflow-run code-review
-# Pre-flight asks harness, model and effort per group, whether to run
+# Pre-flight asks harness, provider permissions, model and effort per group, whether to run
 # the verification pass, and the inputs; then reviews origin/<default>..HEAD,
 # applies the kept findings and commits them.
 

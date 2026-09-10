@@ -2,13 +2,14 @@
 // `step-select` comes first (with the stage-free `input.<name>` questions): which optional steps
 // run, and which `when:` gates the inputs already settle, decide which tuning groups matter.
 // Then, per unlocked group some step that will run binds, the questions come in stages, each
-// unlocked by the answer before it: `harness.<group>` (which installed CLI), then
-// `model.<group>` (that harness's catalog), then `effort.<group>` (that model's efforts). The
+// unlocked by the answer before it: every `harness.<group>` (which installed CLI), one
+// `permissions.<harness>` per selected or fallback provider, then `model.<group>` (that harness's
+// catalog), then `effort.<group>` (that model's efforts). The
 // conductor calls `preflight` again with the answers so far until no new question appears.
 // `buildQuestionary` and the helpers below it are pure: no I/O. `buildQuestionaryWithAuth`
 // (D22/D23) is the one exception: it probes login state for any `harness.<group>` question.
 
-import { HARNESSES } from "./types.ts";
+import { HARNESSES, RUN_MODES } from "./types.ts";
 import type {
   Answers,
   Context,
@@ -17,6 +18,7 @@ import type {
   ProfileLevel,
   Question,
   QuestionOption,
+  RunMode,
   Step,
   TuningDefault,
   TuningGroup,
@@ -82,6 +84,44 @@ type Stage = {
   questions: Question[];
 };
 
+type HarnessStage = { base: TuningDefault; harness?: Harness; question?: Question };
+
+/** Resolve only the harness stage so every provider is known before permission questions. */
+function stageHarness(
+  def: WorkflowDef,
+  group: TuningGroup,
+  answers: Answers,
+  installed: readonly Harness[] | undefined,
+  loggedOut: readonly Harness[] = [],
+): HarnessStage {
+  const base = groupBase(def, group);
+  const defaultHarness: Harness = base.harness ?? "claude";
+  const offered: Harness[] = [
+    defaultHarness,
+    ...(installed ?? []).filter((h) => h !== defaultHarness),
+  ];
+  const harnessAnswer = answerString(answers[`harness.${group.id}`]);
+  if (harnessAnswer !== undefined && isHarness(harnessAnswer)) {
+    return { base, harness: harnessAnswer };
+  }
+  if (offered.length <= 1) return { base, harness: defaultHarness };
+  const options: QuestionOption[] = offered.map((h) => {
+    const what = h === defaultHarness ? "the workflow's default" : `run these steps on ${h}`;
+    const login = loggedOut.includes(h) ? `; not logged in, run \`${LOGIN_CMDS[h]}\` first` : "";
+    return { value: h, label: h, description: what + login };
+  });
+  return {
+    base,
+    question: {
+      id: `harness.${group.id}`,
+      kind: "choice",
+      label: `Which CLI runs: ${group.label ?? group.id}?`,
+      options,
+      default: defaultHarness,
+    },
+  };
+}
+
 /**
  * Walk one unlocked group's stages against the answers so far. Each stage either records its
  * value (answered, or nothing to ask) and moves on, or emits its question and stops.
@@ -93,37 +133,16 @@ function stageGroup(
   installed: readonly Harness[] | undefined,
   loggedOut: readonly Harness[] = [],
 ): Stage {
-  const base = groupBase(def, group);
+  const harnessStage = stageHarness(def, group, answers, installed, loggedOut);
+  const base = harnessStage.base;
   const label = group.label ?? group.id;
   const stage: Stage = { base, questions: [] };
   const defaultHarness: Harness = base.harness ?? "claude";
-
-  // The default harness is always offered (the run's auth probe checks it); `installed` adds
-  // the rest. A logged-out CLI is still offered, flagged with its login command.
-  const offered: Harness[] = [
-    defaultHarness,
-    ...(installed ?? []).filter((h) => h !== defaultHarness),
-  ];
-  const harnessAnswer = answerString(answers[`harness.${group.id}`]);
-  if (harnessAnswer !== undefined && isHarness(harnessAnswer)) {
-    stage.harness = harnessAnswer;
-  } else if (offered.length > 1) {
-    const options: QuestionOption[] = offered.map((h) => {
-      const what = h === defaultHarness ? "the workflow's default" : `run these steps on ${h}`;
-      const login = loggedOut.includes(h) ? `; not logged in, run \`${LOGIN_CMDS[h]}\` first` : "";
-      return { value: h, label: h, description: what + login };
-    });
-    stage.questions.push({
-      id: `harness.${group.id}`,
-      kind: "choice",
-      label: `Which CLI runs: ${label}?`,
-      options,
-      default: defaultHarness,
-    });
+  if (harnessStage.question !== undefined) {
+    stage.questions.push(harnessStage.question);
     return stage;
-  } else {
-    stage.harness = defaultHarness;
   }
+  stage.harness = harnessStage.harness ?? defaultHarness;
   const harness = stage.harness;
 
   // A pin from another harness means nothing here; the catalog's first entry stands in.
@@ -164,6 +183,108 @@ function stageGroup(
     if (e !== undefined) stage.effort = e;
   }
   return stage;
+}
+
+/** Permission default from the legacy workflow pin; unpinned workflows recommend `auto`. */
+export function permissionDefault(def: WorkflowDef): RunMode {
+  if (def.preflight?.permissions === "full") return "full-access";
+  if (def.preflight?.permissions === "allowlist") return "approval-required";
+  return "auto";
+}
+
+function legacyPermissionAnswer(answers: Answers): RunMode | undefined {
+  const value = answerString(answers.permissions);
+  if (value === "full") return "full-access";
+  if (value === "allowlist") return "approval-required";
+  return value !== undefined && (RUN_MODES as readonly string[]).includes(value)
+    ? (value as RunMode)
+    : undefined;
+}
+
+function permissionQuestion(def: WorkflowDef, harness: Harness): Question {
+  return {
+    id: `permissions.${harness}`,
+    kind: "choice",
+    label: `Minimum permissions for ${harness}?`,
+    options: [
+      {
+        value: "auto",
+        label: "Auto (recommended)",
+        description: "workspace-scoped automatic execution; higher step requirements still win",
+      },
+      {
+        value: "approval-required",
+        label: "Approval required",
+        description: "keep restrictive step modes; headless permission requests may be denied",
+      },
+      {
+        value: "full-access",
+        label: "Bypass permissions",
+        description: "run this provider without its permission checks or sandbox",
+      },
+    ],
+    default: permissionDefault(def),
+  };
+}
+
+/** Harnesses an enabled step may use, including declared fallback routes, in first-use order. */
+export function activeHarnesses(
+  def: WorkflowDef,
+  enabled: ReadonlySet<string>,
+  activeGroups: ReadonlySet<string>,
+  answers: Answers,
+  installed: readonly Harness[] | undefined,
+  whenScope: Record<string, unknown> = {},
+): Harness[] {
+  const groupById = new Map((def.tuning?.groups ?? []).map((g) => [g.id, g]));
+  const groupHarness = new Map<string, Harness>();
+  for (const group of def.tuning?.groups ?? []) {
+    if (!activeGroups.has(group.id)) continue;
+    const staged = stageHarness(def, group, answers, installed);
+    groupHarness.set(group.id, staged.harness ?? group.default.harness ?? "claude");
+  }
+  const out: Harness[] = [];
+  const add = (harness: Harness): void => {
+    if (!out.includes(harness)) out.push(harness);
+  };
+  const addGroupFallbacks = (groupId: string | undefined): void => {
+    if (groupId === undefined) return;
+    for (const harness of groupById.get(groupId)?.fallback ?? []) add(harness);
+  };
+  for (const step of def.steps) {
+    if (!enabled.has(step.id) || !mayRun(step, whenScope)) continue;
+    if (step.type === "agent") {
+      const group = step.group === undefined ? undefined : groupById.get(step.group);
+      add(step.harness ?? (step.group ? groupHarness.get(step.group) : undefined) ?? "claude");
+      for (const harness of step.fallback ?? group?.fallback ?? []) add(harness);
+    } else if (step.type === "units") {
+      if (step.harness !== undefined) add(step.harness);
+      else {
+        const groupIds = Object.values(step.groups);
+        if (groupIds.length === 0) add("claude");
+        for (const groupId of groupIds) {
+          add(groupHarness.get(groupId) ?? groupById.get(groupId)?.default.harness ?? "claude");
+          addGroupFallbacks(groupId);
+        }
+      }
+      for (const harness of step.fallback ?? []) add(harness);
+    }
+  }
+  return out;
+}
+
+/** Answers persisted on a new run; legacy global answers seed every harness, then specific wins. */
+export function providerPermissions(answers: Answers): Partial<Record<Harness, RunMode>> {
+  const out: Partial<Record<Harness, RunMode>> = {};
+  const legacy = legacyPermissionAnswer(answers);
+  if (legacy !== undefined) for (const harness of HARNESSES) out[harness] = legacy;
+  for (const harness of HARNESSES) {
+    const value = answerString(answers[`permissions.${harness}`]);
+    if (value !== undefined && (RUN_MODES as readonly string[]).includes(value)) {
+      out[harness] = value as RunMode;
+    }
+  }
+  return out;
 }
 
 // ---- step-select / inputs ----------------------------------------------------------------------------
@@ -302,8 +423,9 @@ export function resolveFromContext(path: string, context: Context | undefined): 
  * Build the questionary for the answers given so far, in order: `step-select` when the workflow
  * has optional steps, `input.<name>` per declared input with `from-context` pre-fill, then, once
  * `step-select` is answered (or absent), per active unlocked tuning group the next unanswered
- * stage (`harness.<group>` when two or more harnesses are installed, `model.<group>`,
- * `effort.<group>`; a stage with one possible value is skipped). A group bound only by steps
+ * stage (`harness.<group>` when two or more harnesses are installed), one permission floor per
+ * active provider, then `model.<group>` and `effort.<group>`. A stage with one possible value is
+ * skipped. A group bound only by steps
  * that will not run (deselected, or with a `when:` the known inputs already make false) asks
  * nothing, and neither does a locked group. Answered questions are not repeated.
  */
@@ -338,7 +460,26 @@ export function buildQuestionary(
   const selected = answerList(answers["step-select"]);
   if (optional.length && selected === undefined) return { questions, defaults };
   const whenScope = { inputs: knownInputs(def, answers, ctx.context), answers };
-  const active = activeGroupIds(def, enabledStepIds(def, selected), whenScope);
+  const enabled = enabledStepIds(def, selected);
+  const active = activeGroupIds(def, enabled, whenScope);
+
+  // Settle every harness first. This makes the unique provider set stable before permission
+  // questions are shown, rather than interleaving one group's model with another's harness.
+  for (const group of def.tuning?.groups ?? []) {
+    if (group.locked || !active.has(group.id)) continue;
+    const question = stageHarness(def, group, answers, ctx.harnesses, ctx.loggedOut).question;
+    if (question !== undefined) push(question);
+  }
+  if (questions.some((q) => q.id.startsWith("harness."))) return { questions, defaults };
+
+  // A legacy global answer is accepted as the permission floor for every provider. New callers
+  // answer one question per provider so a fallback can carry a different risk posture.
+  if (legacyPermissionAnswer(answers) === undefined) {
+    const providers = activeHarnesses(def, enabled, active, answers, ctx.harnesses, whenScope);
+    for (const harness of providers) push(permissionQuestion(def, harness));
+  }
+  if (questions.some((q) => q.id.startsWith("permissions."))) return { questions, defaults };
+
   for (const group of def.tuning?.groups ?? []) {
     if (group.locked || !active.has(group.id)) continue;
     for (const q of stageGroup(def, group, answers, ctx.harnesses, ctx.loggedOut).questions)
@@ -380,6 +521,7 @@ export type Applied = {
   profile: ProfileLevel;
   /** Effective tuning per group: the staged answers over the group default. */
   tuning: Record<string, TuningDefault>;
+  providerPermissions: Partial<Record<Harness, RunMode>>;
   enabledSteps: Set<string>;
   inputs: Record<string, string>;
   caps: Record<string, number>;
@@ -426,7 +568,14 @@ export function applyAnswers(def: WorkflowDef, answers: Answers): Applied {
     if (value !== undefined) inputs[input.name] = value;
   }
 
-  return { profile, tuning, enabledSteps, inputs, caps: { ...profileDef?.caps } };
+  return {
+    profile,
+    tuning,
+    providerPermissions: providerPermissions(answers),
+    enabledSteps,
+    inputs,
+    caps: { ...profileDef?.caps },
+  };
 }
 
 // ---- answers -----------------------------------------------------------------------------------
@@ -478,7 +627,7 @@ export function completeAnswers(
   let inputs: Record<string, string> = {};
   // Every pass answers at least one more question or ends; the group count bounds the passes
   // (three stages per group, one for step-select and the inputs, one to confirm nothing is left).
-  for (let pass = 0; pass < 3 * (def.tuning?.groups.length ?? 0) + 3; pass++) {
+  for (let pass = 0; pass < 4 * (def.tuning?.groups.length ?? 0) + 4; pass++) {
     const q = buildQuestionary(def, ctx, answers);
     for (const question of q.questions) seen.set(question.id, question);
     const filled = fillAnswers(q.questions, answers);

@@ -148,7 +148,7 @@ describe("unit-mcp", () => {
       const res = await client.call("run", {
         workflow: "channel",
         cwd: r.cwd,
-        answers: {},
+        answers: { "permissions.claude": "auto" },
         context: {
           guidance: "keep it small",
           ticket: [{ ref: "LEC-1", title: "T", body: "the ticket body" }],
@@ -344,7 +344,7 @@ describe("unit-mcp", () => {
     const { run_id } = await client.call("run", {
       workflow: "channel",
       cwd: r.cwd,
-      answers: { "control-mode": "synchronous" },
+      answers: { "control-mode": "synchronous", "permissions.claude": "auto" },
       context: { decisions: { "Which base branch?": "release/2", risk: "low" } },
       inputs: {},
     });
@@ -386,7 +386,7 @@ describe("unit-mcp", () => {
     const { run_id } = await client.call("run", {
       workflow: "channel",
       cwd: r.cwd,
-      answers: {},
+      answers: { "permissions.claude": "auto" },
       context: {},
       inputs: {},
     });

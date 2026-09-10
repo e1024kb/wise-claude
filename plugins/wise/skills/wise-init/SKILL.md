@@ -6,7 +6,7 @@ description: >-
   the `claude` CLI login, gh CLI + `gh auth login`, markitdown for file-to-markdown extraction),
   self-check the workflow engine and its `wise-engine` MCP server, replace a daemon left
   running on an older engine build, check git over ssh from the engine's child environment,
-  report the optional harness CLIs (codex, grok, gemini), and cache the probe results so
+  report the optional harness CLIs (codex, cursor-agent, gemini, grok), and cache the probe results so
   workflow runs skip the live check.
   Idempotent — re-running only prompts for gaps.
   Invoked as `/wise-init` (bare alias) or `/wise:wise-init` (canonical).
@@ -57,7 +57,7 @@ First-time setup. I'll walk you through the system deps wise needs —
 Python 3, bun or Node ≥24 (the workflow engine runtime), the claude
 CLI login, the gh CLI (with auth), and markitdown (file → markdown text
 extraction) — then self-check the engine and its MCP server and report
-the optional harness CLIs (codex, grok, gemini). Re-runs are safe: I
+the optional harness CLIs (codex, cursor-agent, gemini, grok). Re-runs are safe: I
 skip what's already installed. After this I cache the probe results so
 future workflow runs skip the live check.
 ```
@@ -268,7 +268,7 @@ arguments.
 - `DAEMON_UNAVAILABLE`: MCP `failed`; print the error's message.
 
 **3e. Harness CLIs.** The engine can also dispatch steps to `codex`,
-`grok` and `gemini`; each is optional and a workflow that names one
+`cursor-agent`, `gemini` and `grok`; each is optional and a workflow that names one
 fails at pre-flight with `AUTH_REQUIRED` and the login command when it
 is missing.
 
@@ -291,8 +291,9 @@ Record:
              "daemon": "not-running" | "current" | "replaced" | "stale-busy"},
   "harnesses": {
     "codex":  {"installed": true|false, "login": "ok" | "missing", "login_cmd": "..."},
-    "grok":   {...},
-    "gemini": {...}
+    "cursor": {...},
+    "gemini": {...},
+    "grok":   {...}
   }
 }
 ```
@@ -579,7 +580,7 @@ overstates the connected count whenever `MCP_NEEDS_AUTH` or
 non-empty, appending `needs auth: <names>` and/or `failed: <names>` to
 the label — a non-empty `MCP_FAILED` must never be silently dropped
 from a row that otherwise reads as a success. Optional harness rows
-are `⚠`, never `✗`: a missing codex, grok or gemini blocks nothing
+are `⚠`, never `✗`: a missing codex, cursor-agent, gemini or grok blocks nothing
 until a workflow names it. `MCP restart-needed` is the one row that
 ends with an instruction (open a new session); `daemon replaced` names
 the old build that was stopped, `daemon stale-busy` says a run kept

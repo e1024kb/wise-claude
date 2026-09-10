@@ -3,13 +3,44 @@
 // A child runs with `--permission-prompt-tool stdio`: every tool call its permission mode would
 // prompt for arrives on stdout as a `control_request` (`can_use_tool`) and the engine answers it
 // on stdin. Rules the step pre-granted (`allowed_tools`) never reach here; `full-access` children
-// prompt for nothing. What does reach here is decided by shape: reading is allowed, changing
-// things is denied unless the step declared it. MCP tool names are classified by their verb, so
-// the policy holds for any server the CLI inherits (trackers, chat, docs) without a per-vendor list.
+// prompt for nothing. What does reach here is decided by shape: reading is allowed. Under
+// `approval-required`, changing things is denied unless the step declared it. Under `auto`,
+// ordinary local mutations and shell commands are allowed while destructive commands and
+// mutating external MCP calls stay denied.
+// `full-access` is normally handled by the CLI itself, but is accepted here for completeness.
+
+import type { Harness, Permissions, RunMode, State } from "./types.ts";
 
 export type PermissionDecision =
   | { behavior: "allow"; updatedInput: unknown }
   | { behavior: "deny"; message: string };
+
+const MODE_RANK: Readonly<Record<RunMode, number>> = {
+  "approval-required": 0,
+  auto: 1,
+  "full-access": 2,
+};
+
+/** Apply a provider-wide permission floor without weakening a step that asks for more. */
+export function effectiveMode(step: RunMode | undefined, floor: RunMode): RunMode {
+  // An omitted step mode inherits the provider choice. An explicit step mode is a requirement,
+  // so it may raise that choice but never weaken it.
+  const wanted = step ?? floor;
+  return MODE_RANK[wanted] >= MODE_RANK[floor] ? wanted : floor;
+}
+
+/** New per-provider state first; legacy run-wide state remains resumable. */
+export function providerPermission(
+  state: Pick<State, "provider_permissions" | "permissions">,
+  harness: Harness,
+): RunMode {
+  const selected = state.provider_permissions?.[harness];
+  if (selected !== undefined) return selected;
+  const legacy: Permissions | undefined = state.permissions;
+  if (legacy === "full") return "full-access";
+  if (legacy === "allowlist") return "approval-required";
+  return "auto";
+}
 
 /**
  * Built-in tools that only read; anything else built in is denied unless pre-granted.
@@ -172,12 +203,51 @@ export function isReadMcpTool(toolName: string): boolean {
 
 const DENY_HINT =
   "not granted to this step by wise; a read-shaped tool would be allowed, add the rule to the " +
-  "step's `allowed_tools` or run with `permissions: full`";
+  "step's `allowed_tools` or select Bypass permissions for this provider";
+
+export const AUTO_MUTATING_BUILTINS = new Set([
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "NotebookEdit",
+  "TodoWrite",
+]);
+
+/** Commands that `auto` never approves; bypass remains an explicit user choice. */
+export const DESTRUCTIVE_COMMAND_RE =
+  /(^|[\n;&|]\s*)(sudo\b|rm\s+(?:-[^\s]*r[^\s]*|--recursive)\b|git\s+reset\s+--hard\b|git\s+clean\s+[^\n]*-[^\n\s]*f|chmod\s+-R\b|chown\s+-R\b|mkfs\b|dd\s+if=|shutdown\b|reboot\b)/i;
+
+function commandOf(input: unknown): string {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return "";
+  const command = (input as Record<string, unknown>).command;
+  return typeof command === "string" ? command : "";
+}
+
+export type PermissionOpts = { mode?: RunMode };
 
 /** The engine's answer to one `can_use_tool` request. */
-export function decidePermission(toolName: string, input: unknown): PermissionDecision {
+export function decidePermission(
+  toolName: string,
+  input: unknown,
+  opts: PermissionOpts = {},
+): PermissionDecision {
+  const mode = opts.mode ?? "approval-required";
+  if (mode === "full-access") return { behavior: "allow", updatedInput: input };
   if (READ_ONLY_BUILTINS.has(toolName) || isReadMcpTool(toolName)) {
     return { behavior: "allow", updatedInput: input };
+  }
+  if (mode === "auto") {
+    if (AUTO_MUTATING_BUILTINS.has(toolName)) return { behavior: "allow", updatedInput: input };
+    if (toolName === "Bash") {
+      const command = commandOf(input);
+      if (command && !DESTRUCTIVE_COMMAND_RE.test(command)) {
+        return { behavior: "allow", updatedInput: input };
+      }
+      return {
+        behavior: "deny",
+        message: `Bash command blocked by wise auto mode; select Bypass permissions to run it`,
+      };
+    }
   }
   return { behavior: "deny", message: `${toolName} ${DENY_HINT}` };
 }

@@ -53,10 +53,8 @@ project-selection: current
 preflight:
   control-mode: interactive
   worktree: current
-  # Every child runs full-access: the tracker CLI, MCP or build tool a step
-  # did not list is never a permission denial (answer `permissions: allowlist`
-  # at run time to fall back to per-step allowlists).
-  permissions: full
+  # Pre-flight asks once per provider. Auto is recommended; permission floors
+  # never weaken a step that explicitly needs full-access.
 
 # Tuning groups the pre-flight questionary offers: one per model step, so
 # harness, model and effort are chosen step by step (harness, then model

@@ -11,11 +11,13 @@ import {
   adapterFor,
   claudeAdapter,
   codexAdapter,
+  cursorAdapter,
   geminiAdapter,
   grokAdapter,
   hasAdapter,
   startClaude,
   startCodex,
+  startCursor,
   startGemini,
   startGrok,
 } from "./adapters/index.ts";
@@ -65,6 +67,7 @@ import {
   resolveFromContext,
 } from "./preflight.ts";
 import { priceUsage } from "./pricing.ts";
+import { effectiveMode, providerPermission } from "./permissions.ts";
 import { RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS } from "./protocol.ts";
 import type { ChildAskResult, ProgressParams, ReportResult } from "./protocol.ts";
 import { renderStep } from "./render.ts";
@@ -90,9 +93,9 @@ import type {
   Gate,
   Harness,
   LocatedDef,
+  Permissions,
   Project,
   ReportKind,
-  Permissions,
   Resolved,
   RunSummary,
   State,
@@ -106,10 +109,10 @@ import { ENGINE_ROOT } from "./version.ts";
 
 export type ConcurrencyCaps = { global: number; harness: Record<Harness, number> };
 
-/** P5 defaults: two Claude children, one per other harness, four in total. */
+/** P5 defaults: two Claude children, one per other harness, four in total globally. */
 export const DEFAULT_CAPS: ConcurrencyCaps = {
   global: 4,
-  harness: { claude: 2, codex: 1, gemini: 1, grok: 1 },
+  harness: { claude: 2, codex: 1, cursor: 1, gemini: 1, grok: 1 },
 };
 
 export type ConcurrencyOverrides = { global?: number; harness?: Partial<Record<Harness, number>> };
@@ -272,17 +275,17 @@ function randomToken(): string {
 
 type ControlMode = "synchronous" | "interactive";
 
-/** `answers.permissions` over the `preflight.permissions` pin, else `allowlist`. */
-function permissionsOf(def: WorkflowDef, answers: Answers): Permissions {
-  const answered = answers.permissions;
-  if (answered === "allowlist" || answered === "full") return answered;
-  return def.preflight?.permissions ?? "allowlist";
-}
-
 function controlModeOf(def: WorkflowDef, answers: Answers): ControlMode {
   const answered = answers["control-mode"];
   if (answered === "synchronous" || answered === "interactive") return answered;
   return def.preflight?.["control-mode"] ?? "interactive";
+}
+
+/** Keep legacy workflow pins and run answers in state so old runs remain byte-compatible. */
+function legacyPermissionsOf(def: WorkflowDef, answers: Answers): Permissions | undefined {
+  const answered = answers.permissions;
+  if (answered === "allowlist" || answered === "full") return answered;
+  return def.preflight?.permissions;
 }
 
 // ---- live run --------------------------------------------------------------------------------------
@@ -518,13 +521,20 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
       // nudge over its open stdin); fakes only give a result promise.
       if (adapter === claudeAdapter) return startClaude(req, onEvent);
       if (adapter === codexAdapter) return startCodex(req, onEvent);
+      if (adapter === cursorAdapter) return startCursor(req, onEvent);
       if (adapter === grokAdapter) return startGrok(req, onEvent);
       if (adapter === geminiAdapter) return startGemini(req, onEvent);
       return { done: adapter.run(req, onEvent) };
     });
 
   const lives = new Map<string, LiveRun>();
-  const inFlight: Record<Harness, number> = { claude: 0, codex: 0, gemini: 0, grok: 0 };
+  const inFlight: Record<Harness, number> = {
+    claude: 0,
+    codex: 0,
+    cursor: 0,
+    gemini: 0,
+    grok: 0,
+  };
   let inFlightGlobal = 0;
   const parked = new Map<Harness, Park>();
 
@@ -1031,8 +1041,7 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     updateStep(live.runDir, def.id, { resolved });
     const fresh = readState(live.runDir);
     const step = renderStep(def, fresh, live.workflowDir, live.runDir) as AgentStep;
-    // `permissions: full`: the step's own mode and allowlist no longer gate the child.
-    if (fresh.permissions === "full") step.mode = "full-access";
+    step.mode = effectiveMode(step.mode, providerPermission(fresh, harness));
     const started: EventInput = {
       run_id: live.runId,
       type: "step.started",
@@ -1567,13 +1576,15 @@ export function createExecutor(rt: DaemonRuntime, opts: ExecutorOptions = {}): E
     }
     writeState(runDir, state);
     // Ticket bodies go to `context/tickets/*.md`; the state keeps `{ref, title, url, path}`.
+    const legacyPermissions = legacyPermissionsOf(def, answers);
     startRun(runDir, {
       project: projectOf(cwd),
       inputs,
       answers,
       context: persistContext(runDir, context),
       profile: applied.profile,
-      permissions: permissionsOf(def, answers),
+      ...(legacyPermissions !== undefined ? { permissions: legacyPermissions } : {}),
+      providerPermissions: applied.providerPermissions,
       resolved,
       caps: applied.caps,
     });

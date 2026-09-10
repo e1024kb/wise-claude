@@ -206,6 +206,8 @@ function clip(text: string): string {
 
 export type ParserOpts = {
   pool: AuthMode;
+  /** Effective permission mode; controls how the engine answers headless permission requests. */
+  mode?: RunMode;
   /** Called on every `result` event (drives stdin lifecycle in `startClaude`). */
   onResult?: (result: Rec) => void;
   /** Called on every `can_use_tool` control request; the caller writes the answer to stdin. */
@@ -258,7 +260,11 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
     } else if (type === "control_request") {
       const request = permissionRequestOf(parsed);
       if (request !== undefined) {
-        const decision = decidePermission(request.tool_name, request.input);
+        const decision = decidePermission(
+          request.tool_name,
+          request.input,
+          opts.mode !== undefined ? { mode: opts.mode } : {},
+        );
         snap.permissions.push(`${decision.behavior}:${request.tool_name}`);
         opts.onPermission?.(request, decision);
       }
@@ -357,6 +363,7 @@ export function startClaude(
   };
   const parser = createStreamParser({
     pool: req.auth,
+    mode: req.mode,
     onResult: (result) => {
       const queued = result.queued_turn_count;
       outstanding =

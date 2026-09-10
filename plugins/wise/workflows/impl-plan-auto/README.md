@@ -42,10 +42,9 @@ watch); this workflow is the full pipeline around a plan file.
 - Run from inside the project's git repository (`project-selection:
   current`); the base working tree must be clean and have an `origin`
   remote (`preflight-checks` refuses otherwise).
-- Children run with `preflight.permissions: full` (every harness's
-  bypass mode), so any tracker CLI, MCP or build tool on the machine is
-  usable without a per-step allowlist; pass `permissions: allowlist` as a
-  run answer to restore the step allowlists.
+- Pre-flight asks for a permission floor once per selected provider.
+  `Auto` is recommended; `Bypass permissions` is available when the
+  provider must run fully unsandboxed. A phase's stronger mode still wins.
 - Every plan file must exist; `split-plans` stops the run before any
   worktree exists when one is missing.
 
@@ -77,6 +76,7 @@ name without `PLAN-` and `.md`, sanitised):
 | Id | Kind | Default | Notes |
 |---|---|---|---|
 | `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked whenever another CLI is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
+| `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 | `input.plans` | text | - | Comma-separated `PLAN-*.md` paths; relative paths resolve against the repo root. |
@@ -116,7 +116,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 ```
 /wise-workflow-run impl-plan-auto
-# Pre-flight asks harness, model and effort per group, and the plan files.
+# Pre-flight asks harness, provider permissions, model and effort per group, and the plan files.
 
 /wise-workflow-run impl-plan-auto docs/plans/PLAN-api-caching.md,docs/plans/PLAN-auth-debt.md
 # Two plans, no spaces. Sequential units, one PR each.

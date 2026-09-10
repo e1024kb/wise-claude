@@ -415,6 +415,22 @@ describe("model phases", () => {
     for (const c of s.calls) assert.equal(c.req.mode, "full-access", c.phase);
   });
 
+  test("provider permission floor applies to every model phase on that harness", async () => {
+    const f = fixture();
+    f.state.provider_permissions = { claude: "full-access" };
+    const s = scriptedStarter({
+      plan: planReady,
+      implement: implementCommit,
+      review: reviewOnce,
+      fix: fixCommit,
+      watch: watchGreen,
+    });
+    const res = await runUnitsStep(withAgent(f, s.starter));
+    assert.equal(res.outputs.units[0]?.verdict, "merged");
+    assert.ok(s.calls.length >= 5);
+    for (const c of s.calls) assert.equal(c.req.mode, "full-access", c.phase);
+  });
+
   test("units `mcp: engine-only` reaches every model child's request", async () => {
     const f = fixture();
     const s = scriptedStarter({

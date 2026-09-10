@@ -28,7 +28,7 @@ in order; the last declared input absorbs the rest of the line.
 ## 1. Init check
 
 Call `wise_status` (no id). Workflows do not read the session profile
-set by `/wise-profile`; pre-flight asks harness, model and effort
+set by `/wise-profile`; pre-flight asks harness, provider permissions, model and effort
 instead.
 
 - `wise_*` tools missing, or `DAEMON_UNAVAILABLE`: print
@@ -59,16 +59,18 @@ step that will run uses (selected, and not ruled out by a `when:` the
 inputs already settle, such as `implement_mode: plan-only`): which CLI
 runs the group (`harness.<group>`, asked
 whenever more than one CLI is installed; a logged-out one is offered
-with its login command in the option), then which model of that CLI
+with its login command in the option). Once all harness choices are settled,
+it asks `permissions.<harness>` once per selected or fallback provider
+(`Auto` recommended, `Approval required`, or `Bypass permissions`), then which model of that CLI
 (`model.<group>`, the engine's catalog), then the effort that model
 takes (`effort.<group>`). Each answer unlocks the next stage, so loop:
 render the questions returned, merge the answers into `answers`, call
 `wise_preflight` again with them, until `questions` is empty. An
 answered question is never returned twice.
 
-MUST: every `harness.<group>`, `model.<group>`, `effort.<group>` and
+MUST: every `harness.<group>`, `permissions.<harness>`, `model.<group>`, `effort.<group>` and
 `step-select` question the engine returns is put to the user. Never
-answer one yourself, never take its default to save a call, never
+answer one yourself, including a permission question; never take its default to save a call, never
 start the run with a stage still open. The only time a harness or
 model question is not asked is when the engine did not return it
 (one CLI installed, a one-model catalog, a one-effort model). `wise_run`

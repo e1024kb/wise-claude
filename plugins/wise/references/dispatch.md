@@ -2,7 +2,7 @@
 
 Shared routine for the skills that accept `--on`: instead of executing
 their procedure in this conversation, hand it to a headless child of
-any workflow harness (`claude`, `codex`, `grok`, `gemini`) at a model
+any workflow harness (`claude`, `codex`, `cursor`, `gemini`, `grok`) at a model
 and effort the user picks. The child runs under the user's own CLI
 login through the engine's adapters — the same path workflow `agent`
 steps take — so permissions, clean env and usage accounting behave
@@ -31,7 +31,7 @@ Grammar, anywhere in `$ARGUMENTS`:
 --on
 ```
 
-- `<harness>` is one of `claude`, `codex`, `grok`, `gemini`.
+- `<harness>` is one of `claude`, `codex`, `cursor`, `gemini`, `grok`.
 - `<model>` is a catalog id (or Claude alias); omitted: the harness's
   first catalog entry.
 - `<effort>` is `low|medium|high|xhigh|max`; omitted: no effort flag.

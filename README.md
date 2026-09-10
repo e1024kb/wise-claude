@@ -10,7 +10,7 @@
 
 `wise-claude` is the Claude Code plugin marketplace that hosts the
 **`wise`** copilot: flat `/wise-*` skills, YAML **workflows** run by a
-TypeScript engine that drives `claude`, `codex`, `grok` and `gemini`
+TypeScript engine that drives `claude`, `codex`, `cursor-agent`, `gemini` and `grok`
 headless, and an SDLC **agent roster** (CEO / CTO / architect / engineer / QA /
 security / SRE / …) that take everyday engineering chores off your
 plate — drafting commits, opening and shepherding PRs, planning tickets,

@@ -1,6 +1,6 @@
 // The model catalog: which models the pre-flight offers per harness and which efforts each of
-// them takes. Deterministic and hand-picked (2026-09-05); ids are what the CLIs accept
-// (`claude --model`, `codex -m`, `grok -m`, `gemini -m`). The `model.<group>` question lists
+// them takes. Deterministic and hand-picked (2026-09-10); ids are what the CLIs accept
+// (`claude --model`, `codex -m`, `cursor-agent --model`, `grok -m`, `gemini -m`). The `model.<group>` question lists
 // `MODEL_CATALOG[harness]` in this order; `effort.<group>` lists the chosen model's `efforts`.
 // A model with one effort is pinned to it without a question; one with none runs unflagged.
 
@@ -41,6 +41,34 @@ export const MODEL_CATALOG: Readonly<Record<Harness, readonly CatalogModel[]>> =
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol", description: "5.6 top tier", efforts: LMH },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", description: "5.6 cheap tier", efforts: LMH },
     { id: "gpt-5.5", label: "GPT-5.5", description: "previous generation", efforts: LMH },
+  ],
+  // Cursor availability is account-specific. `inherit` is deliberately first so the user's
+  // Cursor-selected default remains the safe answer when a listed model is unavailable to them.
+  cursor: [
+    {
+      id: "inherit",
+      label: "Cursor default",
+      description: "use the model selected by Cursor for this account",
+      efforts: [],
+    },
+    {
+      id: "composer-2.5",
+      label: "Composer 2.5",
+      description: "Cursor's fast coding model",
+      efforts: [],
+    },
+    {
+      id: "gpt-5.6-sol",
+      label: "GPT-5.6 Sol",
+      description: "OpenAI model through Cursor",
+      efforts: [],
+    },
+    {
+      id: "claude-opus-5",
+      label: "Opus 5",
+      description: "Anthropic model through Cursor",
+      efforts: [],
+    },
   ],
   grok: [{ id: "grok-4.6", label: "Grok 4.6", description: "xAI current model", efforts: [] }],
   gemini: [

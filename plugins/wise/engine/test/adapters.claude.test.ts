@@ -630,10 +630,10 @@ test("probeAuth: subscription parses `claude auth status` JSON", async () => {
   );
 });
 
-test("registry: claude, codex, gemini, grok are registered", () => {
+test("registry: every harness adapter is registered", () => {
   assert.equal(adapterFor("claude"), claudeAdapter);
   assert.equal(claudeAdapter.id, "claude");
-  for (const h of ["claude", "codex", "gemini", "grok"] as const) {
+  for (const h of ["claude", "codex", "cursor", "gemini", "grok"] as const) {
     assert.equal(hasAdapter(h), true, h);
     assert.equal(adapterFor(h).id, h);
   }
