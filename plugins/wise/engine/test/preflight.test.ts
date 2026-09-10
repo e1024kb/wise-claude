@@ -73,6 +73,16 @@ test("test_preflight_new_keys_default_skip", () => {
   assert.deepEqual(questionIds(def), ["permissions.claude"]);
 });
 
+test("a legacy permission answer must be a string", () => {
+  const def = valid(doc());
+  const malformed = { permissions: ["full"] };
+  assert.deepEqual(
+    buildQuestionary(def, {}, malformed).questions.map((question) => question.id),
+    ["permissions.claude"],
+  );
+  assert.deepEqual(applyAnswers(def, malformed).providerPermissions, {});
+});
+
 test("test_preflight_new_keys_accept_prompt", () => {
   // v2 has no opt-in pins: `tuning: prompt` / `step-select: prompt` are v1 with hints.
   const list = issues(doc({ preflight: { tuning: "prompt", "step-select": "prompt" } }));
@@ -850,6 +860,8 @@ test("buildQuestionary: optional input without context defaults to empty, requir
   const { questions, defaults } = buildQuestionary(extendedTicketPlan());
   assert.equal(defaults["input.config_prompt"], "");
   assert.equal(questions.find((q) => q.id === "input.ticket_id")?.default, undefined);
+  assert.equal(questions.find((q) => q.id === "input.ticket_id")?.optional, undefined);
+  assert.equal(questions.find((q) => q.id === "input.config_prompt")?.optional, true);
   assert.equal("input.ticket_id" in defaults, false);
 });
 

@@ -801,10 +801,12 @@ test("parser: a can_use_tool control request is decided and reported through onP
 
 test("parser: auto-mode file mutations stay within the configured workspace roots", () => {
   const seen: string[] = [];
+  const workspace = process.cwd();
+  const added = tmpdir();
   const parser = createStreamParser({
     pool: "subscription",
     mode: "auto",
-    workspaceRoots: ["/work/project", "/work/shared"],
+    workspaceRoots: [workspace, added],
     onPermission: (request, decision) =>
       seen.push(`${decision.behavior} ${request.tool_name} ${request.request_id}`),
   });
@@ -815,7 +817,7 @@ test("parser: auto-mode file mutations stay within the configured workspace root
       request: {
         subtype: "can_use_tool",
         tool_name: "Edit",
-        input: { file_path: "/work/project/src/a.ts" },
+        input: { file_path: join(workspace, "src/a.ts") },
       },
     },
     {
@@ -824,7 +826,7 @@ test("parser: auto-mode file mutations stay within the configured workspace root
       request: {
         subtype: "can_use_tool",
         tool_name: "Write",
-        input: { file_path: "/work/shared/a.ts" },
+        input: { file_path: join(added, "a.ts") },
       },
     },
     {
@@ -833,7 +835,7 @@ test("parser: auto-mode file mutations stay within the configured workspace root
       request: {
         subtype: "can_use_tool",
         tool_name: "Edit",
-        input: { file_path: "/tmp/a.ts" },
+        input: { file_path: join(dirname(workspace), "outside.ts") },
       },
     },
   ];

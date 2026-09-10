@@ -16,7 +16,7 @@ import type { McpServerOptions } from "../src/mcp.ts";
 import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "../src/protocol.ts";
 import type { ProgressParams, WaitResult } from "../src/protocol.ts";
 import { domainError } from "../src/rpc.ts";
-import type { RunSummary } from "../src/types.ts";
+import type { Question, RunSummary } from "../src/types.ts";
 import { buildId, pluginVersion } from "../src/version.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -58,10 +58,17 @@ function fakeHandlers(calls: Call[]): Partial<DaemonHandlers> {
   return {
     preflight: (params) => {
       record("preflight", params);
+      let questions: Question[] = [{ id: "profile", kind: "choice", label: "Profile" }];
+      if (params.workflow === "required-text-form") {
+        questions =
+          params.answers?.["input.ticket"] === undefined
+            ? [{ id: "input.ticket", kind: "text", label: "Ticket" }]
+            : [];
+      }
       return {
         workflow: params.workflow,
         version: 2,
-        questions: [{ id: "profile", kind: "choice", label: "Profile" }],
+        questions,
         defaults: { profile: "medium" },
         requires_missing: [],
       };
@@ -277,6 +284,41 @@ describe("mcp", () => {
         {
           method: "preflight",
           params: { workflow: "ticket-plan", cwd: "/w", answers: { profile: "high" } },
+        },
+      ]);
+    });
+
+    test("wise_preflight interactive rejects a whitespace-only required text answer", async () => {
+      calls.length = 0;
+      const requests: ElicitRequest[] = [];
+      const ui = await openMcp(
+        { daemon: { env: r.env, version: VERSION }, version: VERSION },
+        (request) => {
+          requests.push(request);
+          return { "input.ticket": "   " };
+        },
+      );
+      const res = await callTool(ui, "wise_preflight", {
+        workflow: "required-text-form",
+        cwd: "/w",
+        interactive: true,
+      });
+      assert.equal(errorOf(res).code, "INTERACTIVE_UI_INVALID");
+      assert.equal(requests.length, 1);
+      const request = requests[0];
+      assert.ok(request);
+      assert.equal(request.params.mode, "form");
+      if (request.params.mode !== "form") assert.fail("expected form elicitation");
+      const property = request.params.requestedSchema.properties["input.ticket"];
+      assert.ok(property);
+      assert.equal(property.type, "string");
+      if (property.type !== "string") assert.fail("expected a string property");
+      assert.ok("minLength" in property);
+      assert.equal(property.minLength, 1);
+      assert.deepEqual(calls, [
+        {
+          method: "preflight",
+          params: { workflow: "required-text-form", cwd: "/w", answers: {} },
         },
       ]);
     });
@@ -640,5 +682,22 @@ test("questionFormSchema preserves labels, defaults and provider option descript
       },
       default: ["verify"],
     },
+  );
+  assert.deepEqual(questionFormSchema({ id: "input.ticket", kind: "text", label: "Ticket" }), {
+    type: "object",
+    properties: {
+      "input.ticket": { type: "string", title: "Ticket", minLength: 1 },
+    },
+    required: ["input.ticket"],
+  });
+  assert.deepEqual(
+    questionFormSchema({
+      id: "input.guidance",
+      kind: "text",
+      label: "Guidance",
+      optional: true,
+      default: "",
+    }).properties["input.guidance"],
+    { type: "string", title: "Guidance", default: "" },
   );
 });

@@ -570,9 +570,9 @@ the child inherits: read-only built-ins (`Read`, `Glob`, `Grep`,
 first, or second behind a vendor prefix: `getJiraIssue`,
 `slack_read_channel`, `query-docs`) are allowed with the input
 unchanged. In `approval-required`, other requests are denied. In `auto`,
-ordinary local edits and a curated set of workspace-relative inspection and
-validation commands are accepted while shell wrappers and mutating external MCP
-calls remain denied.
+ordinary local edits and a curated set of workspace-relative inspection commands
+are accepted. Repository-controlled task runners, shell wrappers and mutating
+external MCP calls remain denied unless explicitly pre-granted.
 `full-access` bypasses the broker. Rules in `allowed_tools` never prompt, so
 they never reach the policy. Decisions appear in the step log; denials also
 appear as a warning on the result.

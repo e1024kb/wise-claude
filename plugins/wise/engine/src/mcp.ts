@@ -377,6 +377,7 @@ export function questionFormSchema(question: Question): ElicitationSchema {
     type: "string",
     title: question.label,
   };
+  if (!question.optional) property.minLength = 1;
   if (typeof question.default === "string") property.default = question.default;
   return { type: "object", properties: { [question.id]: property }, required: [question.id] };
 }
@@ -393,6 +394,7 @@ function acceptedAnswer(
     return value;
   }
   if (typeof value !== "string") return null;
+  if (question.kind === "text" && !question.optional && value.trim().length === 0) return null;
   if (question.kind === "choice" && question.options?.length) {
     if (!question.options.some((option) => option.value === value)) return null;
   }

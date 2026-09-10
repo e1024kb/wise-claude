@@ -193,7 +193,8 @@ export function permissionDefault(def: WorkflowDef): RunMode {
 }
 
 function legacyPermissionAnswer(answers: Answers): RunMode | undefined {
-  const value = answerString(answers.permissions);
+  const value = answers.permissions;
+  if (typeof value !== "string") return undefined;
   if (value === "full") return "full-access";
   if (value === "allowlist") return "approval-required";
   return value !== undefined && (RUN_MODES as readonly string[]).includes(value)
@@ -457,6 +458,7 @@ export function buildQuestionary(
   if (optional.length) push(stepSelectQuestion(def, optional));
   for (const input of listInputs(def)) {
     const q: Question = { id: `input.${input.name}`, kind: "text", label: input.prompt };
+    if (input.optional) q.optional = true;
     const fromContext = input["from-context"]
       ? resolveFromContext(input["from-context"], ctx.context)
       : undefined;

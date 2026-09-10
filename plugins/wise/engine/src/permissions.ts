@@ -5,11 +5,12 @@
 // on stdin. Rules the step pre-granted (`allowed_tools`) never reach here; `full-access` children
 // prompt for nothing. What does reach here is decided by shape: reading is allowed. Under
 // `approval-required`, changing things is denied unless the step declared it. Under `auto`,
-// ordinary local mutations and a small set of local inspection and validation commands are
-// allowed while shell wrappers and mutating external MCP calls stay denied.
+// ordinary local mutations and a small set of local inspection commands are allowed while
+// repository-controlled task runners, shell wrappers and mutating external MCP calls stay denied.
 // `full-access` is normally handled by the CLI itself, but is accepted here for completeness.
 
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Harness, Permissions, RunMode, State } from "./types.ts";
 
 export type PermissionDecision =
@@ -217,17 +218,12 @@ const AUTO_MUTATING_PATH_FIELDS: Readonly<Record<string, string>> = {
   NotebookEdit: "notebook_path",
 };
 const AUTO_BASH_PATTERNS = [
-  /^git\s+(?:status|diff|show|log|rev-parse|merge-base|branch|ls-files|ls-tree|cat-file)(?:\s|$)/,
-  /^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|lint|check|typecheck|build))(?:\s|$)/,
-  /^just\s+(?:test|check|lint|typecheck|validate)(?:\s|$)/,
-  /^make\s+(?:test|check|lint)(?:\s|$)/,
-  /^cargo\s+(?:test|check|clippy|fmt\s+--check)(?:\s|$)/,
-  /^go\s+test(?:\s|$)/,
-  /^(?:pytest|ruff\s+check|eslint|tsc\s+--noEmit)(?:\s|$)/,
+  /^git\s+(?:status|diff|show|log|rev-parse|merge-base|ls-files|ls-tree|cat-file)(?:\s|$)/,
+  /^git\s+branch(?:\s+(?:--show-current|--list|-l|-a|-r|-v|-vv))*\s*$/,
   /^(?:pwd|ls|rg|grep|jq|cat|head|tail|wc|test)(?:\s|$)/,
 ] as const;
 
-/** True for one workspace-relative inspection or validation command with no shell control syntax. */
+/** True for one workspace-relative inspection command with no shell control syntax. */
 export function isAutoBashCommand(command: string): boolean {
   const value = command.trim();
   if (
@@ -248,11 +244,42 @@ function stringField(input: unknown, field: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function nearestRealPath(path: string): string | undefined {
+  let candidate = path;
+  for (;;) {
+    try {
+      return realpathSync(candidate);
+    } catch {
+      try {
+        lstatSync(candidate);
+        return undefined;
+      } catch (error) {
+        if (!isMissingPathError(error)) return undefined;
+        const parent = dirname(candidate);
+        if (parent === candidate) return undefined;
+        candidate = parent;
+      }
+    }
+  }
+}
+
 function isWithinWorkspace(path: string, roots: readonly string[]): boolean {
   if (path.length === 0 || roots.length === 0) return false;
-  const candidate = resolve(roots[0]!, path);
+  const candidate = nearestRealPath(resolve(roots[0]!, path));
+  if (candidate === undefined) return false;
   return roots.some((root) => {
-    const fromRoot = relative(resolve(root), candidate);
+    let realRoot: string;
+    try {
+      realRoot = realpathSync(resolve(root));
+    } catch {
+      return false;
+    }
+    const fromRoot = relative(realRoot, candidate);
     return (
       fromRoot === "" ||
       (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))
