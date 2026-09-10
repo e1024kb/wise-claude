@@ -130,6 +130,11 @@ test("decidePermission: approval-required stays read-only; auto allows local edi
   );
   assert.equal(decidePermission("Skill", {}, { mode: "auto" }).behavior, "deny");
   assert.equal(isAutoBashCommand("git status --short"), true);
+  assert.equal(isAutoBashCommand("git diff --output=review.diff"), false);
+  assert.equal(isAutoBashCommand("git diff --output review.diff"), false);
+  assert.equal(isAutoBashCommand("git diff --output=/tmp/wise-output"), false);
+  assert.equal(isAutoBashCommand("git diff --output /tmp/wise-output"), false);
+  assert.equal(isAutoBashCommand("git diff --output-indicator-new=+"), true);
   assert.equal(isAutoBashCommand("rg --pre sh needle ."), false);
   assert.equal(isAutoBashCommand("cat /etc/passwd"), false);
   assert.equal(isAutoBashCommand('cat "/etc/passwd"'), false);

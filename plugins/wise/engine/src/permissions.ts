@@ -209,6 +209,7 @@ const DENY_HINT =
 const SHELL_CONTROL_RE = /[\n\r;&|`<>]|\$\(/;
 const OUTSIDE_WORKSPACE_PATH_RE = /(^|[\s'"])(?:~\/|\/)|(^|[/\s'"])\.\.(?=\/|[\s'"]|$)/;
 const RG_EXEC_RE = /(^|\s)--pre(?:-glob)?(?:=|\s|$)/;
+const GIT_OUTPUT_OPTION_RE = /^git\s+.*\s--output(?:=|\s|$)/;
 const AUTO_MUTATING_PATH_FIELDS: Readonly<Record<string, string>> = {
   Edit: "file_path",
   Write: "file_path",
@@ -233,7 +234,8 @@ export function isAutoBashCommand(command: string): boolean {
     value.length === 0 ||
     SHELL_CONTROL_RE.test(value) ||
     OUTSIDE_WORKSPACE_PATH_RE.test(value) ||
-    RG_EXEC_RE.test(value)
+    RG_EXEC_RE.test(value) ||
+    GIT_OUTPUT_OPTION_RE.test(value)
   ) {
     return false;
   }

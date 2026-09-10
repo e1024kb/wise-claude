@@ -137,6 +137,8 @@ code-review main report`.
 | `base` | `resolve-base` | The resolved base branch; the diff range is `origin/<base>..HEAD`. |
 | `commit_count` | `count-commits` | Commits under review; `0` skips the review. |
 | `<lens>_findings` / `<lens>_blocking` | the three reviewers | Per-lens counts (`correctness`, `security`, `tests`). |
+| `missing_reviews` | `review-health` | Comma-separated failed or missing lenses, or `none`; opens recovery and controls curation and the final incomplete-review failure. |
+| `review_failure_action` | `review-errors` | The recovery choice; either curates available reports or skips curation before the incomplete review fails. |
 | `findings` / `blocking` / `findings_path` | `curate` | Kept findings, how many are critical or warning, and the file (`<run-dir>/review/findings.md`). |
 | `kept` / `refuted` | `verify` | Findings that survived verification and those dropped (only when `verify` ran). |
 | `applied` / `skipped` / `committed` | `apply` | Findings turned into edits, findings left alone, and whether a fix commit landed (only in `apply` mode). |
