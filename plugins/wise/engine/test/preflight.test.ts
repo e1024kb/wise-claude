@@ -943,6 +943,11 @@ test("models: catalog helpers", () => {
   assert.equal(catalogModel("claude", "CLAUDE-SONNET-5")?.id, "claude-sonnet-5");
   assert.equal(catalogModel("codex", "opus"), undefined);
   assert.equal(defaultModel("codex", "opus").id, "gpt-6-astra");
+  assert.deepEqual(
+    MODEL_CATALOG.cursor.map((model) => model.id),
+    ["grok-4.6", "composer-2.5"],
+  );
+  assert.equal(defaultModel("cursor").id, "grok-4.6");
   assert.equal(defaultModel("gemini").id, "gemini-3.8-flash");
   const sonnet = defaultModel("claude", "sonnet");
   assert.equal(defaultEffort(sonnet, "xhigh"), "medium");

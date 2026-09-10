@@ -42,31 +42,18 @@ export const MODEL_CATALOG: Readonly<Record<Harness, readonly CatalogModel[]>> =
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", description: "5.6 cheap tier", efforts: LMH },
     { id: "gpt-5.5", label: "GPT-5.5", description: "previous generation", efforts: LMH },
   ],
-  // Cursor availability is account-specific. `inherit` is deliberately first so the user's
-  // Cursor-selected default remains the safe answer when a listed model is unavailable to them.
+  // Keep Cursor on its current native model pool: the flagship first, then the faster coding model.
   cursor: [
     {
-      id: "inherit",
-      label: "Cursor default",
-      description: "use the model selected by Cursor for this account",
+      id: "grok-4.6",
+      label: "Grok 4.6",
+      description: "Cursor's frontier model for complex agentic work",
       efforts: [],
     },
     {
       id: "composer-2.5",
       label: "Composer 2.5",
-      description: "Cursor's fast coding model",
-      efforts: [],
-    },
-    {
-      id: "gpt-5.6-sol",
-      label: "GPT-5.6 Sol",
-      description: "OpenAI model through Cursor",
-      efforts: [],
-    },
-    {
-      id: "claude-opus-5",
-      label: "Opus 5",
-      description: "Anthropic model through Cursor",
+      description: "Cursor's fast, cost-efficient coding model",
       efforts: [],
     },
   ],

@@ -655,8 +655,8 @@ default.
 The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 `claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
 `claude-haiku-4-5` (medium); codex `gpt-6-astra`, `gpt-5.6-sol`,
-`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); cursor `inherit`,
-`composer-2.5`, `gpt-5.6-sol`, `claude-opus-5` (no effort flag); grok `grok-4.6`; gemini
+`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); cursor `grok-4.6`,
+`composer-2.5` (no effort flag); grok `grok-4.6`; gemini
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
 The conductor requests `interactive: true`, so the MCP server renders
