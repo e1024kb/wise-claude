@@ -9,6 +9,7 @@
 // allowed while shell wrappers and mutating external MCP calls stay denied.
 // `full-access` is normally handled by the CLI itself, but is accepted here for completeness.
 
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Harness, Permissions, RunMode, State } from "./types.ts";
 
 export type PermissionDecision =
@@ -205,17 +206,15 @@ const DENY_HINT =
   "not granted to this step by wise; a read-shaped tool would be allowed, add the rule to the " +
   "step's `allowed_tools` or select Bypass permissions for this provider";
 
-export const AUTO_MUTATING_BUILTINS = new Set([
-  "Edit",
-  "Write",
-  "MultiEdit",
-  "NotebookEdit",
-  "TodoWrite",
-]);
-
 const SHELL_CONTROL_RE = /[\n\r;&|`<>]|\$\(/;
 const OUTSIDE_WORKSPACE_PATH_RE = /(^|[\s'"])(?:~\/|\/)|(^|[/\s'"])\.\.(?=\/|[\s'"]|$)/;
 const RG_EXEC_RE = /(^|\s)--pre(?:-glob)?(?:=|\s|$)/;
+const AUTO_MUTATING_PATH_FIELDS: Readonly<Record<string, string>> = {
+  Edit: "file_path",
+  Write: "file_path",
+  MultiEdit: "file_path",
+  NotebookEdit: "notebook_path",
+};
 const AUTO_BASH_PATTERNS = [
   /^git\s+(?:status|diff|show|log|rev-parse|merge-base|branch|ls-files|ls-tree|cat-file)(?:\s|$)/,
   /^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|lint|check|typecheck|build))(?:\s|$)/,
@@ -241,13 +240,25 @@ export function isAutoBashCommand(command: string): boolean {
   return AUTO_BASH_PATTERNS.some((pattern) => pattern.test(value));
 }
 
-function commandOf(input: unknown): string {
+function stringField(input: unknown, field: string): string {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return "";
-  const command = (input as Record<string, unknown>).command;
-  return typeof command === "string" ? command : "";
+  const value = (input as Record<string, unknown>)[field];
+  return typeof value === "string" ? value : "";
 }
 
-export type PermissionOpts = { mode?: RunMode };
+function isWithinWorkspace(path: string, roots: readonly string[]): boolean {
+  if (path.length === 0 || roots.length === 0) return false;
+  const candidate = resolve(roots[0]!, path);
+  return roots.some((root) => {
+    const fromRoot = relative(resolve(root), candidate);
+    return (
+      fromRoot === "" ||
+      (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))
+    );
+  });
+}
+
+export type PermissionOpts = { mode?: RunMode; workspaceRoots?: readonly string[] };
 
 /** The engine's answer to one `can_use_tool` request. */
 export function decidePermission(
@@ -261,9 +272,19 @@ export function decidePermission(
     return { behavior: "allow", updatedInput: input };
   }
   if (mode === "auto") {
-    if (AUTO_MUTATING_BUILTINS.has(toolName)) return { behavior: "allow", updatedInput: input };
+    if (toolName === "TodoWrite") return { behavior: "allow", updatedInput: input };
+    const pathField = AUTO_MUTATING_PATH_FIELDS[toolName];
+    if (pathField !== undefined) {
+      if (isWithinWorkspace(stringField(input, pathField), opts.workspaceRoots ?? [])) {
+        return { behavior: "allow", updatedInput: input };
+      }
+      return {
+        behavior: "deny",
+        message: `${toolName} path blocked by wise auto mode; select Bypass permissions to edit outside the workspace`,
+      };
+    }
     if (toolName === "Bash") {
-      const command = commandOf(input);
+      const command = stringField(input, "command");
       if (isAutoBashCommand(command)) {
         return { behavior: "allow", updatedInput: input };
       }

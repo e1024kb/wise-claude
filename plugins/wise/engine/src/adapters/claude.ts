@@ -4,6 +4,7 @@
 // as NDJSON user messages; stdout NDJSON is parsed by a pure, testable stream parser.
 
 import { execFile } from "node:child_process";
+import { resolve as resolvePath } from "node:path";
 import { decidePermission } from "../permissions.ts";
 import type { PermissionDecision } from "../permissions.ts";
 import type {
@@ -208,6 +209,8 @@ export type ParserOpts = {
   pool: AuthMode;
   /** Effective permission mode; controls how the engine answers headless permission requests. */
   mode?: RunMode;
+  /** Workspace roots that auto-mode file mutations may target. */
+  workspaceRoots?: readonly string[];
   /** Called on every `result` event (drives stdin lifecycle in `startClaude`). */
   onResult?: (result: Rec) => void;
   /** Called on every `can_use_tool` control request; the caller writes the answer to stdin. */
@@ -263,7 +266,9 @@ export function createStreamParser(opts: ParserOpts): StreamParser {
         const decision = decidePermission(
           request.tool_name,
           request.input,
-          opts.mode !== undefined ? { mode: opts.mode } : {},
+          opts.mode !== undefined
+            ? { mode: opts.mode, workspaceRoots: opts.workspaceRoots ?? [] }
+            : {},
         );
         snap.permissions.push(`${decision.behavior}:${request.tool_name}`);
         opts.onPermission?.(request, decision);
@@ -364,6 +369,7 @@ export function startClaude(
   const parser = createStreamParser({
     pool: req.auth,
     mode: req.mode,
+    workspaceRoots: [req.cwd, ...(req.add_dirs ?? []).map((dir) => resolvePath(req.cwd, dir))],
     onResult: (result) => {
       const queued = result.queued_turn_count;
       outstanding =

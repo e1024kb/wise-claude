@@ -799,6 +799,48 @@ test("parser: a can_use_tool control request is decided and reported through onP
   assert.equal(parser.snapshot().turns, 0, "control traffic is not a turn");
 });
 
+test("parser: auto-mode file mutations stay within the configured workspace roots", () => {
+  const seen: string[] = [];
+  const parser = createStreamParser({
+    pool: "subscription",
+    mode: "auto",
+    workspaceRoots: ["/work/project", "/work/shared"],
+    onPermission: (request, decision) =>
+      seen.push(`${decision.behavior} ${request.tool_name} ${request.request_id}`),
+  });
+  const lines = [
+    {
+      type: "control_request",
+      request_id: "inside",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Edit",
+        input: { file_path: "/work/project/src/a.ts" },
+      },
+    },
+    {
+      type: "control_request",
+      request_id: "added",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Write",
+        input: { file_path: "/work/shared/a.ts" },
+      },
+    },
+    {
+      type: "control_request",
+      request_id: "outside",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Edit",
+        input: { file_path: "/tmp/a.ts" },
+      },
+    },
+  ];
+  parser.feed(lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  assert.deepEqual(seen, ["allow Edit inside", "allow Write added", "deny Edit outside"]);
+});
+
 /** A fake CLI that asks permission for WebFetch and reports what the engine answered. */
 const PERMISSION_SCRIPT = `
   process.stdout.write(JSON.stringify({ type: "system", subtype: "init", session_id: "fake-sess", tools: [] }) + "\\n");

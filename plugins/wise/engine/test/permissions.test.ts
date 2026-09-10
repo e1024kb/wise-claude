@@ -83,7 +83,26 @@ test("decidePermission: approval-required stays read-only; auto allows local edi
   assert.equal(decidePermission("Skill", {}).behavior, "deny");
   assert.equal(decidePermission("TodoWrite", {}).behavior, "deny");
   assert.equal(decidePermission("TodoRead", {}).behavior, "allow");
-  assert.equal(decidePermission("Edit", {}, { mode: "auto" }).behavior, "allow");
+  const auto = { mode: "auto" as const, workspaceRoots: ["/work/project", "/work/shared"] };
+  assert.equal(decidePermission("Edit", { file_path: "src/a.ts" }, auto).behavior, "allow");
+  assert.equal(
+    decidePermission("Write", { file_path: "/work/project/src/a.ts" }, auto).behavior,
+    "allow",
+  );
+  assert.equal(
+    decidePermission("MultiEdit", { file_path: "/work/shared/a.ts" }, auto).behavior,
+    "allow",
+  );
+  assert.equal(
+    decidePermission("NotebookEdit", { notebook_path: "notebooks/a.ipynb" }, auto).behavior,
+    "allow",
+  );
+  assert.equal(decidePermission("Edit", { file_path: "../outside.ts" }, auto).behavior, "deny");
+  assert.equal(
+    decidePermission("Write", { file_path: "/work/project-other/a.ts" }, auto).behavior,
+    "deny",
+  );
+  assert.equal(decidePermission("MultiEdit", {}, auto).behavior, "deny");
   assert.equal(decidePermission("TodoWrite", {}, { mode: "auto" }).behavior, "allow");
   assert.equal(
     decidePermission("Bash", { command: "npm test" }, { mode: "auto" }).behavior,
