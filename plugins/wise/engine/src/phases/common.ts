@@ -12,6 +12,7 @@ import type {
   Permissions,
   ProfileLevel,
   Resolved,
+  RunMode,
   Unit,
   UnitLedger,
   UnitVerdict,
@@ -104,6 +105,8 @@ export type UnitsConfig = {
   profile: ProfileLevel;
   /** `full`: every model phase runs `full-access` instead of its own `PHASE_MODE`. */
   permissions?: Permissions;
+  /** Per-provider permission floors chosen during pre-flight. */
+  provider_permissions?: Partial<Record<Harness, RunMode>>;
   /** Operator standing guidance from the run context (E1), injected into every model prompt. */
   guidance?: string;
   /** Decisions the conversation already made, injected into the plan prompt. */

@@ -84,7 +84,7 @@ steps:
 - Subagents a Claude child spawns need the `Task` / `Agent` permission
   rules in `allowed_tools`; the engine pre-grants them for the `units`
   step's `implement` and `review` phases.
-- Non-Claude harnesses (`codex`, `grok`, `gemini`) have no plugin
+- Non-Claude harnesses (`codex`, `cursor`, `gemini`, `grok`) have no plugin
   subagents; the prompt text is the only persona they see.
 
 See [`docs/wise/workflows.md`](../../docs/wise/workflows.md) for the

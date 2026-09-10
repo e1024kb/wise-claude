@@ -16,6 +16,7 @@ import type { Adapter, AuthMode, Harness, Resolved, WorkflowDef } from "./types.
 export const LOGIN_CMDS: Readonly<Record<Harness, string>> = {
   claude: "claude auth login",
   codex: "codex login",
+  cursor: "cursor-agent login",
   gemini: "gemini (interactive, then /auth)",
   grok: "grok login",
 };

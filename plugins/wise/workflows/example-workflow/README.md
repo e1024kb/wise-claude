@@ -66,7 +66,8 @@ an `ask` gate, `approve-summary` as an `approval` gate; in
 Pre-flight asks, per tuning group (`classify`, `summarize`; both default
 to `claude-haiku-4-5`, `summarize` with `codex` as fallback harness),
 which CLI runs it when more than one is logged in, then which model
-from the engine's catalog, then the effort that model takes; and the
+from the engine's catalog, then the effort that model takes. It also asks
+once for each selected or fallback provider's permission floor; and the
 optional `focus` input (pre-filled from the run context's `guidance`
 when present).
 

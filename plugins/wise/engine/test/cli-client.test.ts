@@ -23,6 +23,17 @@ type Fake = {
 
 const QUESTIONS: Question[] = [
   {
+    id: "permissions.claude",
+    kind: "choice",
+    label: "Minimum permissions for claude?",
+    options: [
+      { value: "auto", label: "Auto (recommended)" },
+      { value: "approval-required", label: "Approval required" },
+      { value: "full-access", label: "Bypass permissions" },
+    ],
+    default: "auto",
+  },
+  {
     id: "model.plan",
     kind: "choice",
     label: "Which claude model: Plan?",
@@ -250,6 +261,40 @@ describe("cli-client", () => {
     assert.equal(t.out, "");
   });
 
+  test("run --interactive: asks every open question in the terminal and never silently defaults", async () => {
+    const r = await run(
+      ["run", "wf", "--cwd", "/tmp/x", "--interactive"],
+      ["\n", "2\n", "LEC-9\n", "\n"],
+    );
+    assert.equal(r.code, 0, r.err + r.out);
+    assert.match(r.err, /Minimum permissions for claude\?/);
+    assert.match(r.err, /Auto \(recommended\)/);
+    assert.match(r.err, /Which claude model: Plan\?/);
+    assert.match(r.err, /1\. Opus 5/);
+    assert.match(r.err, /2\. Sonnet 5/);
+    assert.match(r.err, /Ticket ref\?/);
+    assert.match(r.err, /Notes\?/);
+    const params = calls("run")[0]?.params as {
+      answers: Record<string, unknown>;
+      inputs: Record<string, string>;
+    };
+    assert.deepEqual(params.answers, {
+      "permissions.claude": "auto",
+      "model.plan": "claude-sonnet-5",
+      "input.ticket": "LEC-9",
+      "input.notes": "",
+    });
+    assert.deepEqual(params.inputs, { ticket: "LEC-9", notes: "" });
+    assert.equal(calls("preflight").length, 5);
+  });
+
+  test("run --interactive: closed stdin stops before run creation", async () => {
+    const r = await run(["run", "wf", "--interactive"], []);
+    assert.equal(r.code, 64);
+    assert.match(r.out, /PREFLIGHT_UNANSWERED/);
+    assert.equal(calls("run").length, 0);
+  });
+
   test("run: --answers and --input fill answers, defaults fill the rest, locked stay untouched", async () => {
     const r = await run([
       "run",
@@ -275,13 +320,18 @@ describe("cli-client", () => {
     };
     assert.equal(params.workflow, "wf");
     assert.equal(params.cwd, "/tmp/x");
-    assert.deepEqual(params.answers, { "model.plan": "claude-sonnet-5", "input.ticket": "LEC-1" });
+    assert.deepEqual(params.answers, {
+      "permissions.claude": "auto",
+      "model.plan": "claude-sonnet-5",
+      "input.ticket": "LEC-1",
+    });
     assert.deepEqual(params.inputs, { ticket: "LEC-1" });
     assert.equal(params.context.guidance, "be brief");
     const j = JSON.parse(r.out) as { run_id: string; status: string };
     assert.equal(j.run_id, RUN_ID);
     assert.equal(j.status, "running");
-    // Staged: the first call carries the given answers; nothing was filled in, so no second pass.
+    // Staged: the first call carries the given answers, then the provider floor default unlocks
+    // the next pass.
     const pres = calls("preflight").map(
       (c) => c.params as { workflow: string; cwd: string; answers: unknown },
     );
@@ -290,7 +340,16 @@ describe("cli-client", () => {
       cwd: "/tmp/x",
       answers: { "model.plan": "claude-sonnet-5", "input.ticket": "LEC-1" },
     });
-    assert.equal(pres.length, 1);
+    assert.deepEqual(pres[1], {
+      workflow: "wf",
+      cwd: "/tmp/x",
+      answers: {
+        "model.plan": "claude-sonnet-5",
+        "input.ticket": "LEC-1",
+        "permissions.claude": "auto",
+      },
+    });
+    assert.equal(pres.length, 2);
   });
 
   test("run: --answers merges (explicit beats default), bad JSON exits 64", async () => {
@@ -298,6 +357,7 @@ describe("cli-client", () => {
     assert.equal(r.code, 0, r.err);
     const params = calls("run")[0]?.params as { answers: Record<string, unknown> };
     assert.deepEqual(params.answers, {
+      "permissions.claude": "auto",
       "model.plan": "claude-opus-5",
       "input.ticket": "LEC-2",
       "input.notes": "n",
@@ -309,7 +369,10 @@ describe("cli-client", () => {
   test("fillAnswers: unit semantics", () => {
     const f = fillAnswers(QUESTIONS, {});
     assert.deepEqual(f.missing, ["input.ticket"]);
-    assert.deepEqual(f.answers, { "model.plan": "claude-opus-5" });
+    assert.deepEqual(f.answers, {
+      "permissions.claude": "auto",
+      "model.plan": "claude-opus-5",
+    });
     const g = fillAnswers(QUESTIONS, { "input.ticket": "X", "model.plan": "claude-sonnet-5" });
     assert.deepEqual(g.missing, []);
     assert.deepEqual(g.inputs, { ticket: "X" });

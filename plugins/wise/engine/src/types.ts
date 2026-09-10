@@ -3,7 +3,7 @@
 
 // ---- vocabulary -----------------------------------------------------------
 
-export const HARNESSES = ["claude", "codex", "gemini", "grok"] as const;
+export const HARNESSES = ["claude", "codex", "cursor", "gemini", "grok"] as const;
 export type Harness = (typeof HARNESSES)[number];
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -20,9 +20,10 @@ export const MCP_POLICIES = ["inherit", "engine-only"] as const;
 export type McpPolicy = (typeof MCP_POLICIES)[number];
 
 /**
- * Run-wide child permissions. `allowlist` (default): each step's `mode` and `allowed_tools`.
+ * Legacy run-wide child permissions. `allowlist`: each step's `mode` and `allowed_tools`.
  * `full`: every child runs `full-access` (claude bypassPermissions, codex danger-full-access, gemini
- * yolo, grok --always-approve), so a tool the step did not list is never a permission denial.
+ * yolo, cursor-agent sandbox disabled, grok --always-approve), so a tool the step did not list is
+ * never a permission denial. New runs use `provider_permissions` instead.
  */
 export const PERMISSIONS = ["allowlist", "full"] as const;
 export type Permissions = (typeof PERMISSIONS)[number];
@@ -75,7 +76,7 @@ export const TERMINAL_RUN: ReadonlySet<RunStatus> = new Set(["completed", "cance
 
 export type QuestionOption = { value: string; label: string; description?: string };
 export type Question = {
-  /** "harness.<group>" | "model.<group>" | "effort.<group>" | "step-select" | "input.<name>" */
+  /** Staged ids include harness/model/effort groups and `permissions.<harness>`. */
   id: string;
   kind: "choice" | "multi" | "text";
   label: string;
@@ -421,8 +422,10 @@ export type State = {
   harness_session?: string;
   status: RunStatus;
   profile: ProfileLevel;
-  /** Effective child permissions for the run (`preflight.permissions` pin or the run answer). */
+  /** Legacy run-wide permissions, retained for old state files and workflow definitions. */
   permissions?: Permissions;
+  /** Per-harness permission floor selected during pre-flight. New runs use this field. */
+  provider_permissions?: Partial<Record<Harness, RunMode>>;
   answers: Answers;
   context: Context;
   inputs: Record<string, string>;

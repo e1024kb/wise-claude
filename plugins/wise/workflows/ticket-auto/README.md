@@ -12,7 +12,7 @@ watches CI and the bots, fixes what they raise, and merges once the PR
 is green and quiet. One worktree + branch + PR per ticket. A merged PR
 loses its worktree and local branch; anything else stays open for a
 human with the worktree kept for inspection. No prompts after launch:
-pre-flight asks harness, model and effort per phase group, and the
+pre-flight asks harness, provider permissions, model and effort per phase group, and the
 inputs.
 
 The per-ticket loop is engine code (`plugins/wise/engine/src/units.ts`,
@@ -43,10 +43,9 @@ the intake and the report. The prompt fragments still under `prompts/`
 - Run from inside the project's git repository (`project-selection:
   current`); the base working tree must be clean and have an `origin`
   remote (`preflight-checks` refuses otherwise).
-- Children run with `preflight.permissions: full` (every harness's
-  bypass mode), so any tracker CLI, MCP or build tool on the machine is
-  usable without a per-step allowlist; pass `permissions: allowlist` as a
-  run answer to restore the step allowlists.
+- Pre-flight asks for a permission floor once per selected provider.
+  `Auto` is recommended; `Bypass permissions` is available when the
+  provider must run fully unsandboxed. A phase's stronger mode still wins.
 - No tracker plugin is required up front: `ensure-access` probes for a
   tracker MCP, CLI or public URL per ticket and stops the run with an
   actionable message when one is unreachable. Nothing is planned from
@@ -81,6 +80,7 @@ Inside `process`, per ticket and in this order:
 | Id | Kind | Default | Notes |
 |---|---|---|---|
 | `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked whenever another CLI is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
+| `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
@@ -122,7 +122,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 ```
 /wise-workflow-run ticket-auto
-# Pre-flight asks harness, model and effort per group, and the tickets.
+# Pre-flight asks harness, provider permissions, model and effort per group, and the tickets.
 
 /wise-workflow-run ticket-auto PROJ-1,PROJ-2
 # Two tickets, no spaces. Sequential units, one PR each.

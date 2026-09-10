@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decidePermission, isReadMcpTool, mcpToolPart, nameTokens } from "../src/permissions.ts";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  decidePermission,
+  effectiveMode,
+  isAutoBashCommand,
+  isReadMcpTool,
+  mcpToolPart,
+  nameTokens,
+  providerPermission,
+} from "../src/permissions.ts";
 
 test("nameTokens: camelCase, snake_case and kebab-case split the same way", () => {
   assert.deepEqual(nameTokens("getJiraIssue"), ["get", "jira", "issue"]);
@@ -60,7 +71,7 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   assert.equal(bash.behavior, "deny");
   assert.match(
     bash.behavior === "deny" ? bash.message : "",
-    /^Bash .*allowed_tools.*permissions: full/,
+    /^Bash .*allowed_tools.*Bypass permissions/,
   );
   assert.equal(decidePermission("Edit", {}).behavior, "deny");
   assert.equal(decidePermission("mcp__slack__slack_send_message", {}).behavior, "deny");
@@ -69,10 +80,137 @@ test("decidePermission: read-only built-ins and read MCP tools allow with the in
   assert.equal(decidePermission("ReadMcpResourceDirTool", {}).behavior, "allow");
 });
 
-test("decidePermission: Skill and TodoWrite are not auto-allowed", () => {
+test("decidePermission: approval-required stays read-only; auto allows local edits and safe commands", (t) => {
   // `Skill` can activate a skill whose own `allowed-tools` pre-approves mutating tools without
   // ever reaching this decision; `TodoWrite` writes state. Neither belongs in READ_ONLY_BUILTINS.
   assert.equal(decidePermission("Skill", {}).behavior, "deny");
   assert.equal(decidePermission("TodoWrite", {}).behavior, "deny");
   assert.equal(decidePermission("TodoRead", {}).behavior, "allow");
+  const scratch = mkdtempSync(join(tmpdir(), "wise-permissions-auto-"));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const workspace = join(scratch, "project");
+  const shared = join(scratch, "shared");
+  mkdirSync(workspace);
+  mkdirSync(shared);
+  const auto = { mode: "auto" as const, workspaceRoots: [workspace, shared] };
+  assert.equal(decidePermission("Edit", { file_path: "src/a.ts" }, auto).behavior, "allow");
+  assert.equal(
+    decidePermission("Write", { file_path: join(workspace, "src/a.ts") }, auto).behavior,
+    "allow",
+  );
+  assert.equal(
+    decidePermission("MultiEdit", { file_path: join(shared, "a.ts") }, auto).behavior,
+    "allow",
+  );
+  assert.equal(
+    decidePermission("NotebookEdit", { notebook_path: "notebooks/a.ipynb" }, auto).behavior,
+    "allow",
+  );
+  assert.equal(decidePermission("Edit", { file_path: "../outside.ts" }, auto).behavior, "deny");
+  assert.equal(
+    decidePermission("Write", { file_path: join(scratch, "project-other/a.ts") }, auto).behavior,
+    "deny",
+  );
+  assert.equal(decidePermission("MultiEdit", {}, auto).behavior, "deny");
+  assert.equal(decidePermission("TodoWrite", {}, { mode: "auto" }).behavior, "allow");
+  assert.equal(
+    decidePermission("Bash", { command: "npm test" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: "rm -rf ./dist" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: "echo ready\nrm -rf ./dist" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: "sh -c 'rm -rf ./dist'" }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Bash", { command: 'bash -c "rm -rf ./dist"' }, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("mcp__slack__slack_send_message", {}, { mode: "auto" }).behavior,
+    "deny",
+  );
+  assert.equal(decidePermission("Skill", {}, { mode: "auto" }).behavior, "deny");
+  assert.equal(isAutoBashCommand("git status --short"), true);
+  assert.equal(isAutoBashCommand("git branch --show-current"), true);
+  assert.equal(isAutoBashCommand("rg needle src"), true);
+  assert.equal(isAutoBashCommand("git branch feature"), false);
+  assert.equal(isAutoBashCommand("git diff --output=review.diff"), false);
+  assert.equal(isAutoBashCommand("git diff --output review.diff"), false);
+  assert.equal(isAutoBashCommand("git diff --output=/tmp/wise-output"), false);
+  assert.equal(isAutoBashCommand("git diff --output /tmp/wise-output"), false);
+  assert.equal(isAutoBashCommand("git diff --output-indicator-new=+"), true);
+  assert.equal(isAutoBashCommand("rg --pre sh needle ."), false);
+  assert.equal(isAutoBashCommand("cat /etc/passwd"), false);
+  assert.equal(isAutoBashCommand('cat "/etc/passwd"'), false);
+  assert.equal(isAutoBashCommand("cat foo/../../etc/passwd"), false);
+  assert.equal(isAutoBashCommand("cat foo/../bar"), false);
+  for (const command of [
+    "npm test",
+    "npm run build",
+    "pnpm run build",
+    "yarn lint",
+    "bun test",
+    "just check",
+    "make test",
+    "cargo test",
+    "go test ./...",
+    "pytest",
+    "ruff check .",
+    "eslint .",
+    "tsc --noEmit",
+  ]) {
+    assert.equal(isAutoBashCommand(command), false, command);
+  }
+  assert.equal(
+    decidePermission("Bash", { command: "npm test" }, { mode: "full-access" }).behavior,
+    "allow",
+  );
+});
+
+test("decidePermission: auto-mode file mutations cannot escape through symlinks", (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), "wise-permissions-"));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const workspace = join(scratch, "workspace");
+  const outside = join(scratch, "outside");
+  const safe = join(workspace, "safe");
+  mkdirSync(safe, { recursive: true });
+  mkdirSync(outside);
+  symlinkSync(outside, join(workspace, "escape"), "dir");
+  symlinkSync(safe, join(workspace, "safe-link"), "dir");
+  symlinkSync(join(outside, "missing.ts"), join(workspace, "dangling.ts"));
+  const auto = { mode: "auto" as const, workspaceRoots: [workspace] };
+
+  assert.equal(
+    decidePermission("Write", { file_path: join(workspace, "escape", "new.ts") }, auto).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Edit", { file_path: join(workspace, "dangling.ts") }, auto).behavior,
+    "deny",
+  );
+  assert.equal(
+    decidePermission("Write", { file_path: join(workspace, "safe-link", "new.ts") }, auto).behavior,
+    "allow",
+  );
+});
+
+test("permission floors preserve stronger step requirements and support legacy state", () => {
+  assert.equal(effectiveMode("approval-required", "auto"), "auto");
+  assert.equal(effectiveMode("full-access", "auto"), "full-access");
+  assert.equal(effectiveMode(undefined, "approval-required"), "approval-required");
+  assert.equal(
+    providerPermission({ provider_permissions: { cursor: "full-access" } }, "cursor"),
+    "full-access",
+  );
+  assert.equal(providerPermission({ permissions: "full" }, "claude"), "full-access");
+  assert.equal(providerPermission({ permissions: "allowlist" }, "codex"), "approval-required");
+  assert.equal(providerPermission({}, "gemini"), "auto");
 });

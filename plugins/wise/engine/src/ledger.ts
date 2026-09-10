@@ -38,6 +38,7 @@ import type {
   ProfileLevel,
   Project,
   Resolved,
+  RunMode,
   RunStatus,
   RunSummary,
   State,
@@ -318,6 +319,8 @@ export type StartRunCtx = {
   context?: Context;
   profile?: ProfileLevel;
   permissions?: Permissions;
+  /** Per-provider permission floors chosen during pre-flight. */
+  providerPermissions?: Partial<Record<Harness, RunMode>>;
   resolved?: Record<string, Resolved>;
   caps?: Record<string, number>;
   harnessSession?: string;
@@ -331,6 +334,9 @@ export function startRun(runDir: string, ctx: StartRunCtx, opts: ClockOpts = {})
   if (ctx.context) state.context = { ...state.context, ...ctx.context };
   if (ctx.profile) state.profile = ctx.profile;
   if (ctx.permissions) state.permissions = ctx.permissions;
+  if (ctx.providerPermissions) {
+    state.provider_permissions = { ...ctx.providerPermissions };
+  }
   if (ctx.resolved) state.resolved = { ...state.resolved, ...ctx.resolved };
   if (ctx.caps) state.caps = { ...state.caps, ...ctx.caps };
   if (ctx.harnessSession) state.harness_session = ctx.harnessSession;

@@ -63,7 +63,7 @@ Current actions (all standalone):
   per session; profile-sensitive skills (`wise-pr-watch-auto`)
   read it via `references/profile-read.md` and
   degrade silently to `medium`. Workflows never read it: the engine's
-  pre-flight asks harness, model and effort per tuning group instead.
+  pre-flight asks harness, per-provider permission floor, model and effort instead.
   Budget only — model tiers, optional-step scope, panel size, retry
   caps; NEVER correctness rules.
 - `/wise-fork` — reorient a forked session. Inherited context becomes
@@ -180,7 +180,7 @@ plugins/wise/
 │   ├── package.json                # deps (@modelcontextprotocol/sdk, yaml, zod); `npm run check`
 │   ├── src/                        # defs (YAML v2 schema), scheduler, executor, ledger, daemon, mcp,
 │   │   │                           #   unit-mcp, channel, resolve, render, preflight, migrate, auth
-│   │   ├── adapters/               # claude, codex, grok (gemini landing) + clean-env spawn
+│   │   ├── adapters/               # claude, codex, cursor-agent, gemini, grok + clean-env spawn
 │   │   ├── steps/                  # agent, bash, gate step runners
 │   │   ├── phases/                 # unit pipeline phases (claim, worktree, model phases, push, pr, ...)
 │   │   └── prompts/units/          # the model-phase prompt templates + schemas
@@ -416,7 +416,7 @@ one-liners below are the rule, not the argument for it.
   `permissionMode`, so never add those. Roster `model:` is `inherit`;
   `effort:` is the role's default reasoning level. In YAML v2 an `agent`
   step is one headless harness child (`claude -p`, `codex exec`,
-  `grok -p`, `gemini -p`) spawned by the engine under the user's own
+  `cursor-agent --print`, `gemini -p`, `grok -p`) spawned by the engine under the user's own
   login, with the step's `harness` / `model` / `effort` (or its tuning
   group) passed as real CLI flags; a Claude child delegates to a roster
   role through its own `Task` / `Agent` tool when the prompt says so.
@@ -427,6 +427,12 @@ one-liners below are the rule, not the argument for it.
   catalog pre-flight offers is `engine/src/models.ts`. Keep
   `AGENTS.md`'s catalog table in sync with `agents/*.md`, the same way
   workflow READMEs stay in sync with YAML.
+- **Provider permissions are floors, not overrides.** Pre-flight asks
+  `permissions.<harness>` once for every selected or fallback provider;
+  `auto` is recommended and `full-access` is labelled "Bypass permissions".
+  The effective child mode is the stronger of that answer and the step or
+  unit phase's declared mode. Persist floors in `state.provider_permissions`;
+  keep legacy global `permissions: allowlist | full` resumable.
 - **The roster is canonical; never hand-maintain a divergent copy.**
   `agents/*.md` is the single source. The repo-root `AGENTS.md` and
   `plugins/wise/AGENTS.md` document it as project-*instructions* (not

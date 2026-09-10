@@ -163,6 +163,9 @@ export function configFor(step: UnitsStep, state: State): UnitsConfig {
     resume: step.resume ?? "fresh",
   };
   if (state.permissions !== undefined) cfg.permissions = state.permissions;
+  if (state.provider_permissions !== undefined) {
+    cfg.provider_permissions = { ...state.provider_permissions };
+  }
   if (state.context.guidance !== undefined) cfg.guidance = state.context.guidance;
   if (state.context.decisions !== undefined) cfg.decisions = state.context.decisions;
   if (step.mcp !== undefined) cfg.mcp = step.mcp;

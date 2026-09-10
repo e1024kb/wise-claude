@@ -338,10 +338,10 @@ export function cmdResolveModel(
 
 /**
  * P6 effort mapping: what the harness CLI receives for a wise effort.
- * claude / codex / grok take the value as-is; gemini has no effort control.
+ * claude / codex / grok take the value as-is; cursor / gemini have no standalone effort flag.
  */
 export function effortFor(harness: Harness, effort: Effort): string | undefined {
-  return harness === "gemini" ? undefined : effort;
+  return harness === "gemini" || harness === "cursor" ? undefined : effort;
 }
 
 // ---- roster --------------------------------------------------------------------

@@ -630,10 +630,10 @@ test("probeAuth: subscription parses `claude auth status` JSON", async () => {
   );
 });
 
-test("registry: claude, codex, gemini, grok are registered", () => {
+test("registry: every harness adapter is registered", () => {
   assert.equal(adapterFor("claude"), claudeAdapter);
   assert.equal(claudeAdapter.id, "claude");
-  for (const h of ["claude", "codex", "gemini", "grok"] as const) {
+  for (const h of ["claude", "codex", "cursor", "gemini", "grok"] as const) {
     assert.equal(hasAdapter(h), true, h);
     assert.equal(adapterFor(h).id, h);
   }
@@ -797,6 +797,50 @@ test("parser: a can_use_tool control request is decided and reported through onP
     "deny:Bash",
   ]);
   assert.equal(parser.snapshot().turns, 0, "control traffic is not a turn");
+});
+
+test("parser: auto-mode file mutations stay within the configured workspace roots", () => {
+  const seen: string[] = [];
+  const workspace = process.cwd();
+  const added = tmpdir();
+  const parser = createStreamParser({
+    pool: "subscription",
+    mode: "auto",
+    workspaceRoots: [workspace, added],
+    onPermission: (request, decision) =>
+      seen.push(`${decision.behavior} ${request.tool_name} ${request.request_id}`),
+  });
+  const lines = [
+    {
+      type: "control_request",
+      request_id: "inside",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Edit",
+        input: { file_path: join(workspace, "src/a.ts") },
+      },
+    },
+    {
+      type: "control_request",
+      request_id: "added",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Write",
+        input: { file_path: join(added, "a.ts") },
+      },
+    },
+    {
+      type: "control_request",
+      request_id: "outside",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Edit",
+        input: { file_path: join(dirname(workspace), "outside.ts") },
+      },
+    },
+  ];
+  parser.feed(lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  assert.deepEqual(seen, ["allow Edit inside", "allow Write added", "deny Edit outside"]);
 });
 
 /** A fake CLI that asks permission for WebFetch and reports what the engine answered. */

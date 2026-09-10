@@ -5,7 +5,7 @@ branch gate. Read by:
 
 - `workflows/code-review/workflow.yaml` — the standalone pre-push gate:
   the lenses, curation, verification and bounded apply below as engine
-  steps, harness / model / effort per agent chosen at pre-flight.
+  steps, harness / provider permissions / model / effort per agent chosen at pre-flight.
 - `workflows/ticket-auto/prompts/review-branch-auto.md` — the prose
   form, read by the PR watcher's review fallback
   (`review-fallback-auto.md`).

@@ -86,6 +86,26 @@ test("bundled workflows: every unlocked group resolves to a catalog id of its ha
   }
 });
 
+test("code-review waits for every lens and gates missing reports before curation", () => {
+  const def = bundledDef("code-review");
+  assert.equal(def.preflight?.["control-mode"], "interactive");
+  const health = def.steps.find((step) => step.id === "review-health");
+  assert.equal(health?.type, "bash");
+  assert.deepEqual(health?.depends_on, ["review-correctness", "review-security", "review-tests"]);
+  assert.equal(health?.["trigger-rule"], "all-done");
+  const gate = def.steps.find((step) => step.id === "review-errors");
+  assert.equal(gate?.type, "ask");
+  assert.equal(gate?.when, "missing_reviews != 'none'");
+  const curate = def.steps.find((step) => step.id === "curate");
+  assert.deepEqual(curate?.depends_on, ["review-health", "review-errors"]);
+  assert.match(String(curate?.when), /review_failure_action/);
+  const failure = def.steps.find((step) => step.id === "fail-incomplete-review");
+  assert.equal(failure?.type, "bash");
+  assert.equal(failure?.when, "missing_reviews != 'none'");
+  assert.deepEqual(failure?.depends_on, ["finalize"]);
+  assert.equal(failure?.["trigger-rule"], "all-done");
+});
+
 test("units workflows: plan, implement, review and fix run on Opus 5, watch on Sonnet 5; every cap is set", () => {
   for (const name of UNITS_WORKFLOWS) {
     const def = bundledDef(name);

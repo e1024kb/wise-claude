@@ -7,15 +7,16 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { CallToolResult, Progress } from "@modelcontextprotocol/sdk/types.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ElicitRequest, Progress } from "@modelcontextprotocol/sdk/types.js";
 import { daemonPaths, startDaemon } from "../src/daemon.ts";
 import type { Daemon, DaemonHandlers } from "../src/daemon.ts";
-import { createMcpServer, MCP_TOOL_NAMES } from "../src/mcp.ts";
+import { createMcpServer, MCP_TOOL_NAMES, questionFormSchema } from "../src/mcp.ts";
 import type { McpServerOptions } from "../src/mcp.ts";
 import { WAIT_DEFAULT_MS, WAIT_MAX_MS } from "../src/protocol.ts";
 import type { ProgressParams, WaitResult } from "../src/protocol.ts";
 import { domainError } from "../src/rpc.ts";
-import type { RunSummary } from "../src/types.ts";
+import type { Question, RunSummary } from "../src/types.ts";
 import { buildId, pluginVersion } from "../src/version.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -57,10 +58,17 @@ function fakeHandlers(calls: Call[]): Partial<DaemonHandlers> {
   return {
     preflight: (params) => {
       record("preflight", params);
+      let questions: Question[] = [{ id: "profile", kind: "choice", label: "Profile" }];
+      if (params.workflow === "required-text-form") {
+        questions =
+          params.answers?.["input.ticket"] === undefined
+            ? [{ id: "input.ticket", kind: "text", label: "Ticket" }]
+            : [];
+      }
       return {
         workflow: params.workflow,
         version: 2,
-        questions: [{ id: "profile", kind: "choice", label: "Profile" }],
+        questions,
         defaults: { profile: "medium" },
         requires_missing: [],
       };
@@ -134,11 +142,23 @@ async function startFake(r: Root, calls: Call[], version = VERSION): Promise<Dae
 }
 
 /** MCP client wired to a fresh `createMcpServer` over an in-memory pair. */
-async function openMcp(opts: McpServerOptions): Promise<Client> {
+async function openMcp(
+  opts: McpServerOptions,
+  onElicit?: (request: ElicitRequest) => Record<string, string | string[]>,
+): Promise<Client> {
   const server = createMcpServer(opts);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
-  const client = new Client({ name: "mcp-test", version: "0.0.0" });
+  const client = new Client(
+    { name: "mcp-test", version: "0.0.0" },
+    onElicit ? { capabilities: { elicitation: { form: {} } } } : undefined,
+  );
+  if (onElicit) {
+    client.setRequestHandler(ElicitRequestSchema, async (request) => ({
+      action: "accept",
+      content: onElicit(request),
+    }));
+  }
   await client.connect(clientSide);
   clients.add(client);
   return client;
@@ -213,7 +233,11 @@ describe("mcp", () => {
 
     test("wise_preflight forwards params and returns the result as compact JSON", async () => {
       calls.length = 0;
-      const res = await callTool(client, "wise_preflight", { workflow: "ticket-plan", cwd: "/w" });
+      const res = await callTool(client, "wise_preflight", {
+        workflow: "ticket-plan",
+        cwd: "/w",
+        interactive: false,
+      });
       assert.notEqual(res.isError, true);
       assert.deepEqual(calls, [
         { method: "preflight", params: { workflow: "ticket-plan", cwd: "/w" } },
@@ -227,6 +251,89 @@ describe("mcp", () => {
       };
       assert.equal(textOf(res), JSON.stringify(expected));
       assert.deepEqual(res.structuredContent, expected);
+    });
+
+    test("wise_preflight interactive uses MCP form elicitation and returns collected answers", async () => {
+      calls.length = 0;
+      const requests: ElicitRequest[] = [];
+      const ui = await openMcp(
+        { daemon: { env: r.env, version: VERSION }, version: VERSION },
+        (request) => {
+          requests.push(request);
+          return { profile: "high" };
+        },
+      );
+      const res = await callTool(ui, "wise_preflight", {
+        workflow: "ticket-plan",
+        cwd: "/w",
+        interactive: true,
+      });
+      assert.notEqual(res.isError, true);
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0]?.params.mode, "form");
+      assert.deepEqual(parsed(res), {
+        workflow: "ticket-plan",
+        version: 2,
+        questions: [],
+        defaults: { profile: "medium" },
+        requires_missing: [],
+        answers: { profile: "high" },
+      });
+      assert.deepEqual(calls, [
+        { method: "preflight", params: { workflow: "ticket-plan", cwd: "/w", answers: {} } },
+        {
+          method: "preflight",
+          params: { workflow: "ticket-plan", cwd: "/w", answers: { profile: "high" } },
+        },
+      ]);
+    });
+
+    test("wise_preflight interactive rejects a whitespace-only required text answer", async () => {
+      calls.length = 0;
+      const requests: ElicitRequest[] = [];
+      const ui = await openMcp(
+        { daemon: { env: r.env, version: VERSION }, version: VERSION },
+        (request) => {
+          requests.push(request);
+          return { "input.ticket": "   " };
+        },
+      );
+      const res = await callTool(ui, "wise_preflight", {
+        workflow: "required-text-form",
+        cwd: "/w",
+        interactive: true,
+      });
+      assert.equal(errorOf(res).code, "INTERACTIVE_UI_INVALID");
+      assert.equal(requests.length, 1);
+      const request = requests[0];
+      assert.ok(request);
+      assert.equal(request.params.mode, "form");
+      if (request.params.mode !== "form") assert.fail("expected form elicitation");
+      const property = request.params.requestedSchema.properties["input.ticket"];
+      assert.ok(property);
+      assert.equal(property.type, "string");
+      if (property.type !== "string") assert.fail("expected a string property");
+      assert.ok("minLength" in property);
+      assert.equal(property.minLength, 1);
+      assert.deepEqual(calls, [
+        {
+          method: "preflight",
+          params: { workflow: "required-text-form", cwd: "/w", answers: {} },
+        },
+      ]);
+    });
+
+    test("wise_preflight interactive refuses a plain-chat fallback without form support", async () => {
+      calls.length = 0;
+      const res = await callTool(client, "wise_preflight", {
+        workflow: "ticket-plan",
+        cwd: "/w",
+        interactive: true,
+      });
+      const err = errorOf(res);
+      assert.equal(err.code, "INTERACTIVE_UI_REQUIRED");
+      assert.match(String(err.message), /never ask.*plain chat/i);
+      assert.deepEqual(calls, []);
     });
 
     test("wise_run forwards workflow, cwd, answers, context and inputs verbatim", async () => {
@@ -378,6 +485,7 @@ describe("mcp", () => {
       await callTool(client, "wise_preflight", {
         workflow: "ticket-plan",
         cwd: "/w",
+        interactive: false,
         answers: { "harness.evidence": "codex" },
       });
       assert.deepEqual(calls, [
@@ -465,7 +573,11 @@ describe("mcp", () => {
     assert.notEqual((await callTool(client, "wise_status", {})).isError, true);
     // A run start re-checks the build id, drops the socket and greets with the new one; with
     // autoStart off the mismatch surfaces instead of a restart.
-    const res = await callTool(client, "wise_preflight", { workflow: "x", cwd: r.root });
+    const res = await callTool(client, "wise_preflight", {
+      workflow: "x",
+      cwd: r.root,
+      interactive: false,
+    });
     assert.match(`${errorOf(res).code} ${errorOf(res).cause}`, /VERSION_MISMATCH/);
   });
 
@@ -517,4 +629,75 @@ describe("mcp", () => {
     assert.equal(server.timeout, 660_000);
     assert.ok(server.timeout > WAIT_MAX_MS);
   });
+});
+
+test("questionFormSchema preserves labels, defaults and provider option descriptions", () => {
+  assert.deepEqual(
+    questionFormSchema({
+      id: "permissions.codex",
+      kind: "choice",
+      label: "Codex permissions",
+      default: "auto",
+      options: [
+        { value: "auto", label: "Auto (recommended)", description: "Workspace-scoped access" },
+        { value: "full-access", label: "Bypass permissions" },
+      ],
+    }),
+    {
+      type: "object",
+      properties: {
+        "permissions.codex": {
+          type: "string",
+          title: "Codex permissions",
+          description: "Auto (recommended): Workspace-scoped access",
+          oneOf: [
+            { const: "auto", title: "Auto (recommended)" },
+            { const: "full-access", title: "Bypass permissions" },
+          ],
+          default: "auto",
+        },
+      },
+      required: ["permissions.codex"],
+    },
+  );
+  assert.deepEqual(
+    questionFormSchema({
+      id: "step-select",
+      kind: "multi",
+      label: "Extra passes",
+      options: [
+        { value: "verify", label: "Verify" },
+        { value: "apply", label: "Apply" },
+      ],
+      default: ["verify"],
+    }).properties["step-select"],
+    {
+      type: "array",
+      title: "Extra passes",
+      items: {
+        anyOf: [
+          { const: "verify", title: "Verify" },
+          { const: "apply", title: "Apply" },
+        ],
+      },
+      default: ["verify"],
+    },
+  );
+  assert.deepEqual(questionFormSchema({ id: "input.ticket", kind: "text", label: "Ticket" }), {
+    type: "object",
+    properties: {
+      "input.ticket": { type: "string", title: "Ticket", minLength: 1 },
+    },
+    required: ["input.ticket"],
+  });
+  assert.deepEqual(
+    questionFormSchema({
+      id: "input.guidance",
+      kind: "text",
+      label: "Guidance",
+      optional: true,
+      default: "",
+    }).properties["input.guidance"],
+    { type: "string", title: "Guidance", default: "" },
+  );
 });

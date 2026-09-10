@@ -57,7 +57,7 @@ This wizard walks you through installing bun or Node ≥24 (the workflow
 engine runtime), logging the `claude` CLI in (`claude auth login`, so
 the engine can spawn `claude -p` under your subscription), self-checks
 the engine and its `wise-engine` MCP server, reports the optional
-`codex` / `grok` / `gemini` CLIs and their logins, the `gh` CLI
+`codex` / `cursor-agent` / `gemini` / `grok` CLIs and their logins, the `gh` CLI
 (plus `gh auth login`), markitdown, and Python 3 + `pyyaml` /
 `python-ulid` / `typing_extensions` (still used by
 `/wise-workflow-list` / `-create` / `-remove` and the legacy v1
@@ -181,7 +181,7 @@ under [`engine/`](./engine/). You compose harness children, shell
 commands and gates into a single `/wise-workflow-run <name>`
 invocation. The engine runs as a per-user daemon (`wise-engined`,
 started on demand by the plugin's `wise-engine` MCP server), spawns the
-vendor CLIs headless (`claude -p`, `codex exec`, `grok -p`, `gemini -p`)
+vendor CLIs headless (`claude -p`, `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`)
 under your existing logins, schedules the step DAG (steps whose
 dependencies are all done run together), and persists every run under
 `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` (`state.json` +
@@ -363,8 +363,8 @@ of the following mechanisms, and update the table below.
 | Dependency | Kind | Registered in | Used by |
 |---|---|---|---|
 | bun or Node ≥24 | CLI / runtime - the TypeScript workflow engine (`engine/engine.sh` picks bun, else Node 24; TypeScript run as source, no build) | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` | the `wise-engine` MCP server and daemon behind `wise-workflow-run` / `-resume` / `-status` |
-| `wise-engine` MCP server (`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`) | MCP server - `wise_preflight`, `wise_run`, `wise_wait`, `wise_answer`, `wise_status`, `wise_cancel`, `wise_nudge`, `wise_resume`; starts the `wise-engined` daemon on demand | `plugins/wise/.mcp.json` (tool timeout 660 s) | the three conductor skills |
-| `claude` CLI login (`claude auth login`); optionally `codex login`, `grok login`, `gemini` | CLI binaries - the harnesses the engine spawns headless under your subscription | probed by the engine before every run (`AUTH_REQUIRED` carries the login command); `/wise-init` checks `claude` | every `agent` step and `units` phase |
+| `wise-engine` MCP server (`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`) | MCP server - `wise_preflight` presents interactive questions through host form elicitation, plus `wise_run`, `wise_wait`, `wise_answer`, `wise_status`, `wise_cancel`, `wise_nudge`, `wise_resume`; starts the `wise-engined` daemon on demand | `plugins/wise/.mcp.json` (tool timeout 660 s) | the three conductor skills |
+| `claude` CLI login (`claude auth login`); optionally `codex login`, `cursor-agent login`, `gemini`, `grok login` | CLI binaries - the harnesses the engine spawns headless under your subscription | probed by the engine before every run (`AUTH_REQUIRED` carries the login command); `/wise-init` checks every harness | every `agent` step and `units` phase |
 | Python 3 + PyYAML + python-ulid + typing_extensions | CLI / runtime - the v1 workflow scripts (`scripts/workflows.py`) still behind `/wise-workflow-list` / `-create` / `-remove` and the legacy v1 conductor; removed in plan M3.4 | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | `wise-workflow-list`, `wise-workflow-create`, `wise-workflow-remove` |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 | [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `plugins/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |

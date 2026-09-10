@@ -28,10 +28,8 @@ project-selection: current
 preflight:
   control-mode: synchronous
   worktree: current
-  # Every child runs full-access: the tracker CLI, MCP or build tool a step
-  # did not list is never a permission denial (answer `permissions: allowlist`
-  # at run time to fall back to per-step allowlists).
-  permissions: full
+  # Pre-flight asks once per provider. Auto is recommended; permission floors
+  # never weaken a phase that explicitly needs full-access.
 
 # One question per group. `fix` shares the implement group. Model
 # tiering (opus = the latest Opus, Opus 5): opus at high for plan,

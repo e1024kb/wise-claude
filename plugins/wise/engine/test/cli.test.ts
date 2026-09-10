@@ -32,6 +32,7 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
   const answers = {
     "step-select": ["analyze-design", "analyze-related", "research-context", "gap-analysis"],
     ...Object.fromEntries(groups.map((g) => [`harness.${g}`, "claude"])),
+    "permissions.claude": "auto",
     "model.analyze-design": "claude-sonnet-5",
   };
   const r = await run(["preflight", FIXTURE, "--answers", JSON.stringify(answers)]);
@@ -48,7 +49,7 @@ test("preflight on a v2 file emits the P1 questionary shape", async () => {
   for (const q of j.questions) {
     assert.match(
       q.id,
-      /^((harness|model|effort)\.[a-z][a-z0-9-]*|step-select|input\.[a-z][a-z0-9_]*)$/,
+      /^((harness|model|effort|permissions)\.[a-z][a-z0-9-]*|step-select|input\.[a-z][a-z0-9_]*)$/,
     );
     assert.ok(["choice", "multi", "text"].includes(q.kind));
     assert.equal(typeof q.label, "string");
@@ -168,7 +169,7 @@ test("auth lists every harness; an empty PATH means nothing installed and claude
   }[];
   assert.deepEqual(
     rows.map((x) => x.harness),
-    ["claude", "codex", "gemini", "grok"],
+    ["claude", "codex", "cursor", "gemini", "grok"],
   );
   for (const row of rows) {
     assert.equal(row.installed, false);

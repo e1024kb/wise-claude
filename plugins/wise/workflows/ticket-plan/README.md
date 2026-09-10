@@ -22,7 +22,7 @@ consolidates the findings and makes every scope / approach / component
 / design / testing decision, writes a `PLAN-<ref>.md` into the run
 directory, presents it, sets up the branch, and (optionally)
 implements it. **Every decision is collected up front**,
-ticket-auto-style: pre-flight asks harness, model and effort per
+ticket-auto-style: pre-flight asks harness, provider permissions, model and effort per
 tuning group, the research stages, and four flow modes (gap
 handling / plan review / branch / implement) - with the default modes
 the run is **fully autonomous after launch**, and each mode keeps an
@@ -44,9 +44,9 @@ structured outputs their `schema:` declares.
 - The ticket has parent / linked tickets / reference docs you'd
   otherwise skim and forget.
 
-Children run with `preflight.permissions: full`, so any tracker CLI or
-MCP on the machine is usable without a per-step allowlist (`permissions:
-allowlist` as a run answer restores the step allowlists).
+Pre-flight asks for a permission floor once per selected provider. `Auto`
+is recommended; choose `Bypass permissions` when the workflow needs the
+provider fully unsandboxed. A step's stronger mode still wins.
 
 ## When not to use
 
@@ -140,7 +140,7 @@ auto-answer those gates.) Session naming is the harness's job; the
 All configuration happens at pre-flight, before the DAG launches. The
 engine builds the questionary from the definition's `tuning:` /
 `step-select:` / `inputs:` blocks and the conductor asks it in stages,
-stage selection and inputs first, tuning after:
+stage selection and inputs first, harnesses and provider permissions next, then model tuning:
 
 - **Stage selection** - one multi-select over the optional research
   stages: design analysis, related tickets & docs, deep-dive sweep,
@@ -158,15 +158,17 @@ stage selection and inputs first, tuning after:
   `implement_mode` on `plan-only` and the implement group is skipped
   (the engine settles those `when:` gates on the inputs at
   pre-flight). Per group: which CLI
-  runs it (asked whenever another CLI is installed, logged in or not),
-  then which model from the engine's catalog for that CLI, then the
+  runs it (asked whenever another CLI is installed, logged in or not).
+  After all harnesses are settled, pre-flight asks once per selected or
+  fallback provider for a permission floor (`Auto` recommended, with
+  `Bypass permissions` available), then asks which model from the engine's catalog for that CLI, then the
   effort that model takes. Every one of these questions goes to the
   user; the run refuses to start on a skipped one. Defaults:
   `claude-opus-5 / high` for all seven (the authoring four declare
   `xhigh`, which Opus 5's ceiling resolves to `high`). The sonnet
   steps pin their model and are not tunable.
 - **Review depth** - the follow-up branch review is the `code-review`
-  workflow, which asks harness, model and effort per reviewer at its
+  workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
 - **Flow modes** (text inputs with a `validate:` regex, defaults
   pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
@@ -260,7 +262,7 @@ record. `/wise-workflow-status <run-ulid>` shows `plan_path`.
 
 ```
 /wise-workflow-run ticket-plan
-# Pre-flight asks everything up front: harness, model and effort per
+# Pre-flight asks everything up front: harness, provider permissions, model and effort per
 # group, research stages, the ticket URL or id, and the four flow
 # modes. With the default modes the run is fully autonomous
 # after launch — plan written, ticket branch created, run ends after

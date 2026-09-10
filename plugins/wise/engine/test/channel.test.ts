@@ -343,7 +343,13 @@ describe("channel", () => {
     const { starter, held } = heldStarter();
     const exec = make(r, { startAgent: starter, channel: { timers: t, staleAfterSecs: 60 } });
     const { run_id } = await exec.handlers.run(
-      { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "single-agent",
+        cwd: r.cwd,
+        answers: { "permissions.claude": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await until(() => held.length === 1, "child start");
@@ -380,7 +386,13 @@ describe("channel", () => {
     };
     const exec = make(r, { startAgent: noStdin, channel: { timers: t, staleAfterSecs: 30 } });
     const { run_id } = await exec.handlers.run(
-      { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "single-agent",
+        cwd: r.cwd,
+        answers: { "permissions.claude": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await until(() => held.length === 1, "child start");
@@ -411,7 +423,13 @@ describe("channel", () => {
       channel: { timers: t, progressThrottleMs: 30_000 },
     });
     const { run_id } = await exec.handlers.run(
-      { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "single-agent",
+        cwd: r.cwd,
+        answers: { "permissions.claude": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await until(() => held.length === 1, "child start");
@@ -475,7 +493,13 @@ describe("channel", () => {
     const { starter, held } = heldStarter();
     const exec = make(r, { startAgent: starter, channel: { inject: false } });
     const { run_id } = await exec.handlers.run(
-      { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "single-agent",
+        cwd: r.cwd,
+        answers: { "permissions.claude": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await until(() => held.length === 1, "child start");
@@ -487,7 +511,13 @@ describe("channel", () => {
     const second = heldStarter();
     const exec2 = make(r2, { startAgent: second.starter });
     await exec2.handlers.run(
-      { workflow: "single-agent", cwd: r2.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "single-agent",
+        cwd: r2.cwd,
+        answers: { "permissions.claude": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await until(() => second.held.length === 1, "child start");

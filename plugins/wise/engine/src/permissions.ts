@@ -3,13 +3,46 @@
 // A child runs with `--permission-prompt-tool stdio`: every tool call its permission mode would
 // prompt for arrives on stdout as a `control_request` (`can_use_tool`) and the engine answers it
 // on stdin. Rules the step pre-granted (`allowed_tools`) never reach here; `full-access` children
-// prompt for nothing. What does reach here is decided by shape: reading is allowed, changing
-// things is denied unless the step declared it. MCP tool names are classified by their verb, so
-// the policy holds for any server the CLI inherits (trackers, chat, docs) without a per-vendor list.
+// prompt for nothing. What does reach here is decided by shape: reading is allowed. Under
+// `approval-required`, changing things is denied unless the step declared it. Under `auto`,
+// ordinary local mutations and a small set of local inspection commands are allowed while
+// repository-controlled task runners, shell wrappers and mutating external MCP calls stay denied.
+// `full-access` is normally handled by the CLI itself, but is accepted here for completeness.
+
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import type { Harness, Permissions, RunMode, State } from "./types.ts";
 
 export type PermissionDecision =
   | { behavior: "allow"; updatedInput: unknown }
   | { behavior: "deny"; message: string };
+
+const MODE_RANK: Readonly<Record<RunMode, number>> = {
+  "approval-required": 0,
+  auto: 1,
+  "full-access": 2,
+};
+
+/** Apply a provider-wide permission floor without weakening a step that asks for more. */
+export function effectiveMode(step: RunMode | undefined, floor: RunMode): RunMode {
+  // An omitted step mode inherits the provider choice. An explicit step mode is a requirement,
+  // so it may raise that choice but never weaken it.
+  const wanted = step ?? floor;
+  return MODE_RANK[wanted] >= MODE_RANK[floor] ? wanted : floor;
+}
+
+/** New per-provider state first; legacy run-wide state remains resumable. */
+export function providerPermission(
+  state: Pick<State, "provider_permissions" | "permissions">,
+  harness: Harness,
+): RunMode {
+  const selected = state.provider_permissions?.[harness];
+  if (selected !== undefined) return selected;
+  const legacy: Permissions | undefined = state.permissions;
+  if (legacy === "full") return "full-access";
+  if (legacy === "allowlist") return "approval-required";
+  return "auto";
+}
 
 /**
  * Built-in tools that only read; anything else built in is denied unless pre-granted.
@@ -172,12 +205,123 @@ export function isReadMcpTool(toolName: string): boolean {
 
 const DENY_HINT =
   "not granted to this step by wise; a read-shaped tool would be allowed, add the rule to the " +
-  "step's `allowed_tools` or run with `permissions: full`";
+  "step's `allowed_tools` or select Bypass permissions for this provider";
+
+const SHELL_CONTROL_RE = /[\n\r;&|`<>]|\$\(/;
+const OUTSIDE_WORKSPACE_PATH_RE = /(^|[\s'"])(?:~\/|\/)|(^|[/\s'"])\.\.(?=\/|[\s'"]|$)/;
+const RG_EXEC_RE = /(^|\s)--pre(?:-glob)?(?:=|\s|$)/;
+const GIT_OUTPUT_OPTION_RE = /^git\s+.*\s--output(?:=|\s|$)/;
+const AUTO_MUTATING_PATH_FIELDS: Readonly<Record<string, string>> = {
+  Edit: "file_path",
+  Write: "file_path",
+  MultiEdit: "file_path",
+  NotebookEdit: "notebook_path",
+};
+const AUTO_BASH_PATTERNS = [
+  /^git\s+(?:status|diff|show|log|rev-parse|merge-base|ls-files|ls-tree|cat-file)(?:\s|$)/,
+  /^git\s+branch(?:\s+(?:--show-current|--list|-l|-a|-r|-v|-vv))*\s*$/,
+  /^(?:pwd|ls|rg|grep|jq|cat|head|tail|wc|test)(?:\s|$)/,
+] as const;
+
+/** True for one workspace-relative inspection command with no shell control syntax. */
+export function isAutoBashCommand(command: string): boolean {
+  const value = command.trim();
+  if (
+    value.length === 0 ||
+    SHELL_CONTROL_RE.test(value) ||
+    OUTSIDE_WORKSPACE_PATH_RE.test(value) ||
+    RG_EXEC_RE.test(value) ||
+    GIT_OUTPUT_OPTION_RE.test(value)
+  ) {
+    return false;
+  }
+  return AUTO_BASH_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function stringField(input: unknown, field: string): string {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return "";
+  const value = (input as Record<string, unknown>)[field];
+  return typeof value === "string" ? value : "";
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function nearestRealPath(path: string): string | undefined {
+  let candidate = path;
+  for (;;) {
+    try {
+      return realpathSync(candidate);
+    } catch {
+      try {
+        lstatSync(candidate);
+        return undefined;
+      } catch (error) {
+        if (!isMissingPathError(error)) return undefined;
+        const parent = dirname(candidate);
+        if (parent === candidate) return undefined;
+        candidate = parent;
+      }
+    }
+  }
+}
+
+function isWithinWorkspace(path: string, roots: readonly string[]): boolean {
+  if (path.length === 0 || roots.length === 0) return false;
+  const candidate = nearestRealPath(resolve(roots[0]!, path));
+  if (candidate === undefined) return false;
+  return roots.some((root) => {
+    let realRoot: string;
+    try {
+      realRoot = realpathSync(resolve(root));
+    } catch {
+      return false;
+    }
+    const fromRoot = relative(realRoot, candidate);
+    return (
+      fromRoot === "" ||
+      (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))
+    );
+  });
+}
+
+export type PermissionOpts = { mode?: RunMode; workspaceRoots?: readonly string[] };
 
 /** The engine's answer to one `can_use_tool` request. */
-export function decidePermission(toolName: string, input: unknown): PermissionDecision {
+export function decidePermission(
+  toolName: string,
+  input: unknown,
+  opts: PermissionOpts = {},
+): PermissionDecision {
+  const mode = opts.mode ?? "approval-required";
+  if (mode === "full-access") return { behavior: "allow", updatedInput: input };
   if (READ_ONLY_BUILTINS.has(toolName) || isReadMcpTool(toolName)) {
     return { behavior: "allow", updatedInput: input };
+  }
+  if (mode === "auto") {
+    if (toolName === "TodoWrite") return { behavior: "allow", updatedInput: input };
+    const pathField = AUTO_MUTATING_PATH_FIELDS[toolName];
+    if (pathField !== undefined) {
+      if (isWithinWorkspace(stringField(input, pathField), opts.workspaceRoots ?? [])) {
+        return { behavior: "allow", updatedInput: input };
+      }
+      return {
+        behavior: "deny",
+        message: `${toolName} path blocked by wise auto mode; select Bypass permissions to edit outside the workspace`,
+      };
+    }
+    if (toolName === "Bash") {
+      const command = stringField(input, "command");
+      if (isAutoBashCommand(command)) {
+        return { behavior: "allow", updatedInput: input };
+      }
+      return {
+        behavior: "deny",
+        message: `Bash command blocked by wise auto mode; select Bypass permissions to run it`,
+      };
+    }
   }
   return { behavior: "deny", message: `${toolName} ${DENY_HINT}` };
 }

@@ -10,6 +10,7 @@ import { exitAfterClose, watchHost } from "./host-watch.ts";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type {
   CallToolResult,
+  ElicitRequestFormParams,
   ServerNotification,
   ServerRequest,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -35,7 +36,7 @@ import type {
 } from "./protocol.ts";
 import { domainCode, RpcError } from "./rpc.ts";
 import type { CallOptions } from "./rpc.ts";
-import type { Context } from "./types.ts";
+import type { Answers, Context, Question } from "./types.ts";
 import { pluginVersion, sourceBuildId } from "./version.ts";
 
 // ---- options -------------------------------------------------------------------------------
@@ -215,6 +216,10 @@ const contextSchema = z
 const preflightShape = {
   workflow: z.string().describe("Workflow name or path to its YAML."),
   cwd: z.string().describe("Absolute path of the target project."),
+  interactive: z
+    .boolean()
+    .default(true)
+    .describe("Use the host's MCP form UI to collect every open answer. Never substitutes chat."),
   answers: answersSchema
     .optional()
     .describe(
@@ -262,15 +267,18 @@ const nudgeShape = {
 
 const DESCRIPTIONS: Record<McpToolName, string> = {
   wise_preflight:
-    "Call before wise_run, in a loop. Returns the questions the answers so far leave open " +
-    "{workflow, version, questions, defaults}: ask the user EVERY one of them, then call again with " +
-    "every answer collected until questions is empty, then wise_run. step-select (which optional " +
-    "steps run) and input.<name> come first; the tuning stages follow once step-select is answered, " +
+    "Call before wise_run with interactive=true. The MCP server opens the host's form UI for every " +
+    "question and returns {workflow, version, questions: [], defaults, answers}; pass those answers to " +
+    "wise_run. It fails with INTERACTIVE_UI_REQUIRED when the host has no form UI: never replace the " +
+    "picker with plain chat. step-select (which optional " +
+    "steps run) and input.<name> come first; provider and tuning stages follow once step-select is answered, " +
     "for the groups of steps that will run (selected, and not ruled out by a when: gate the inputs " +
-    "already settle): harness.<group> (which installed CLI: claude, codex, " +
-    "grok, gemini; asked whenever two or more are installed, a logged-out one is flagged with its " +
-    "login command), then model.<group> (that harness's model catalog), then effort.<group> (that " +
-    "model's efforts; skipped when it has one or none). Never answer a question for the user: wise_run " +
+    "already settle): harness.<group> (which installed CLI: claude, codex, cursor, gemini, " +
+    "grok; asked whenever two or more are installed, a logged-out one is flagged with its login " +
+    "command), then permissions.<harness> once per provider (auto is recommended; bypass permissions " +
+    "is available), then model.<group> (that harness's model catalog), then effort.<group> (that " +
+    "model's efforts; skipped when it has one or none). UI mode is the default; interactive=false returns the raw staged " +
+    "questionary for API clients only. Never answer a question for the user: wise_run " +
     "refuses a run whose pre-flight questions were not all answered. requires_missing lists " +
     "plugin:<name> / tool:<name> the workflow declares but the machine lacks; wise_run refuses with " +
     "REQUIRES_MISSING until they are installed. Read-only, starts nothing.",
@@ -329,6 +337,68 @@ function isProgress(params: unknown): params is ProgressParams {
     typeof params.run_id === "string" &&
     typeof params.waiting_ms === "number"
   );
+}
+
+type ElicitationSchema = ElicitRequestFormParams["requestedSchema"];
+
+function optionDescription(question: Question): string | undefined {
+  const notes = (question.options ?? [])
+    .filter((option) => option.description)
+    .map((option) => `${option.label}: ${option.description}`);
+  return notes.length > 0 ? notes.join("\n") : undefined;
+}
+
+/** Convert one Wise question into the MCP form schema understood by every elicitation client. */
+export function questionFormSchema(question: Question): ElicitationSchema {
+  const description = optionDescription(question);
+  if (question.kind === "choice" && question.options?.length) {
+    const property: ElicitationSchema["properties"][string] = {
+      type: "string",
+      title: question.label,
+      oneOf: question.options.map((option) => ({ const: option.value, title: option.label })),
+    };
+    if (description !== undefined) property.description = description;
+    if (typeof question.default === "string") property.default = question.default;
+    return { type: "object", properties: { [question.id]: property }, required: [question.id] };
+  }
+  if (question.kind === "multi" && question.options?.length) {
+    const property: ElicitationSchema["properties"][string] = {
+      type: "array",
+      title: question.label,
+      items: {
+        anyOf: question.options.map((option) => ({ const: option.value, title: option.label })),
+      },
+    };
+    if (description !== undefined) property.description = description;
+    if (Array.isArray(question.default)) property.default = question.default;
+    return { type: "object", properties: { [question.id]: property }, required: [question.id] };
+  }
+  const property: ElicitationSchema["properties"][string] = {
+    type: "string",
+    title: question.label,
+  };
+  if (!question.optional) property.minLength = 1;
+  if (typeof question.default === "string") property.default = question.default;
+  return { type: "object", properties: { [question.id]: property }, required: [question.id] };
+}
+
+function acceptedAnswer(
+  question: Question,
+  content: Record<string, unknown>,
+): Answers[string] | null {
+  const value = content[question.id];
+  if (question.kind === "multi") {
+    if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
+    const allowed = new Set((question.options ?? []).map((option) => option.value));
+    if (allowed.size > 0 && value.some((item) => !allowed.has(item))) return null;
+    return value;
+  }
+  if (typeof value !== "string") return null;
+  if (question.kind === "text" && !question.optional && value.trim().length === 0) return null;
+  if (question.kind === "choice" && question.options?.length) {
+    if (!question.options.some((option) => option.value === value)) return null;
+  }
+  return value;
 }
 
 export type Shape = Record<string, z.ZodTypeAny>;
@@ -405,9 +475,59 @@ export function createMcpServer(opts: McpServerOptions = {}): McpServer {
   };
 
   register(server, "wise_preflight", preflightShape, async (args) => {
-    const params: PreflightParams = { workflow: args.workflow, cwd: args.cwd };
-    if (args.answers !== undefined) params.answers = args.answers;
-    return forward("preflight", params, undefined, undefined, true);
+    const answers: Answers = { ...args.answers };
+    if (!args.interactive) {
+      const params: PreflightParams = { workflow: args.workflow, cwd: args.cwd };
+      if (args.answers !== undefined) params.answers = args.answers;
+      return forward("preflight", params, undefined, undefined, true);
+    }
+
+    const elicitation = server.server.getClientCapabilities()?.elicitation;
+    if (
+      elicitation === undefined ||
+      (elicitation.form === undefined && elicitation.url !== undefined)
+    ) {
+      return errResult(
+        "INTERACTIVE_UI_REQUIRED",
+        "This MCP host does not support form elicitation. Use a native picker or the terminal TUI; never ask these questions in plain chat.",
+      );
+    }
+
+    try {
+      link.refresh();
+      for (let pass = 0; pass < 256; pass++) {
+        const params: PreflightParams = { workflow: args.workflow, cwd: args.cwd, answers };
+        const result = await link.withClient((client) => client.call("preflight", params));
+        const open = result.questions.filter(
+          (question) => !question.locked && answers[question.id] === undefined,
+        );
+        if (result.requires_missing.length > 0 || open.length === 0) {
+          return okResult({ ...result, questions: [], answers });
+        }
+        const question = open[0] as Question;
+        const response = await server.server.elicitInput({
+          mode: "form",
+          message: `Configure ${result.workflow}`,
+          requestedSchema: questionFormSchema(question),
+        });
+        if (response.action !== "accept") {
+          return errResult("PREFLIGHT_CANCELLED", "The user cancelled workflow preflight.", {
+            question: question.id,
+            action: response.action,
+          });
+        }
+        const answer = acceptedAnswer(question, response.content ?? {});
+        if (answer === null) {
+          return errResult("INTERACTIVE_UI_INVALID", "The form returned an invalid answer.", {
+            question: question.id,
+          });
+        }
+        answers[question.id] = answer;
+      }
+      return errResult("PREFLIGHT_LIMIT", "Preflight exceeded its question limit.");
+    } catch (err) {
+      return toErrorResult(err);
+    }
   });
 
   register(server, "wise_run", runShape, async (args) => {

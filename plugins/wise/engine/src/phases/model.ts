@@ -18,6 +18,7 @@ import {
 } from "../prompts/units/schemas.ts";
 import type { ModelPhase } from "../prompts/units/schemas.ts";
 import { renderVars, unresolvedPlaceholders } from "../render.ts";
+import { effectiveMode, providerPermission } from "../permissions.ts";
 import { resolveModelDict } from "../resolve.ts";
 import { startAgentStep } from "../steps/agent.ts";
 import type { AgentOutcome } from "../steps/agent.ts";
@@ -314,7 +315,18 @@ async function runChild(
     type: "agent",
     prompt,
     schema: PHASE_SCHEMAS[phase],
-    mode: ctx.config.permissions === "full" ? "full-access" : PHASE_MODE[phase],
+    mode: effectiveMode(
+      PHASE_MODE[phase],
+      providerPermission(
+        {
+          ...(ctx.config.provider_permissions !== undefined
+            ? { provider_permissions: ctx.config.provider_permissions }
+            : {}),
+          ...(ctx.config.permissions !== undefined ? { permissions: ctx.config.permissions } : {}),
+        },
+        resolved.harness,
+      ),
+    ),
     allowed_tools: [...PHASE_TOOLS[phase]],
     resume: cursor !== undefined ? "unit" : "fresh",
     timeout: ctx.config.timeout ?? PHASE_TIMEOUT_MS[phase] / 1000,

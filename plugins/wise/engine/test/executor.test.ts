@@ -227,17 +227,20 @@ describe("executor", () => {
     const byName = await exec.handlers.preflight({ workflow: "single-agent", cwd: r.cwd }, ctx);
     assert.equal(byName.workflow, "single-agent");
     assert.equal(byName.version, 2);
-    assert.deepEqual(byName.questions, []);
+    assert.deepEqual(
+      byName.questions.map((q) => q.id),
+      ["permissions.claude"],
+    );
     const byPath = await exec.handlers.preflight({ workflow: EXAMPLE, cwd: r.cwd }, ctx);
     assert.equal(byPath.workflow, "example-workflow");
     assert.deepEqual(
       byPath.questions.map((q) => q.id),
-      ["input.focus", "model.classify", "model.summarize"],
+      ["input.focus", "permissions.claude", "permissions.codex"],
     );
     assert.deepEqual(byPath.defaults, {
-      "model.classify": "claude-haiku-4-5",
-      "model.summarize": "claude-haiku-4-5",
       "input.focus": "",
+      "permissions.claude": "auto",
+      "permissions.codex": "auto",
     });
     const missing = await attempt(() =>
       exec.handlers.preflight({ workflow: "nope", cwd: r.cwd }, ctx),
@@ -253,6 +256,31 @@ describe("executor", () => {
     assert.equal(domainCode(invalid), "WORKFLOW_INVALID");
     const issues = ((invalid as RpcError).data as { issues: { path: string }[] }).issues;
     assert.ok(issues.some((i) => i.path === "version"));
+  });
+
+  test("preflight and run reject malformed provider permission answers", async () => {
+    const r = mkRoot();
+    const exec = make(r, { adapters: { claude: claudeFake() } });
+    const answers = { "permissions.claude": "allowlist" };
+    const preflightError = await attempt(() =>
+      exec.handlers.preflight({ workflow: "single-agent", cwd: r.cwd, answers }, ctx),
+    );
+    assert.equal(domainCode(preflightError), "MISSING_ANSWERS");
+    assert.deepEqual((preflightError as RpcError).data, {
+      code: "MISSING_ANSWERS",
+      missing: ["permissions.claude"],
+      invalid: ["permissions.claude"],
+    });
+
+    const runError = await attempt(() =>
+      exec.handlers.run(
+        { workflow: "single-agent", cwd: r.cwd, answers, context: {}, inputs: {} },
+        ctx,
+      ),
+    );
+    assert.equal(domainCode(runError), "MISSING_ANSWERS");
+    assert.deepEqual(r.rt.listRunDirs(), []);
+    exec.stop();
   });
 
   test("preflight: harness.<group> questions list every other installed adapter, logged in or not; run refuses a stage left unanswered", async () => {
@@ -306,10 +334,22 @@ describe("executor", () => {
       questions: { id: string }[];
     };
     // The walk defaults the open stages to find what else lies behind them (haiku takes one effort).
-    assert.deepEqual(refusedData.missing, ["model.classify", "model.summarize", "effort.classify"]);
+    assert.deepEqual(refusedData.missing, [
+      "permissions.codex",
+      "permissions.claude",
+      "model.classify",
+      "model.summarize",
+      "effort.classify",
+    ]);
     assert.deepEqual(
       refusedData.questions.map((q) => q.id),
-      ["model.classify", "model.summarize", "effort.classify"],
+      [
+        "permissions.codex",
+        "permissions.claude",
+        "model.classify",
+        "model.summarize",
+        "effort.classify",
+      ],
     );
     assert.equal(r.rt.listRunDirs().length, 0, "nothing created");
 
@@ -348,9 +388,25 @@ describe("executor", () => {
     );
     assert.deepEqual(
       s2.questions.map((q) => q.id),
+      ["input.focus", "permissions.claude", "permissions.codex"],
+    );
+    const modelStage = await exec.handlers.preflight(
+      {
+        workflow: EXAMPLE,
+        cwd: r.cwd,
+        answers: {
+          "permissions.claude": "auto",
+          "permissions.codex": "auto",
+          "model.classify": "claude-sonnet-5",
+        },
+      },
+      ctx,
+    );
+    assert.deepEqual(
+      modelStage.questions.map((q) => q.id),
       ["input.focus", "effort.classify", "model.summarize"],
     );
-    const eq = s2.questions.find((q) => q.id === "effort.classify");
+    const eq = modelStage.questions.find((q) => q.id === "effort.classify");
     assert.deepEqual(
       eq?.options?.map((o) => o.value),
       ["low", "medium"],
@@ -364,6 +420,8 @@ describe("executor", () => {
           "model.classify": "claude-sonnet-5",
           "effort.classify": "medium",
           "model.summarize": "claude-haiku-4-5",
+          "permissions.claude": "auto",
+          "permissions.codex": "auto",
           "input.focus": "",
         },
       },
@@ -609,7 +667,8 @@ describe("executor", () => {
       { workflow: "single-agent", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
       ctx,
     );
-    await untilStatus(r, a.run_id, ["completed", "failed"]);
+    const sa = await untilStatus(r, a.run_id, ["completed", "failed"]);
+    assert.deepEqual(sa.provider_permissions, { claude: "auto" });
     assert.equal(claude.calls[0]?.mode, "auto");
     const b = await conductRun(
       exec,
@@ -625,6 +684,7 @@ describe("executor", () => {
     const sb = await untilStatus(r, b.run_id, ["completed", "failed"]);
     assert.equal(sb.status, "completed");
     assert.equal(sb.permissions, "full");
+    assert.equal(sb.provider_permissions?.cursor, "full-access");
     assert.equal(claude.calls[1]?.mode, "full-access");
   });
 
@@ -966,7 +1026,13 @@ describe("executor", () => {
     const { starter, held } = heldStarter({ killResolves: false });
     const exec1 = make(r, { startAgent: starter, adapters: { claude: claudeFake() } });
     const { run_id } = await exec1.handlers.run(
-      { workflow: "fallback-resume", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "fallback-resume",
+        cwd: r.cwd,
+        answers: { "permissions.claude": "auto", "permissions.codex": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await until(() => held.length === 1, "first dispatch");
@@ -1276,6 +1342,7 @@ describe("executor", () => {
         cwd: r.cwd,
         answers: {
           ...pre.defaults,
+          "model.classify": "claude-haiku-4-5",
           "model.summarize": "claude-sonnet-5",
           "effort.summarize": "medium",
         },
@@ -1430,7 +1497,7 @@ describe("executor", () => {
 
   test("inputs: an explicit `inputs` value gates a tuning group during staging same as an answer would", async () => {
     const r = mkRoot();
-    const exec = make(r);
+    const exec = make(r, { adapters: { claude: claudeFake() } });
     // `mode` arrives only via `inputs` (never `answers`), same as a workflow-step's `implement_mode`
     // arrives via a conductor's direct `inputs`, not through the staged pre-flight walk. `run` must
     // seed it as `input.mode` before building the staged questionary, or the `when: mode == 'on'`
@@ -1439,7 +1506,13 @@ describe("executor", () => {
     // to run with `mode` actually "on".
     const refused = await attempt(() =>
       exec.handlers.run(
-        { workflow: "gated-tuning", cwd: r.cwd, answers: {}, context: {}, inputs: { mode: "on" } },
+        {
+          workflow: "gated-tuning",
+          cwd: r.cwd,
+          answers: { "permissions.claude": "auto" },
+          context: {},
+          inputs: { mode: "on" },
+        },
         ctx,
       ),
     );
@@ -1449,7 +1522,13 @@ describe("executor", () => {
 
     // `mode` left on its default never activates the group; nothing to answer.
     const off = await exec.handlers.run(
-      { workflow: "gated-tuning", cwd: r.cwd, answers: {}, context: {}, inputs: {} },
+      {
+        workflow: "gated-tuning",
+        cwd: r.cwd,
+        answers: { "permissions.claude": "auto" },
+        context: {},
+        inputs: {},
+      },
       ctx,
     );
     await untilStatus(r, off.run_id, ["completed", "failed"]);

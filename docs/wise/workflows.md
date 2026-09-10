@@ -2,12 +2,12 @@
 
 A workflow is a YAML v2 definition the wise engine runs: a DAG of steps
 (`agent`, `bash`, `approval`, `ask`, `units`) with a pre-flight
-questionary (harness, model and effort per tuning group, optional
-steps, inputs).
+questionary (harness, permission floor, model and effort, plus optional
+steps and inputs).
 The engine is TypeScript under `plugins/wise/engine`, run as source on
 bun or Node 24 (`engine/engine.sh`). It runs as a per-user daemon
 (`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
-`codex exec`, `grok -p`, `gemini -p`) and exposes MCP tools to the
+`codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`) and exposes MCP tools to the
 Claude Code conversation through the plugin's `.mcp.json` server
 `wise-engine`. The conversation is a thin conductor: it renders
 questions, forwards context, prints one line per event and answers
@@ -165,11 +165,11 @@ is unmet, before the auth probes and before a run directory exists.
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
 | `worktree` | `current` (default) \| `new` | Recorded. The engine runs steps in `cwd`; `units` steps make their own worktrees under the run directory. |
-| `permissions` | `allowlist` (default) \| `full` | `full` runs every child (agent steps and unit model phases) in `full-access` regardless of its `mode`, so a tool the step did not list is never a permission denial; `allowlist` keeps each step's `mode` and `allowed_tools`, and the engine answers every other prompt by shape (read-only tools allowed, the rest denied; see "Child MCP servers and permissions"). The `ticket-auto`, `impl-plan-auto` and `ticket-plan` workflows pin `full`. |
+| `permissions` | `allowlist` \| `full` | Legacy global pin. `full` maps every provider to `full-access`; `allowlist` maps every provider to `approval-required`. New workflows should omit it and use the per-provider pre-flight questions. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
-`wave-sync`, `auto-advance`, `prompt`. A run answer `control-mode` or
-`permissions` overrides the pin when the conductor passes one.
+`wave-sync`, `auto-advance`, `prompt`. A legacy run answer `permissions`
+overrides the global pin; a `permissions.<harness>` answer is preferred.
 
 ### `tuning`
 
@@ -280,7 +280,7 @@ Common fields (`StepBase` and `StepOverrides`):
 | `trigger-rule` | all | See below. Default `all-success`. |
 | `when` | all | Expression, see below. A list is a v1 error. |
 | `group` | agent, units | Tuning group id. Warns "no effect" on bash / approval / ask. |
-| `harness` | agent, units | `claude` \| `codex` \| `gemini` \| `grok`. Overrides the group. |
+| `harness` | agent, units | `claude` \| `codex` \| `cursor` \| `gemini` \| `grok`. Overrides the group. |
 | `model`, `effort` | agent, units | Override the group. `effort`: `low` \| `medium` \| `high` \| `xhigh` \| `max`. |
 | `auth` | agent, units | `subscription` (default) \| `api-key`. |
 | `fallback` | agent, units | Harness list, overrides the group's. |
@@ -315,7 +315,7 @@ Common fields (`StepBase` and `StepOverrides`):
 |---|---|
 | `prompt` | Required unless `skill`. Rendered, sent as the child's first user message. |
 | `skill` | Sugar: `prompt: "Run /<skill>"`, forces `harness: claude`. Exclusive with `prompt`; a non-claude harness is an error. |
-| `schema` | JSON schema for the structured result (`claude --json-schema`, `codex --output-schema`, `grok --json-schema`). Required when `outputs` is set. |
+| `schema` | JSON schema for the structured result (native schema flags where supported; prompt instruction plus JSON extraction for Cursor and Gemini). Required when `outputs` is set. |
 | `outputs` | Names copied from the structured result into run outputs. Each must be a schema property. A missing name fails the step: `schema result lacks <name>`. |
 | `until` | Deprecated. Accepted on `agent` for one release with a warning; an error on other types. `wise-engine migrate` turns a plain enum regex into `schema` plus `outputs`. |
 
@@ -480,8 +480,9 @@ fails `wise_run` with `AUTH_REQUIRED` and `login_cmd`.
 |---|---|---|---|---|---|
 | `claude` | `claude` | `claude auth status` (`loggedIn: true`) | `claude auth login` | `ANTHROPIC_API_KEY` | `CLAUDE_CONFIG_DIR` |
 | `codex` | `codex` | `codex login status` | `codex login` | `OPENAI_API_KEY` | `CODEX_HOME` |
+| `cursor` | `cursor-agent` | `cursor-agent status --format json` (`isAuthenticated: true`) | `cursor-agent login` | `CURSOR_API_KEY` | `CURSOR_CONFIG_DIR` |
+| `gemini` | `gemini` | OAuth credentials under `GEMINI_CLI_HOME` or `~/.gemini` | `gemini` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `GEMINI_CLI_HOME` |
 | `grok` | `grok` | `$GROK_HOME/auth.json` (default `~/.grok/auth.json`) non-empty | `grok login` | `XAI_API_KEY` | `GROK_HOME` |
-| `gemini` | `gemini` | adapter landing (plan M5.3) | `gemini` | | |
 
 `auth: api-key` copies the key variable into the child; `subscription`
 (default) never does. Usage is folded per pool (`subscription`,
@@ -511,24 +512,28 @@ default. An empty effort omits the flag.
 
 ### Effort per harness
 
-| wise effort | claude `--effort` | codex `model_reasoning_effort` | grok `--reasoning-effort` | gemini |
-|---|---|---|---|---|
-| `low` | low | low | low | dropped |
-| `medium` | medium | medium | medium | dropped |
-| `high` | high | high | high | dropped |
-| `xhigh` | xhigh | xhigh | xhigh | dropped |
-| `max` | max | max | max | dropped |
+| wise effort | claude `--effort` | codex `model_reasoning_effort` | cursor | gemini | grok `--reasoning-effort` |
+|---|---|---|---|---|---|
+| `low` | low | low | dropped | dropped | low |
+| `medium` | medium | medium | dropped | dropped | medium |
+| `high` | high | high | dropped | dropped | high |
+| `xhigh` | xhigh | xhigh | dropped | dropped | xhigh |
+| `max` | max | max | dropped | dropped | max |
 
 ### Mode per harness (`mode`)
 
-| wise mode | claude `--permission-mode` | codex `-s` sandbox | grok |
-|---|---|---|---|
-| `approval-required` | `default` | `read-only` | `--permission-mode dontAsk` |
-| `auto` (default) | `acceptEdits` | `workspace-write` | `--permission-mode acceptEdits` |
-| `full-access` | `bypassPermissions` | `danger-full-access` | `--always-approve` |
+| wise mode | claude `--permission-mode` | codex `-s` sandbox | cursor-agent | gemini | grok |
+|---|---|---|---|---|---|
+| `approval-required` | `default` | `read-only` | `--mode ask --sandbox enabled` | `--approval-mode default` | `--permission-mode dontAsk` |
+| `auto` (default) | `acceptEdits` | `workspace-write` | `--force --sandbox enabled` | `--approval-mode auto_edit` | `--permission-mode acceptEdits` |
+| `full-access` | `bypassPermissions` | `danger-full-access` | `--force --sandbox disabled --approve-mcps` | `--approval-mode yolo` | `--always-approve` |
 
-Under `preflight.permissions: full` (or the run answer) every child
-runs the `full-access` row whatever its step `mode` says.
+Pre-flight asks for a floor once per active provider. The effective mode is
+the stronger of that floor and the step or unit phase's mode, so a caller's
+selection is never weakened. `auto` is the recommended default; `Bypass
+permissions` selects `full-access`. Declared fallback providers get their own
+question before the run starts. The legacy global `permissions: full` answer
+still maps every provider to `full-access`.
 
 ### Child MCP servers and permissions
 
@@ -564,15 +569,16 @@ the child inherits: read-only built-ins (`Read`, `Glob`, `Grep`,
 (a `get` / `list` / `search` / `read` / `fetch` / `view` / `query` verb
 first, or second behind a vendor prefix: `getJiraIssue`,
 `slack_read_channel`, `query-docs`) are allowed with the input
-unchanged; everything else (`Bash`, `Edit`, `create*`, `update*`,
-`send*`, `delete*`, an unrecognised verb) is denied with a message
-naming the fix: add the rule to `allowed_tools` or run under
-`permissions: full`. Rules in `allowed_tools` never prompt, so they
-never reach the policy. Decisions appear in the step log; denials also
-as a warning on the result.
+unchanged. In `approval-required`, other requests are denied. In `auto`,
+ordinary local edits and a curated set of workspace-relative inspection commands
+are accepted. Repository-controlled task runners, shell wrappers and mutating
+external MCP calls remain denied unless explicitly pre-granted.
+`full-access` bypasses the broker. Rules in `allowed_tools` never prompt, so
+they never reach the policy. Decisions appear in the step log; denials also
+appear as a warning on the result.
 
-Codex gets `--add-dir` and `approval_policy=never`; grok gets
-`--allow <rule>` per `allowed_tools`.
+Codex and Cursor get `--add-dir`; grok gets `--allow <rule>` per
+`allowed_tools`.
 
 ### Child environment
 
@@ -601,7 +607,7 @@ other children.
 ### Concurrency
 
 Children in flight are capped globally and per harness: global 4,
-`claude` 2, `codex` 1, `gemini` 1, `grok` 1. Override in
+`claude` 2, `codex` 1, `cursor` 1, `gemini` 1, `grok` 1. Override in
 `~/.config/wise/engine.json`:
 
 ```json
@@ -610,18 +616,21 @@ Children in flight are capped globally and per harness: global 4,
 
 ## Pre-flight questionary
 
-`wise_preflight {workflow, cwd, answers?}` returns `{workflow, version,
-questions, defaults, requires_missing}`. Question ids double as answer
-keys. The questionary is staged: the answers so far decide which
-questions come next, so the conductor calls it again with everything
-answered until `questions` is empty. An answered question is never
-repeated.
+`wise_preflight {workflow, cwd, answers?, interactive?}` returns
+`{workflow, version, questions, defaults, requires_missing}`. With
+UI mode is the default. With `interactive: true`, the MCP server presents every question through the
+host's form elicitation UI and returns `questions: []` plus `answers`.
+Without it, question ids double as answer keys and the raw questionary
+is staged: the answers so far decide which questions come next, so an
+API client calls it again with everything answered until `questions` is
+empty. An answered question is never repeated.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `text` | | context value, else `default`, else empty when optional |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
+| `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
 | `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/src/models.ts`) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
@@ -637,32 +646,35 @@ evaluates the gate three-valued, so `review_mode == 'ask' && ...` with
 output (`findings != 0`) stays open and keeps its group. A group no
 step binds is always asked; a group only ruled-out steps bind asks
 nothing and keeps its declared value. Per such group the
-stages run in order: `harness.<group>` only when more than one harness
-is installed, then `model.<group>` only when the catalog has more than
+stages run in order: every `harness.<group>` first, then each unique
+`permissions.<harness>`, then `model.<group>` only when the catalog has more than
 one entry, then `effort.<group>` only when the model takes more than
 one effort. A stage with one possible value is settled silently; every
 other stage MUST be answered. A locked group asks nothing and runs its
 default.
 
-The catalog (2026-09-05): claude `claude-fable-5-1`, `claude-opus-5`,
+The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 `claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
 `claude-haiku-4-5` (medium); codex `gpt-6-astra`, `gpt-5.6-sol`,
-`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); grok `grok-4.6`; gemini
+`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); cursor `grok-4.6`,
+`composer-2.5` (no effort flag); grok `grok-4.6`; gemini
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-The conductor renders every question with `AskUserQuestion` (a choice
-with more than four options shows the first four and names the rest in
-the question text, answered through the Other field), skips
-`locked: true` questions and inputs filled positionally, then calls
-`wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
+The conductor requests `interactive: true`, so the MCP server renders
+one question at a time through the host's form UI. A host without MCP
+form support may use its native structured picker against the raw
+questionary; it must never substitute ordinary chat. The terminal
+client provides the equivalent TUI with `run --interactive`. Locked
+questions and inputs filled positionally are skipped. The conductor
+then calls `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
 the same staged questionary over the answers it was given and refuses
 with `MISSING_ANSWERS` (listing the open questions) when any
-`step-select`, `harness.<group>`, `model.<group>` or `effort.<group>`
+`step-select`, `harness.<group>`, `permissions.<harness>`, `model.<group>` or `effort.<group>`
 question was left unanswered, or a required input has no value; the
 engine never fills a tuning stage with its default on the conductor's
 behalf. The CLI's `run` fills defaults itself before calling the
-daemon, for scripted use. Answers, inputs, context and the resolved caps
-are persisted in `state.json`, so resume never re-asks.
+daemon, for scripted use. Answers, per-provider permission floors, inputs,
+context and the resolved caps are persisted in `state.json`, so resume never re-asks.
 
 A `harness.<group>` answer other than the default runs the group's
 steps on that harness with the model and effort chosen from its
@@ -889,7 +901,7 @@ descriptions the model reads are in `engine/src/mcp.ts`.
 
 | Tool | Params | Returns |
 |---|---|---|
-| `wise_preflight` | `workflow`, `cwd`, `answers?` | `{workflow, version, questions, defaults, requires_missing}`. Read-only; call again with the answers so far until `questions` is empty. |
+| `wise_preflight` | `workflow`, `cwd`, `answers?`, `interactive?` | By default, opens MCP form UI for each question and returns `questions: []` plus `answers`; fails with `INTERACTIVE_UI_REQUIRED` when the host lacks form support. `interactive: false` returns the raw `{workflow, version, questions, defaults, requires_missing}` questionary for API clients. Read-only. |
 | `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `AUTH_REQUIRED {login_cmd}`. |
 | `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
 | `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |
@@ -915,7 +927,7 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 | `compile-check <workflow>...` | Validate definitions; exit 1 on any error. Issues carry `path`, `level`, `message`, `hint`. |
 | `migrate <workflow.yaml> [--write] [--out <path>]` | Rewrite v1 as v2. Dry run by default; `--write` keeps `<file>.v1.bak`; exit 1 when the result still has errors. |
 | `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |
-| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--follow] [--timeout-ms]` | Start a run through the daemon. `--follow` streams events and answers gates from stdin. |
+| `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--interactive] [--follow] [--timeout-ms]` | Start a run through the daemon. `--interactive` asks every preflight question in the terminal instead of filling defaults for a script; `--follow` streams events and answers gates from stdin. |
 | `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
 | `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. A long-lived MCP server re-reads that id from disk before every `wise_preflight` / `wise_run`, so a plugin update under an open desktop session also replaces the daemon. |
 | `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |

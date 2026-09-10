@@ -51,8 +51,8 @@ test("models: JSON rows carry harness, id and efforts; unknown harness is exit 2
   assert.ok(grok.length > 0 && grok.every((r) => r.efforts.length === 0));
 
   const bad = io();
-  assert.equal(cmdModels(["cursor"], {}, bad), 2);
-  assert.match(bad.e(), /unknown harness cursor/);
+  assert.equal(cmdModels(["nope"], {}, bad), 2);
+  assert.match(bad.e(), /unknown harness nope/);
 });
 
 test("models via the cli main, --text one row per line", async () => {

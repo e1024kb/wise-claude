@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"cursor-session-1","model":"composer-2.5"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"{\"answer\":"}]}}
+{"type":"tool_call","subtype":"started","tool_call":{"name":"Read"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"\"pong\",\"n\":42}"}]}}
+{"type":"result","subtype":"success","is_error":false,"session_id":"cursor-session-1","result":"{\"answer\":\"pong\",\"n\":42}"}

@@ -6,7 +6,7 @@ Requirement as stated: user drives workflows from Claude Code (CLI or desktop). 
 
 ## Verdict
 
-D1. Build the engine as a harness-adapter runtime, not on the Claude Agent SDK and not with the Vercel AI SDK as the core. A step runs by spawning the vendor's own unmodified CLI in headless JSON mode (`claude -p`, `codex exec`, `gemini -p`, `grok -p`), which inherits that vendor's cached subscription login or an env API key. This is the only pattern that has survived vendor enforcement (Vibe Kanban, Symphony survived; OpenCode and OpenClaw, which reimplemented Anthropic's OAuth client, were cut off).
+D1. Build the engine as a harness-adapter runtime, not on the Claude Agent SDK and not with the Vercel AI SDK as the core. A step runs by spawning the vendor's own unmodified CLI in headless JSON mode (`claude -p`, `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`), which inherits that vendor's cached subscription login or an env API key. This is the only pattern that has survived vendor enforcement (Vibe Kanban, Symphony survived; OpenCode and OpenClaw, which reimplemented Anthropic's OAuth client, were cut off).
 
 D2. No Vercel AI SDK anywhere (confirmed 2026-09-04). The API-key path is the same vendor CLIs with the vendor's key env set (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` / `CODEX_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`). One adapter per vendor, two auth modes each, no second toolchain.
 
@@ -14,7 +14,7 @@ D3. Claude steps run as `claude -p --output-format stream-json` subprocesses on 
 
 D4. Keep Claude Code's native `Workflow` tool as the contingency adapter for Claude steps (`claude-session`). It runs in-conversation with per-agent `model`, `effort`, `agentType`, and schema, and needs no subprocess. It is Anthropic-only and same-session, so it cannot be the engine. After the Q1 probe it is a policy hedge, not a technical fallback.
 
-D5. Transport is each CLI's native headless mode (`claude -p`, `codex exec`, `gemini -p`, `grok -p`), not ACP and not app-server protocols. ACP works for Claude, Codex, and Grok today but has no structured output, no per-step usage, undocumented model and effort option ids, and the official Claude ACP adapter wraps the Agent SDK (API key first). Revisit when ACP adds usage and output schemas.
+D5. Transport is each CLI's native headless mode (`claude -p`, `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`), not ACP and not app-server protocols. ACP works for Claude, Codex, and Grok today but has no structured output, no per-step usage, undocumented model and effort option ids, and the official Claude ACP adapter wraps the Agent SDK (API key first). Revisit when ACP adds usage and output schemas.
 
 D6. Reference implementation: [t3code](https://github.com/pingdotgg/t3code) (MIT, Node, Effect-TS). Copy its account isolation, runtime-mode mapping, resume cursors, dual event logs, and pricing approach (see § Reference: t3code). Do not copy its long-lived-process transport.
 
@@ -89,10 +89,10 @@ Pitfalls it documents: resume handshake emits `system/init` + `result(num_turns:
 
 Components, all under `plugins/wise/engine/`, TypeScript run as source on bun or Node 24 (see § Runtime and toolchain):
 
-- `defs`: YAML load, validate, locate, user-root shadowing. Schema adds `harness: claude | codex | gemini | grok | claude-session` (default `claude`) and `auth: subscription | api-key` (default `subscription`).
+- `defs`: YAML load, validate, locate, user-root shadowing. Schema adds `harness: claude | codex | cursor | gemini | grok` (default `claude`) and `auth: subscription | api-key` (default `subscription`).
 - `resolve`: ported model family, effort clamps, policy ceilings, retired ids, low-profile Opus rule, team resolution. Extended with per-harness effort vocabularies (Codex `minimal..ultra`, Anthropic `low..max`).
 - `scheduler`: DAG waves, `trigger-rule`, `when:` as a real expression evaluator.
-- `adapters`: one module per harness. Each exposes `run({prompt, model, effort, schema, cwd, mode, resume}) -> {text, json, usage, cost, cursor}` and streams normalised events. Spawns the vendor binary headless under a clean env (`env -i` plus HOME, PATH, the vendor config-dir var, and the vendor key var only when `auth: api-key`). Commands: `claude -p --output-format stream-json --json-schema --model --effort --permission-mode|--dangerously-skip-permissions [--resume]`; `codex exec --json --output-schema --model --config model_reasoning_effort= -s workspace-write|--full-auto [resume]`; `gemini -p --output-format json -m --approval-mode yolo`; `grok -p --output-format json -m --always-approve --no-auto-update [--resume]`. Raw vendor stream logged as NDJSON (T4).
+- `adapters`: one module per harness. Each exposes `run({prompt, model, effort, schema, cwd, mode, resume}) -> {text, json, usage, cost, cursor}` and streams normalised events. Spawns the vendor binary headless under a clean env (`env -i` plus HOME, PATH, the vendor config-dir var, and the vendor key var only when `auth: api-key`). Commands: `claude -p --output-format stream-json --json-schema --model --effort --permission-mode|--dangerously-skip-permissions [--resume]`; `codex exec --json --output-schema --model --config model_reasoning_effort= -s workspace-write|--full-auto [resume]`; `cursor-agent --print --output-format stream-json --model --mode|--force --sandbox [--resume]`; `gemini -p --output-format stream-json -m --approval-mode`; `grok -p --output-format streaming-json -m --always-approve --no-auto-update [--resume]`. Raw vendor stream logged as NDJSON (T4).
 - `ledger`: run dir, `state.json`, `events.jsonl`, per-step logs, per-unit resume cursors (T3), prune, session guard. Cross-session resume.
 - `gates`: `approval` and `ask` steps emit a `gate` event and park the run; the harness answers through `wise_answer` (D13).
 - `daemon` + `mcp` + `cli`: `wise-engined` (socket JSON-RPC), `wise-engine mcp` (stdio MCP client to the daemon), `wise-engine run|status|answer|cancel|compile-check` (terminal client). One protocol, two transports (D13).
@@ -109,7 +109,7 @@ D11. The engine owns the questionary spec, the harness asks. `wise_preflight(wor
 
 D12. Choice granularity is per tuning group plus profile, as today: groups such as plan / implement / review / watch each get `harness`, `model`, `effort`; `low | medium | max` pre-answers them. Per-step pins stay in YAML for authors. No per-step questions at run time.
 
-D13. Comms are JSON-RPC, carried two ways. A detached daemon `wise-engined` owns runs, ledger, and adapters and listens on a Unix socket. The harness reaches it through an MCP server `wise-engine mcp` (stdio JSON-RPC, declared in the plugin's `.mcp.json`, spawned by the harness, thin client to the daemon). Tools: `wise_preflight`, `wise_run(workflow, answers)`, `wise_wait(run, timeout)` (long-poll, returns events until gate / done / timeout), `wise_answer(run, gate, value)`, `wise_status`, `wise_cancel`. A CLI client speaks the same socket protocol for terminal use. Gates: the daemon emits a `gate` event, `wise_wait` returns it, the harness asks the user, then calls `wise_answer`. MCP elicitation later if the harness supports it as a client (unverified). Why not raw stdio to the harness: Claude Code's Bash tool cannot hold a child's stdin open, MCP is the one long-lived channel it keeps. Why a daemon: runs outlive the harness session, survive compaction, and no 10-minute Bash cap.
+D13. Comms are JSON-RPC, carried two ways. A detached daemon `wise-engined` owns runs, ledger, and adapters and listens on a Unix socket. The harness reaches it through an MCP server `wise-engine mcp` (stdio JSON-RPC, declared in the plugin's `.mcp.json`, spawned by the harness, thin client to the daemon). Tools: `wise_preflight`, `wise_run(workflow, answers)`, `wise_wait(run, timeout)` (long-poll, returns events until gate / done / timeout), `wise_answer(run, gate, value)`, `wise_status`, `wise_cancel`. A CLI client speaks the same socket protocol for terminal use. Gates: the daemon emits a `gate` event, `wise_wait` returns it, the harness asks the user, then calls `wise_answer`. Interactive preflight uses MCP form elicitation when the client advertises it, with a terminal TUI fallback. Why not raw stdio to the harness: Claude Code's Bash tool cannot hold a child's stdin open, MCP is the one long-lived channel it keeps. Why a daemon: runs outlive the harness session, survive compaction, and no 10-minute Bash cap.
 
 D14. The `interactive` prose orchestrators (`process-tickets.md`, `process-plans.md`) move fully into the engine as code (`units.ts`), with a harness per phase. Only true user decisions surface as gates. The harness sees events and gates, never step output.
 
@@ -195,7 +195,7 @@ A10. Run `ticket-plan` end to end on the new engine. Compare tokens per pool (ha
 
 Phase 2, harnesses:
 
-A11. Adapters `codex`, `gemini`, `grok`, optional `claude-session`. Effort mapping table in `resolve`.
+A11. Adapters `codex`, `cursor`, `gemini`, `grok`. Effort mapping table in `resolve`.
 
 A12. `units.ts`: port `process-tickets.md` and `process-plans.md`. Run `ticket-auto` on one ticket with plan on Claude, implement on Codex, review on Claude, to prove cross-harness handoff through the worktree.
 
@@ -318,6 +318,8 @@ Open for M3.3 proper: a real ticket from the user's tracker fetched by the deskt
 - D21. Staged questionary from a model catalog; no budget profile for workflows. Pre-flight asks per unlocked tuning group, in order, which CLI runs it (`harness.<group>`, offered only when more than one is logged in), which model of that CLI (`model.<group>`, from the hand-picked catalog in `src/models.ts`) and which effort that model takes (`effort.<group>`); each answer unlocks the next stage, so the conductor calls `wise_preflight {workflow, cwd, answers}` until `questions` is empty and `wise_run` completes any stage still open with its default. The `profile` question and parameter are gone: workflows run at `medium`, `profiles.medium.caps` is the only part of `profiles` applied, `low` / `max` and tuning `options` parse and are ignored; `/wise-profile` stays a skill-side budget. Supersedes the profile half of D12. 2026-09-05.
 - D22. Pre-flight asks everything, step-select first. Three corrections to D21 after ticket-plan and ticket-auto runs skipped model and harness questions. (1) `step-select` and the inputs come on the first call; the tuning stages wait for the `step-select` answer and are built only for the groups an enabled step binds (a group no step binds is always asked; a group only deselected steps bind keeps its declared value), because how many steps run decides how many model questions there are. (2) `harness.<group>` offers every installed CLI (adapter present, `Adapter.bin` on PATH; `installedHarnesses`), not only the logged-in ones; a logged-out CLI is flagged with its login command in the option (`loggedOutHarnesses`, probed only on a call that emits a harness question) and refused by the run's auth probe if picked. The question is skipped only when one CLI is installed. (3) `wise_run` no longer defaults a stage the conductor never reached: it walks the same staged questionary over the answers it was given and refuses with `MISSING_ANSWERS` (open questions attached) when any `step-select`, `harness.<group>`, `model.<group>` or `effort.<group>` question is unanswered. The CLI's `run` keeps filling defaults itself for scripted use. The conductor skill carries the matching MUST rule. 2026-09-09.
 - D23. Pre-flight settles `when:` gates on the inputs. A step whose gate the known inputs already make false (`review_mode == 'ask' && user_comments != ''` with `review_mode` on `auto`) will not run, so its tuning group is not asked either. `evaluateWhenPartial` in `scheduler.ts` is the two-valued evaluator lifted to three values: an identifier the scope lacks is `UNKNOWN` and propagates through `!`, `==`, `!=`, `&&`, `||` unless the other operand settles the result; the strict `evaluateWhen` is the same parser with every identifier resolved. Pre-flight's scope is `{inputs, answers}` with inputs from the answer, the context pre-fill or the declared default; outputs are absent, so output gates stay open and keep their groups, and an unparseable gate never blocks a group. `ticket-plan`'s `implement` gate gained an `implement_mode != 'plan-only'` conjunct so `plan-only` settles it before `setup` maps the mode to `implement_choice`. 2026-09-10.
+- D24. Cursor and per-provider permission floors. `cursor` is a fifth harness, dispatched through the explicit `cursor-agent` binary (the generic `agent` alias can collide with another provider), using `--print --output-format stream-json`, stdin prompts, `--resume`, `--model`, workspace/add-dir grants and `cursor-agent status --format json` for subscription auth. Cursor and Gemini drop wise effort; Cursor schemas travel as an instruction and its documented result event supplies the authoritative text/session id (token usage is unavailable, so the adapter reports zeros). After all `harness.<group>` questions settle, pre-flight asks `permissions.<harness>` once for each selected or declared-fallback provider: `auto` (recommended), `approval-required`, or `full-access` (labelled "Bypass permissions"). The answer is a floor: effective mode is `max(step/phase mode, provider floor)`, never a downgrade. Floors persist in `state.provider_permissions`; old `preflight.permissions` and string `answers.permissions` map onto every provider for resume compatibility. Claude's `auto` broker accepts ordinary local edits after realpath-aware workspace containment and a curated set of inspectable read-only commands. Repository-controlled task runners, shell wrappers and mutating external MCP calls require an explicit grant or full access. 2026-09-10.
+- D25. Harness-independent preflight UI and Codex advisory events. `wise_preflight interactive:true` owns the staged question loop and requests one MCP form from the client per open question; clients without form elicitation must use a native structured picker or the CLI `run --interactive` TUI, never ordinary chat. Codex `item.completed` records whose item type is `error` are nonterminal notices and become run warnings after a successful `turn.completed`; only terminal error events, process failures, timeouts and missing completion fail the step. 2026-09-10.
 
 ### M4-M6 build report (2026-09-05)
 
@@ -410,7 +412,7 @@ type Event = {
   verdict?: string;                                 // one line, <= 200 chars
   outputs?: Record<string, string | number | boolean>;
   usage?: Usage;                                    // on "usage" and "step.done"
-  harness?: "claude" | "codex" | "gemini" | "grok"; model?: string; effort?: string;
+  harness?: "claude" | "codex" | "cursor" | "gemini" | "grok"; model?: string; effort?: string;
 };
 type Gate = {
   gate_id: string; step: string; kind: "approval" | "ask";
@@ -557,8 +559,8 @@ Events: `unit.phase` on every phase start with `{unit, phase, harness, model}`; 
 - **Socket**: `$XDG_RUNTIME_DIR/wise/engined.sock`, falling back to `~/.local/share/wise/engined.sock`. Mode 0600. Version handshake on connect; mismatch returns `DAEMON_VERSION_MISMATCH` and the client asks the daemon to exit when idle, then restarts it.
 - **Idle shutdown**: exit after 30 min with no active runs and no connected clients. Parked (`gated`) runs count as inactive; they resume from the ledger when a client returns.
 - **Crash recovery**: ledger is truth. On start, every run with `status: running` gets its `running` steps reset to `pending` and its child processes are assumed dead (children are spawned in their own process group; the daemon records pgid in state and kills the group on cancel or restart).
-- **Concurrency**: per-harness cap, default 2 concurrent children for `claude`, 1 for `codex`, `gemini`, `grok`, overridable in `~/.config/wise/engine.json`. Global cap 4. Queue is FIFO across runs.
-- **Auth probe**: before a run starts, each harness it needs is probed (`claude auth status`, `codex login status`, `gemini` and `grok` equivalents, or key env presence under `api-key`). A missing login raises `AUTH_REQUIRED` with the exact login command; nothing else starts (R1).
+- **Concurrency**: per-harness cap, default 2 concurrent children for `claude`, 1 for `codex`, `cursor`, `gemini`, `grok`, overridable in `~/.config/wise/engine.json`. Global cap 4. Queue is FIFO across runs.
+- **Auth probe**: before a run starts, each harness it needs is probed (`claude auth status`, `codex login status`, `cursor-agent status --format json`, Gemini and Grok equivalents, or key env presence under `api-key`). A missing login raises `AUTH_REQUIRED` with the exact login command; nothing else starts (R1).
 - **Rate limits**: a child result classified as rate-limited parks that harness's queue with exponential backoff (1, 2, 4, 8 min, cap 30) and emits `warn`; steps with a `fallback` list move to the next harness after the first backoff (E12).
 - **Logs**: `~/.local/share/wise/engined.log`, rotated at 10 MB.
 
@@ -570,26 +572,26 @@ type RunReq = { prompt: string; system?: string; model: string; effort?: Effort;
                 auth: "subscription" | "api-key"; env?: Record<string, string> };
 type RunRes = { text: string; json?: unknown; usage: Usage; cursor?: unknown; exit: "ok" | "error" | "rate_limited" | "auth" | "timeout" | "max_turns" };
 type Adapter = {
-  id: "claude" | "codex" | "gemini" | "grok";
+  id: "claude" | "codex" | "cursor" | "gemini" | "grok";
   probeAuth(auth: RunReq["auth"]): Promise<{ ok: boolean; login_cmd?: string }>;
   run(req: RunReq, onEvent: (e: RawEvent) => void): Promise<RunRes>;
   effortMap(e: Effort): string | undefined;
 };
 ```
 
-Spawn under a clean env: `HOME`, `PATH`, `LANG`, the vendor config-dir var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) when set, the vendor key var only under `api-key`. `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_*_SESSION*` are never inherited.
+Spawn under a clean env: `HOME`, `PATH`, `LANG`, the vendor config-dir var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CURSOR_CONFIG_DIR`, `GEMINI_CLI_HOME`, `GROK_HOME`) when set, the vendor key var only under `api-key`. `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_*_SESSION*` are never inherited.
 
 Effort mapping (`resolve` applies capability then policy clamps as today, then this table):
 
-| wise | claude `--effort` | codex `model_reasoning_effort` | gemini | grok `--effort` (unverified) |
-|---|---|---|---|---|
-| low | low | low | none | low |
-| medium | medium | medium | none | medium |
-| high | high | high | none | high |
-| xhigh | xhigh | xhigh | none | xhigh |
-| max | max | max | none | max |
+| wise | claude `--effort` | codex `model_reasoning_effort` | cursor | gemini | grok `--reasoning-effort` |
+|---|---|---|---|---|---|
+| low | low | low | none | none | low |
+| medium | medium | medium | none | none | medium |
+| high | high | high | none | none | high |
+| xhigh | xhigh | xhigh | none | none | xhigh |
+| max | max | max | none | none | max |
 
-Structured output: `claude --json-schema`, `codex exec --output-schema`, `grok` none confirmed, `gemini` none. Where the vendor has no schema flag the adapter appends a "reply with JSON matching this schema only" instruction and validates; one retry on parse failure, then `exit: "error"`.
+Structured output: Claude, Codex and Grok use native schema controls; Cursor and Gemini append a "reply with JSON matching this schema only" instruction and validate the extracted object. A parse failure is `exit: "error"`.
 
 ## P7. Conductor SKILL after the change
 
@@ -607,7 +609,7 @@ Everything else in today's SKILL (wave loop, dispatch rules, roster resolution, 
 
 Status: proposed, not accepted. M0.6 and M0.2 decide it.
 
-Child to main. Every child is spawned with an MCP server injected: `wise-engine unit-mcp --token <per-step token>`, a stdio thin client to the daemon socket. Claude takes it via `--mcp-config` (user servers still load), Codex via `-c mcp_servers.wise=...`, Gemini via a settings override, Grok via `config.toml`. All four speak MCP, so one implementation covers them.
+Child to main. Every child is spawned with an MCP server injected: `wise-engine unit-mcp --token <per-step token>`, a stdio thin client to the daemon socket. Claude takes it via `--mcp-config` (user servers still load), Codex via `-c mcp_servers.wise=...`, Cursor through `.cursor/mcp.json`, Gemini via a settings override, Grok via `config.toml`. All five speak MCP, so one implementation covers them.
 
 Tools offered to the child: `wise_report(kind: progress | blocker | decision | finding, text, data?)`, `wise_ask(question, options?, allow_text?)`, `wise_context(key)` (ticket body, plan, findings file, prior phase outputs fetched on demand instead of stuffed into the prompt), `wise_checkpoint(data)` (partial results survive a kill).
 
@@ -615,7 +617,7 @@ Tools offered to the child: `wise_report(kind: progress | blocker | decision | f
 
 Main to child. The daemon derives live status per child from the stream (current tool, turn count, tokens so far, last activity) and merges the child's own `wise_report` lines. It surfaces them as throttled `step.progress` events (one per 30 s or on state change) and in `wise_status` detail, so the harness sees "implement: turn 14, editing src/auth.ts, 48k tokens" instead of silence.
 
-Steering is asymmetric. Claude children are spawned with `--input-format stream-json` so stdin stays open, letting the daemon inject a user message mid-run: a stale nudge, a cancel notice, or a `wise_ask` answer. Codex, Gemini, and Grok have no open stdin in one-shot mode, so their steering is answer-via-tool-result only and a stale child is killed then rerun from its cursor (T3). A new harness tool `wise_nudge(run, step, message)` lets a human poke a running child.
+Steering is asymmetric. Claude children are spawned with `--input-format stream-json` so stdin stays open, letting the daemon inject a user message mid-run: a stale nudge, a cancel notice, or a `wise_ask` answer. Codex, Cursor, Gemini, and Grok have no open stdin in one-shot mode, so their steering is answer-via-tool-result only and a stale child is killed then rerun from its cursor (T3). A new harness tool `wise_nudge(run, step, message)` lets a human poke a running child.
 
 This replaces `supervise-loop.md`, the `worker-heartbeat` and `stale-workers` commands, the `SUPERVISE=yes` env, and the findings-file dance (the fixer calls `wise_context("findings")`).
 
