@@ -278,8 +278,8 @@ steps:
     message: |
       These review lenses failed or did not produce reports: {{missing_reviews}}.
       Continue with the available reports and keep the run marked failed,
-      or stop now and start a new review run after fixing the provider problem.
-    options: ["Continue with available reports", "Stop and start a new review run"]
+      or skip curation; the run will finalize and fail so you can start a new review.
+    options: ["Continue with available reports", "Skip curation and fail this run"]
     output: review_failure_action
     depends_on: [review-health]
 

@@ -78,8 +78,9 @@ flowchart TD
 The three reviewers share `depends_on: [count-commits]` and run as one
 parallel wave. `review-health` waits for every lens even when one fails;
 the conditional `review-errors` gate lets the user continue with the
-available reports or stop and retry. A deselected `verify` or a skipped
-`apply` (`mode=report`, or an empty change set) never blocks the summary.
+available reports or skip curation before the run finalizes and fails. A
+deselected `verify` or a skipped `apply` (`mode=report`, or an empty change
+set) never blocks the summary.
 After the summary, a missing report fails the run even when the user chose to
 curate the reports that were available.
 
@@ -106,7 +107,7 @@ are never repeated.
 | `review-security` | `agent` | Security and input-handling lens: injection, missing validation, secrets, skipped auth, unsafe defaults. Writes `<run-dir>/review/security.md`; read-only. `security` group. |
 | `review-tests` | `agent` | Test-coverage lens: untested behaviour, stale assertions, weakened tests, flaky patterns. Writes `<run-dir>/review/tests.md`; read-only. `tests` group. |
 | `review-health` | `bash` | Waits for every reviewer and records any failed lens or missing report. `trigger-rule: all-done`. |
-| `review-errors` | `ask` | Opens only when a reviewer failed or its report is missing. The user chooses whether to continue with available reports or stop and start a fresh review after fixing the provider. |
+| `review-errors` | `ask` | Opens only when a reviewer failed or its report is missing. The user chooses whether to continue with available reports or skip curation before the run finalizes and fails. |
 | `curate` | `agent` | Merges the available reports after the health check, dedupes by `file:line`, keeps only concrete correctness / security / clear-quality findings on touched lines, respects the plan's `## Decisions Made` and the guidance. Writes `<run-dir>/review/findings.md`. `curate` group. |
 | `verify` | `agent` | Optional (`step-select`). Tries to refute every kept finding against the code, defaulting to refuted when ambiguous; rewrites the findings file with the survivors. `when: findings != 0`. `verify` group. |
 | `apply` | `agent` | `when: mode == 'apply' && findings_path`. Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |

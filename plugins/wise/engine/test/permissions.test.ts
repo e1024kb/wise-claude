@@ -113,6 +113,9 @@ test("decidePermission: approval-required stays read-only; auto allows local edi
   assert.equal(isAutoBashCommand("git status --short"), true);
   assert.equal(isAutoBashCommand("rg --pre sh needle ."), false);
   assert.equal(isAutoBashCommand("cat /etc/passwd"), false);
+  assert.equal(isAutoBashCommand('cat "/etc/passwd"'), false);
+  assert.equal(isAutoBashCommand("cat foo/../../etc/passwd"), false);
+  assert.equal(isAutoBashCommand("cat foo/../bar"), false);
 });
 
 test("permission floors preserve stronger step requirements and support legacy state", () => {

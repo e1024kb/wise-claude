@@ -214,7 +214,7 @@ export const AUTO_MUTATING_BUILTINS = new Set([
 ]);
 
 const SHELL_CONTROL_RE = /[\n\r;&|`<>]|\$\(/;
-const OUTSIDE_WORKSPACE_PATH_RE = /(^|\s)(?:~\/|\/)|(^|[\s'"])\.\.(?:\/|\s|$)/;
+const OUTSIDE_WORKSPACE_PATH_RE = /(^|[\s'"])(?:~\/|\/)|(^|[/\s'"])\.\.(?=\/|[\s'"]|$)/;
 const RG_EXEC_RE = /(^|\s)--pre(?:-glob)?(?:=|\s|$)/;
 const AUTO_BASH_PATTERNS = [
   /^git\s+(?:status|diff|show|log|rev-parse|merge-base|branch|ls-files|ls-tree|cat-file)(?:\s|$)/,
