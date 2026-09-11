@@ -52,6 +52,11 @@ This skill composes with two siblings:
 `wise-tickets` governs everything those two don't: the structure,
 the scope discipline, and how large work becomes several tickets.
 
+Tracker names and CLI commands below are examples, not an allowlist. Use the
+configured tracker's native reference, verified URL, access tool, and markup,
+including for self-hosted or unlisted trackers. Do not convert its identifiers
+into another tracker's key format or invent a hostname.
+
 ## Two ways this skill runs
 
 1. **Standing reference (the main mode).** Consult these rules
@@ -77,7 +82,7 @@ Parse `$ARGUMENTS` as one free-form value:
 
 | Input | Behaviour |
 |---|---|
-| A ticket key or URL (`PROJ-123`, a Linear/GitHub issue link) | Fetch it with the session's tracker tooling; restructure; return the rewrite. Apply it back to the ticket when the user asks. If no tracker access exists, say so and ask for the text. |
+| A tracker-native reference or URL (`PROJ-123`, `owner/repo#42`, or an issue URL) | Fetch it with the session's tracker tooling; restructure; return the rewrite. Apply it back to the ticket when the user asks. If no tracker access exists, say so and ask for the text. |
 | Draft text inline | Restructure it per the rules below; return the result. |
 | A file path | `Read` the file, restructure its content, return the result. Do not modify the file. |
 | _(empty)_ | If a ticket is currently being drafted in the conversation, apply the rules to it. Otherwise summarize the canonical shape in three lines and ask what to restructure. |

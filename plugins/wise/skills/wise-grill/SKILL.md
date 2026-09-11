@@ -67,6 +67,10 @@ subject, then proceed. If the first token is a placeholder
 (`<ticket>`, `$VAR`, `{id}`, `TODO`, `...`, `?` alone), stop with a
 clear error — provided-but-invalid is an error, never a re-prompt.
 
+Recognize tickets from the configured tracker and supplied context, including
+unlisted or self-hosted trackers and their native ID formats. The examples below
+are not an allowlist. Preserve the supplied ticket URL and project identity.
+
 Classify the input into exactly one `input_type`:
 
 | `input_type` | Recognise by | Subject / guidance split |

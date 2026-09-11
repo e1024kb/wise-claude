@@ -670,7 +670,11 @@ form support may use its native structured picker against the raw
 questionary. `choice` questions use single-select controls; `multi` questions use
 native multi-select or a sequence of clickable Include/Exclude choices when the
 host only supports single-select. Known options belong in the tool's options
-field, not just its question text. Free text is reserved for open-ended content
+field, not just its question text. Permission-mode choices follow the same rule:
+use a structured tool whose own instructions permit approval questions. A
+restriction on one question tool does not disable another permitted picker.
+Host execution approvals remain separate and must still be respected.
+Free text is reserved for open-ended content
 or an explicitly allowed custom answer. Strict literal input enums such as
 `^(auto|ask)$` without extraction become choice questions; general validation
 patterns and extracted inputs stay text. Optional enums retain a clickable

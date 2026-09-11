@@ -86,7 +86,7 @@ The routine handles:
 - §3: `git add -A` (every working-tree change - modifications,
   deletions, and new untracked files).
 - §4: skip if nothing landed in the index after staging.
-- §5: Jira-key detection (branch / diff / log / session).
+- §5: ticket-reference detection (branch / diff / log / session).
 - §6: classification — apply the §1 bias above when ambiguous.
 - §7: write the subject — incorporate `fix_summary`.
 - §8: push (only when `PUSH=yes`); refuses detached HEAD,
@@ -123,7 +123,7 @@ parser-safe.
 
 All of `commit-routine.md`'s guardrails apply: never `--amend`
 already-pushed commits, never `--force`, never `--no-verify`, never
-push to `main` / `master`, never invent a Jira key, never append an
+push to `main` / `master`, never invent a ticket reference, never append an
 AI attribution trailer, never retry on commit or push failure.
 
 The routine stages with `git add -A` (modifications, deletions, and

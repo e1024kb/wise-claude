@@ -1,4 +1,4 @@
-# subject-drafting — Jira scope + type + Conventional-Commits subject
+# subject-drafting — ticket scope + type + Conventional-Commits subject
 
 Single source of truth for how the plugin drafts a one-line
 Conventional-Commits subject. Read by:
@@ -14,36 +14,46 @@ staged (`git diff --cached`), pending (`git diff HEAD`), or a PR range
 not collect a diff itself, stage anything, or commit. Wherever it says
 "the diff", read it as the caller's change set.
 
-## 1. Detect a Jira ticket key — mandatory, never skipped
+## 1. Detect a ticket reference — mandatory, never skipped
 
 Always walk this chain before drafting. The four sources are
 best-effort each, but running the step is **not** optional — skipping
-it costs Jira automation (the ticket misses commit linkage; PR
+it breaks tracker automation (the ticket misses commit linkage; PR
 templates, release notes, and the `wise-pr-*` skills all key
-off the scope). Key shape: `[A-Z][A-Z0-9]+-\d+` (e.g. `PROJ-77777`,
-`INGEST-42`). Search in order, stop at the first match:
+off the scope). Use the tracker's actual reference format. Examples include
+project keys such as `PROJ-77777`,
+repository-qualified issue references such as `owner/repo#42`, numeric issue
+numbers, and other tracker IDs are supported when their tracker/project identity
+is established. A project-key regex is one recognition aid, not a tracker filter.
+Do not treat an arbitrary number, commit hash, or version as an issue reference.
+Search in order, stop at the first unambiguous match:
 
 1. **Current branch** (`git rev-parse --abbrev-ref HEAD`) — the
    load-bearing default; covers the common case
-   (`feat/PROJ-123-foo`, `PROJ-123-foo`, `bugfix/PROJ-123`). Canonical
-   form in the subject is uppercase.
-2. **Diff content** — `grep -oE '[A-Z][A-Z0-9]+-[0-9]+'` the change
-   set (PHPDoc `@ticket`, TODO/FIXME, fixtures); trust only when the
-   branch yielded nothing.
+   (`feat/PROJ-123-foo`, `PROJ-123-foo`, `bugfix/PROJ-123`). Preserve the
+   tracker's canonical reference and case.
+2. **Diff content** - inspect explicit ticket references and URLs in the change
+   set (`@ticket`, issue links, TODO references, fixtures). Match the established
+   tracker's format, not only project-acronym keys; use this source only when
+   the branch yielded nothing.
 3. **Recent commit subjects** (`git log -5 --pretty=%s`) — useful when
    the branch is `main` but commits stack under one ticket.
-4. **The current Claude Code session** — a key or Jira URL the user
+4. **The current host session** — a reference or ticket URL the user
    mentioned earlier. Last resort, after the three git sources.
 
 If nothing matches, the subject is **unscoped** — that is a valid
 output. **Never invent a key, never borrow one from an unrelated place
 (README, open tab, template default), never prompt for one.**
 Wrong-scoped is worse than unscoped: it pollutes the wrong ticket's
-activity log.
+activity log. Preserve repository/project identity for otherwise ambiguous numeric
+IDs. If a reference cannot safely fit a commit scope, use an unscoped subject and
+retain its verified URL in the body rather than rewriting it into a made-up key.
+For links, use the exact URL supplied by the user, run context, or tracker response.
+Never construct a tracker hostname or URL from an identifier alone.
 
 **Self-check before drafting:** state which source matched and what it
-returned. A found key MUST appear as `<type>(<KEY>): …`; "no Jira key
-found" means the unscoped `<type>: …` form. Drafting without walking
+returned. A found reference suitable for a Conventional Commits scope appears as
+`<type>(<REF>): …`; "no ticket reference found" means the unscoped `<type>: …` form. Drafting without walking
 the chain — even on a "this is obviously a small fix" rationalisation —
 is the bug this step exists to prevent.
 
@@ -73,7 +83,7 @@ else.
 
 Format:
 
-- With Jira key: `<type>(<KEY>): <subject>`
+- With ticket reference: `<type>(<REF>): <subject>`
 - Without:       `<type>: <subject>`
 
 Subject rules:

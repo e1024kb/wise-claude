@@ -185,6 +185,24 @@ def ticket_branch(ref: str) -> str:
     return sanitize_ref(ref) or "abstract-task-0"
 
 
+def ticket_context(tickets: list[Json], unit: Json) -> Json | None:
+    value = unit.get("ticket_ref", unit["ref"])
+    native_ref = value if isinstance(value, str) else str(unit["ref"])
+    exact = next(
+        (
+            ticket
+            for ticket in tickets
+            if ticket.get("ref") == native_ref or ticket.get("url") == native_ref
+        ),
+        None,
+    )
+    if exact is not None:
+        return exact
+    if "/" not in native_ref and native_ref.removeprefix("#") == unit["ref"]:
+        return next((ticket for ticket in tickets if ticket.get("ref") == unit["ref"]), None)
+    return None
+
+
 def plan_branch(plan_path: str) -> str:
     slug = sanitize_ref(
         re.sub(r"\.md$", "", Path(plan_path).name, flags=re.I).removeprefix("PLAN-")
@@ -208,6 +226,8 @@ def make_unit(pipeline: str, item: str, cwd: str, run_dir: str, base: str = "") 
     }
     if plan_path is not None:
         unit["plan_path"] = plan_path
+    else:
+        unit["ticket_ref"] = item.strip()
     return unit
 
 

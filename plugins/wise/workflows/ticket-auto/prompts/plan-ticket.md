@@ -30,9 +30,12 @@ Parse `ticket`. If it is a URL, match the host (`*.atlassian.net` →
 Jira, `linear.app` → Linear, `github.com/*/issues` → GitHub,
 `gitlab.com` → GitLab, `app.asana.com` → Asana, …); WebSearch an
 unknown host to classify it. If it is a bare id whose tracker is
-ambiguous, the Lead Architect picks the most likely tracker and
-records the assumption — this run never asks the user. Derive a
-lowercase `tracker_slug` and the bare `ticket_ref`.
+ambiguous, resolve it from the run context, configured project, and established
+access channel. Do not guess a tracker from the ID shape alone. If identity
+remains ambiguous, stop with a blocked result; this run never asks the user.
+These hosts are examples, not an allowlist: use the configured tools for unlisted
+or self-hosted trackers too. Derive a lowercase `tracker_slug` and preserve the
+tracker-native `ticket_ref`.
 
 ### 2. Confirm access (autonomous, fail-closed)
 

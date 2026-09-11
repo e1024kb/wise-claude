@@ -49,12 +49,12 @@ git diff "$REF...HEAD" --unified=0 --no-color | head -400
 If either the log or diff is empty, note that in the Summary section
 of the body (the PR is a stub) and continue — don't abort.
 
-### 3. Detect a Jira key
+### 3. Detect a ticket reference
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md` §1 — the
 shared first-match-wins chain (branch → the §2 diff content → `git log
--5 --pretty=%s` → session), no invention. If none yield a key, omit the
-scope in the Context section.
+-5 --pretty=%s` → session), no invention. If none yield a verified ticket
+reference, omit ticket scope from the Context section.
 
 ### 4. Resolve the PR-body template
 
@@ -114,8 +114,10 @@ heading present in the template, generate a populated version:
 - **Summary** — 1–3 short bullets capturing the dominant change.
   Imperative voice ("add X", "fix Y"), lowercase-first after the
   bullet.
-- **Context** — the Jira key as a linked ticket if detected
-  (`https://your-org.atlassian.net/browse/<KEY>`), any
+- **Context** - the detected ticket reference linked to its verified tracker URL
+  from the user, run context, or tracker response. Never assume a tracker or
+  invent a URL from the reference. If no URL is known, retain the reference as
+  plain text and state that the link is unavailable. Include any
   related PR or design link surfaced from the diff or branch
   prose. Write "none surfaced" if nothing is applicable.
 - **Changes** — one bullet per coherent change, grouped by area if
@@ -173,7 +175,7 @@ as the `pr_body_path` output. `ensure-pr` reads it.
 
 ## Guardrails
 
-- Never invent a Jira key.
+- Never invent a ticket reference.
 - Never skip the `wise-human-writing` read in §5 — a body drafted
   without it is the exact AI-slop failure mode this step exists to
   prevent.

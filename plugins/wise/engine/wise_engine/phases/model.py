@@ -20,7 +20,7 @@ from ..prompts.units.schemas import (
 from ..render import render_vars, unresolved_placeholders
 from ..resolve import resolve_model_dict
 from ..yaml_compat import MISSING, js_string
-from .common import Json, err_text, fail, gh, git, ok, pass_
+from .common import Json, err_text, fail, gh, git, ok, pass_, ticket_context
 
 NO_AGENT_RUNTIME = "no agent starter configured; model phases skipped"
 
@@ -223,8 +223,12 @@ def engine_plan_path(ctx: Json) -> str:
 
 def base_vars(ctx: Json) -> Json:
     unit, config = ctx["unit"], ctx["config"]
+    ticket = ticket_context(config["tickets"], unit)
     return {
         "ref": unit["ref"],
+        "ticket_ref": ticket.get("ref", unit.get("ticket_ref", unit["ref"]))
+        if ticket
+        else unit.get("ticket_ref", unit["ref"]),
         "branch": unit["branch"],
         "base": unit["base"] or "main",
         "worktree": unit["worktree"],
@@ -258,11 +262,10 @@ def render_phase_prompt(pipeline: str, phase: str, variables: Json) -> str:
 
 
 def _ticket_block(ctx: Json) -> str:
-    ticket = next(
-        (item for item in ctx["config"]["tickets"] if item["ref"] == ctx["unit"]["ref"]), None
-    )
+    native_ref = ctx["unit"].get("ticket_ref", ctx["unit"]["ref"])
+    ticket = ticket_context(ctx["config"]["tickets"], ctx["unit"])
     if ticket is None:
-        return f"Ticket {ctx['unit']['ref']}: not in the run context; fetch it (step 1)."
+        return f"Ticket {native_ref}: not in the run context; fetch it (step 1)."
     lines = [f"Ticket {ticket['ref']}" + (f": {ticket['title']}" if ticket.get("title") else "")]
     if ticket.get("url"):
         lines.append(f"url: {ticket['url']}")

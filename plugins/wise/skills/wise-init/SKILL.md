@@ -35,7 +35,7 @@ The helper reads a legacy `.wise-init-registry.yaml` from this plugin root only 
 this host has no new registry. Its first write preserves the full legacy document
 and optional entries in the new location. Never edit or remove that cache file.
 Preserve `skipped: true`, missing tools, unauthenticated logins, connector failures,
-and history. In particular, retain earlier Drive, Figma, and Linear skips. Do not
+and history. Retain all earlier optional-connector skips, including issue trackers. Do not
 ask again about a skipped capability unless the user asks to revisit it.
 
 Tell the user: "I'll check Python 3.11+, prepare wise's managed engine environment,

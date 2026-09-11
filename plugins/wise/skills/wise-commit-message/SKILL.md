@@ -3,7 +3,7 @@ name: wise-commit-message
 description: >-
   Draft one Conventional-Commits subject line from your pending git
   changes — both staged (`git diff --cached`) and unstaged-but-modified
-  tracked files (`git diff`) — Jira-scoped (e.g. `feat(PROJ-777): …`)
+  tracked files (`git diff`) — ticket-scoped (e.g. `feat(PROJ-777): …`)
   when a key is detectable from the branch, diff, recent commits, or the
   live session, and unscoped (e.g. `feat: …`) otherwise. Pass `--copy`
   to also drop the subject onto the macOS clipboard. Strictly read-only
@@ -32,7 +32,7 @@ Every PR should land with a Conventional-Commits first line, and the
 
 1. Pick the type (`feat` / `fix` / `refactor` / `docs` / …) from what
    the diff actually does.
-2. Scope it with the Jira ticket the branch is working on — when
+2. Scope it with the ticket the branch is working on — when
    there is one.
 3. Summarise the change in the imperative voice, short enough that
    the reader can scan a list of commits without hitting the wrap.
@@ -56,7 +56,7 @@ need to amend.
 > **Shared rules.** §3–§5 below follow
 > `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md` — the single
 > source of truth that `/wise-commit`, `/wise-commit-push`, and
-> `draft-body.md` also read. Change a Jira-detection, classification,
+> `draft-body.md` also read. Change a ticket-reference detection, classification,
 > or subject-formatting rule there, not here.
 
 ## Invocation
@@ -170,7 +170,7 @@ Do not silently fall back to `HEAD~1` — that would draft a message
 for a different set of changes than what the user is about to
 commit.
 
-### 3. Detect a Jira ticket key
+### 3. Detect a ticket reference
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md` §1. Your
 change set is the **pending** diff — grep `git diff HEAD` (staged +
@@ -186,7 +186,7 @@ ticket, not what sounds nicest.
 ### 5. Write the subject
 
 Draft the subject per `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md`
-§3 (format with/without Jira key, imperative, lowercase, ≤72 chars, no
+§3 (format with/without ticket reference, imperative, lowercase, ≤72 chars, no
 attribution trailer).
 
 If the change genuinely warrants a body (breaking change,
@@ -334,10 +334,10 @@ Commit with:
   Drafting a subject and committing it are intentionally separate
   concerns — the user reviews the subject before any commit object
   exists.
-- **Never invent a Jira ticket key.** If all four detection sources
+- **Never invent a ticket reference.** If all four detection sources
   come up empty, emit an unscoped subject. An unscoped subject is
   better than a wrong scope — the latter attributes commits to the
-  wrong ticket in Jira's activity log and takes real cleanup to
+  wrong ticket in the tracker's activity log and takes real cleanup to
   untangle.
 - **Never reach for `HEAD~1` or untracked files as a "recovery" when
   nothing is pending.** [§2](#2-inspect-pending-changes-staged--unstaged-tracked)'s

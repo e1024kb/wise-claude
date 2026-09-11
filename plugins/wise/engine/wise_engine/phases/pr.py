@@ -4,7 +4,18 @@ from pathlib import Path
 from urllib.parse import quote
 
 from ..yaml_compat import js_string
-from .common import Json, err_text, fail, gh, git, is_protected_branch, json_of, ok, pass_
+from .common import (
+    Json,
+    err_text,
+    fail,
+    gh,
+    git,
+    is_protected_branch,
+    json_of,
+    ok,
+    pass_,
+    ticket_context,
+)
 
 TITLE_MAX = 90
 COMMITS_MAX = 20
@@ -123,6 +134,8 @@ def _plan_heading(path: str) -> str | None:
 
 async def _collect_facts(ctx: Json) -> Json:
     unit = ctx["unit"]
+    ticket: Json = ticket_context(ctx["config"]["tickets"], unit) or {}
+    native_ref = ticket.get("ref", unit.get("ticket_ref", unit["ref"]))
     result = await git(
         ctx,
         [
@@ -137,22 +150,19 @@ async def _collect_facts(ctx: Json) -> Json:
         if ok(result)
         else []
     )
-    ticket: Json = next(
-        (ticket for ticket in ctx["config"]["tickets"] if ticket["ref"] == unit["ref"]), {}
-    )
     if ctx["config"]["pipeline"] == "plan":
         heading = _plan_heading(unit["plan_path"]) if "plan_path" in unit else None
         title = f"{unit['ref']}: {heading}" if heading is not None else unit["ref"]
     elif ticket.get("title"):
-        title = f"{unit['ref']}: {ticket['title']}"
+        title = f"{native_ref}: {ticket['title']}"
     else:
-        title = f"{unit['ref']}: {commits[0]}" if commits else unit["ref"]
+        title = f"{native_ref}: {commits[0]}" if commits else native_ref
     facts = {
-        "ref": unit["ref"],
+        "ref": native_ref,
         "title": _clip_title(title),
-        "ticket_link": f"[{unit['ref']}]({ticket['url']})"
+        "ticket_link": f"[{native_ref}]({ticket['url']})"
         if ticket.get("url")
-        else f"`{unit['ref']}`",
+        else f"`{native_ref}`",
         "commits": commits,
     }
     if "plan_path" in unit:

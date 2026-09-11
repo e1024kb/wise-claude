@@ -2,7 +2,7 @@
 <1–3 bullets: what changed and why>
 
 ## Context
-<link to Jira ticket(s), design docs, related PRs>
+<links to tracker tickets, design docs, related PRs>
 
 ## Changes
 <itemised list of code / behavioural changes — one bullet per coherent change>

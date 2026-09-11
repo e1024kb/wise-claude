@@ -145,28 +145,27 @@ steps:
       file holds the content) or a `body` needs no probe.
 
       For each remaining ref, identify the tracker from the URL host or
-      the id shape: *.atlassian.net/browse/ or jira.* -> Jira;
+      established run/project context: *.atlassian.net/browse/ or jira.* -> Jira;
       linear.app/*/issue/ -> Linear; github.com/*/issues/ -> GitHub
       Issues; gitlab.com/*/-/issues/ -> GitLab; app.asana.com -> Asana;
       *.monday.com, trello.com/c/, *.shortcut.com, *.notion.so,
       dev.azure.com/*/_workitems/ -> that tracker. WebSearch an unknown
-      host; for a bare ambiguous id predict the most likely tracker,
-      never ask. For each distinct tracker probe for a channel that
-      actually returns the ticket: a tracker MCP tool (you have the
-      same MCP servers as the `claude` CLI; read-shaped tools are
-      granted, a server that is missing or "needs authentication" for
-      the CLI is not reachable here), a CLI (`command -v gh`, `command
-      -v glab`, `command -v linear`, `command -v jira`; e.g. `linear
+      host. Do not guess a tracker from an ambiguous bare id or probe
+      arbitrary trackers until one happens to return a record. If run
+      context or configured project identity does not establish its
+      tracker, mark access blocked. For each distinct established tracker,
+      probe for a granted channel that actually returns the ticket: a CLI
+      (`command -v gh`, `command -v glab`, `command -v linear`, `command
+      -v jira`; e.g. `linear
       issue view <id>`), or `WebFetch` on a public URL. A login page, a
       401/403 or an empty body is not access.
 
       Every ticket reachable: `access` = `ok`, `detail` = one line per
       tracker and the channel that works. Any ticket unreachable:
       `access` = `blocked`, `detail` = one line per unreachable tracker
-      with the tickets that need it and the fix (authenticate its MCP
-      server for the CLI with `claude mcp`, install and log in to its
-      CLI, or make the URL public; the conductor can also fetch the
-      ticket itself before the run), then "fix tracker access and
+      with the tickets that need it and the fix (install and log in to its
+      granted CLI, make the URL public, or have the conductor fetch the
+      ticket into run context before the run), then "fix tracker access and
       re-run /wise-workflow-run ticket-auto".
 
       Return the fields directly, no wrapping: access, detail.

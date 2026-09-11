@@ -109,27 +109,6 @@ wise-claude/
 └── CONTRIBUTING.md                      # full contributor manual
 ```
 
-## Migrating to v4.0.0
-
-**v4.0.0 is Claude Code only.** The multi-harness ports introduced in
-v3.0.0 (OpenAI Codex CLI, Cursor, Hermes Agent, opencode, Pi) were
-dropped, along with `core/`, the port generator, and `install.sh`. The
-last multi-harness release is **v3.8.1** — check out that tag if you
-need one of the removed ports. The plugin path moved from
-`harnesses/claude/wise` back to `plugins/wise`.
-
-- **Fresh installs** — nothing to do; `/plugin install wise@wise-claude`
-  works as before.
-- **Existing installs** — refresh the marketplace so it re-reads the new
-  source path:
-  ```
-  /plugin marketplace update wise-claude
-  /plugin install wise@wise-claude
-  ```
-  If commands still don't resolve, remove and re-add the marketplace
-  (`/plugin marketplace remove wise-claude`, then the two Install
-  commands above) and start a fresh session.
-
 ## Troubleshooting
 
 - **Skills / commands don't show up** — confirm `/plugin install

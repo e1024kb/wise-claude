@@ -4,7 +4,7 @@ description: >-
   Detect the PR state for the current branch and either create a
   new GitHub PR or refresh an existing one — body drafted from the
   project's `.github/pull_request_template.md` (or a bundled
-  fallback) filled from the branch's diff + commits, Jira key
+  fallback) filled from the branch's diff + commits, ticket reference
   auto-detected from branch/diff/log/session, base branch picked
   interactively from `main` + recent `release*` branches when
   creating. This skill runs just the PR create/refresh piece — the
@@ -105,10 +105,11 @@ release branch is almost always a mistake.
 
 - If `current_branch` matches any of `^main$`, `^master$`,
   `^release$`, or `^release[/-]`, AND `pr_exists == no`, STOP.
-  Tell the user their current branch is protected and suggest
-  checking out a ticket-scoped branch named exactly the ticket key
-  (e.g. `git checkout -b PROJ-777`, per
-  `${CLAUDE_PLUGIN_ROOT}/references/branch-naming.md`) before re-running.
+  Tell the user their current branch is protected and suggest checking out a
+  non-protected branch before re-running. If a verified ticket reference is
+  already available, compute its `target_branch` per
+  `${CLAUDE_PLUGIN_ROOT}/references/branch-naming.md` and include that exact
+  branch in the suggestion.
 - If `current_branch` matches a protected pattern AND `pr_exists
   == yes`, continue — the user wants to refresh an existing PR
   that was created deliberately.
@@ -211,7 +212,7 @@ Watch pipelines + comments with:
 - Never force-push, amend, rebase, or otherwise modify the
   commits on the branch — the draft describes what's already on
   `HEAD`.
-- Never invent a Jira key or retarget an existing PR without the
+- Never invent a ticket reference or retarget an existing PR without the
   user asking. Both fragments enforce this; don't work around it.
 - Never draft the body freehand — the `wise-human-writing` read that
   `draft-body.md` §5 mandates is part of the procedure, not optional
