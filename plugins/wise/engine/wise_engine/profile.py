@@ -13,6 +13,7 @@ from .paths import cwd_slug, plugin_data_root, wise_data_root
 __all__ = ["plugin_data_root", "wise_data_root"]
 PROFILE_DEFAULT = "medium"
 PROFILE_GC_SECONDS = 30 * 24 * 3600
+SESSION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
 def _env(opts: dict[str, Any]) -> dict[str, str]:
@@ -70,6 +71,8 @@ def current_session_id(opts: dict[str, Any] | None = None) -> str:
 
 
 def session_path(session_id: str, opts: dict[str, Any] | None = None) -> str | None:
+    if not SESSION_ID_RE.fullmatch(session_id):
+        return None
     path = Path(
         os.path.normpath(os.path.join(cwd_session_dir(opts), f"{session_id}.jsonl".lstrip("/")))
     )
@@ -87,7 +90,7 @@ def profile_dir(opts: dict[str, Any] | None = None) -> str:
 
 def profile_safe_sid(opts: dict[str, Any] | None = None) -> str | None:
     sid = current_session_id(opts)
-    return sid if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", sid) else None
+    return sid if SESSION_ID_RE.fullmatch(sid) else None
 
 
 def is_profile_level(value: str) -> bool:

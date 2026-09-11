@@ -103,6 +103,15 @@ def test_session_precedence_and_transcripts(opts):
     assert session_path("missing", opts) is None
 
 
+@pytest.mark.parametrize("evil", ["../outside", "../../outside", "/tmp/outside", "a/b"])
+def test_session_path_rejects_traversal_and_absolute_ids(opts, evil):
+    directory = Path(cwd_session_dir(opts))
+    directory.mkdir(parents=True)
+    (directory / "outside.jsonl").write_text("sensitive")
+    (directory.parent / "outside.jsonl").write_text("sensitive")
+    assert session_path(evil, opts) is None
+
+
 def test_labels_and_paths():
     assert session_label("01ABC", "ticket-plan") == "01ABC_ticket-plan"
     assert session_label("01ABC", "a-b-c-d-e-f-g-h-i") == "01ABC_a-b-c-d-e-f-g"
