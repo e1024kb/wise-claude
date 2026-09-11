@@ -194,7 +194,12 @@ instead of re-asking.
 
 Before this wizard asks any question, read and follow
 [WISE_PLUGIN_ROOT]/references/workflow-host-control.md, section
-"Keep asynchronous questions open". Include that reference in the resulting skill.
+"Keep asynchronous questions open". In the resulting SKILL.md body, include this
+exact Markdown link before any user-question procedure:
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Preserve this link even for prompt-free skills; it does not authorize new prompts.
+For a skill that can ask questions, include `Read` in any explicit `allowed-tools`
+list so it can load the reference. Preserve existing no-prompt restrictions.
 
 WIZARD — ask the user in order (skip any question the intent already
 answers):
