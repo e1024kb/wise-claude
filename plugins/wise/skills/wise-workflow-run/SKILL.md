@@ -93,7 +93,11 @@ model question is not asked is when the engine did not return it
 (one CLI installed, a one-model catalog, a one-effort model). `wise_run`
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
-Prefer MCP form elicitation, then the host's native picker. In the explicit
+Prefer MCP form elicitation, then the host's native picker. Follow the
+[asynchronous question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open):
+a display acknowledgement is not an answer; keep the turn active while that
+question is pending, without sending a final response that dismisses it.
+In the explicit
 CLI fallback, preserve the same labels, descriptions and values. Ask one
 question at a time, preserve the defaults and option values, skip
 `locked: true` questions and `input.<name>` filled positionally, and

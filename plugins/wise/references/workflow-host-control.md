@@ -127,6 +127,26 @@ stop collecting answers and preserve the engine's resumable state. Provider
 installation and login are checked only for providers required by the selected
 workflow steps.
 
+### Keep asynchronous questions open
+
+Check the native picker's response contract before collecting answers. A blocking
+picker returns the user's answer. An asynchronous picker (for example,
+`request_user_input_async`) may return only `accepted: true`: that acknowledges
+display, not a selection, cancellation, or approval.
+
+After opening an asynchronous question, keep the conductor turn active until an
+actual user response arrives. Use the host's interruptible wait or yield facility
+in intervals of at most 60 seconds, handling incoming messages between waits.
+Do not send a final response such as "awaiting your selection" while the GUI
+question is pending: hosts may dismiss it when the turn ends. Do not open duplicate
+questions, interpret elapsed time as an answer, or advance preflight on an
+acknowledgement. A repeated workflow invocation without a choice is not an answer.
+On an explicit cancellation, stop collection without starting the workflow.
+
+If the host cannot keep an asynchronous question alive, use a plain-text question
+instead of opening that picker, and wait for the user's next message. Apply this
+same lifecycle to preflight selections and workflow approval/ask gates.
+
 Official host references: [Claude MCP](https://code.claude.com/docs/en/mcp),
 [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
 [Cursor MCP](https://cursor.com/docs/mcp),
