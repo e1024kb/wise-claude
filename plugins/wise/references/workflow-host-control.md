@@ -158,6 +158,37 @@ For Claude-style tools use the declared option objects and multi-select flag;
 for other tools use their actual schema. Preserve labels, descriptions, stable
 values, and cardinality. Defaults may be highlighted, never silently submitted.
 
+Permission-mode questions (`permissions.<harness>`) remain `kind: choice`, with
+`auto`, `approval-required`, and `full-access` as the engine values. Their subject
+does not by itself require a chat reply. Inspect each available tool's own rules:
+a restriction on `request_user_input` does not automatically restrict
+`request_user_input_async`, MCP elicitation, or another native question tool.
+If the blocking tool forbids permission/approval questions but the asynchronous
+tool explicitly supports them, use the asynchronous picker with populated options.
+Do not call the prohibited tool, rename the question to evade a restriction, or
+use a workflow answer to bypass the host's own tool-execution approval system.
+Higher-priority instructions that require chat for this question still take
+precedence; if no permitted structured route exists, explain that limitation.
+
+For a host exposing the current `request_user_input_async` string-options schema,
+render the permission question as:
+
+```json
+{"questions":[{"title":"Which minimum permission mode should Claude use for supporting workflow steps?","options":["Auto (recommended): workspace-scoped execution","Approval required: headless requests may be denied","Bypass permissions: no provider permission checks or sandbox"]}]}
+```
+
+Repeat the full picker for every unanswered `permissions.<harness>` returned by
+the engine, including supporting and fallback providers. A selection for Claude
+does not answer Codex or Cursor. Do not reduce the next provider to a chat-only
+"Use Auto too?" confirmation or remove its other allowed choices. Preserve a
+prior answer only for its matching provider; honor an explicit user instruction
+that already names several providers without asking those questions again.
+
+Map the three labels to `auto`, `approval-required`, and `full-access`, respectively.
+Use the actual provider name and the engine's current labels/descriptions. Await
+the user's real selection; this example does not authorize any mode. Apply the
+same per-tool capability check to all other approval and confirmation questions.
+
 Apply this dispatch order for every question, without provider-specific exceptions:
 
 1. Read the engine's `kind`, `options`, `default`, and constraints. They determine

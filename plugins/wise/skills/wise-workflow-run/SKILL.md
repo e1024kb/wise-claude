@@ -102,6 +102,13 @@ Prefer MCP form elicitation, then the host's native picker. Follow the
 [asynchronous question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open):
 a display acknowledgement is not an answer; keep the turn active while that
 question is pending, without sending a final response that dismisses it.
+For `permissions.<harness>`, also use a structured picker permitted to ask approval
+questions. A restriction on the blocking `request_user_input` tool does not rule
+out `request_user_input_async` when its own instructions permit approvals. Check
+that route before requesting a chat reply; follow the shared per-tool rules.
+Render every unanswered provider permission question with all its options. Never
+replace the next provider's picker with "Use Auto too?" or reuse another provider's
+answer unless the user explicitly selected that mode for both providers.
 Render `choice` questions with options and `multi` questions with native
 multi-select or the shared clickable Include/Exclude sequence. Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
