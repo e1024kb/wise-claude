@@ -1,5 +1,9 @@
 # dispatch — run a skill's procedure on any harness, as a subagent
 
+Before collecting user input, follow the [question lifecycle](workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 Shared routine for the skills that accept `--on`: instead of executing
 their procedure in this conversation, hand it to a headless child of
 any workflow harness (`claude`, `codex`, `cursor`, `gemini`, `grok`) at a model

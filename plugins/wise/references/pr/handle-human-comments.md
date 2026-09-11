@@ -1,5 +1,9 @@
 # handle-human-comments — walk user-left PR comments one by one
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 One of the four reviewable queues `watch-pipelines.md` §4
 dispatches to. Called FIRST, before the bot queues, because human
 comments are the most valuable signal and can short-circuit the

@@ -18,6 +18,11 @@ allowed-tools: Read, Bash(python3:*), SendMessage, Monitor, TaskList, TaskGet, T
 
 # /wise-supervise — keep a running team of agents on task
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 Background teammates **go idle after every turn** and then wait forever unless

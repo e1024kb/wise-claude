@@ -16,10 +16,15 @@ description: >-
 argument-hint: "[<feedback-text>]"
 model: opus
 effort: low
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(uname:*), Bash(sw_vers:*), Bash(claude:*), Bash(command:*), Bash(mktemp:*), Bash(printf:*), Bash(rm:*), AskUserQuestion
+allowed-tools: Read, Bash(gh:*), Bash(git:*), Bash(uname:*), Bash(sw_vers:*), Bash(claude:*), Bash(command:*), Bash(mktemp:*), Bash(printf:*), Bash(rm:*), AskUserQuestion
 ---
 
 # /wise-feedback — file a feedback issue against the marketplace
+
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
 
 ## Why this skill exists
 

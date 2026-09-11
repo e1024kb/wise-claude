@@ -1,5 +1,9 @@
 # ensure-reviewers — attach the default reviewer + ask about extras
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 This fragment owns the **defaults** side of reviewer attachment —
 Copilot code review. It also asks the user whether they want to add
 extras beyond the default; if so, the follow-up step

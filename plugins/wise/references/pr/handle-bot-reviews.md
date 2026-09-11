@@ -1,5 +1,9 @@
 # handle-bot-reviews — per-item wizard for ONE review-bot queue
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 Filtered procedure for walking the user through actionable review
 comments from a **single** review bot — Copilot or CodeRabbit
 (whichever the caller selects via `bot_filter`). `watch-pipelines.md`

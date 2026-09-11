@@ -1,5 +1,9 @@
 # paged-bulk-mode — 5-items-per-page bulk triage with auto-classify
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 Shared fragment for the four reviewable queues
 (`handle-human-comments.md`, `handle-bot-reviews.md` × 2, and
 `handle-sonar-issues.md`). Each queue's top-level gate offers

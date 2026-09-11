@@ -18,6 +18,11 @@ allowed-tools: Read, Skill, Bash(test:*), Bash(git:*), Bash(pwd:*), Bash(cat:*),
 
 # /wise-skills-edit — modify an existing wise plugin skill
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 Companion to `/wise-skills-create`. When an existing skill's
@@ -161,6 +166,10 @@ CONVENTIONS THE SKILL MUST CONTINUE TO FOLLOW:
       [WISE_PLUGIN_ROOT]/skills/wise-workflow-status/SKILL.md
   - Reference guidance skill:
       [WISE_PLUGIN_ROOT]/skills/wise-estimation/SKILL.md
+
+Before this wizard asks any question, read and follow
+[WISE_PLUGIN_ROOT]/references/workflow-host-control.md, section
+"Keep asynchronous questions open". Include that reference in the resulting skill.
 
 WIZARD — present the current state, then ask which aspects the user
 wants to change. At minimum, offer these editing paths:

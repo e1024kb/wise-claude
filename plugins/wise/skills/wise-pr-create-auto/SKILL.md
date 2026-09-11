@@ -16,6 +16,11 @@ allowed-tools: Read, Write, Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(head:*), 
 
 # /wise-pr-create-auto — create or refresh a PR, autonomously
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 `/wise-pr-create` is interactive — it asks the user to pick the base

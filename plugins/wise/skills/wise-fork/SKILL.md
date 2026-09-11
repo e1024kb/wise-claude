@@ -12,10 +12,15 @@ description: >-
   fresh but keep context", "don't continue the old work", or types
   `/wise-fork`.
 argument-hint: "[<new goal>]"
-allowed-tools: Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(git rev-parse:*)
+allowed-tools: Read, Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(git rev-parse:*)
 ---
 
 # /wise-fork - reorient a forked session
+
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
 
 ## Why this skill exists
 

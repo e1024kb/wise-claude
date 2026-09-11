@@ -540,6 +540,16 @@ one-liners below are the rule, not the argument for it.
 
 ---
 
+## User-question lifecycle
+
+Every skill links to the question lifecycle in
+[`references/workflow-host-control.md`](references/workflow-host-control.md#keep-asynchronous-questions-open)
+before collecting input. Shared interactive routines and delegated wizards follow
+it too. An asynchronous display acknowledgement never authorizes an action, and
+the asking agent keeps its turn active until an answer arrives. Existing
+autonomous no-prompt rules still apply. Repository validation checks that every
+skill retains the shared reference, including newly added skills.
+
 ## Pointers for common tasks
 
 For the full procedure on each of these, read the linked section of

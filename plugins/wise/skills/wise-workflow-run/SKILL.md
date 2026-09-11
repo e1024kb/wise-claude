@@ -13,6 +13,11 @@ allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, Team
 
 # /wise-workflow-run - the conductor
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 First read [host control](../../references/workflow-host-control.md). Resolve the
 loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
 to that installation. Use its managed launcher for shell commands. Follow the

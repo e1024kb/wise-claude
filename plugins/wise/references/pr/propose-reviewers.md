@@ -1,5 +1,9 @@
 # propose-reviewers — analyse the PR + surface Claude-picked candidates
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 This fragment runs only when the user picked **Yes — Claude
 proposes candidates** in `ensure-reviewers.md` (the preceding
 step records `extras_choice=yes`). Its job is to turn the raw

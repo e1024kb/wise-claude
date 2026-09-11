@@ -1,5 +1,9 @@
 # handle-sonar-issues — SonarCloud open issues queue (Paged-bulk / Fix all / Walk step-by-step)
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 Dedicated fragment for the SonarCloud issues mini-pipeline,
 called from `watch-pipelines.md` §4 after the human + bot-review
 queues. Factored out of the earlier in-line §3b so it follows the

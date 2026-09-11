@@ -24,6 +24,11 @@ allowed-tools: Read, Write, Edit, Task, Glob, Grep, WebSearch, WebFetch, AskUser
 
 # /wise-grill — understand an underspecified subject, then plan it, answer it, or grill the right people
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 The reasoning behind a piece of work rarely lives where the work is

@@ -19,6 +19,11 @@ allowed-tools: Read, Write, Grep, Glob, Bash(git:*), Bash(gh:*), Bash(python3:*)
 
 # /wise-report - verified session status report
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 Long sessions accumulate finished work, half-finished work, promises,

@@ -17,6 +17,11 @@ allowed-tools: Task, Read, Bash(git:*), Bash(bash:*), AskUserQuestion
 
 # /wise-simplify-auto — simplify recently-modified code and commit
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 The simplify pass (the `code-simplifier` agent) is the plugin's
