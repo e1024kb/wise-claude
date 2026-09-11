@@ -465,3 +465,21 @@ def test_recursive_worktree_copy_refuses_destination_escape(tmp_path):
     result = l.apply_worktree_include(repo, dest, exec_fn=lambda *_: "cache/\0")
     assert result["copied"] == 0 and result["skipped"] == 1
     assert (outside / "data").read_text() == "old"
+
+
+def test_clipped_utf16_surrogate_is_preserved_in_json_and_replaced_in_human_log(tmp_path):
+    from wise_engine.ledger import write_json_atomic, append_event, append_raw_log, write_log
+    from wise_engine.steps.agent import headline
+    from wise_engine.render import _json
+
+    text = headline("x" * 198 + "😀tail")
+    assert "\\ud83d" in _json(text)
+    path = tmp_path / "value.json"
+    write_json_atomic(path, {"value": text})
+    assert json.loads(path.read_text())["value"] == text
+    assert "\\ud83d" in path.read_text()
+    append_event(tmp_path, {"run_id": "run", "type": "warn", "message": text})
+    raw = append_raw_log(tmp_path, "step", "attempt", {"text": text})
+    assert json.loads(Path(raw).read_text())["text"] == text
+    human = write_log(tmp_path, "step", "attempt", text)
+    assert "�" in Path(human).read_text()

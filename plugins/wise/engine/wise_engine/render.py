@@ -24,7 +24,11 @@ def _json(value: Any, indent: int | None = None, level: int = 0) -> str:
     if value is None or value is UNDEFINED:
         return "null"
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
+        return (
+            json.dumps(value, ensure_ascii=False)
+            .encode("utf-8", "backslashreplace")
+            .decode("utf-8")
+        )
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
@@ -35,7 +39,7 @@ def _json(value: Any, indent: int | None = None, level: int = 0) -> str:
         for key, item in _entries(value):
             if item is not UNDEFINED:
                 items.append(
-                    f"{json.dumps(key, ensure_ascii=False)}:{' ' if indent else ''}{_json(item, indent, level + 1)}"
+                    f"{_json(key)}:{' ' if indent else ''}{_json(item, indent, level + 1)}"
                 )
     else:
         opening, closing = "[", "]"

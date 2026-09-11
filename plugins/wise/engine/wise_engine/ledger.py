@@ -82,7 +82,9 @@ def write_json_atomic(path: str | Path, data: Any) -> None:
     tmp = path.with_name(path.name + ".tmp")
     try:
         tmp.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+            json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+            errors="backslashreplace",
         )
         tmp.replace(path)
     except BaseException:
@@ -461,7 +463,7 @@ def append_event(run_dir: str | Path, event: Json, *, now: str | None = None) ->
             last = _last_seq(path.read_bytes())
         seq = last if last is not None else 0
     full = {**event, "seq": seq + 1, "ts": now or utc_now()}
-    with path.open("a", encoding="utf-8") as dest:
+    with path.open("a", encoding="utf-8", errors="backslashreplace") as dest:
         dest.write(lead + json.dumps(full, ensure_ascii=False, separators=(",", ":")) + "\n")
     return full
 
@@ -523,14 +525,17 @@ def log_paths(run_dir: str | Path, step_id: str, step_run_id: str) -> dict[str, 
 def write_log(run_dir: str | Path, step_id: str, step_run_id: str, content: str) -> str:
     path = Path(log_paths(run_dir, step_id, step_run_id)["log"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_text(
+        content.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace"),
+        encoding="utf-8",
+    )
     return str(path)
 
 
 def append_raw_log(run_dir: str | Path, step_id: str, step_run_id: str, record: Any) -> str:
     path = Path(log_paths(run_dir, step_id, step_run_id)["raw"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as dest:
+    with path.open("a", encoding="utf-8", errors="backslashreplace") as dest:
         dest.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
     return str(path)
 
