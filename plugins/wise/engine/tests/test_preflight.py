@@ -341,3 +341,24 @@ def test_fill_answers_preserves_explicit_and_missing():
         p.describe_tuning(dict(harness="codex", model="gpt-6-astra", effort="high"))
         == "codex / gpt-6-astra / high"
     )
+
+
+def test_context_empty_values_and_javascript_whitespace():
+    assert p.resolve_from_context("links[]", {"links": [""]}) == ""
+    assert p.resolve_from_context("guidance", {"guidance": "\ufefftext\ufeff"}) == "text"
+    assert p.resolve_from_context("guidance", {"guidance": "\x85text\x85"}) == "\x85text\x85"
+    defn = definition()
+    assert (
+        "analyze-design"
+        in p.apply_answers(defn, {"step-select": "\ufeffanalyze-design\ufeff"})["enabled_steps"]
+    )
+    assert (
+        "analyze-design"
+        not in p.apply_answers(defn, {"step-select": "\x85analyze-design\x85"})["enabled_steps"]
+    )
+    assert p.resolve_from_context("decisions.x\ny", {"decisions": {"x\ny": "value"}}) is None
+    defn = {
+        "steps": [],
+        "inputs": [{"name": "link", "from-context": "links[]", "default": "fallback"}],
+    }
+    assert p.known_inputs(defn, {}, {"links": [""]}) == {"link": ""}

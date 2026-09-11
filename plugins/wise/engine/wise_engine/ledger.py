@@ -539,6 +539,13 @@ def _exec(cmd: str, args: list[str]) -> str:
     return subprocess.check_output([cmd, *args], text=True, stderr=subprocess.PIPE)
 
 
+def _copy_file(source: str, destination: str) -> str:
+    target = Path(destination)
+    if target.is_symlink():
+        target.unlink()
+    return shutil.copy2(source, destination)
+
+
 def apply_worktree_include(
     repo_root: str | Path,
     worktree_dir: str | Path,
@@ -585,7 +592,16 @@ def apply_worktree_include(
             continue
         try:
             if rel.endswith("/") or src.is_dir():
-                shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
+                for current, directories, names in os.walk(src, followlinks=False):
+                    target = dst / Path(current).relative_to(src)
+                    if target.is_symlink():
+                        raise OSError(f"destination directory is a symlink: {target}")
+                    for name in directories + names:
+                        if not (target / name).resolve().is_relative_to(dest_res):
+                            raise OSError(f"destination escapes worktree: {target / name}")
+                shutil.copytree(
+                    src, dst, symlinks=True, dirs_exist_ok=True, copy_function=_copy_file
+                )
             else:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)

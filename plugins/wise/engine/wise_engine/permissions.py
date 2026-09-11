@@ -234,9 +234,13 @@ def _nearest_real_path(path: str) -> Path | None:
     while True:
         try:
             return candidate.resolve(strict=True)
+        except ValueError:
+            return None
         except (OSError, RuntimeError):
             try:
                 candidate.lstat()
+                return None
+            except ValueError:
                 return None
             except OSError as error:
                 if error.errno not in (errno.ENOENT, errno.ENOTDIR):
@@ -255,7 +259,7 @@ def _is_within_workspace(path: str, roots: Sequence[str | os.PathLike[str]]) -> 
     for root in roots:
         try:
             real_root = Path(root).resolve(strict=True)
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError, ValueError):
             continue
         if candidate == real_root or real_root in candidate.parents:
             return True

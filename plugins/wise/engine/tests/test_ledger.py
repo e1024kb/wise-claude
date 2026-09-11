@@ -444,3 +444,24 @@ def test_malformed_state_fields_do_not_break_history(tmp_path):
     saved(tmp_path / "complete", "completed")
     assert l.prune_runs(tmp_path, {"WISE_RUN_HISTORY_CAP": "1"})["pruned"] == ["complete"]
     assert (tmp_path / "odd").exists()
+
+
+def test_recursive_worktree_copy_refuses_destination_escape(tmp_path):
+    repo = tmp_path / "repo"
+    dest = tmp_path / "dest"
+    outside = tmp_path / "outside"
+    for directory in [repo / "cache/sub", dest / "cache", outside]:
+        directory.mkdir(parents=True)
+    (repo / ".worktreeinclude").write_text("cache/\n")
+    (repo / "cache/sub/data").write_text("new")
+    (outside / "data").write_text("old")
+    (dest / "cache/sub").symlink_to(outside, target_is_directory=True)
+    result = l.apply_worktree_include(repo, dest, exec_fn=lambda *_: "cache/\0")
+    assert result["copied"] == 0 and result["skipped"] == 1
+    assert (outside / "data").read_text() == "old"
+    (dest / "cache/sub").unlink()
+    (dest / "cache/sub").mkdir()
+    (dest / "cache/sub/data").symlink_to(outside / "data")
+    result = l.apply_worktree_include(repo, dest, exec_fn=lambda *_: "cache/\0")
+    assert result["copied"] == 0 and result["skipped"] == 1
+    assert (outside / "data").read_text() == "old"

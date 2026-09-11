@@ -4,7 +4,7 @@ from typing import Any
 
 from .constants import HARNESSES, RUN_MODES
 from .models import catalog_for, catalog_model, default_effort, default_model
-from .scheduler import evaluate_when_partial, when_conditions
+from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 
 Json = dict[str, Any]
 LOGIN_CMDS = {
@@ -28,7 +28,7 @@ def _answer_string(value: Any) -> str | None:
 def _answer_list(value: Any) -> list[str] | None:
     if value is None or isinstance(value, list):
         return value
-    return [p.strip() for p in value.split(",") if p.strip()]
+    return [p.strip(JS_WHITESPACE) for p in value.split(",") if p.strip(JS_WHITESPACE)]
 
 
 def _groups(definition: Json) -> list[Json]:
@@ -267,13 +267,18 @@ def resolve_from_context(path: str, context: Json | None = None) -> str | None:
     if not context:
         return None
     if path == "guidance":
-        return context.get("guidance", "").strip() or None
+        return context.get("guidance", "").strip(JS_WHITESPACE) or None
     if path == "links[]":
-        return "\n".join(context.get("links", [])) or None
+        links = context.get("links", [])
+        return "\n".join(links) if links else None
     if path in ("ticket[].ref", "ticket[].title", "ticket[].body", "ticket[].url"):
         field = path.split(".")[1]
         return ", ".join(t[field] for t in context.get("ticket", []) if t.get(field)) or None
-    if path.startswith("decisions.") and len(path) > 10:
+    if (
+        path.startswith("decisions.")
+        and len(path) > 10
+        and not any(c in path for c in "\n\r\u2028\u2029")
+    ):
         return context.get("decisions", {}).get(path[10:])
     return None
 

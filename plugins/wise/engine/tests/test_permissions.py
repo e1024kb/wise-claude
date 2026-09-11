@@ -282,3 +282,18 @@ def test_javascript_whitespace_does_not_widen_permission_matching(
     assert name_tokens(f"get{separator}issue") == (
         ["get", "issue"] if allowed else [f"get{separator}issue"]
     )
+
+
+def test_invalid_path_bytes_are_denied(tmp_path: Path) -> None:
+    assert (
+        decide_permission(
+            "Write", {"file_path": "bad\0path"}, mode="auto", workspace_roots=[tmp_path]
+        )["behavior"]
+        == "deny"
+    )
+    assert (
+        decide_permission(
+            "Write", {"file_path": "safe"}, mode="auto", workspace_roots=["bad\0root"]
+        )["behavior"]
+        == "deny"
+    )
