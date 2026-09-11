@@ -365,3 +365,11 @@ Review found that terminating bootstrap could leave pip writing after the instal
 Parent and child MCP prototypes preserve captured tool schemas, validation, error envelopes, staged elicitation, progress, cancellation, EOF, and broken-output shutdown. The SDK owns protocol framing. Direct dependency anyio 4.15.1 is included in hashed locks. Python 3.11 is the minimum. Development installation and checks are available as `just python-install` and `just python-check` inside the engine directory.
 
 All 87 P1 tests pass on macOS and Python 3.11 Linux using a read-only source mount. Ruff and mypy pass. P1 is complete; production still uses TypeScript until the execution and caller gates pass. Real daemon reconnect/token enforcement belongs to P3; actual host registration belongs to P6.
+
+### P2 core ports in progress
+
+- Definitions and validation: 195 complete input/result pairs captured from the TypeScript definition and preflight suites, plus filesystem, requirements, input, and YAML boundary tests. All five bundled workflows compile through the Python CLI. Explicit YAML 1.1 directives and JavaScript regex edge cases remain under investigation before this gate closes.
+- Model, team, pricing, and profile modules: 90 tests pass. Live differential checks matched 1,056 model-resolution cases, 306 team-resolution cases, and 744 pricing cases exactly.
+- Ledger: state lifecycle, usage views, pruning, logs, checkpoints, worktree inclusion, and event recovery ported. 36 tests cover the TypeScript ledger areas plus captured state snapshots, atomic-write failure, legacy-history protection, and Unicode recovery.
+- Intentional persistence corrections: protect legacy `state.yaml` directories from pruning; recover the sequence after an event larger than the 64 KiB tail window. Truncated UTF-8 and Unicode line separators preserve earlier complete event records. Failed runs remain resumable and protected from automatic pruning.
+- Python CLI definition compilation, discovery, catalog, and version commands are available through `python -m wise_engine`; production `engine.sh` still launches TypeScript. Execution, authentication, daemon, and host registration gates have not passed.

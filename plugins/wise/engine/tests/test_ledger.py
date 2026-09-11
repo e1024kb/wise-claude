@@ -431,3 +431,16 @@ def test_event_unicode_and_torn_utf8(tmp_path):
     assert l.read_events(tmp_path) == [first]
     assert l.append_event(tmp_path, {"message": "recovered"})["seq"] == 2
     assert [event["seq"] for event in l.read_events(tmp_path)] == [1, 2]
+
+
+def test_malformed_state_fields_do_not_break_history(tmp_path):
+    l.write_state(
+        tmp_path / "odd",
+        {"status": {}, "workflow": [], "harness_session": "s", "last_activity_at": 5},
+    )
+    assert l.list_runs(tmp_path)[0]["status"] == "?"
+    assert l.list_resumable_runs(tmp_path)[0]["status"] == "initializing"
+    assert l.find_runs_by_session(tmp_path, "s")[0]["last_activity_at"] is None
+    saved(tmp_path / "complete", "completed")
+    assert l.prune_runs(tmp_path, {"WISE_RUN_HISTORY_CAP": "1"})["pruned"] == ["complete"]
+    assert (tmp_path / "odd").exists()

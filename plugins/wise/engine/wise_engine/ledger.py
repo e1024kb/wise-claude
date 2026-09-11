@@ -327,11 +327,15 @@ def format_runs_table(rows: list[Json]) -> str:
     )
 
 
+def _history_terminal(status: Any) -> bool:
+    return isinstance(status, str) and status in HISTORY_TERMINAL_RUN
+
+
 def list_resumable_runs(runs_root: str | Path) -> list[Json]:
     rows = []
     for directory in _run_dirs(runs_root):
         state = _read_state_loose(directory)
-        if state is None or state.get("status") in HISTORY_TERMINAL_RUN:
+        if state is None or _history_terminal(state.get("status")):
             continue
         row = dict(
             run_id=_str(state, "run_id") or directory.name,
@@ -362,7 +366,7 @@ def prune_runs(runs_root: str | Path, env: Mapping[str, str] | None = None) -> J
         state = _read_state_loose(child)
         # Legacy run history stays protected until an explicit archive operation.
         legacy = (child / "state.yaml").exists()
-        terminal = not legacy and (state is None or state.get("status") in HISTORY_TERMINAL_RUN)
+        terminal = not legacy and (state is None or _history_terminal(state.get("status")))
         last = (_str(state, "last_activity_at") or _str(state, "started_at")) if state else ""
         entries.append((last, child.name, terminal, child))
     protected = sum(not e[2] for e in entries)
@@ -394,7 +398,7 @@ def find_runs_by_session(
         if (
             state is None
             or state.get("harness_session") != session_id
-            or state.get("status") in HISTORY_TERMINAL_RUN
+            or _history_terminal(state.get("status"))
         ):
             continue
         last = state.get("last_activity_at")
