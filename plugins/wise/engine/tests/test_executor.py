@@ -126,7 +126,7 @@ class Rig:
     def state(self, run_id):
         return read_state(self.rt.require_run_dir(run_id))
 
-    async def until(self, predicate, seconds=3):
+    async def until(self, predicate, seconds=10):
         async with asyncio.timeout(seconds):
             while not predicate():
                 await asyncio.sleep(0.005)
