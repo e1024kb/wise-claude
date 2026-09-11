@@ -508,3 +508,12 @@ def test_formats_and_fill_answers():
     assert cli.parse_args(["run", "--follow", "wf", "--input", "a=1", "--input=b=2"])[
         "positional"
     ] == ["wf"]
+
+
+async def test_nudge_forwards_explicit_step_and_message(fake):
+    result = await fake.run(["nudge", "01RUN", "review", "Check the fixture"])
+    assert result.code == 0
+    assert fake.method("nudge") == [
+        {"run_id": "01RUN", "step": "review", "message": "Check the fixture"}
+    ]
+    assert (await fake.run(["nudge", "01RUN", "review"])).code == 64

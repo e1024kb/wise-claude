@@ -173,7 +173,7 @@ asks for a role.
 ```
 plugins/wise/
 ├── .claude-plugin/plugin.json      # manifest (no `dependencies:` — see CONTRIBUTING §2.3)
-├── .mcp.json                       # bundled MCP servers: `wise-engine` (bash engine/engine.sh mcp)
+├── .mcp.json                       # empty; wise-init manages host registration
 ├── engine/                         # Python v2 workflow engine
 │   ├── engine.sh                   # managed Python 3.11+ launcher
 │   ├── pyproject.toml              # Python metadata and pinned dependencies
@@ -287,12 +287,10 @@ the SessionEnd insights-ingest hook (`hooks/session-end-ingest.sh` +
 no-hooks default; its rationale and hard constraints live in
 `CONTRIBUTING.md` [§2.4](../../CONTRIBUTING.md#24-hooks). No other hook
 (and no `SessionStart` hook) may be added without that same discussion.
-`.mcp.json` IS present — it bundles the MCP servers wise skills depend
-on: today the `wise-engine` server (`bash
-${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`, tool timeout 660 s), a thin
-client that starts the `wise-engined` daemon on demand. See the
-bundled-tooling convention in `CONTRIBUTING.md`
-[§2.2](../../CONTRIBUTING.md#22-bundled-tooling-convention). An
+`.mcp.json` is empty. `/wise-init` registers the single `wise-engine`
+transport through the stable managed launcher for Claude Code, Codex, Cursor or
+Grok. See [host control](references/workflow-host-control.md) for resolution,
+upgrade refresh and diagnostics. The server starts `wise-engined` on demand. An
 `engine/` directory IS present: the Python workflow engine, run from source
 (no build step; `just check` runs validation, typecheck, lint,
 format and tests).
@@ -525,7 +523,7 @@ one-liners below are the rule, not the argument for it.
     `code-simplifier` agent the per-commit simplify pass dispatches)
     are documented in the README's Bundled-tooling table instead, and
     the consuming skill degrades gracefully when they are absent.
-  - MCP server deps go in `.mcp.json` (today: `wise-engine`). MCP tool
+  - Additional MCP server deps go in `.mcp.json`; `wise-engine` uses managed host registration. MCP tool
     ids are derived from the plugin name, so moving an MCP between
     plugins is a breaking rename.
   - CLI / environment deps that neither mechanism can install (Python,

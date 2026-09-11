@@ -21,7 +21,7 @@ from .rpc import RpcError, domain_code
 from .scheduler import JS_WHITESPACE, UNDEFINED, js_string
 
 Json = dict[str, Any]
-CLIENT_COMMANDS = ("run", "status", "answer", "cancel", "resume", "report", "wait")
+CLIENT_COMMANDS = ("run", "status", "answer", "cancel", "resume", "report", "wait", "nudge")
 CLIENT_USAGE = """wise-engine <command> [options]
 
 Commands:
@@ -33,6 +33,7 @@ Commands:
   wait <run_id> [--after <seq>] [--timeout-ms <n>]
                               one wait call: events past <seq>, gate, status, done
   status [run_id]             one run or every run
+  nudge <run_id> <step> <message>
   answer <run_id> <gate_id> <value>
   cancel <run_id> [--reason <text>]
   resume <run_id>
@@ -653,6 +654,16 @@ async def cmd_direct(parsed: Json, io: Any, out: Out) -> int:
                 params["reason"] = reason
             result = await client.call("cancel", params)
             out.emit(result, lambda: f"run {run_id} {result['status']}")
+        elif command == "nudge":
+            result = await client.call(
+                "nudge",
+                {
+                    "run_id": run_id,
+                    "step": require_arg(parsed, 1, "step"),
+                    "message": require_arg(parsed, 2, "message"),
+                },
+            )
+            out.emit(result, lambda: json.dumps(result))
         elif command == "resume":
             result = await client.call("resume", {"run_id": run_id})
             out.emit(result, lambda: f"run {result['run_id']} {result['status']}")

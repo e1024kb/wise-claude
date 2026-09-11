@@ -138,7 +138,7 @@ def test_auth_no_installed_harnesses_and_dispatch_usage():
         row["harness"] == "cursor" and row["login_cmd"] == "cursor-agent login" for row in rows
     )
     assert invoke("auth", "unknown")[0] == 2
-    assert invoke("auth", "codex", env={"PATH": ""})[0] == 0
+    assert invoke("auth", "codex", env={"PATH": ""})[0] == 1
     assert invoke("dispatch")[0] == 64
 
 
@@ -149,12 +149,29 @@ def test_captured_cli_help_unknown_and_missing_preflight():
             continue
         code, out, err = invoke(*case["args"])
         additions = (
+            "  refresh-host --host <host> --plugin-root <path>  refresh an existing registration\n",
             "  setup-host --host <host> --plugin-root <path> [--apply]  preview or repair registration\n",
             "  host-doctor --host <host>    inspect launch registration (does not prove host connectivity)\n",
             "  host-rollback <transaction>  restore setup files if they have not changed\n",
             "  definition-roots             canonical user and bundled definition directories\n",
             "  list-agents                  bundled role roster for workflow authors\n",
         )
+        out = out.replace(
+            "exit 1 when a checked provider is missing or logged out",
+            "exit 1 when claude is missing or logged out",
+        )
+        err = err.replace(
+            "exit 1 when a checked provider is missing or logged out",
+            "exit 1 when claude is missing or logged out",
+        )
+        for before, after in [
+            (
+                "wait|status|answer|cancel|resume|report|nudge",
+                "wait|status|answer|cancel|resume|report",
+            ),
+            ("used by managed host registration", "used by .mcp.json"),
+        ]:
+            out, err = out.replace(before, after), err.replace(before, after)
         for line in additions:
             out, err = out.replace(line, ""), err.replace(line, "")
         assert (code, out, err) == (case["code"], case["out"], case["err"])
@@ -178,3 +195,79 @@ def test_authoring_roots_and_roster(tmp_path):
     assert code == 0 and not err
     rows = json.loads(out)
     assert len(rows) == 13 and any(row["name"] == "software-engineer" for row in rows)
+
+
+def test_auth_uses_cursor_adapter_binary_and_selected_provider_exit(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import wise_engine.cli as cli
+    import wise_engine.auth as auth
+
+    binary = tmp_path / "cursor-agent"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o700)
+    monkeypatch.setattr(cli, "adapter_lookup", lambda name: SimpleNamespace(bin="cursor-agent"))
+    calls = []
+
+    async def probe(harness, pool, lookup):
+        calls.append(harness)
+        return {"ok": True, "login_cmd": "cursor-agent login"}
+
+    monkeypatch.setattr(auth, "probe_one", probe)
+    code, out, err = invoke("auth", "cursor", "--json", env={"PATH": str(tmp_path)})
+    assert code == 0 and not err
+    assert json.loads(out)[0]["installed"] is True
+    assert calls == ["cursor"]
+    for harness in ("claude", "codex", "cursor", "gemini", "grok"):
+        code, out, err = invoke("auth", harness, "--json", env={"PATH": ""})
+        assert code == 1 and not json.loads(out)[0]["installed"]
+    assert calls == ["cursor"]
+
+
+def test_new_host_control_help_is_explicit():
+    code, out, err = invoke("help")
+    assert code == 0 and not err
+    for command in ("refresh-host", "setup-host", "host-doctor", "host-rollback", "nudge"):
+        assert command in out
+    assert "managed host registration" in out
+
+
+def test_auth_selected_logged_out_provider_fails_without_claude(tmp_path, monkeypatch):
+    import wise_engine.auth as auth
+    import wise_engine.defs as defs
+
+    monkeypatch.setattr(defs, "on_path", lambda *args: True)
+
+    async def probe(harness, pool, lookup):
+        assert harness == "codex"
+        return {"ok": False, "login_cmd": "codex login"}
+
+    monkeypatch.setattr(auth, "probe_one", probe)
+    code, out, err = invoke("auth", "codex", "--json")
+    assert code == 1 and not err
+    assert json.loads(out) == [
+        {"harness": "codex", "installed": True, "login": "missing", "login_cmd": "codex login"}
+    ]
+
+
+def test_refresh_host_route_uses_existing_registration(monkeypatch, tmp_path):
+    import wise_engine.host_setup as setup
+
+    seen = []
+
+    def refresh(**kwargs):
+        seen.append(kwargs)
+        return {"refreshed": True, "transaction": None, "plugin_root": kwargs["plugin_root"]}
+
+    monkeypatch.setattr(setup, "refresh_existing", refresh)
+    code, out, err = invoke(
+        "refresh-host",
+        "--host",
+        "cursor",
+        "--plugin-root",
+        "/loaded/plugin",
+        env={"HOME": str(tmp_path)},
+    )
+    assert code == 0 and not err and json.loads(out)["refreshed"]
+    assert seen == [
+        {"plugin_root": "/loaded/plugin", "host": "cursor", "home": str(tmp_path), "config": None}
+    ]

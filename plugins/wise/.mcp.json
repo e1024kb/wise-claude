@@ -1,9 +1,3 @@
 {
-  "mcpServers": {
-    "wise-engine": {
-      "command": "bash",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/engine/engine.sh", "mcp"],
-      "timeout": 660000
-    }
-  }
+  "mcpServers": {}
 }

@@ -255,7 +255,7 @@ wrapper means:
 Workflow definitions are YAML v2 run by the TypeScript engine under
 `plugins/wise/engine`, not skills. `/wise-workflow-create` does not
 delegate to `skill-creator`; validate a definition with
-`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh compile-check <path>`. See
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" compile-check <path>`. See
 [`workflows.md`](./workflows.md) for the schema and the author guide.
 A skill that a workflow should run becomes an `agent` step with
 `skill: <name>` (sugar for the prompt `Run /<name>` on the `claude`

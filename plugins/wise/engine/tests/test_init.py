@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from wise_engine import bootstrap
+from wise_engine import bootstrap, host_setup
 from wise_engine.paths import ENGINE_ROOT, PLUGIN_ROOT
 
 
@@ -27,10 +27,19 @@ def installation(tmp_path):
     package.mkdir(parents=True)
     for name in ("init.sh", "bootstrap-deps.sh", "init-registry.py", "engine.sh", "engine.py"):
         shutil.copyfile(PLUGIN_ROOT / "scripts" / name, scripts / name)
-    for name in ("__init__.py", "bootstrap.py", "paths.py", "yaml_compat.py"):
+    for name in (
+        "__init__.py",
+        "bootstrap.py",
+        "paths.py",
+        "yaml_compat.py",
+        "host_setup.py",
+        "launcher.py",
+    ):
         shutil.copyfile(ENGINE_ROOT / "wise_engine" / name, package / name)
     (plugin / ".claude-plugin").mkdir()
-    (plugin / ".claude-plugin/plugin.json").write_text('{"version":"5.0.0"}')
+    (plugin / ".claude-plugin/plugin.json").write_text('{"name":"wise","version":"5.0.0"}')
+    (plugin / "engine/engine.sh").write_text("#!/bin/sh\n")
+    host_setup.apply_plan(host_setup.plan_setup(plugin_root=plugin, host="codex", home=tmp_path))
     requirements = plugin / "engine/requirements.txt"
     requirements.write_text("")
     data = tmp_path / "data"
@@ -50,6 +59,7 @@ def installation(tmp_path):
         path.chmod(0o755)
     env = dict(
         HOME=str(tmp_path),
+        WISE_HOST="codex",
         PATH=f"{bindir}:/usr/bin:/bin",
         WISE_PYTHON=sys.executable,
         CLAUDE_PLUGIN_ROOT=str(plugin),
@@ -81,7 +91,8 @@ def call(installation, script, *args, env=None):
 def registry(installation):
     module = module_from(installation["scripts"] / "init-registry.py", "test_init_registry")
     module.PLUGIN_ROOT = installation["plugin"]
-    module.REGISTRY_PATH = installation["plugin"] / ".wise-init-registry.yaml"
+    module.LEGACY_PATH = installation["plugin"] / ".wise-init-registry.yaml"
+    module.REGISTRY_PATH = installation["plugin"].parent / ".local/share/wise/init/codex.json"
     return module
 
 
@@ -137,7 +148,7 @@ def test_runtime_refresh_preserves_optional_skips_and_checks_requirements(instal
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"READY:{installation['binary']}\n"
     data = reg.load_registry()
-    assert data["version"] == 2 and data["deps"]["engine"]["runtime"] == "python"
+    assert data["version"] == 3 and data["deps"]["engine"]["runtime"] == "python"
     assert "node" not in data["deps"]
     assert data["deps"]["gh"] == {"status": "missing", "skipped": True}
     assert data["deps"]["mcp"]["failed"] == ["optional-server"]
@@ -172,7 +183,7 @@ def test_registry_json_fast_path_has_no_site_package_dependency(installation):
 
 def test_legacy_yaml_optional_decisions_survive_runtime_refresh(installation):
     reg = registry(installation)
-    reg.REGISTRY_PATH.write_text(
+    reg.LEGACY_PATH.write_text(
         "version: 1\ndeps:\n  markitdown: {status: missing, skipped: true}\n  gh: {status: missing, skipped: true}\n"
     )
     result = call(installation, "bootstrap-deps.sh")
@@ -246,3 +257,83 @@ def test_catalog_launcher_uses_managed_yaml_and_preserves_contract(installation)
     )
     assert not (installation["plugin"] / "engine/node_modules").exists()
     assert "optional-tool" not in result.stderr
+
+
+def test_registry_requires_explicit_host_and_isolates_ownership(installation):
+    missing = call(installation, "init-registry.py", "path", env={"WISE_HOST": ""})
+    assert missing.returncode == 2
+    assert call(installation, "bootstrap-deps.sh").returncode == 0
+    assert (
+        call(installation, "init-registry.py", "--host", "claude", "check").stdout
+        == "INIT:uninit\n"
+    )
+    reg = registry(installation)
+    wrong = reg.load_registry() | {"host": "claude"}
+    reg.save_registry(wrong)
+    assert call(installation, "init-registry.py", "check").stdout == "INIT:stale:host-ownership\n"
+
+
+def test_legacy_cache_is_read_only_and_preserves_history(installation):
+    reg = registry(installation)
+    legacy = {
+        "version": 1,
+        "history": [{"action": "skip"}],
+        "deps": {
+            name: {"skipped": True, "status": "missing"} for name in ("drive", "figma", "linear")
+        },
+    }
+    reg.LEGACY_PATH.write_text(json.dumps(legacy))
+    reg.LEGACY_PATH.chmod(0o444)
+    installation["plugin"].chmod(0o555)
+    try:
+        assert call(installation, "bootstrap-deps.sh").returncode == 0
+        result = reg.load_registry()
+        assert result["migration"]["legacy"] == legacy
+        assert result["history"] == legacy["history"]
+        assert all(result["deps"][name]["skipped"] for name in ("drive", "figma", "linear"))
+        assert json.loads(reg.LEGACY_PATH.read_text()) == legacy
+        assert reg.REGISTRY_PATH.is_relative_to(installation["plugin"].parent / ".local/share/wise")
+    finally:
+        installation["plugin"].chmod(0o755)
+        reg.LEGACY_PATH.chmod(0o644)
+
+
+def test_registration_changes_invalidate_cached_init(installation):
+    assert call(installation, "bootstrap-deps.sh").returncode == 0
+    home = installation["plugin"].parent
+    config = home / ".codex/config.toml"
+    config.write_text(config.read_text().replace('"mcp"', '"version"'))
+    assert call(installation, "init-registry.py", "check").stdout == "INIT:stale:registration\n"
+    assert call(installation, "bootstrap-deps.sh").returncode == 0
+    assert call(installation, "init-registry.py", "check").stdout == "INIT:stale:registration\n"
+
+
+@pytest.mark.parametrize("host", ["claude", "codex", "cursor", "grok"])
+def test_each_conductor_owns_its_registry(installation, host):
+    home = installation["plugin"].parent
+    host_setup.apply_plan(
+        host_setup.plan_setup(plugin_root=installation["plugin"], host=host, home=home)
+    )
+    assert call(installation, "bootstrap-deps.sh", env={"WISE_HOST": host}).returncode == 0
+    check = call(installation, "init-registry.py", "--host", host, "check")
+    assert check.returncode == 0, check.stdout + check.stderr
+    path = call(installation, "init-registry.py", "--host", host, "path").stdout.strip()
+    assert path.endswith(f"/wise/init/{host}.json")
+
+
+def test_runtime_bootstrap_without_host_does_not_write_registry(installation):
+    result = call(installation, "bootstrap-deps.sh", env={"WISE_HOST": ""})
+    assert result.returncode == 0 and "registry refresh failed" not in result.stderr
+    assert not (installation["plugin"].parent / ".local/share/wise/init").exists()
+
+
+def test_foreign_plugin_marker_and_changed_launcher_are_stale(installation):
+    assert call(installation, "bootstrap-deps.sh").returncode == 0
+    reg = registry(installation)
+    data = reg.load_registry()
+    reg.save_registry(data | {"plugin_root": str(installation["plugin"].parent)})
+    assert call(installation, "init-registry.py", "check").stdout == "INIT:stale:host-ownership\n"
+    reg.save_registry(data)
+    launcher = installation["plugin"].parent / ".local/share/wise/launcher.py"
+    launcher.write_text(launcher.read_text() + "\n")
+    assert call(installation, "init-registry.py", "check").stdout == "INIT:stale:registration\n"

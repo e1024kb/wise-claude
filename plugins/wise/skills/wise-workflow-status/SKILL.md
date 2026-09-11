@@ -12,13 +12,20 @@ description: >-
 argument-hint: "[<run-ulid>]"
 model: opus
 effort: low
-allowed-tools: Read, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
+allowed-tools: Read, AskUserQuestion, Bash(bash:*), Bash(python3:*), Bash(test:*)
 ---
 
 # /wise-workflow-status
 
-`wise_status` comes from the plugin's `wise-engine` MCP server. On
-`DAEMON_UNAVAILABLE` print `Run /wise-init, then retry.` and stop.
+First read [host control](../../references/workflow-host-control.md). Resolve the
+loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
+to that installation. Use its managed launcher for shell commands. Follow the
+reference's diagnostics and explicit-answer fallback when MCP or a native picker
+is unavailable. Conductor host and child provider are independent.
+
+
+`wise_status` comes from the managed `wise-engine` MCP server. On
+`DAEMON_UNAVAILABLE`, follow host-control diagnostics before retrying.
 
 ## No argument
 
@@ -27,7 +34,7 @@ one table: run id | workflow | status | started | cwd | children. The
 children column lists each live child as `<step> turn <n> <tool>`, or
 `-`. Empty list: `No engine runs yet.` If legacy history is requested,
   get the canonical root with
-  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" runs-root`,
+  `python3 "${WISE_PLUGIN_ROOT}/scripts/wise-helpers.py" runs-root`,
   then use that helper's `list-runs <root>` command. It reports v1
   entries as read-only legacy notices; they cannot resume. Keep all
   history files unchanged.

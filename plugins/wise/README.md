@@ -59,8 +59,8 @@ versioned environment. Install and authenticate the provider CLI you select;
 insights helpers remain stdlib-only. Host-specific setup and MCP registration
 instructions are finalized in P6 of the
 [Python engine plan](../../docs/plans/python-workflow-engine.md). The
-engine daemon (`wise-engined`) starts on demand from the plugin's
-`.mcp.json` server `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
+engine daemon (`wise-engined`) starts on demand from the managed host
+registration for `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
 `wise_*` tool means the runtime is missing: run `/wise-init`.
 
 ## Commands
@@ -358,7 +358,7 @@ of the following mechanisms, and update the table below.
 | Dependency | Kind | Registered in | Used by |
 |---|---|---|---|
 | Python 3.11+ | Runtime for the Python v2 workflow engine; pinned packages in a managed environment outside the plugin | `engine/engine.sh` and `wise_engine.bootstrap` | Workflow execution, discovery, validation and migration |
-| `wise-engine` MCP server (`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`) | MCP server - `wise_preflight` presents interactive questions through host form elicitation, plus `wise_run`, `wise_wait`, `wise_answer`, `wise_status`, `wise_cancel`, `wise_nudge`, `wise_resume`; starts the `wise-engined` daemon on demand | `plugins/wise/.mcp.json` (tool timeout 660 s) | the three conductor skills |
+| `wise-engine` MCP server | Eight parent workflow tools; starts the daemon on demand | Managed host registration through `/wise-init`; bundled `.mcp.json` is empty | Workflow conductor skills |
 | `claude` CLI login (`claude auth login`); optionally `codex login`, `cursor-agent login`, `gemini`, `grok login` | CLI binaries - the harnesses the engine spawns headless under your subscription | probed by the engine before every run (`AUTH_REQUIRED` carries the login command); `/wise-init` checks every harness | every `agent` step and `units` phase |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 | [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `plugins/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |
@@ -383,12 +383,9 @@ without the cleanup; only `/wise-simplify-auto` refuses.
   the Claude desktop app drop wise silently at session start
   (CONTRIBUTING §2.3). The consuming skill must degrade gracefully
   when the plugin is absent.
-- **MCP server** → add to `plugins/wise/.mcp.json` (today: the
-  `wise-engine` server). Claude Code auto-registers the server when the
-  plugin loads. Note that MCP tool ids are derived from the plugin name
-  (`mcp__plugin_<plugin>_<server>__<tool>`); both the `.mcp.json`
-  entry AND the consuming skills' `allowed-tools` list must stay in
-  sync.
+- **MCP server**: `wise-engine` uses one managed host registration installed by
+  `/wise-init`; the bundled `.mcp.json` is empty. Additional plugin-owned MCP
+  dependencies may use that manifest, but must not duplicate the managed engine.
 - **CLI binary or language runtime** that neither of the above can
   install (Python, `brew` packages, system tools) → a bootstrap
   script probes at run time and, if missing, surfaces a one-shot

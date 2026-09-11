@@ -43,7 +43,7 @@ PY
   exit 3
 fi
 
-if [[ "$WISE_BOOTSTRAP_FLAG" != "--probe" ]]; then
+if [[ "$WISE_BOOTSTRAP_FLAG" != "--probe" && -n "${WISE_HOST:-}" ]]; then
   WISE_ENGINE_BASE_PYTHON="$WISE_BOOTSTRAP_PY" "$WISE_MANAGED_PY" "$WISE_SCRIPT_DIR/init-registry.py" refresh-runtime >/dev/null || {
     echo "bootstrap-deps: runtime ready; registry refresh failed" >&2
   }

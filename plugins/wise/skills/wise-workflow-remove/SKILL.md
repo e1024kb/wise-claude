@@ -2,7 +2,7 @@
 name: wise-workflow-remove
 description: >-
   Delete a user-authored workflow definition from
-  `${CLAUDE_PLUGIN_DATA}/workflows/definitions/` — handles both
+  `the engine-selected user definition directory` — handles both
   layouts (`<name>/workflow.yaml` folder form AND legacy
   `<name>.yaml` flat form). Refuses to touch bundled workflows —
   they ship with the plugin and are replaced by a reinstall, not a
@@ -18,6 +18,13 @@ allowed-tools: Read, Bash(rm:*), Bash(test:*), Bash(bash:*), AskUserQuestion
 
 # /wise-workflow-remove - remove a user definition
 
+First read [host control](../../references/workflow-host-control.md). Resolve the
+loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
+to that installation. Use its managed launcher for shell commands. Follow the
+reference's diagnostics and explicit-answer fallback when MCP or a native picker
+is unavailable. Conductor host and child provider are independent.
+
+
 The first argument is the workflow name. Require
 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`; missing or invalid input stops with a
 pointer to `/wise-workflow-list`.
@@ -25,8 +32,8 @@ pointer to `/wise-workflow-list`.
 ## Locate through canonical roots
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" definition-roots
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" list-defs
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" definition-roots
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs
 ```
 
 Use the returned `user_root` and `bundled_root`, not a duplicated

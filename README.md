@@ -25,8 +25,14 @@ pipeline to run unattended.
 /plugin install wise@wise-claude
 ```
 
-Then run the `wise-init` skill once to probe dependencies, and `/wise`
-to print the full command catalog.
+Then run the `wise-init` skill to prepare Python and register the workflow
+engine for the current host, and `/wise` to print the command catalog.
+
+For Codex, Cursor or Grok, load Wise's skills through that host's supported
+skill installation mechanism, then run `wise-init` from the loaded installation.
+The [host setup guide](plugins/wise/references/workflow-host-control.md) covers
+registration and workflow control. The conductor host does not determine which
+provider CLI runs workflow steps.
 
 ## What you get
 
@@ -76,15 +82,16 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 
 ## Requirements
 
-- **Claude Code**.
+- **Claude Code, Codex, Cursor or Grok** as the workflow conductor.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
 - **Python 3.11+** for the workflow engine. The launcher manages pinned
   dependencies outside the plugin installation; no Bun, Node or npm is required
   by the engine.
 - Authenticate the provider CLI you select (`claude`, `codex`, `cursor-agent`,
   `gemini` or `grok`). Subscription and API authentication use that provider's CLI.
-- Host-specific setup and MCP registration documentation is finalized in P6 of
-  the [Python engine plan](docs/plans/python-workflow-engine.md).
+- Run `wise-init` for each conductor host. Its stable managed registration
+  avoids host-specific plugin-root expansion and stores dependencies outside
+  read-only plugin caches.
 
 Only YAML v2 workflows execute. Import v1 definitions with `engine.sh migrate`;
 legacy run files remain unchanged and cannot resume. Standalone profile,

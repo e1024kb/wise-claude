@@ -5,7 +5,7 @@ description: >-
   description, control mode, inputs, provider tuning, and
   steps (id, type, type-specific fields, dependencies), previews the
   generated YAML + README, and writes on confirmation. Writes to
-  `${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>/` by default, or
+  `the engine-selected user definition directory<name>/` by default, or
   offers the bundled `plugins/wise/workflows/<name>/` path when run
   inside a clone of the marketplace repo. Invoked as
   `/wise-workflow-create` (bare alias) or `/wise:wise-workflow-create`
@@ -13,10 +13,17 @@ description: >-
   workflow", "new workflow", "author a workflow", or types
   `/wise-workflow-create`.
 argument-hint: "<name>"
-allowed-tools: Read, Write, AskUserQuestion, Bash(mkdir:*), Bash(test:*), Bash(bash:*), Bash(pwd:*), Bash(dirname:*), Bash(python3:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*)
+allowed-tools: Read, Write, AskUserQuestion, Bash(mkdir:*), Bash(test:*), Bash(bash:*), Bash(pwd:*), Bash(dirname:*), Bash(python3:*), Bash(${WISE_PLUGIN_ROOT}/scripts/init-registry.py:*)
 ---
 
 # /wise-workflow-create - author a v2 workflow
+
+First read [host control](../../references/workflow-host-control.md). Resolve the
+loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
+to that installation. Use its managed launcher for shell commands. Follow the
+reference's diagnostics and explicit-answer fallback when MCP or a native picker
+is unavailable. Conductor host and child provider are independent.
+
 
 Create `version: 2` definitions for the Python engine. Use the host's
 structured picker for choices and text inputs. Keep accepted answers
@@ -24,12 +31,12 @@ across stages; never create v1 `prompt`, `loop`, or `interactive` steps.
 
 ## 1. Resolve the destination
 
-Run the init check in `${CLAUDE_PLUGIN_ROOT}/references/init-check.md`,
+Run the init check in `${WISE_PLUGIN_ROOT}/references/init-check.md`,
 then read canonical roots and existing definitions:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" definition-roots
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" list-defs
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" definition-roots
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs
 ```
 
 The first argument is the workflow name. Ask for it if absent; require
@@ -88,7 +95,7 @@ an expression or supported list of expressions evaluated by the engine.
 Never write a cycle or a dependency on an unknown step.
 
 For model steps, ask whether shared tuning groups are useful. Read
-`bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" models` for catalogs.
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" models` for catalogs.
 Groups use mapping defaults such as
 `{harness: codex, model: inherit, effort: medium}`. Keep harness/model
 choices available at run preflight unless the author explicitly pins
@@ -110,7 +117,7 @@ blocks. Do not make unrelated files or invoke skill-creator.
 Compile a temporary candidate through the same public engine:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" compile-check <candidate.yaml>
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" compile-check <candidate.yaml>
 ```
 
 Fix every error, relay relevant warnings, and remove the temporary

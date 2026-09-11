@@ -13,17 +13,25 @@ allowed-tools: Read, AskUserQuestion, Bash(bash:*), Bash(python3:*), Bash(printf
 # /wise-init
 
 Set up the Python runtime, then report the optional capabilities the user selects.
-The registry lives at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`. Its contents
-use JSON, which is also valid YAML. Engine dependencies live under the configured
-plugin data root, in `python/<runtime-and-requirements-key>/`; the plugin directory
-holds source and the init registry, never an installed dependency environment.
+Select the conductor host explicitly from the current session: `claude`, `codex`,
+`cursor`, or `grok`. Set `WISE_HOST` to that host. Never infer it from installed
+provider CLIs. Resolve `WISE_PLUGIN_ROOT` from this loaded skill's location, two
+directories above its skill folder, rather than searching for a newer cache version.
+The registry lives at `$HOME/.local/share/wise/init/<host>.json`. Engine dependencies
+live in the configured plugin data root. No init state is written into the plugin cache.
 
 ## 1. Read existing decisions
 
-Read `.wise-init-registry.yaml` if it exists. Preserve all optional entries,
-including `skipped: true`, missing tools, unauthenticated logins, and connector
-failures. A runtime refresh must not erase these choices. Do not ask again about
-an explicitly skipped capability unless the user asks to revisit it.
+```bash
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" read
+```
+
+The helper reads a legacy `.wise-init-registry.yaml` from this plugin root only when
+this host has no new registry. Its first write preserves the full legacy document
+and optional entries in the new location. Never edit or remove that cache file.
+Preserve `skipped: true`, missing tools, unauthenticated logins, connector failures,
+and history. In particular, retain earlier Drive, Figma, and Linear skips. Do not
+ask again about a skipped capability unless the user asks to revisit it.
 
 Tell the user: "I'll check Python 3.11+, prepare wise's managed engine environment,
 and report the optional tools you want to configure. Earlier skips stay in place."
@@ -31,7 +39,7 @@ and report the optional tools you want to configure. Earlier skips stay in place
 ## 2. Python 3.11 or newer
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-python
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-python
 ```
 
 Read the bare `STATUS`, `BINARY`, and `VERSION` fields as Python probe results.
@@ -50,7 +58,7 @@ user-site install, change system Python packages, or override package-manager pr
 ## 3. Managed engine dependencies and self-check
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
+bash "${WISE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
 ```
 
 This installs the exact hashed requirements in a managed virtual environment and
@@ -65,8 +73,8 @@ concurrent calls share an installation lock.
   retaining optional entries. Continue with:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" version
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" daemon status
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" version
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" daemon status
 ```
 
 The version line identifies `python`. A stopped daemon is normal; the first client
@@ -74,11 +82,33 @@ starts it. A version mismatch identifies an older running build. Run `daemon sto
 only when it can stop without cancelling active work, then verify its status.
 If it reports active runs, record `stale-busy` and leave them running.
 
-Call `wise_status` only when that MCP tool is available in this session. Record an
-actual successful response as `mcp: ok`. If the tool is unavailable, record
-`mcp: unavailable` and say that host registration still needs verification. A working
-Python runtime or registry entry does not prove that the host registered the MCP server.
-Show a returned connection error verbatim and record it as failed.
+Register the selected host with a concrete preview, then apply the setup requested
+by this init invocation:
+
+```bash
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" setup-host --host "$WISE_HOST" --plugin-root "$WISE_PLUGIN_ROOT"
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" setup-host --host "$WISE_HOST" --plugin-root "$WISE_PLUGIN_ROOT" --apply
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" host-doctor --host "$WISE_HOST"
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" refresh-runtime
+```
+
+Show the preview's configuration paths and changes before applying. For a custom
+configuration path, pass the same absolute `--config` to setup, doctor, and registry
+refresh/check. Follow the shared [host control reference](../../references/workflow-host-control.md)
+for host-specific registration, exact Claude installation selectors, and rollback.
+The stable launcher is `$HOME/.local/share/wise/bin/wise-engine`; select its host
+with `--wise-host "$WISE_HOST"` or `WISE_HOST`.
+
+For Cursor, run `cursor-agent mcp enable wise-engine` as part of this authorized
+setup before `cursor-agent mcp list-tools wise-engine`; its native server approval
+is separate from writing configuration. For other hosts, use their native checks
+in the shared reference.
+
+Doctor validates registration and launcher files; it does not prove a native host
+session connected. Reload the host as its setup instructions require, then call
+`wise_status` when available. Record a successful call as host verified. If unavailable,
+report registration checked but native session unverified. Preserve connection errors.
+No Claude installation or login is required to use a different conductor host.
 
 ## 4. Optional capabilities
 
@@ -91,7 +121,7 @@ after the user completes it. Never print credential values.
 ### Provider CLIs
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" auth
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" auth
 ```
 
 Report each harness's `INSTALLED`, `LOGIN`, and `LOGIN_CMD` fields. All five
@@ -106,7 +136,7 @@ Show login commands for the user to run; do not run them yourself.
 Only inspect GitHub setup when the user selects GitHub actions:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-gh
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-gh
 ```
 
 Report `STATUS`, `VERSION`, `AUTHENTICATED`, and `LOGIN`. If needed, show
@@ -119,7 +149,7 @@ operations, not the core engine or workflows that do not use GitHub.
 Only inspect SSH when the user selects a workflow with SSH remotes:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-git-ssh
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-git-ssh
 ```
 
 Report `STATUS`, `AGENT`, `HOST`, and `DETAIL`. For `denied`, explain loading the
@@ -133,7 +163,7 @@ Only inspect a provider's connector inventory when the user requests it. The
 existing Claude-specific inventory probe is:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-mcp
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-mcp
 ```
 
 Label this result as the Claude CLI inventory, not the current host's inventory.
@@ -150,7 +180,7 @@ the chosen connector; it is not an engine prerequisite.
 Only inspect file extraction when the user selects it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-markitdown
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-markitdown
 ```
 
 If missing and `UV=ok`, offer `Install` or `Skip`. On an explicit install choice,
@@ -162,11 +192,11 @@ replace the engine's locked requirements with optional extraction packages.
 ## 5. Save optional results and report
 
 Merge the actual optional results into the registry without replacing the runtime
-fields written by bootstrap. Include `skipped: true` for explicit skips. Existing
+fields written by the host-specific runtime refresh. Include `skipped: true` for explicit skips. Existing
 skipped entries remain unless the user chose to revisit them. Write the optional result entries with the registry helper:
 
 ```bash
-"${WISE_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" write '<JSON containing the optional deps entries>'
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" write '<JSON containing the optional deps entries>'
 ```
 
 The current registry is standard-library readable. If the helper reports that an

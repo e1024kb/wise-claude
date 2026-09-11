@@ -1,30 +1,27 @@
 # init-check
 
-The init registry caches Python runtime readiness and optional setup decisions.
-The engine launcher independently prepares its managed dependencies when needed.
-
-Run the check with the selected Python interpreter:
-
-```bash
-"${WISE_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
-```
-
-- `INIT:ok`: the recorded Python runtime matches the current managed environment
-  and hashed requirements. Continue with the caller's engine or helper command.
-- `INIT:uninit`, `INIT:stale:*`, `INIT:dep-missing:*`, or no result: prepare the
-  managed runtime, then repeat the caller's command:
+Use the current conductor host explicitly: `claude`, `codex`, `cursor`, or `grok`.
+Set `WISE_HOST` from the session, never from installed provider CLIs. Resolve the
+loaded plugin root as described in [host control](workflow-host-control.md).
+Run its guarded `refresh-host` before checking init. An upgrade refresh invalidates
+previous runtime/registration probes; run init to rebuild that evidence while
+preserving optional skips. Do not interpret a successful file refresh as a native
+session connection.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" check
 ```
 
-`READY:<managed-python-path>` means runtime setup completed. `BOOTSTRAP:need-python`
-requires Python 3.11 or newer; show the installation options and let the user choose
-how to install or select Python. `BOOTSTRAP:install-failed` means the managed
-package installation failed; show stderr. Read-only callers may report the missing
-runtime and stop instead of driving an installation walkthrough.
+`INIT:ok` confirms this host's recorded plugin root, managed Python runtime and
+requirements fingerprint, and current launcher/registration evidence. It does not
+prove native MCP connectivity or provider authentication. Another host's registry
+cannot satisfy this check.
 
-The `--probe` form never installs or writes the registry. Successful installation
-refreshes the runtime entries while preserving optional connector skips. GitHub,
-provider logins, SSH and connector runtimes are checked only by actions that need
-them. `INIT:ok` does not prove host MCP registration or provider authentication.
+For `INIT:uninit`, `INIT:stale:*`, `INIT:dep-missing:*`, or missing Python, run
+**/wise-init** to prepare Python 3.11+, refresh this host's registration and verify
+its session. Read-only callers may report missing setup and stop.
+
+Init state lives at `$HOME/.local/share/wise/init/<host>.json`. Legacy cache state
+is read-only migration input. Preserve optional skips, including Drive, Figma and
+Linear. `bootstrap-deps.sh --probe` never installs or writes state. Runtime-only
+bootstrap works without a host, but cannot establish host initialization.

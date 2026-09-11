@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Cache Python runtime readiness and optional setup decisions at the plugin registry path."""
+"""Store host-owned readiness and preserve optional setup decisions outside plugin caches."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -14,16 +15,20 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ENGINE_ROOT = SCRIPT_DIR.parent / "engine"
-PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or SCRIPT_DIR.parent)
-REGISTRY_PATH = PLUGIN_ROOT / ".wise-init-registry.yaml"
+PLUGIN_ROOT = SCRIPT_DIR.parent
+LEGACY_PATH = PLUGIN_ROOT / ".wise-init-registry.yaml"
+HOST = os.environ.get("WISE_HOST", "")
+CONFIG = None
+REGISTRY_PATH = Path.home() / ".local/share/wise/init" / f"{HOST}.json"
 sys.dont_write_bytecode = True
-REGISTRY_VERSION = 2
+REGISTRY_VERSION = 3
 REQUIRED_DEPS_FAST_PATH = ("python", "engine")
 
 
 def load_registry() -> dict | None:
+    path = REGISTRY_PATH if REGISTRY_PATH.exists() else LEGACY_PATH
     try:
-        text = REGISTRY_PATH.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except OSError:
         return None
     try:
@@ -43,6 +48,7 @@ def load_registry() -> dict | None:
 
 
 def save_registry(data: dict) -> None:
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         prefix=REGISTRY_PATH.name + ".", suffix=".tmp", dir=REGISTRY_PATH.parent
     )
@@ -66,11 +72,16 @@ def save_registry(data: dict) -> None:
 def merge_registry(data: dict) -> dict:
     existing = load_registry()
     if existing is None:
-        if REGISTRY_PATH.exists():
+        if REGISTRY_PATH.exists() or LEGACY_PATH.exists():
             raise ValueError(
                 "Existing init registry cannot be read; optional setup decisions are preserved"
             )
         existing = {}
+    if existing and not REGISTRY_PATH.exists():
+        existing = {
+            **existing,
+            "migration": {"source": str(LEGACY_PATH), "legacy": existing},
+        }
     merged = {**existing, **data}
     if isinstance(existing.get("deps"), dict) and isinstance(data.get("deps"), dict):
         deps = dict(existing["deps"])
@@ -109,6 +120,40 @@ print(json.dumps(dict(python=sys.executable, version=".".join(map(str, sys.versi
         return parsed if isinstance(parsed, dict) else None
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
+
+
+def registration_readiness(interpreter: str) -> dict | None:
+    code = """import hashlib, json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from wise_engine.host_setup import doctor, location
+home = Path.home()
+result = doctor(home=home, host=sys.argv[2], config=sys.argv[3] or None)
+state = location(home)
+result["binding"] = json.loads((state / "installations.json").read_text())["hosts"][sys.argv[2]]
+result["launcher_hashes"] = {name: hashlib.sha256((state / name).read_bytes()).hexdigest() for name in ("bin/wise-engine", "launcher.py")}
+print(json.dumps(result))
+"""
+    try:
+        result = subprocess.run(
+            [interpreter, "-c", code, str(ENGINE_ROOT), HOST, CONFIG or ""],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        value = json.loads(result.stdout) if result.returncode == 0 else None
+        if (
+            isinstance(value, dict)
+            and value.get("host") == HOST
+            and value.get("registration_ok")
+            and value.get("launcher_ok")
+            and Path(value.get("plugin_root", "")).resolve() == PLUGIN_ROOT.resolve()
+        ):
+            return value
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    return None
 
 
 def plugin_version() -> str:
@@ -157,6 +202,9 @@ def cmd_refresh_runtime() -> int:
     data = dict(
         version=REGISTRY_VERSION,
         plugin_version=plugin_version(),
+        host=HOST,
+        plugin_root=str(PLUGIN_ROOT.resolve()),
+        registration=registration_readiness(ready["interpreter"]),
         completed_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         source="bootstrap-deps.sh",
         deps=dict(
@@ -216,29 +264,46 @@ def cmd_check() -> int:
     ):
         print("INIT:stale:engine")
         return 2
+    if data.get("host") != HOST or data.get("plugin_root") != str(
+        PLUGIN_ROOT.resolve()
+    ):
+        print("INIT:stale:host-ownership")
+        return 2
+    registration = registration_readiness(ready["interpreter"])
+    if registration is None or data.get("registration") != registration:
+        print("INIT:stale:registration")
+        return 2
     print("INIT:ok")
     return 0
 
 
 def main(argv: list[str]) -> int:
-    if not argv:
-        print(
-            "usage: init-registry.py {path|read|write <json>|check|refresh-runtime}",
-            file=sys.stderr,
-        )
-        return 1
-    if argv[0] == "path":
-        return cmd_path()
-    if argv[0] == "read":
-        return cmd_read()
-    if argv[0] == "write":
-        return cmd_write(argv[1]) if len(argv) > 1 else 1
-    if argv[0] == "check":
-        return cmd_check()
-    if argv[0] == "refresh-runtime":
-        return cmd_refresh_runtime()
-    print(f"unknown subcommand: {argv[0]}", file=sys.stderr)
-    return 1
+    global HOST, CONFIG, REGISTRY_PATH
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("WISE_HOST"),
+        choices=("claude", "codex", "cursor", "grok"),
+    )
+    parser.add_argument("--config")
+    parser.add_argument(
+        "command", choices=("path", "read", "write", "check", "refresh-runtime")
+    )
+    parser.add_argument("payload", nargs="?")
+    args = parser.parse_args(argv)
+    if args.host not in ("claude", "codex", "cursor", "grok"):
+        print("init-registry: select --host or WISE_HOST explicitly", file=sys.stderr)
+        return 2
+    HOST, CONFIG = args.host, args.config
+    REGISTRY_PATH = Path.home() / ".local/share/wise/init" / f"{HOST}.json"
+    if args.command == "write":
+        return cmd_write(args.payload) if args.payload is not None else 1
+    return {
+        "path": cmd_path,
+        "read": cmd_read,
+        "check": cmd_check,
+        "refresh-runtime": cmd_refresh_runtime,
+    }[args.command]()
 
 
 if __name__ == "__main__":

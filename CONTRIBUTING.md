@@ -28,7 +28,7 @@ wise-claude/
     └── wise/                      # THE plugin — canonical, hand-edited source
         ├── .claude-plugin/plugin.json   # manifest — the single version source
         ├── CLAUDE.md · README.md · AGENTS.md
-        ├── .mcp.json             # bundled wise-engine MCP server
+        ├── .mcp.json             # empty; wise-init manages host registration
         ├── agents/               # SDLC role roster (plugin subagents)
         ├── references/           # shared prose routines
         ├── scripts/              # catalog, wise-helpers.py, bootstrap-deps.sh, init*

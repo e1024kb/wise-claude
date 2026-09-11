@@ -9,6 +9,7 @@ dependencies = [
   "ruamel.yaml==0.19.1",
   "python-ulid==3.1.0",
   "regex==2026.9.10",
+  "tomlkit==0.15.1",
 ]
 
 [project.optional-dependencies]

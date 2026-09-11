@@ -1,6 +1,6 @@
 # Plan: Python workflow engine and removal of legacy execution
 
-Status: IN PROGRESS. P0 through P5 gates passed; P6 is underway on `feat/python-workflow-engine`.
+Status: IMPLEMENTED on `feat/python-workflow-engine`. P0 through P6 passed through the documented control routes. P7 historical upgrade and rollback passed; final cross-platform checks and the live-provider decision are pending.
 
 Prepared 2026-09-11 from checkout `b1b5dee` (plugin `5.0.0-rc.6`). This plan supersedes the implementation direction in [harness-engine.md](harness-engine.md). The existing TypeScript implementation is the behavioral baseline; older milestone statuses are not evidence of current completion.
 
@@ -193,15 +193,15 @@ Gate: clean install and full `just check` pass in a Python-only environment with
 
 Depends on P5. This is workstream 2, after the Python migration.
 
-- [ ] Reproduce the reported Codex literal-placeholder startup failure and capture a regression fixture. Confirm that restart alone leaves it broken and that a resolved launcher reaches MCP initialization.
-- [ ] Inspect and document registration, variable expansion, cwd, environment, reload, MCP elicitation, and native picker support for Codex, Claude, Cursor, and Grok. Record actual supported versions in this plan.
-- [ ] Implement the shared Python launcher resolution and minimal host registration adapters. Cover fresh installs, read-only caches, spaces/Unicode paths, symlinks, relocation, and version-changing upgrades without manual path edits.
-- [ ] Update init scripts/skill, registry ownership and invalidation, plugin MCP configuration, installation instructions, and workflow run/resume/status skills. Remove Claude-only assumptions from conductor setup and dependency requirements.
-- [ ] Add staged diagnostics for unresolved launcher, startup exit, dependency failure, handshake failure, missing tools, unavailable session tools, daemon failure, and selected-provider login. Preserve previously chosen optional-dependency skips.
-- [ ] Test each host configuration launching the real Python MCP server: initialize, list tools, and call `wise_status`. A subprocess started directly with an absolute path is a diagnostic control, not proof the host configuration works.
-- [ ] Test preflight, run, wait, approval/question answers, cancel, and resume through each host's supported interaction route against disposable fixtures. Verify all eight parent tools and four child tools where those respective interfaces are used.
-- [ ] Test launching from a non-Claude host with Claude absent and a different provider selected. Verify conductor host and child-provider selection remain independent.
-- [ ] Test registration update/rollback without disturbing unrelated host configuration, active runs, or saved history. Verify stale registry records cannot hide launch failures.
+- [x] Reproduce the reported Codex literal-placeholder startup failure and capture a regression fixture. Confirm that restart alone leaves it broken and that a resolved launcher reaches MCP initialization.
+- [x] Inspect and document registration, variable expansion, cwd, environment, reload, MCP elicitation, and native picker support for Codex, Claude, Cursor, and Grok. Record actual supported versions in this plan.
+- [x] Implement the shared Python launcher resolution and minimal host registration adapters. Cover fresh installs, read-only caches, spaces/Unicode paths, symlinks, relocation, and version-changing upgrades without manual path edits.
+- [x] Update init scripts/skill, registry ownership and invalidation, plugin MCP configuration, installation instructions, and workflow run/resume/status skills. Remove Claude-only assumptions from conductor setup and dependency requirements.
+- [x] Add staged diagnostics for unresolved launcher, startup exit, dependency failure, handshake failure, missing tools, unavailable session tools, daemon failure, and selected-provider login. Preserve previously chosen optional-dependency skips.
+- [x] Test each host configuration launching the real Python MCP server: initialize, list tools, and call `wise_status`. A subprocess started directly with an absolute path is a diagnostic control, not proof the host configuration works.
+- [x] Test preflight, run, wait, approval/question answers, cancel, and resume through each host's supported interaction route against disposable fixtures. Verify all eight parent tools and four child tools where those respective interfaces are used.
+- [x] Test launching from a non-Claude host with Claude absent and a different provider selected. Verify conductor host and child-provider selection remain independent.
+- [x] Test registration update/rollback without disturbing unrelated host configuration, active runs, or saved history. Verify stale registry records cannot hide launch failures.
 
 Gate: Codex, Claude, Cursor, and Grok can each control a workflow through a documented, tested route to the same Python engine. The Codex regression passes through actual host registration. No manual versioned-path override, Claude login requirement for unrelated providers, or restart-only recovery loop remains. Record unavailable host access as an unmet gate, not a pass.
 
@@ -209,10 +209,10 @@ Gate: Codex, Claude, Cursor, and Grok can each control a workflow through a docu
 
 Depends on P6.
 
-- [ ] Rehearse upgrade using copies of existing v2 state, events, gated/paused runs, checkpoints, and configuration. Verify read/resume compatibility and context-path behavior.
-- [ ] Rehearse v1 definition import and unsupported-v1-run handling; original files remain unchanged unless conversion was explicitly requested.
-- [ ] Rehearse daemon replacement with active and idle old daemons. Never run both implementations against the same socket/ledger.
-- [ ] Run end-to-end MCP/CLI workflows in disposable projects: success, approval, question, cancel, failed-step resume, fallback, child checkpoint, and units pipeline.
+- [x] Rehearse upgrade using copies of existing v2 state, events, gated/paused runs, checkpoints, and configuration. Verify read/resume compatibility and context-path behavior.
+- [x] Rehearse v1 definition import and unsupported-v1-run handling; original files remain unchanged unless conversion was explicitly requested.
+- [x] Rehearse daemon replacement with active and idle old daemons. Never run both implementations against the same socket/ledger.
+- [x] Run end-to-end MCP/CLI workflows in disposable projects: success, approval, question, cancel, failed-step resume, fallback, child checkpoint, and units pipeline.
 - [ ] Verify the four-host matrix from P6, and at least one live child-provider execution when credentials and execution authorization are available. Keep host transport proof separate from paid/live model execution; record unavailable access as an unmet gate, not inferred success.
 - [ ] Confirm final test mapping, dependency inventory, changed public contracts, and rollback rehearsal in this plan.
 
@@ -404,3 +404,127 @@ An independent lifecycle review reproduced a slot handoff cancellation leak in t
 Frozen commit `51fc876` passed `just install && just check` from a fresh archive on macOS Python 3.13 and Linux Python 3.11.16. Both runs passed 1,407 tests and skipped one SSH-agent-dependent test because the clean environment had no SSH_AUTH_SOCK. Linux explicitly checked that Node, npm, Bun and npx were absent. All seven repository validation sections, mypy (59 modules), Ruff, formatting (95 files), Python compilation, JSON manifests and shell syntax passed. The Linux image used distro just 1.40.0. No provider login, model call, real tracker issue, real remote push or PR was used by these gates.
 
 P6 implementation decision: host setup owns the single `wise-engine` registration. The bundled `.mcp.json` has no automatic server entry, preventing a plugin-owned duplicate alongside the managed registration. `/wise-init` resolves its loaded skill installation and creates an upgrade-safe fixed launcher registration. Missing tools before first setup are diagnosed through CLI setup, not a restart-only loop.
+
+### P6 managed launch and control implementation
+
+The public transport is one managed `wise-engine` registration per host. The
+fixed launcher and host installation bindings live under
+`$HOME/.local/share/wise`, outside the plugin cache. Arguments are arrays; no host
+must expand `${CLAUDE_PLUGIN_ROOT}`. The loaded skill identifies its installation.
+Each workflow skill runs guarded `refresh-host` to follow a changed loaded root
+or version without manual config-path edits. Claude can also follow an exact
+installation-registry key/scope/project selector. Unknown or ambiguous roots fail
+with repair guidance, never a newest-cache guess.
+
+Registration preview, atomic apply and guarded rollback preserve unrelated JSONC
+or TOML settings and comments. Setup and rollback serialize against concurrent
+writers; changed preimages or modes reject stale transactions. Automatic refresh
+requires the original Wise entry to remain unchanged, preserves other hosts and
+saved history, and invalidates host readiness. Per-host Python selection survives
+a different host's interpreter removal. Stale server-level root overrides are
+removed; the explicit conductor host reaches the child environment.
+
+Init uses a per-host schema-3 registry outside the cache. A legacy cache registry
+is read-only migration input; its complete document, history and optional skips
+are preserved. Python/runtime, registration, native connection, tool inventory,
+daemon control, user interaction and provider login are separate checks. File
+inspection never claims `host_verified`. Drive, Figma and Linear remain skipped.
+
+Actual native CLI versions used in isolated profiles, without credentials or model
+turns: Claude Code 2.1.268, Codex 0.154.0, Cursor 2026.09.08-6caf4ff, Grok 1.0.25.
+The literal placeholder survives manual-registration argv in those hosts; a
+resolved managed launcher reaches initialization. Claude advertises legacy empty
+form elicitation, Cursor explicit form support, Grok doctor no elicitation.
+Codex app-server advertises form support but its direct no-model tool-call route
+can decline forms. Native interactive picker behavior is therefore not inferred
+from transport tests. The supported fallback presents each engine question,
+waits for an explicit answer, and uses the same engine CLI. UI defaults never
+count as answers.
+
+New coverage owners: `test_host_setup.py` (registration/refresh/rollback),
+`test_host_native.py` (installed host CLI control), `test_host_lifecycle.py`
+(real-engine control through registered hosts and CLI fallback), `test_init.py`
+(per-host readiness/migration), and `test_upgrade.py` (restored state/import/cache
+rehearsals). Final counts and remaining live-access gates follow below.
+
+### Release notes for 5.0.0-rc.7
+
+- Python 3.11+ is the only workflow runtime. Exact hashed dependencies install in
+  managed environments outside the plugin; Bun, Node and TypeScript engine
+  dependencies and development tooling are removed.
+- YAML v2 is the only executable workflow format. The v1 state-mutation CLI and
+  prose conductor are removed. The importer previews v1 conversion and preserves
+  a backup on explicit in-place conversion. Legacy run history remains readable
+  and cannot resume through v2.
+- Run init for each conductor host to establish managed registration. Existing
+  Wise skills automatically refresh owned registrations after an installation
+  change. Reload stale host sessions to replace plugin-owned MCP instances.
+- Unicode case-insensitive backreferences outside the supported ASCII capture
+  subset produce a clear validation error, as approved. Normal regex validation
+  and case-sensitive Unicode backreferences remain supported.
+- Added host setup/refresh/doctor/rollback commands, canonical definition-root and
+  agent catalogs, and CLI nudge forwarding. Provider auth checks use actual CLI
+  binary names and fail for any explicitly selected unavailable provider.
+- Failed-step resume preserves prior v2 behavior: it does not retry failed steps.
+  In-flight steps are reset for continuation; completed side effects are not
+  replayed. A resumed failed run can immediately fail again.
+
+No uninstall of system JavaScript runtimes, user configuration migration, live
+provider execution, ticket automation, push, PR, tag or publication is performed
+by this implementation session.
+
+### P7 historical upgrade and rollback evidence
+
+The actual preserved pre-cutover TypeScript engine from `/tmp/wise-p3-frozen`
+was exercised with Bun only in an isolated comparison directory. No JavaScript
+runtime is part of the shipped engine or final Python-only verification image.
+The rehearsal used real Bash steps and no provider calls.
+
+- TypeScript build `5.0.0-rc.7+18c3783705` refused takeover while its Bash child
+  was active. Python received `DAEMON_VERSION_MISMATCH`; the live owner remained.
+- After graceful interruption, the TypeScript engine recovered an interrupted run
+  to paused and retained another gated run. Python then replaced the idle old
+  daemon, answered the historical approval and resumed the historical paused run.
+  Both completed. A prepared side effect remained exactly `once`.
+- Existing TypeScript event prefixes, context bytes and stored paths, and
+  TypeScript-written unit checkpoint/cursor data survived. This checkpoint evidence
+  covers stored serialization; child MCP checkpoint RPC is covered separately by
+  the integration suite, without a live provider.
+- After Python stopped, a copy of its completed history was opened by the old
+  TypeScript engine. It read two runs, 18 events, two context files and two unit
+  checkpoints. Every copied history file and both workspaces' side-effect files
+  remained byte-identical. No two implementations wrote the same ledger/socket.
+
+Reproduction scripts remain diagnostic files outside the repository:
+`/tmp/wise-p7-historical.py` and `/tmp/wise-p7-rollback.py`, run with
+`/tmp/wise-python-dev/bin/python`. Evidence snapshots and hashes are in
+`/tmp/w7-gpq4irfd`; rollback readback is `/tmp/w7rb-bqysaqp8/ts-readback.json`.
+These temporary paths are session evidence, not durable release artifacts.
+Permanent `test_upgrade.py` additionally covers restored in-flight, paused and
+gated v2 data, v1 dry-run/output/in-place backup safeguards, legacy-history
+protection and read-only-cache restart. Existing daemon tests retain idle/active
+replacement regressions without requiring a historical runtime.
+
+
+P6 evidence boundary: Claude native `mcp get` proves a real-server connection;
+Cursor native `list-tools` and Grok native doctor prove the eight-tool inventory.
+Codex app-server additionally calls the real tools and completes the lifecycle
+with no model turn. Every host binding completes the explicit CLI interaction
+route, including status, staged input, approval, question, interrupted resume and
+cancel. Native conversation pickers and native conversational tool calls outside
+Codex's app-server control remain unverified; the tested CLI fallback is the
+supported route when those capabilities are absent. Cursor requires native
+`mcp enable wise-engine`; the test proves that approval preserves the managed
+registration fingerprint.
+
+The permanent Codex regression starts two independent app-server processes with
+the literal plugin-root argument; both fail startup/tool invocation. After managed
+registration, a third process lists and calls the fixture tool. All threads have
+zero model turns. Thus restarting is proven insufficient and resolved registration
+is proven effective through the actual host.
+
+Final macOS working-tree check: `just check` passed 1,468 tests, all seven repository
+validation sections, mypy on 61 modules, Ruff and format on 101 files, Python syntax,
+JSON manifests and shell syntax. The subsequent permanent literal-path regression
+and all five native-host tests passed separately. Frozen final Linux verification
+will be recorded after the implementation commit.

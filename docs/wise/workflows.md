@@ -9,8 +9,8 @@ launcher selects Python 3.11+ and installs pinned dependencies into a managed
 versioned environment outside the plugin. It runs as a per-user daemon
 (`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
 `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`) and exposes MCP tools to the
-Claude Code conversation through the plugin's `.mcp.json` server
-`wise-engine`. The conversation is a thin conductor: it renders
+Claude Code, Codex, Cursor or Grok conversation through the managed
+`wise-engine` registration created by `/wise-init`. The conversation is a thin conductor: it renders
 questions, forwards context, prints one line per event and answers
 gates. It never sees step output.
 
@@ -29,13 +29,14 @@ Source of truth for this page: `plugins/wise/engine/wise_engine/*.py`
 | `/wise-workflow-list` | List bundled and user definitions. |
 | `/wise-workflow-create <name>` | Wizard that writes a user definition. |
 | `/wise-workflow-remove <name>` | Delete a user definition. Bundled ones are immutable. |
-| `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh <command>` | The engine CLI (see [CLI](#cli)). |
+| `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" <command>` | The engine CLI (see [CLI](#cli)). |
 
 The runtime requires Python 3.11+, the selected provider CLI and its login,
-and `gh` for GitHub phases. Host-specific setup and registration instructions
-are finalized in P6 of the [Python engine plan](../plans/python-workflow-engine.md).
-`DAEMON_UNAVAILABLE` from any tool means the daemon could not start:
-run `/wise-init`, then retry.
+and `gh` for GitHub phases. Set `WISE_HOST` to the current conductor (`claude`,
+`codex`, `cursor` or `grok`); this does not select the child provider.
+Follow [host setup and control](../../plugins/wise/references/workflow-host-control.md)
+for registration, upgrade refresh, diagnostics and explicit interactive choices.
+A host reload cannot fix an unresolved path or failed daemon startup.
 
 ## Where things live
 
@@ -899,9 +900,10 @@ skipped, a unit with a verdict is skipped.
 
 ## MCP tools
 
-Server `wise-engine` from `plugins/wise/.mcp.json` (`bash
-${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`, tool timeout 660 s). The
-descriptions the model reads are in `engine/wise_engine/mcp.py`.
+Server `wise-engine` uses a fixed managed launcher under
+`$HOME/.local/share/wise/bin/wise-engine`. `/wise-init` registers it for the
+current host. The bundled `.mcp.json` is empty to avoid duplicate transports.
+The tool schemas and descriptions are in `engine/wise_engine/mcp.py`.
 
 | Tool | Params | Returns |
 |---|---|---|
@@ -922,9 +924,10 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 
 ## CLI
 
-`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh <command>` uses the managed
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" <command>` uses the managed
 Python runtime. Standalone session/profile/history/supervision commands use
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py <command>`.
+`python3 "$WISE_PLUGIN_ROOT/scripts/wise-helpers.py" <command>`, where
+`WISE_PLUGIN_ROOT` is the loaded installation resolved through host control.
 
 | Command | Purpose |
 |---|---|
@@ -935,7 +938,12 @@ Python runtime. Standalone session/profile/history/supervision commands use
 | `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--interactive] [--follow] [--timeout-ms]` | Start a run through the daemon. `--interactive` asks every preflight question in the terminal instead of filling defaults for a script; `--follow` streams events and answers gates from stdin. |
 | `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
 | `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. A long-lived MCP server re-reads that id from disk before every `wise_preflight` / `wise_run`, so a plugin update under an open desktop session also replaces the daemon. |
-| `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
+| `setup-host --host <host> --plugin-root <path> [--apply]` | Preview or apply managed host registration. |
+| `refresh-host --host <host> --plugin-root <path>` | Refresh an unchanged Wise-owned registration from the loaded skill after upgrade. |
+| `host-doctor --host <host>` | Inspect local registration; native host connection requires a separate probe. |
+| `host-rollback <transaction>` | Restore exact prior config bytes if files have not changed. |
+| `nudge <run_id> <step> <message>` | Forward user steering to a running step. |
+| `mcp [--no-start]` | The stdio MCP server used by managed host registration. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
 | `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
@@ -963,10 +971,10 @@ codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
 
 1. `mkdir <user root>/<name>` and write `workflow.yaml` (or run
    `/wise-workflow-create <name>`).
-2. `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh compile-check <path>`
+2. `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" compile-check <path>`
    until it prints no errors. Warnings (`until`, `group` on a bash
    step, unknown keys) are allowed but mean something is ignored.
-3. `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh preflight <name>` to
+3. `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" preflight <name>` to
    see the questionary a conductor will render.
 4. Run it with `/wise-workflow-run <name>`.
 
@@ -981,11 +989,19 @@ bundled definition. Bundled workflows:
 `example-workflow` (every step type), `ticket-plan`, `ticket-auto`,
 `impl-plan-auto`, `code-review` (see their READMEs).
 
+## Resume limits
+
+`resume` changes interrupted `running` steps to `pending` and continues the DAG.
+It preserves completed work and steps already marked `failed`; it does not retry
+failed steps. A failed run with no runnable pending work immediately fails again.
+Review previous side effects before correcting the cause and starting a new run.
+Answer a gated run's gate instead of resuming it.
+
 ## Migration from v1
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh migrate <workflow.yaml>            # dry run: prints the v2 YAML and the notes
-bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh migrate <workflow.yaml> --write    # in place, original kept as <file>.v1.bak
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" migrate <workflow.yaml>            # dry run: prints the v2 YAML and the notes
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" migrate <workflow.yaml> --write    # in place, original kept as <file>.v1.bak
 ```
 
 Rules (`migrate.py`):

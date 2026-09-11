@@ -29,15 +29,15 @@ Commands:
   list-agents                  bundled role roster for workflow authors
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v] [--follow]
                                start a run through the daemon (auto-started)
-  wait|status|answer|cancel|resume|report ...
+  wait|status|answer|cancel|resume|report|nudge ...
                                daemon client commands; see each command's --help
   daemon serve|start|stop|status
                                background daemon wise-engined
-  mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)
+  mcp [--no-start]             stdio MCP server (thin daemon client; used by managed host registration)
   unit-mcp [--token <t>]       child-side stdio MCP server (wise_report/ask/context/checkpoint);
                                token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT
   auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);
-                               exit 1 when claude is missing or logged out
+                               exit 1 when a checked provider is missing or logged out
   models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)
   dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]
            [--mode approval-required|auto|full-access] [--cwd <dir>] [--timeout-s <n>]
@@ -45,6 +45,10 @@ Commands:
                                one child run on any harness, no daemon or ledger; prints one
                                JSON result (or the child's text under --text); exit 1 on a
                                failed child
+  setup-host --host <host> --plugin-root <path> [--apply]  preview or repair registration
+  refresh-host --host <host> --plugin-root <path>  refresh an existing registration
+  host-doctor --host <host>    inspect launch registration (does not prove host connectivity)
+  host-rollback <transaction>  restore setup files if they have not changed
   version                      plugin version and runtime
   help                         this text
 
@@ -294,7 +298,8 @@ async def cmd_auth(parsed: Json, io: Io) -> int:
         if harness not in HARNESSES:
             io.err(f"auth: unknown harness {harness} (one of {', '.join(HARNESSES)})\n")
             return 2
-        installed = on_path(harness, io.env)
+        adapter = adapter_lookup(harness)
+        installed = on_path(adapter.bin if adapter is not None else harness, io.env)
         probe = (
             await probe_one(harness, "subscription", adapter_lookup)
             if installed
@@ -315,8 +320,7 @@ async def cmd_auth(parsed: Json, io: Io) -> int:
             io.out(
                 f"HARNESS={row['harness']} INSTALLED={'yes' if row['installed'] else 'no'} LOGIN={row['login']} LOGIN_CMD={row['login_cmd']}\n"
             )
-    claude = next((row for row in rows if row["harness"] == "claude"), None)
-    return 1 if claude and claude["login"] != "ok" else 0
+    return 1 if any(row["login"] != "ok" for row in rows) else 0
 
 
 async def main(argv: Sequence[str], io: Io | None = None) -> int:
@@ -336,7 +340,7 @@ async def main(argv: Sequence[str], io: Io | None = None) -> int:
                 if command == "mcp"
                 else unit_mcp_command(list(argv[1:]), io)
             )
-        if command in ("run", "status", "answer", "cancel", "resume", "report", "wait"):
+        if command in ("run", "status", "answer", "cancel", "resume", "report", "wait", "nudge"):
             from .cli_client import client_command
 
             return await client_command(list(argv), io)
@@ -358,6 +362,54 @@ async def main(argv: Sequence[str], io: Io | None = None) -> int:
                 rows,
                 lambda: "\n".join(f"{r['name']}\t{r['source']}\t{r['path']}" for r in rows),
             )
+            return 0
+        if command in ("setup-host", "refresh-host", "host-doctor", "host-rollback"):
+            from .host_setup import apply_plan, doctor, plan_setup, refresh_existing, rollback
+
+            flags = parsed["flags"]
+            if command == "host-rollback":
+                if not parsed["positional"]:
+                    raise ValueError("host-rollback requires the setup transaction path")
+                rollback(parsed["positional"][0])
+                io.out('{"rolled_back":true}\n')
+                return 0
+            host = flag_string(flags, "host")
+            if host is None:
+                raise ValueError("--host is required (claude, codex, cursor, grok)")
+            home = flag_string(flags, "home") or io.env.get("HOME") or str(Path.home())
+            config = flag_string(flags, "config")
+            if config is None and host == "codex" and io.env.get("CODEX_HOME"):
+                config = str(Path(io.env["CODEX_HOME"]) / "config.toml")
+            if config is None and host == "claude" and io.env.get("CLAUDE_CONFIG_DIR"):
+                config = str(Path(io.env["CLAUDE_CONFIG_DIR"]) / ".claude.json")
+            if command == "host-doctor":
+                report = doctor(home=home, host=host, config=config)
+                io.out(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+                return 0 if report["registration_ok"] and report["launcher_ok"] else 1
+            plugin_root = flag_string(flags, "plugin-root")
+            if plugin_root is None:
+                raise ValueError("--plugin-root must identify the loaded Wise installation")
+            if command == "refresh-host":
+                result = refresh_existing(
+                    plugin_root=plugin_root, host=host, home=home, config=config
+                )
+                io.out(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+                return 0
+            source = flag_string(flags, "source")
+            plan = plan_setup(
+                plugin_root=plugin_root,
+                host=host,
+                home=home,
+                config=config,
+                source=json.loads(source) if source else None,
+                python=flag_string(flags, "python"),
+            )
+            result = plan.preview()
+            if flags.get("apply") is True:
+                transaction = apply_plan(plan)
+                result["transaction"] = str(transaction) if transaction else None
+                result["applied"] = True
+            io.out(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
             return 0
         if command == "definition-roots":
             io.out(json.dumps(roots_from(parsed, io), ensure_ascii=False, indent=2) + "\n")
