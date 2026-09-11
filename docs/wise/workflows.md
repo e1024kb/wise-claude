@@ -632,7 +632,7 @@ empty. An answered question is never repeated.
 | Id | Kind | Options | Default |
 |---|---|---|---|
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
-| `input.<name>` | `text` | | context value, else `default`, else empty when optional |
+| `input.<name>` | `choice` for strict literal enums without extraction; otherwise `text` | enum values, plus `Leave unset` for optional enums; none for text | context value, else `default`, else empty when optional |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
 | `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/wise_engine/models.py`) | the group's pinned model when the catalog has it, else the catalog's first entry |
