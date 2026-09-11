@@ -41,6 +41,7 @@ def test_expands_known_placeholders_and_preserves_unresolved() -> None:
         == "/tmp/run/run-123/proj/hi"
     )
     assert render("{{workflow.dir}}/x", state(), "/wf") == "/wf/x"
+    assert render("{{workflow.dir}}/x", state(), "") == "/x"
     assert (
         render("{{run.dir}}/x {{no_such_key}} {{ greeting }}", state(), "/wf")
         == "{{run.dir}}/x {{no_such_key}} {{ greeting }}"

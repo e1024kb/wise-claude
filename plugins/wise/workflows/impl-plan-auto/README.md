@@ -16,10 +16,10 @@ file. A merged PR loses its worktree and local branch; anything else
 stays open for a human with the worktree kept for inspection. No
 prompts after launch.
 
-The per-plan loop is engine code (`plugins/wise/engine/src/units.ts`,
+The per-plan loop is engine code (`plugins/wise/engine/wise_engine/units.py`,
 `pipeline: plan`; design in `docs/wise/research-ts-engine.md` P4). It
 is the same loop `ticket-auto` runs; only the plan phase differs (its
-template `engine/src/prompts/units/plan/plan.md` re-plans from the seed
+template `engine/wise_engine/prompts/units/plan/plan.md` re-plans from the seed
 file instead of from a ticket). `/wise-implement-plan-auto` is the
 implement-only building block (task waves + commits, no push / PR /
 watch); this workflow is the full pipeline around a plan file.
@@ -38,7 +38,7 @@ watch); this workflow is the full pipeline around a plan file.
 
 ## Prerequisites
 
-- `/wise-init` completed at least once (Node, gh CLI + auth).
+- `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
 - Run from inside the project's git repository (`project-selection:
   current`); the base working tree must be clean and have an `origin`
   remote (`preflight-checks` refuses otherwise).

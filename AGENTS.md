@@ -13,9 +13,8 @@ file, not a loadable agent registry.
 - The plugin is hand-edited directly — there is no build step and nothing in
   the repo is generated.
 - Validate before committing: `just check` (runs
-  `python3 scripts/validate_repo.py` and
-  `python3 -m pytest plugins/wise/tests -q`); `python3 -m py_compile
-  plugins/wise/scripts/workflows.py`, `python3 -m json.tool` the JSON manifests,
+  repository validation, pytest, Ruff and mypy in the pinned Python development
+  environment); Python compilation, `python3 -m json.tool` on JSON manifests,
   and `bash -n` the shell scripts also catch syntax slips.
 
 ## The wise SDLC agent roster
@@ -29,24 +28,9 @@ installed; invoke a role as `subagent_type: wise:<name>` (e.g.
 `effort`, `color`. Plugin subagents ignore `hooks` / `mcpServers` /
 `permissionMode`.
 
-The workflow engine dispatches `prompt` steps to them (per-step `agent:` field +
-workflow `agents:` policy — see
-[`docs/wise/workflows.md`](./docs/wise/workflows.md#agents-model-and-effort)).
-
-| Role | Default effort | Role | Default effort |
-|---|---|---|---|
-| `ceo` | high | `software-engineer` | medium |
-| `cto` | high | `qa-engineer` | medium |
-| `product-manager` | medium | `security-engineer` | high |
-| `engineering-manager` | medium | `devops-engineer` | medium |
-| `architect` | high | `sre` | high |
-| `ux-designer` | medium | `technical-writer` | low |
-| `code-reviewer` | high | | |
-
-Steps run in-conversation (subscription-covered): a step's `model:` is a real
-per-step override and `effort:` is a best-effort prompt nudge. A pinned model
-that has retired auto-falls-back to its alias with a notice. See
-[`docs/wise/workflows.md`](./docs/wise/workflows.md#agents-model-and-effort).
+V2 workflows run `agent` steps through headless provider CLIs. Claude children
+can adopt or delegate to these role cards. Model and effort resolution belongs
+to the canonical Python engine; see [the workflow reference](docs/wise/workflows.md).
 
 ## Adding or editing a role
 

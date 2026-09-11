@@ -45,7 +45,7 @@ never pushes.
 
 ## Prerequisites
 
-- `/wise-init` completed at least once (bun or Node 24 for the engine,
+- `/wise-init` completed at least once (Python 3.11+ for the engine,
   `claude` logged in; `codex` / `cursor-agent` / `gemini` / `grok` logins only when you
   pick them at pre-flight).
 - Run from inside the git repository on the branch under review, with

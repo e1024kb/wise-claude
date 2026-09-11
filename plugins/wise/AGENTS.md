@@ -76,6 +76,9 @@ steps:
     allowed_tools: [Task, Agent]
 ```
 
+The Python v2 executor owns these children through `engine/wise_engine/`;
+`engine/engine.sh` is its managed Python entrypoint.
+
 - The step's `group` (or `harness` / `model` / `effort`) decides which
   harness and model run the child; the role card decides the persona
   the child adopts or delegates to. `wise-engine migrate` rewrites a v1

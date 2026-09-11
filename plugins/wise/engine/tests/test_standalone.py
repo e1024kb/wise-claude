@@ -232,3 +232,25 @@ def test_insights_compaction_is_atomic_and_uses_unique_temporaries(tmp_path, mon
     lines = ledger_path.read_text().splitlines()
     assert len(lines) == 1 and json.loads(lines[0])["n"] == 2
     assert list(ledger_path.parent.glob("*.tmp")) == []
+
+
+def test_synthetic_session_is_found_in_workspace_history(invoke, tmp_path):
+    call, env = invoke
+    session_id = call("current-session-id", WISE_SESSION_ID="").stdout.strip()
+    assert session_id.startswith("local-")
+    directory = runs_root(tmp_path, env) / "synthetic-run"
+    directory.mkdir(parents=True)
+    (directory / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "synthetic-run",
+                "workflow": {"name": "work"},
+                "status": "running",
+                "harness_session": session_id,
+                "last_activity_at": "2999-01-01T00:00:00Z",
+            }
+        )
+    )
+    answer = call("find-runs-by-session", session_id, WISE_SESSION_ID="")
+    assert answer.returncode == 0
+    assert answer.stdout == "synthetic-run\twork\trunning\t2999-01-01T00:00:00Z\tfresh\n"

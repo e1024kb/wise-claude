@@ -27,15 +27,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      # The validation harness shells out to the TS engine's compile-check
-      # (engine.sh), which needs bun or node >= 24 — the runner image ships 22.
-      - name: Set up Node 24
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: pip install pyyaml python-ulid typing_extensions pytest ruff
+      - name: Install pinned Python dependencies
+        run: python -m pip install --disable-pip-version-check --require-hashes -r plugins/wise/engine/requirements-dev.txt
 
       # §6.2 Syntax and structural checks (CONTRIBUTING.md) — copied
       # verbatim so CI is the single enforcement of the documented gate.
@@ -43,10 +36,11 @@ jobs:
         run: |
           python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
           python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
+          python3 -m json.tool plugins/wise/.mcp.json > /dev/null
 
       - name: Bash scripts parse
         run: |
-          for f in plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh; do bash -n "$f"; done
+          for f in plugins/wise/engine/engine.sh plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh; do bash -n "$f"; done
 
       - name: Python scripts compile
         run: python3 -m py_compile plugins/wise/scripts/*.py scripts/*.py
@@ -68,11 +62,18 @@ jobs:
         run: python3 scripts/validate_repo.py
 
       - name: Pytest
-        run: python3 -m pytest plugins/wise/tests -q || [ $? -eq 5 ]
+        run: python3 -m pytest -c plugins/wise/engine/pyproject.toml plugins/wise/engine/tests plugins/wise/tests -q
+
+      - name: Engine lint, format and types
+        working-directory: plugins/wise/engine
+        run: |
+          ruff check wise_engine tests
+          ruff format --check wise_engine tests
+          mypy wise_engine
 
       - name: Shellcheck (non-blocking)
         continue-on-error: true
-        run: shellcheck plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh
+        run: shellcheck plugins/wise/engine/engine.sh plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh
 
       - name: Ruff (non-blocking)
         continue-on-error: true

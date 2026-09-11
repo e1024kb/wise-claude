@@ -1,21 +1,26 @@
-# wise-claude — task runner (https://just.systems)
-# Alternative to invoking the scripts directly. `just <recipe>`.
+# Install once, then run every repository gate with the pinned Python environment.
+python := "plugins/wise/engine/.venv/bin/python"
 
-# Default: validate + test.
-default: validate test
+default: check
 
-# Structural validation of the repo + plugin.
+install:
+    just --justfile plugins/wise/engine/justfile install
+
 validate:
-    python3 scripts/validate_repo.py
+    {{python}} scripts/validate_repo.py
 
-# Run the engine test suite.
 test:
-    python3 -m pytest plugins/wise/tests -q
+    {{python}} -m pytest -c plugins/wise/engine/pyproject.toml plugins/wise/engine/tests plugins/wise/tests -q
 
-# TypeScript engine: typecheck + lint + format check + tests (bun if present, else npm / node 24).
 engine-check:
-    cd plugins/wise/engine && if command -v bun >/dev/null 2>&1; then bun install --frozen-lockfile && bun run check; else npm install --no-audit --no-fund && npm run check; fi
+    just --justfile plugins/wise/engine/justfile typecheck lint fmt-check
 
-# Everything CI runs, locally.
-check: validate test engine-check
+syntax:
+    {{python}} -m py_compile plugins/wise/scripts/*.py scripts/*.py
+    {{python}} -m json.tool .claude-plugin/marketplace.json > /dev/null
+    {{python}} -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
+    {{python}} -m json.tool plugins/wise/.mcp.json > /dev/null
+    for f in plugins/wise/engine/engine.sh plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh; do bash -n "$f"; done
+
+check: validate test engine-check syntax
     @echo "all checks passed"

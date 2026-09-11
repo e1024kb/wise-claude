@@ -21,7 +21,8 @@ wise-claude/
 │       ├── workflows/        # workflow definitions
 │       ├── references/       # shared prose routines
 │       ├── hooks/            # plugin hooks
-│       ├── scripts/          # the workflow engine (workflows.py) + shared scripts
+│       ├── engine/           # Python v2 executor and tests
+│       ├── scripts/          # standalone helpers and skill catalog
 │       └── tests/            # engine test suite
 ├── scripts/
 │   └── validate_repo.py      # structural validation
@@ -36,8 +37,7 @@ wise-claude/
 - **Source of truth**: the plugin at `plugins/wise/`. Edit it directly —
   nothing in the repo is generated.
 - **Validate before committing**: `just check` — runs
-  `python3 scripts/validate_repo.py` and
-  `python3 -m pytest plugins/wise/tests -q`.
+  repository validation, pytest, Ruff and mypy in the pinned Python development environment.
 
 ## Conventions
 

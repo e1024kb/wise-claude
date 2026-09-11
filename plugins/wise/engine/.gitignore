@@ -1,2 +1,4 @@
-node_modules/
-package-lock.json
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
