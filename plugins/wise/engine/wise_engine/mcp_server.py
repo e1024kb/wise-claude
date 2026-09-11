@@ -26,6 +26,12 @@ from mcp.types import (
     Tool,
 )
 
+from .client import Client, ConnectError, connect, ensure_daemon
+from .host_watch import HostWatch
+from .protocol import RPC_CLIENT_DISCONNECTED
+from .version import plugin_version, source_build_id
+from .rpc import RpcError as RpcError
+
 WAIT_DEFAULT_MS = 110_000
 WAIT_MAX_MS = 600_000
 CALL_HEADROOM_MS = 30_000
@@ -49,17 +55,134 @@ class DaemonCall(Protocol):
     ) -> Any: ...
 
 
-class DaemonUnavailableError(Exception):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+DaemonUnavailableError = ConnectError
 
 
-class RpcError(Exception):
-    def __init__(self, code: int, message: str, data: Any = None) -> None:
-        super().__init__(message)
-        self.code = code
-        self.data = data
+class DaemonLink:
+    def __init__(
+        self,
+        *,
+        daemon: dict[str, Any] | None = None,
+        auto_start: bool = True,
+        current_version: Callable[[], str] | None = None,
+        connector: Callable[..., Awaitable[Client]] | None = None,
+    ) -> None:
+        self._options = dict(daemon or {})
+        pinned = self._options.get("version")
+        self._current_version = current_version or (
+            (lambda: pinned) if pinned is not None else source_build_id
+        )
+        self._connect = connector or (ensure_daemon if auto_start else connect)
+        self._client: Client | None = None
+        self._opening: asyncio.Task[Client] | None = None
+        self._closed = False
+        self._last_refresh_ms = 0.0
+
+    def refresh(self, now: float | None = None) -> None:
+        now = asyncio.get_running_loop().time() * 1000 if now is None else now
+        if self._client is None or now - self._last_refresh_ms < 3000:
+            return
+        self._last_refresh_ms = now
+        if self._client.hello["version"] != self._current_version():
+            self._drop(self._client)
+
+    def _drop(self, client: Client) -> None:
+        if self._client is client:
+            self._client = None
+        client.close()
+
+    async def _open(self) -> Client:
+        if self._closed:
+            raise RpcError(RPC_CLIENT_DISCONNECTED, "connection closed")
+        if self._opening is None:
+
+            async def opening() -> Client:
+                try:
+                    client = await self._connect(
+                        **{**self._options, "version": self._current_version()}
+                    )
+                    if self._closed:
+                        client.close()
+                        raise RpcError(RPC_CLIENT_DISCONNECTED, "connection closed")
+                    self._client = client
+                    return client
+                finally:
+                    self._opening = None
+
+            self._opening = asyncio.create_task(opening())
+            self._opening.add_done_callback(
+                lambda task: task.exception() if not task.cancelled() else None
+            )
+        return await asyncio.shield(self._opening)
+
+    async def with_client(self, operation: Callable[[Client], Awaitable[Any]]) -> Any:
+        first = self._client if self._client is not None else await self._open()
+        try:
+            return await operation(first)
+        except RpcError as error:
+            if error.code != RPC_CLIENT_DISCONNECTED:
+                raise
+            self._drop(first)
+        return await operation(await self._open())
+
+    async def __call__(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        timeout_ms: int | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> Any:
+        async def operation(client: Client) -> Any:
+            queue: asyncio.Queue[Mapping[str, Any] | None] = asyncio.Queue()
+
+            async def forward() -> None:
+                while (item := await queue.get()) is not None:
+                    if on_progress:
+                        try:
+                            await on_progress(item)
+                        except Exception:
+                            pass
+
+            def notification(message: dict[str, Any]) -> None:
+                progress = message.get("params")
+                if (
+                    message["method"] == "progress"
+                    and isinstance(progress, dict)
+                    and progress.get("run_id") == params.get("run_id")
+                    and isinstance(progress.get("waiting_ms"), (int, float))
+                    and not isinstance(progress.get("waiting_ms"), bool)
+                ):
+                    queue.put_nowait(progress)
+
+            worker = asyncio.create_task(forward()) if on_progress else None
+            unsubscribe = client.on_notification(notification) if on_progress else None
+            try:
+                result = await client.call(method, params, timeout_ms=timeout_ms)
+                if worker:
+                    queue.put_nowait(None)
+                    await worker
+                return result
+            finally:
+                if unsubscribe:
+                    unsubscribe()
+                if worker and not worker.done():
+                    worker.cancel()
+                    await asyncio.gather(worker, return_exceptions=True)
+
+        return await self.with_client(operation)
+
+    async def close(self) -> None:
+        self._closed = True
+        client = self._client
+        if client:
+            self._drop(client)
+        opening = self._opening
+        if opening:
+            opening.cancel()
+            await asyncio.gather(opening, return_exceptions=True)
+        if client:
+            await client.rpc.task
 
 
 def _json(value: Any) -> str:
@@ -369,28 +492,52 @@ def _create_server(
 
 
 def create_mcp_server(
-    call: DaemonCall,
+    call: DaemonCall | None = None,
     *,
-    version: str,
+    version: str | None = None,
     refresh: Callable[[], None] | None = None,
     close: Callable[[], Awaitable[None]] | None = None,
+    daemon: dict[str, Any] | None = None,
+    auto_start: bool = True,
+    current_version: Callable[[], str] | None = None,
 ) -> Server[Any]:
-    return _create_server("parent", call, version=version, refresh=refresh, close=close)
+    if call is None:
+        link = DaemonLink(daemon=daemon, auto_start=auto_start, current_version=current_version)
+        call, refresh, close = link, link.refresh, link.close
+    return _create_server(
+        "parent",
+        call,
+        version=version or (daemon or {}).get("version") or plugin_version(),
+        refresh=refresh,
+        close=close,
+    )
 
 
 def create_unit_mcp_server(
-    call: DaemonCall,
+    call: DaemonCall | None = None,
     *,
-    version: str,
+    version: str | None = None,
     token: str | None = None,
     ask_timeout_ms: int = WAIT_DEFAULT_MS,
     close: Callable[[], Awaitable[None]] | None = None,
+    daemon: dict[str, Any] | None = None,
 ) -> Server[Any]:
+    env = (daemon or {}).get("env", os.environ)
+    if call is None:
+        options = daemon
+        if options is None:
+            options = {"env": env, "client": "wise-engine unit-mcp"}
+            if env.get("WISE_ENGINE_SOCKET"):
+                options["socket_path"] = env["WISE_ENGINE_SOCKET"]
+            if env.get("WISE_DATA_ROOT"):
+                options["data_root"] = env["WISE_DATA_ROOT"]
+        link = DaemonLink(daemon=options, auto_start=False)
+        call, close = link, link.close
     return _create_server(
         "child",
         call,
-        version=version,
-        token=os.environ.get(TOKEN_VAR, "") if token is None else token,
+        version=version or (daemon or {}).get("version") or plugin_version(),
+        token=env.get(TOKEN_VAR, "") if token is None else token,
         ask_timeout_ms=min(max(0, ask_timeout_ms), WAIT_MAX_MS),
         close=close,
     )
@@ -414,20 +561,17 @@ async def _serve_stdio(
     host_poll_seconds: float,
 ) -> None:
     async with anyio.create_task_group() as tasks:
-
-        async def watch_parent() -> None:
-            while True:
-                if parent_pid() == 1:
-                    tasks.cancel_scope.cancel()
-                    return
-                await anyio.sleep(host_poll_seconds)
-
-        tasks.start_soon(watch_parent)
+        watch = HostWatch(
+            on_gone=lambda _: tasks.cancel_scope.cancel(),
+            ppid=parent_pid,
+            interval_ms=host_poll_seconds * 1000,
+        )
         try:
             async with _cancellable_stdin() as stdin:
                 async with stdio_server(stdin=stdin) as (read, write):
                     await server.run(read, write, server.create_initialization_options())
         finally:
+            watch.stop()
             tasks.cancel_scope.cancel()
 
 
@@ -464,3 +608,67 @@ async def _cancellable_stdin() -> AsyncIterator[anyio.AsyncFile[str]]:
         else:
             stream.close()
         os.set_blocking(sys.stdin.fileno(), was_blocking)
+
+
+MCP_USAGE = """wise-engine mcp [options]
+
+  Serve the eight wise_* tools over stdio MCP; connects to (and starts) wise-engined.
+
+Options: --data-root <dir> --socket <path> --lock <path> --log <path> --idle-ms <n> --no-start
+"""
+UNIT_MCP_USAGE = """wise-engine unit-mcp [options]
+
+  Child-side stdio MCP server: wise_report, wise_ask, wise_context, wise_checkpoint.
+  Reads WISE_STEP_TOKEN, WISE_ENGINE_SOCKET, WISE_DATA_ROOT from the env; never starts the daemon.
+
+Options: --token <t> --socket <path> --data-root <dir>
+"""
+
+
+async def mcp_command(argv: list[str], io: Any) -> int:
+    from .daemon import parse_daemon_args, path_opts_from
+
+    args = parse_daemon_args(["mcp", *argv])
+    if args["flags"].get("help") is True or (argv and argv[0] == "-h"):
+        io.err(MCP_USAGE)
+        return 0
+    env = io.env if getattr(io, "env", None) is not None else os.environ
+    options = {**path_opts_from(args, env), "client": "wise-engine mcp"}
+    try:
+        await serve_stdio(
+            create_mcp_server(daemon=options, auto_start=args["flags"].get("no-start") is not True)
+        )
+        return 0
+    except Exception as error:
+        io.err(f"wise-engine mcp: {error}\n")
+        return 70
+
+
+async def unit_mcp_command(argv: list[str], io: Any) -> int:
+    from .daemon import parse_daemon_args
+
+    flags = parse_daemon_args(["unit-mcp", *argv])["flags"]
+    if flags.get("help") is True or (argv and argv[0] == "-h"):
+        io.err(UNIT_MCP_USAGE)
+        return 0
+    env = io.env if getattr(io, "env", None) is not None else os.environ
+    options: dict[str, Any] = {"env": env, "client": "wise-engine unit-mcp"}
+    for key, flag, var in (
+        ("socket_path", "socket", "WISE_ENGINE_SOCKET"),
+        ("data_root", "data-root", "WISE_DATA_ROOT"),
+    ):
+        if env.get(var):
+            options[key] = env[var]
+        if isinstance(flags.get(flag), str) and flags[flag]:
+            options[key] = flags[flag]
+    token = flags.get("token")
+    try:
+        await serve_stdio(
+            create_unit_mcp_server(
+                daemon=options, token=token if isinstance(token, str) and token else None
+            )
+        )
+        return 0
+    except Exception as error:
+        io.err(f"wise-engine unit-mcp: {error}\n")
+        return 70
