@@ -170,8 +170,8 @@ stage selection and inputs first, harnesses and provider permissions next, then 
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
-- **Flow modes** (text inputs with a `validate:` regex, defaults
-  pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
+- **Flow modes** (choice inputs inferred from strict literal `validate:`
+  regexes, defaults pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
   (**auto** / ask), `branch_mode` (**auto** / current / ask), and
   `implement_mode` (**plan-only** / now / ask). The bolded defaults
   make the run autonomous after launch; any mode set to `ask`
@@ -229,8 +229,8 @@ answers override the group defaults at dispatch. See
 | `branch_mode` | yes | `auto` (default - create/switch the ticket branch off the repo's default branch, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
 | `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
 
-The four mode inputs are text inputs with their default pre-filled and
-a `validate:` regex over the allowed values; each also accepts its
+The four mode inputs are choice inputs inferred from a strict literal
+`validate:` regex over the allowed values; each also accepts its
 value positionally, e.g. `/wise-workflow-run ticket-plan PROJ-1
 defaults auto auto now`.
 

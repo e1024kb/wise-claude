@@ -307,6 +307,8 @@ async def _preflight(
             "INTERACTIVE_UI_REQUIRED",
             "This MCP host does not support form elicitation. Use a native picker and await "
             "the user's answer, keeping asynchronous prompts open, or use the terminal TUI. "
+            "Populate picker options for choices; for multi-select without native support, "
+            "collect clickable Include/Exclude answers for each option. "
             "If no persistent picker is available, show each raw preflight question in text "
             "and wait for an explicit reply; never submit defaults as answers.",
         )

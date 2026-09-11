@@ -102,6 +102,9 @@ Prefer MCP form elicitation, then the host's native picker. Follow the
 [asynchronous question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open):
 a display acknowledgement is not an answer; keep the turn active while that
 question is pending, without sending a final response that dismisses it.
+Render `choice` questions with options and `multi` questions with native
+multi-select or the shared clickable Include/Exclude sequence. Never turn a
+selection into a text-only prompt merely because this host lacks multi-select.
 In the explicit
 CLI fallback, preserve the same labels, descriptions and values. Ask one
 question at a time, preserve the defaults and option values, skip

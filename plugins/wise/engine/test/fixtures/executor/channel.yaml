@@ -4,7 +4,9 @@ description: A bash step with an output, then an agent step held live by the tes
 inputs:
   - name: topic
     prompt: Topic
-    default: engines
+    optional: true
+    from-context: guidance
+    validate: "^(engines|other)$"
 steps:
   - id: prep
     type: bash

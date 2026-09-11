@@ -40,26 +40,44 @@
     },
     {
       "id": "input.gap_mode",
-      "kind": "text",
+      "kind": "choice",
       "label": "If the gap analysis finds open questions? (defaults: proceed on the stated defaults, recorded as assumptions | ask: pause so I can answer inline)",
+      "options": [
+        { "value": "defaults", "label": "defaults" },
+        { "value": "ask", "label": "ask" }
+      ],
       "default": "defaults"
     },
     {
       "id": "input.review_mode",
-      "kind": "text",
+      "kind": "choice",
       "label": "Review the plan before setup? (auto: accept the plan as presented | ask: pause for my comments, one refine pass)",
+      "options": [
+        { "value": "auto", "label": "auto" },
+        { "value": "ask", "label": "ask" }
+      ],
       "default": "auto"
     },
     {
       "id": "input.branch_mode",
-      "kind": "text",
+      "kind": "choice",
       "label": "Branch handling at setup? (auto: ticket branch off the default branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)",
+      "options": [
+        { "value": "auto", "label": "auto" },
+        { "value": "current", "label": "current" },
+        { "value": "ask", "label": "ask" }
+      ],
       "default": "auto"
     },
     {
       "id": "input.implement_mode",
-      "kind": "text",
+      "kind": "choice",
       "label": "Implement the plan after setup? (plan-only: stop after setup | now: implement autonomously | ask: ask me once the plan and branch are settled)",
+      "options": [
+        { "value": "plan-only", "label": "plan-only" },
+        { "value": "now", "label": "now" },
+        { "value": "ask", "label": "ask" }
+      ],
       "default": "plan-only"
     }
   ],

@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from wise_engine import preflight as p
-from wise_engine.defs import load_and_validate
+from wise_engine.defs import load_and_validate, validate_input
+from wise_engine.mcp_server import _accepted_answer, question_form_schema
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = Path(__file__).parents[1] / "test/fixtures/defs"
@@ -203,6 +204,144 @@ def test_context_and_optional_inputs():
         and "input.ticket_id" not in result["defaults"]
     )
     assert next(q for q in result["questions"] if q["id"] == "input.config_prompt")["optional"]
+
+
+def test_plain_alternation_inputs_are_choices_and_keep_validation():
+    defn = {
+        "steps": [],
+        "inputs": [
+            {"name": "mode", "prompt": "Mode?", "default": "auto", "validate": "^(auto|ask)$"},
+            {"name": "path", "prompt": "Path?", "validate": r"^.+\.yaml$"},
+            {"name": "escaped", "prompt": "Escaped?", "validate": r"^(a\.b|c)$"},
+            {"name": "optional", "prompt": "Optional?", "validate": "^(yes|no)?$"},
+            {
+                "name": "extracted",
+                "prompt": "Extracted?",
+                "extract": "^mode:(.*)$",
+                "validate": "^(yes|no)$",
+            },
+        ],
+    }
+
+    result = p.build_questionary(defn)
+    mode = next(q for q in result["questions"] if q["id"] == "input.mode")
+    assert mode == {
+        "id": "input.mode",
+        "kind": "choice",
+        "label": "Mode?",
+        "options": [{"value": "auto", "label": "auto"}, {"value": "ask", "label": "ask"}],
+        "default": "auto",
+    }
+    assert all(
+        next(q for q in result["questions"] if q["id"] == f"input.{name}")["kind"] == "text"
+        for name in ("path", "escaped", "optional", "extracted")
+    )
+    assert validate_input("auto", validate="^(auto|ask)$") == {"ok": True, "value": "auto"}
+    assert validate_input("other", validate="^(auto|ask)$") == {
+        "ok": False,
+        "reason": "validate",
+        "message": "INVALID:validate",
+    }
+
+
+@pytest.mark.parametrize("default,expected_default", [(None, ""), ("yes", "yes"), ("invalid", "")])
+def test_optional_plain_alternation_has_clickable_empty_choice(default, expected_default):
+    item = {
+        "name": "mode",
+        "prompt": "Mode?",
+        "optional": True,
+        "validate": "^(yes|no)$",
+    }
+    if default is not None:
+        item["default"] = default
+
+    question = p.build_questionary({"steps": [], "inputs": [item]})["questions"][0]
+    assert question["kind"] == "choice"
+    assert question["default"] == expected_default
+    assert question["options"] == [
+        {"value": "yes", "label": "yes"},
+        {"value": "no", "label": "no"},
+        {"value": "", "label": "Leave unset"},
+    ]
+    assert question_form_schema(question)["properties"]["input.mode"] == {
+        "type": "string",
+        "title": "Mode?",
+        "oneOf": [
+            {"const": "yes", "title": "yes"},
+            {"const": "no", "title": "no"},
+            {"const": "", "title": "Leave unset"},
+        ],
+        "default": expected_default,
+    }
+    assert _accepted_answer(question, {"input.mode": ""}) == ""
+    assert p.fill_answers([question], {}) == {
+        "answers": {"input.mode": expected_default},
+        "inputs": {"mode": expected_default},
+        "missing": [],
+    }
+
+
+def test_choice_defaults_only_use_selectable_values():
+    defn = {
+        "steps": [],
+        "inputs": [
+            {
+                "name": "required",
+                "prompt": "Required?",
+                "default": "invalid",
+                "from-context": "decisions.required",
+                "validate": "^(auto|ask)$",
+            },
+            {
+                "name": "optional",
+                "prompt": "Optional?",
+                "optional": True,
+                "default": "auto",
+                "from-context": "decisions.optional",
+                "validate": "^(auto|ask)$",
+            },
+        ],
+    }
+
+    result = p.build_questionary(
+        defn, {"context": {"decisions": {"required": "invalid", "optional": "invalid"}}}
+    )
+    required, optional = result["questions"]
+    assert "default" not in required
+    assert optional["default"] == "auto"
+    assert all(
+        "default" not in question
+        or question["default"] in {option["value"] for option in question["options"]}
+        for question in result["questions"]
+    )
+
+
+def test_all_bundled_enum_inputs_are_choices():
+    workflows = [
+        ROOT / "workflows/ticket-plan/workflow.yaml",
+        ROOT / "workflows/code-review/workflow.yaml",
+    ]
+    questions = []
+    for workflow in workflows:
+        result = load_and_validate({"path": str(workflow)})
+        assert "def" in result, result
+        questions.extend(p.build_questionary(result["def"])["questions"])
+
+    choices = {
+        q["id"]: q for q in questions if q["id"].startswith("input.") and q["kind"] == "choice"
+    }
+    assert set(choices) == {
+        "input.gap_mode",
+        "input.review_mode",
+        "input.branch_mode",
+        "input.implement_mode",
+        "input.mode",
+    }
+    assert [option["value"] for option in choices["input.branch_mode"]["options"]] == [
+        "auto",
+        "current",
+        "ask",
+    ]
 
 
 @pytest.mark.parametrize(

@@ -11,9 +11,10 @@ import pytest
 
 from wise_engine.adapter_types import AgentHandle
 from wise_engine.daemon import DaemonRuntime, daemon_paths
+from wise_engine.defs import load_and_validate
 from wise_engine.executor import create_executor, load_caps, default_backoff_ms, detect_project
 from wise_engine.ledger import read_state, read_events, utc_now, usage_total
-from wise_engine.preflight import fill_answers
+from wise_engine.preflight import build_questionary, fill_answers
 from wise_engine.rpc import RpcError, domain_code, CallContext
 
 ENGINE = Path(__file__).resolve().parents[1]
@@ -564,6 +565,176 @@ def test_explicit_input_staging(tmp_path, mode, calls):
             run = await rig.conduct("gated-tuning", inputs={"mode": mode})
             assert (await rig.status(run["run_id"], "completed"))["inputs"]["mode"] == mode
             assert len(rig.adapter.calls) == calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "context,answers,expected_mode,active",
+    [
+        ({"decisions": {"mode": "on"}}, {}, "on", True),
+        ({"decisions": {"mode": "invalid"}}, {}, "off", False),
+        ({"decisions": {"mode": "on"}}, {"input.mode": "off"}, "off", False),
+        ({"decisions": {"mode": "on"}}, {"input.mode": ""}, "", False),
+    ],
+)
+def test_context_choice_gates_match_runtime_staging(
+    tmp_path, context, answers, expected_mode, active
+):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            defn = load_and_validate({"path": str(FIXTURES / "gated-tuning.yaml")})["def"]
+            staged = build_questionary(
+                defn,
+                {"context": context},
+                {"permissions.claude": "auto", **answers},
+            )
+            assert ("model.gated" in [question["id"] for question in staged["questions"]]) is active
+
+            params = {
+                "workflow": "gated-tuning",
+                "cwd": rig.cwd,
+                "answers": {"permissions.claude": "auto", **answers},
+                "context": context,
+            }
+            if active:
+                with pytest.raises(RpcError) as error:
+                    await rig.executor.run(params, rig.ctx)
+                assert domain_code(error.value) == "MISSING_ANSWERS"
+                assert error.value.data["missing"] == ["model.gated"]
+            else:
+                run = await rig.executor.run(params, rig.ctx)
+                state = await rig.status(run["run_id"], "completed")
+                assert state["inputs"]["mode"] == expected_mode
+                assert rig.adapter.calls == []
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("answers,expected", [({}, "engines"), ({"input.topic": ""}, "")])
+def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            run = await rig.executor.run(
+                {
+                    "workflow": "channel",
+                    "cwd": rig.cwd,
+                    "answers": {"permissions.claude": "auto", **answers},
+                    "context": {"guidance": "engines"},
+                },
+                rig.ctx,
+            )
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["topic"] == expected
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def enum_input_rig(tmp_path, default=None, optional=False):
+    definitions = tmp_path / "definitions"
+    definitions.mkdir()
+    optional_line = "    optional: true\n" if optional else ""
+    default_line = f'    default: "{default}"\n' if default is not None else ""
+    (definitions / "enum-input.yaml").write_text(
+        "version: 2\n"
+        "name: enum-input\n"
+        "inputs:\n"
+        "  - name: mode\n"
+        "    prompt: Mode?\n"
+        f"{optional_line}"
+        f"{default_line}"
+        "    from-context: decisions.mode\n"
+        '    validate: "^(auto|ask)$"\n'
+        "steps:\n"
+        "  - id: only\n"
+        "    type: bash\n"
+        '    run: echo "{{mode}}"\n'
+    )
+    return Rig(
+        tmp_path,
+        roots={"user_root": str(definitions), "bundled_root": str(BUNDLED)},
+    )
+
+
+@pytest.mark.parametrize(
+    "default,optional,answers,context,inputs,expected",
+    [
+        ("auto", False, {}, {"decisions": {"mode": "ask"}}, {}, "ask"),
+        ("invalid", False, {}, {"decisions": {"mode": "ask"}}, {}, "ask"),
+        ("auto", False, {}, {"decisions": {"mode": "invalid"}}, {}, "auto"),
+        ("ask", False, {"input.mode": "auto"}, {"decisions": {"mode": "ask"}}, {}, "auto"),
+        (
+            "ask",
+            False,
+            {"input.mode": "ask"},
+            {"decisions": {"mode": "ask"}},
+            {"mode": "auto"},
+            "auto",
+        ),
+        ("invalid", True, {}, {}, {}, ""),
+        ("auto", True, {"input.mode": ""}, {"decisions": {"mode": "ask"}}, {}, ""),
+    ],
+)
+def test_inferred_choice_runtime_precedence(
+    tmp_path, default, optional, answers, context, inputs, expected
+):
+    async def scenario():
+        rig = enum_input_rig(tmp_path, default, optional)
+        try:
+            run = await rig.executor.run(
+                {
+                    "workflow": "enum-input",
+                    "cwd": rig.cwd,
+                    "answers": answers,
+                    "context": context,
+                    "inputs": inputs,
+                },
+                rig.ctx,
+            )
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["mode"] == expected
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "default,answers,context,inputs",
+    [
+        (None, {"input.mode": "invalid"}, {}, {}),
+        (None, {}, {"decisions": {"mode": "invalid"}}, {}),
+        ("invalid", {}, {}, {}),
+        (None, {}, {}, {"mode": {"invalid": True}}),
+    ],
+)
+def test_run_rejects_invalid_inferred_choice_inputs(tmp_path, default, answers, context, inputs):
+    async def scenario():
+        rig = enum_input_rig(tmp_path, default)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "enum-input",
+                        "cwd": rig.cwd,
+                        "answers": answers,
+                        "context": context,
+                        "inputs": inputs,
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["missing"] == ["input.mode"]
+            assert [question["id"] for question in error.value.data["questions"]] == ["input.mode"]
+            assert rig.rt.list_run_dirs() == []
         finally:
             await rig.close()
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .constants import HARNESSES, RUN_MODES
@@ -9,6 +10,58 @@ from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 Json = dict[str, Any]
 
 PROFILE_DEFAULT = "medium"
+
+PLAIN_ALTERNATION_RE = re.compile(r"\^\(([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+)\)\$")
+
+
+def _input_options(validate: Any) -> list[Json] | None:
+    if not isinstance(validate, str):
+        return None
+    match = PLAIN_ALTERNATION_RE.fullmatch(validate)
+    if match is None:
+        return None
+    values = match.group(1).split("|")
+    if len(values) != len(set(values)):
+        return None
+    return [dict(value=value, label=value) for value in values]
+
+
+def input_choice_values(item: Json) -> set[str] | None:
+    options = None if item.get("extract") else _input_options(item.get("validate"))
+    if options is None:
+        return None
+    values = {option["value"] for option in options}
+    if item.get("optional"):
+        values.add("")
+    return values
+
+
+def choice_input_preset(item: Json, context: Json | None = None) -> str | None:
+    values = input_choice_values(item)
+    if values is None:
+        return None
+    candidates = (
+        resolve_from_context(item.get("from-context", ""), context),
+        item.get("default"),
+        "" if item.get("optional") else None,
+    )
+    return next(
+        (value for value in candidates if isinstance(value, str) and value in values),
+        None,
+    )
+
+
+def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
+    invalid = []
+    for item in definition.get("inputs", []):
+        values = input_choice_values(item)
+        name = item["name"]
+        if values is None or name not in inputs:
+            continue
+        value = inputs[name]
+        if not isinstance(value, str) or value not in values:
+            invalid.append(f"input.{name}")
+    return invalid
 
 
 def describe_tuning(value: Json) -> str:
@@ -282,11 +335,15 @@ def resolve_from_context(path: str, context: Json | None = None) -> str | None:
 def known_inputs(definition: Json, answers: Json, context: Json | None = None) -> Json:
     known = {}
     for item in definition.get("inputs", []):
-        value = _answer_string(answers.get(f"input.{item['name']}"))
-        if value is None:
-            value = resolve_from_context(item.get("from-context", ""), context)
-        if value is None:
-            value = item.get("default", "" if item.get("optional") else None)
+        answer_id = f"input.{item['name']}"
+        value = _answer_string(answers.get(answer_id))
+        if answer_id not in answers:
+            if input_choice_values(item) is not None:
+                value = choice_input_preset(item, context)
+            else:
+                value = resolve_from_context(item.get("from-context", ""), context)
+                if value is None:
+                    value = item.get("default", "" if item.get("optional") else None)
         if value is not None:
             known[item["name"]] = value
     return known
@@ -358,12 +415,24 @@ def build_questionary(
     if optional:
         push(_step_select_question(definition, optional))
     for item in list_inputs(definition):
-        q = dict(id=f"input.{item['name']}", kind="text", label=item["prompt"])
+        options = None if item.get("extract") else _input_options(item.get("validate"))
+        q = dict(
+            id=f"input.{item['name']}",
+            kind="choice" if options else "text",
+            label=item["prompt"],
+        )
+        if options:
+            if item.get("optional"):
+                options = [*options, {"value": "", "label": "Leave unset"}]
+            q["options"] = options
         if item.get("optional"):
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))
-        if preset is None:
-            preset = item.get("default", "" if item.get("optional") else None)
+        fallback = item.get("default", "" if item.get("optional") else None)
+        if options:
+            preset = choice_input_preset(item, ctx.get("context"))
+        elif preset is None:
+            preset = fallback
         if preset is not None:
             q["default"] = preset
         push(q)
