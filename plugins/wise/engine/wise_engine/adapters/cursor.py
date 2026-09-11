@@ -26,7 +26,7 @@ from .gemini import compose_prompt, extract_json
 
 CURSOR_BIN = "cursor-agent"
 CURSOR_KEY_VAR = "CURSOR_API_KEY"
-CURSOR_KEEP_VARS = ("CURSOR_CONFIG_DIR", "CURSOR_API_ENDPOINT")
+CURSOR_KEEP_VARS = ("CURSOR_CONFIG_DIR", "CURSOR_DATA_DIR", "CURSOR_API_ENDPOINT")
 RATE_LIMIT_RE = re.compile(r"rate.?limit|429|too many requests|usage limit|quota|exhausted", re.I)
 AUTH_RE = re.compile(
     r"authentication required|not authenticated|not logged in|unauthenticated|unauthorized|401|invalid api key|token expired|agent login",
@@ -176,6 +176,10 @@ async def start_cursor(
     bin: str = CURSOR_BIN,
     parent_env: Mapping[str, str | None] | None = None,
 ) -> AgentHandle:
+    if "mcp_config" in req:
+        from .cursor_acp import start_cursor_acp
+
+        return await start_cursor_acp(req, on_event, bin=bin, parent_env=parent_env)
     proc = await spawn_clean(
         bin,
         build_argv(req),
