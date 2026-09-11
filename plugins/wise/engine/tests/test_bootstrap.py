@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from unittest.mock import patch
 
 import pytest
@@ -92,6 +94,7 @@ def test_concurrent_startup_publishes_one_complete_environment(tmp_path):
     def start():
         return subprocess.run(
             [sys.executable, "-c", code, str(requirements), str(data)],
+            cwd=Path(__file__).parents[1],
             capture_output=True,
             text=True,
             timeout=60,
@@ -140,6 +143,7 @@ bootstrap.ensure_environment(requirements, data)
 """
     parent = subprocess.Popen(
         [sys.executable, "-c", code, str(requirements), str(data), str(pid_file)],
+        cwd=Path(__file__).parents[1],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
