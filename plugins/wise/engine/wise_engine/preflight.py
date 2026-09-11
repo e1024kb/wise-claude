@@ -7,13 +7,7 @@ from .models import catalog_for, catalog_model, default_effort, default_model
 from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 
 Json = dict[str, Any]
-LOGIN_CMDS = {
-    "claude": "claude auth login",
-    "codex": "codex login",
-    "cursor": "cursor-agent login",
-    "gemini": "gemini (interactive, then /auth)",
-    "grok": "grok login",
-}
+
 PROFILE_DEFAULT = "medium"
 
 
@@ -52,6 +46,8 @@ def _stage_harness(
     installed: list[str] | None,
     logged_out: list[str] | None = None,
 ) -> Json:
+    from .auth import LOGIN_CMDS
+
     base = _group_base(definition, group)
     default = base.get("harness", "claude")
     offered = [default, *[h for h in installed or [] if h != default]]
@@ -474,3 +470,30 @@ def complete_answers(definition: Json, ctx: Json, given: Json) -> Json:
         if not grew:
             break
     return {**filled, "questions": list(seen.values())}
+
+
+async def build_questionary_with_auth(
+    definition: Json, ctx: Json, answers: Json, lookup: Any
+) -> Json:
+    from .auth import logged_out_harnesses
+
+    questionary = build_questionary(definition, ctx, answers)
+    group_ids = [
+        question["id"][len("harness.") :]
+        for question in questionary["questions"]
+        if question["id"].startswith("harness.")
+    ]
+    if not group_ids:
+        return questionary
+    groups = {group["id"]: group for group in _groups(definition)}
+    defaults = [
+        _group_base(definition, groups[gid]).get("harness", "claude") if gid in groups else "claude"
+        for gid in group_ids
+    ]
+    harnesses = list(dict.fromkeys([*ctx.get("harnesses", []), *defaults]))
+    logged_out = await logged_out_harnesses(harnesses, lookup)
+    return (
+        build_questionary(definition, {**ctx, "logged_out": logged_out}, answers)
+        if logged_out
+        else questionary
+    )
