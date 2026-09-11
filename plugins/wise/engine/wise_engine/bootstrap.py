@@ -131,6 +131,8 @@ def ensure_environment(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--probe", action="store_true")
+    parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--script", type=Path)
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     try:
@@ -140,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     except (BootstrapError, OSError) as exc:
         print(f"wise-engine: {exc}", file=sys.stderr)
         return 69
-    if args.probe:
+    if args.probe or args.prepare:
         print(str(interpreter))
         return 0
     arguments = args.arguments
@@ -148,7 +150,12 @@ def main(argv: list[str] | None = None) -> int:
         arguments = arguments[1:]
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(ENGINE_ROOT)
-    os.execve(str(interpreter), [str(interpreter), "-m", "wise_engine", *arguments], environment)
+    environment["WISE_ENGINE_BASE_PYTHON"] = sys.executable
+    if args.script is not None:
+        command = [str(interpreter), str(args.script.resolve()), *arguments]
+    else:
+        command = [str(interpreter), "-m", "wise_engine", *arguments]
+    os.execve(str(interpreter), command, environment)
     return 0
 
 

@@ -1,29 +1,18 @@
-# insights-init-guard — require /wise-init before any insights command
+# insights-init-guard
 
-The `/wise-insights-*` commands are **gated on `/wise-init`**. A user who has not
-run the setup wizard cannot run mine or refine — this guard is the very first
-step of their procedure, before any enumeration, mining, or drafting.
-
-(Unlike the workflow `init-check.md`, this guard does **not** offer to bootstrap
-inline. `/wise-init` is the required entry point; insights stays off until it has
-run. The SessionEnd ingest hook is the one exception — it keeps recording
-sessions independently so the ledger is already populated once setup is done.)
-
-## Fire (first thing, one bash call)
+Insights commands require the init runtime check before enumeration, mining or drafting.
+The SessionEnd ingest hook records sessions independently.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
+"${WISE_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
 ```
 
-## Interpret stdout
-
-- **`INIT:ok`** → setup is complete. Proceed with the rest of the procedure.
-- **Anything else** — `INIT:uninit`, `INIT:stale:<dep>`, `INIT:dep-missing:<dep>`,
-  or **empty** output (Python / PyYAML not yet installed) → **STOP immediately.**
-  Print exactly, then end the turn:
+- `INIT:ok`: continue with the insights procedure.
+- Any other result, including no output when Python is unavailable: stop and say:
 
   > This command needs setup first. Run **/wise-init**, then re-run
   > `/wise-insights-<mine|refine>`.
 
-  Do NOT attempt to install anything, do NOT run `bootstrap-deps.sh`, and do NOT
-  do any insights work. `/wise-init` is the required gate.
+Do not bootstrap from this guard. Python 3.11+ and the managed environment are
+required; optional connector skips do not block insights. The registry check does
+not establish host MCP registration.

@@ -166,3 +166,21 @@ bootstrap.ensure_environment(requirements, data)
         if parent.poll() is None:
             parent.kill()
             parent.wait()
+
+
+def test_bootstrap_script_arguments_and_prepare_share_environment(tmp_path, monkeypatch, capsys):
+    from wise_engine import bootstrap
+
+    interpreter = tmp_path / "managed/bin/python"
+    script = tmp_path / "catalog with spaces.py"
+    calls = []
+    monkeypatch.setattr(bootstrap, "ensure_environment", lambda *args, **kwargs: interpreter)
+    monkeypatch.setattr(bootstrap.os, "execve", lambda *args: calls.append(args))
+    assert bootstrap.main(["--prepare"]) == 0
+    assert capsys.readouterr().out == str(interpreter) + "\n"
+    assert calls == []
+    assert bootstrap.main(["--script", str(script), "--", "literal $(no-shell)", "--text"]) == 0
+    assert calls[0][0] == str(interpreter)
+    assert calls[0][1] == [str(interpreter), str(script), "literal $(no-shell)", "--text"]
+    assert calls[0][2]["PYTHONPATH"] == str(bootstrap.ENGINE_ROOT)
+    assert calls[0][2]["WISE_ENGINE_BASE_PYTHON"] == bootstrap.sys.executable

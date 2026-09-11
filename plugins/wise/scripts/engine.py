@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -39,23 +38,16 @@ SKILLS_DIR = PLUGIN_ROOT / "skills"
 HELPER_NAME = "wise"
 
 
-def _bail_missing_deps() -> int:
-    """If yaml is missing, re-invoke bootstrap-deps.sh so the caller
-    gets the BOOTSTRAP: protocol tags it already knows how to handle."""
-    bootstrap = SCRIPT_DIR / "bootstrap-deps.sh"
-    if bootstrap.is_file():
-        result = subprocess.run(["bash", str(bootstrap)], capture_output=True, text=True)
-        sys.stdout.write(result.stdout)
-        sys.stderr.write(result.stderr)
-        return result.returncode or 1
-    print("engine: PyYAML missing and bootstrap-deps.sh not found", file=sys.stderr)
-    return 1
-
-
+sys.path.insert(0, str(SCRIPT_DIR.parent / "engine"))
 try:
-    import yaml
+    from wise_engine.yaml_compat import parse_yaml
+    from ruamel.yaml.error import YAMLError
 except ImportError:
-    sys.exit(_bail_missing_deps())
+    print(
+        "engine: run scripts/engine.sh to prepare the managed Python environment",
+        file=sys.stderr,
+    )
+    raise SystemExit(69)
 
 
 def load_frontmatter(path: Path) -> dict | None:
@@ -70,8 +62,8 @@ def load_frontmatter(path: Path) -> dict | None:
         return None
     fm_text = text[4:end]
     try:
-        loaded = yaml.safe_load(fm_text)
-    except yaml.YAMLError:
+        loaded = parse_yaml(fm_text)
+    except (ValueError, YAMLError):
         return None
     return loaded if isinstance(loaded, dict) else {}
 

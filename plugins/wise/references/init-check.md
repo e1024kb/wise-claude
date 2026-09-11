@@ -1,62 +1,30 @@
-# init-check — dependency fast-path for workflow skills
+# init-check
 
-The workflow skills (`run` / `resume` / `list` / `status`) all gate
-their first real work on the init-registry fast-path, falling back to a
-full dep probe when the registry is missing or stale. The protocol is
-identical; only the caller's own data call(s) differ, plus whether the
-caller drives the install loop (state-mutating skills) or just relays
-and stops (read-only skills).
+The init registry caches Python runtime readiness and optional setup decisions.
+The engine launcher independently prepares its managed dependencies when needed.
 
-## The one-message fire
+Run the check with the selected Python interpreter:
 
-In a SINGLE assistant message with NO text between the tool uses, fire
-together:
+```bash
+"${WISE_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
+```
 
-1. The init-check:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
-   ```
-2. The caller's data call(s) — e.g. `workflows.py list-defs`,
-   `list-resumable-runs`, `runs-root`, `list-runs <runs-root>`, or
-   `dump-state <state>` (whatever the caller specifies).
-3. Any `ToolSearch` the caller needs (e.g. `select:AskUserQuestion`
-   for a picker).
+- `INIT:ok`: the recorded Python runtime matches the current managed environment
+  and hashed requirements. Continue with the caller's engine or helper command.
+- `INIT:uninit`, `INIT:stale:*`, `INIT:dep-missing:*`, or no result: prepare the
+  managed runtime, then repeat the caller's command:
 
-Parse all results together in the next message.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
+```
 
-**Why parallel is safe.** `workflows.py` and `init-registry.py` both
-hard-fail identically when Python / PyYAML are absent (import error at
-the top of the file), so a broken environment makes the data-call
-output suspect — and the fallback below discards it. Worst case is one
-wasted fork whose stderr was silenced.
+`READY:<managed-python-path>` means runtime setup completed. `BOOTSTRAP:need-python`
+requires Python 3.11 or newer; show the installation options and let the user choose
+how to install or select Python. `BOOTSTRAP:install-failed` means the managed
+package installation failed; show stderr. Read-only callers may report the missing
+runtime and stop instead of driving an installation walkthrough.
 
-## Interpreting the result
-
-- **stdout `INIT:ok`** → registry good; use the data-call output
-  directly and proceed.
-- **Anything else** (`INIT:uninit` / `INIT:stale:*` /
-  `INIT:dep-missing:*` / empty stdout when Python is missing) →
-  discard the data-call output, nudge once, and run the full probe:
-
-  ```bash
-  echo "Tip: run /wise-init to cache dep probe results and speed up future runs." >&2
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
-  ```
-
-  Parse the probe stdout:
-
-  - `READY:<py-path>` → re-run the data call(s) and continue.
-  - `BOOTSTRAP:need-python` (+ one or more `OPTION:` lines):
-    - **State-mutating callers** (`wise-workflow-run`) drive an install
-      loop — relay the `OPTION:` install commands via `AskUserQuestion`
-      (`Install mise (recommended)` / `Install system Python 3` /
-      `Abort`, each description mirroring the `OPTION:` text), tell the
-      user to run them out of band, add a `Re-check` option, and re-run
-      bootstrap until `READY` or `Abort`.
-    - **Read-only callers** (`wise-workflow-list` / `-status`, and
-      `-resume`'s picker) may simply relay the `OPTION:` lines and stop
-      — there is nothing to proceed to without Python.
-  - `BOOTSTRAP:pip-failed` → relay stderr and stop.
-
-  Bootstrap auto-populates `.wise-init-registry.yaml` on a successful
-  probe, so the next invocation hits the fast path.
+The `--probe` form never installs or writes the registry. Successful installation
+refreshes the runtime entries while preserving optional connector skips. GitHub,
+provider logins, SSH and connector runtimes are checked only by actions that need
+them. `INIT:ok` does not prove host MCP registration or provider authentication.
