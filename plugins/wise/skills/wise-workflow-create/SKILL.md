@@ -71,6 +71,11 @@ Ask whether the workflow needs inputs. For each input collect `name`,
 `docs/wise/workflows.md` before using additional fields. Inputs become
 `{{name}}` template values. A missing required answer must remain a
 preflight question, not an invented value.
+For a fixed set of input values made of ASCII letters, digits, underscores or hyphens,
+use a plain anchored alternation such as `^(auto|ask)$` for `validate`; the engine
+emits those values as picker options when no extraction rule is needed. Use text
+for genuinely open-ended inputs and raw content requiring extraction.
+Do not use a general validation regex merely to encode a known literal enum.
 
 ## 3. Collect steps and dependencies
 

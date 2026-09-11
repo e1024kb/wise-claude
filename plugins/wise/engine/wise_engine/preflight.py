@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .constants import HARNESSES, RUN_MODES
@@ -9,6 +10,20 @@ from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 Json = dict[str, Any]
 
 PROFILE_DEFAULT = "medium"
+
+PLAIN_ALTERNATION_RE = re.compile(r"\^\(([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+)\)\$")
+
+
+def _input_options(validate: Any) -> list[Json] | None:
+    if not isinstance(validate, str):
+        return None
+    match = PLAIN_ALTERNATION_RE.fullmatch(validate)
+    if match is None:
+        return None
+    values = match.group(1).split("|")
+    if len(values) != len(set(values)):
+        return None
+    return [dict(value=value, label=value) for value in values]
 
 
 def describe_tuning(value: Json) -> str:
@@ -358,7 +373,16 @@ def build_questionary(
     if optional:
         push(_step_select_question(definition, optional))
     for item in list_inputs(definition):
-        q = dict(id=f"input.{item['name']}", kind="text", label=item["prompt"])
+        options = None if item.get("extract") else _input_options(item.get("validate"))
+        q = dict(
+            id=f"input.{item['name']}",
+            kind="choice" if options else "text",
+            label=item["prompt"],
+        )
+        if options:
+            if item.get("optional"):
+                options = [*options, {"value": "", "label": "Leave unset"}]
+            q["options"] = options
         if item.get("optional"):
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))

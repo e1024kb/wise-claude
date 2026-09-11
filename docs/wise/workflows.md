@@ -667,7 +667,15 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 The conductor requests `interactive: true`, so the MCP server renders
 one question at a time through the host's form UI. A host without MCP
 form support may use its native structured picker against the raw
-questionary. An asynchronous picker acknowledgement is not an answer: the
+questionary. `choice` questions use single-select controls; `multi` questions use
+native multi-select or a sequence of clickable Include/Exclude choices when the
+host only supports single-select. Known options belong in the tool's options
+field, not just its question text. Free text is reserved for open-ended content
+or an explicitly allowed custom answer. Strict literal input enums such as
+`^(auto|ask)$` without extraction become choice questions; general validation
+patterns and extracted inputs stay text. Optional enums retain a clickable
+`Leave unset` choice.
+An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
 turn may dismiss the pending form. If no persistent picker is available, it
 presents each engine question in plain text and waits for an explicit reply,

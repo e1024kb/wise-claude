@@ -137,9 +137,93 @@ decisions still apply. Do not add a question merely to use this procedure.
 
 Treat `AskUserQuestion` in skill prose as the host's supported question mechanism,
 not a guarantee of a blocking tool. Use only tools available in the current mode.
-Preserve the question's labels, values, and selection semantics. If a host picker
-cannot represent multiple selections, collect them explicitly through free text;
-never silently turn a multi-select question into a single-choice decision.
+Choose the control from the question's meaning and the live tool schema, not from
+the provider name. Claude, Codex, Cursor, and Grok sessions can expose different
+controls depending on their client and mode. Never invent a `multiSelect` field
+when the available tool does not declare it.
+
+| Question | Preferred control | When that control is unavailable |
+|---|---|---|
+| Exactly one known value (`kind: choice`, a mode, model, approval or confirmation) | Single-choice picker with every allowed option | Paginate options if the host limits their count; text only when no usable picker exists |
+| Any allowed subset (`kind: multi`, optional stages or several reviewers) | Native multi-select picker or MCP array-enum form | Use the single-choice sequence below; do not require typed lists |
+| Open-ended content (`kind: text`, a ticket URL, path, explanation or comments) | Free-text input | Ask the same open question in chat if no input tool exists |
+| Known choices plus an explicitly allowed custom answer (`allow_text`) | Picker with the known options and the host's custom-answer affordance | Keep the known choices clickable and collect custom text only when selected |
+
+Supply choices in the tool's **options field**, not merely in the question title.
+For example, a host exposing `request_user_input_async` with string options gets
+`{"questions":[{"title":"Review the plan before setup?","options":["Accept automatically","Ask for review"]}]}`.
+Map those labels back to the declared values (`auto` / `ask`) after the response.
+Omitting `options` creates a text-only prompt even if the title lists choices.
+For Claude-style tools use the declared option objects and multi-select flag;
+for other tools use their actual schema. Preserve labels, descriptions, stable
+values, and cardinality. Defaults may be highlighted, never silently submitted.
+
+Apply this dispatch order for every question, without provider-specific exceptions:
+
+1. Read the engine's `kind`, `options`, `default`, and constraints. They determine
+   the answer shape: `choice` is one declared value, `multi` is an array of declared
+   values, and `text` is a string. Do not reclassify a declared choice as text.
+   A gate with options is a choice; `allow_text` adds a custom-answer route, not
+   permission to hide its options. Skip already answered or locked questions.
+2. Inspect the tools actually available in this session and mode. Prefer supported
+   MCP form elicitation; otherwise use a native picker. In a tool with an `options`
+   property, that property must be populated for a choice. A title containing a
+   list of alternatives does not satisfy this requirement.
+3. Use native multi-select only if the tool explicitly declares it. For example,
+   the Codex asynchronous tool with only `title` and string `options` is
+   single-choice. Do not send it an invented multi-select argument, and do not
+   offer the original items as one single-choice question for a multi-select task.
+   Instead use the sequence below. If a Claude or another host's tool explicitly
+   supports multi-select, use that control directly.
+4. Respect the host's question-count and option-count limits. Split batches and
+   paginate without dropping choices. When only one real option exists but the
+   picker requires two, offer `Use <label>` and `Cancel`; do not invent a second
+   engine value. A host-provided Skip/Other control is not automatically valid.
+5. Wait for an actual response using the lifecycle below. Map display labels to
+   values, validate against the original question, then submit. Invalid free text,
+   display acknowledgements, navigation, unanswered items, and cancellation must
+   never reach the engine as completed answers.
+
+For workflow inputs, use the engine's questionary rather than extracting choices
+from prose or interpreting regexes in the conductor. The engine recognizes a
+strict literal enum such as `^(auto|ask)$` without extraction as a choice; general
+validation patterns and inputs requiring extraction remain text. Optional enum
+inputs include a declared `Leave unset` choice; preserve it like any other option.
+For non-engine skill questions, known alternatives such as
+Install/Skip, Delete/Keep, or a list of reviewers use the corresponding picker.
+
+For multi-select on a host with only single-choice pickers:
+
+1. Offer explicit shortcuts when valid: `Use default selection (N items)` (show
+   which items), `Choose individually`, and `None` only if an empty set is allowed.
+   Omit unavailable shortcuts rather than inventing a default. Respect the tool's
+   option-count limits.
+2. On `Choose individually`, ask `Include <item label>?` with clickable `Include`
+   and `Exclude` for each item. Keep the selected values locally; batch independent
+   item questions only when the tool supports it. Preserve any completed choices
+   when continuing an interrupted selection.
+3. Submit the resulting array under the original question ID only after every
+   item has an explicit answer and the selection satisfies the original constraints.
+   For an invalid selection, explain the constraint and reopen the item choices.
+   Shortcut labels, `Include`, `Exclude`, and navigation labels are UI controls,
+   never engine values. Cancellation or an unanswered item leaves the original
+   question unanswered. Never treat cancellation as an empty selection.
+
+For a long single-choice list, use pages with clickable navigation within the
+host's option-count limit. Navigation does not answer the underlying question.
+When a skill asks a bounded contextual question without an engine questionary,
+provide concise choices for the known alternatives; use free text only for content
+that cannot reasonably be enumerated. Do not invent an exhaustive option set for
+an open-ended question. Respect `allow_text: false` even if the host always exposes
+an Other box: reject an out-of-set reply rather than passing it to the engine.
+
+Example: research stages are a `multi` question with four declared option values.
+On a host with multi-select, show four checkboxes. On the current Codex-style
+single-choice async tool, first show clickable `Use default selection (all four)`,
+`Choose individually`, and `None` if allowed. Choosing individually then shows
+four Include/Exclude decisions and produces the same selected-value array as
+the checkboxes. Never ask the user to type stage IDs or comma-separated names
+when the single-choice picker is available.
 
 Check the native picker's response contract before collecting answers. A blocking
 picker returns the user's answer. An asynchronous picker (for example,
@@ -163,8 +247,9 @@ If a prior turn ended and its unanswered picker is no longer active, re-present
 that question when the user resumes the operation. Keep already supplied answers
 and do not merely report that the vanished question is still awaiting a selection.
 
-If the host cannot keep an asynchronous question alive, use a plain-text question
-instead of opening that picker, and wait for the user's next message. Apply this
+If the host cannot keep an asynchronous question alive and offers no blocking
+picker, use a plain-text question and wait for the user's next message. Missing
+native multi-select alone is not a reason to fall back to text. Apply this
 same lifecycle to preflight selections and workflow approval/ask gates.
 
 Pass this section's instructions to delegated interactive wizards. A headless
