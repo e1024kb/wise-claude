@@ -15,8 +15,8 @@ as `init-check.md`):
 
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
-[ -z "$sid" ] && sid="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" current-session-id 2>/dev/null)"
-# Same token rule as workflows.py's _profile_safe_sid(): plain token,
+[ -z "$sid" ] && sid="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" current-session-id 2>/dev/null)"
+# Same token rule as wise_engine.profile.profile_safe_sid(): plain token,
 # alnum first char, [A-Za-z0-9._-] only, never a path or dot-name.
 case "$sid" in ""|.|..|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) sid= ;; esac
 level="$(cat "${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile/${sid:-none}" 2>/dev/null)"
@@ -31,7 +31,7 @@ echo "PROFILE_OPUS_MODEL=$opus_model"
 ```
 
 Pure shell on the happy path (env var + `cat`) so it works before
-Python is installed; the `workflows.py current-session-id` fallback
+Python is installed; the `wise-helpers.py current-session-id` fallback
 covers older Claude Code builds without the env var, and its failure
 falls through to `medium` like everything else.
 

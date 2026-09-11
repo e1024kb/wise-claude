@@ -58,7 +58,7 @@ All three are **gated on `/wise-init`** — see [The `/wise-init` gate](#the-wis
 
 All persistent state is off the project tree, under the wise data root
 (`~/.local/share/wise/`, honouring `XDG_DATA_HOME`; resolved via
-`wise_data_root()` in `scripts/workflows.py`):
+`wise_data_root()` in `engine/wise_engine/paths.py`):
 
 ```
 ~/.local/share/wise/insights/

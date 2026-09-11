@@ -14,7 +14,7 @@ description: >-
   "what's left", "summarize the session", "session summary", "what's
   next", "handoff report", or types `/wise-report`.
 argument-hint: "[--full] [--save]"
-allowed-tools: Read, Write, Grep, Glob, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(date:*), Bash(mkdir:*), Bash(pwd:*), Bash(tr:*), Bash(basename:*), Bash(dirname:*)
+allowed-tools: Read, Write, Grep, Glob, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py:*), Bash(date:*), Bash(mkdir:*), Bash(pwd:*), Bash(tr:*), Bash(basename:*), Bash(dirname:*)
 ---
 
 # /wise-report - verified session status report
