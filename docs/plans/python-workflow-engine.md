@@ -46,7 +46,7 @@ Use Python 3.11+ as the initial minimum, matching current CI. Use `asyncio` for 
 Dependency decisions to lock in P1:
 
 - Replace the TypeScript MCP SDK with the official Python `mcp` package. Preserve explicit tool schemas and result envelopes rather than accepting framework-generated interface changes. Select and pin a stable release after the MCP spike; do not automatically adopt a prerelease or hand-write MCP transport. [Official Python SDK](https://github.com/modelcontextprotocol/python-sdk).
-- Use `ruamel.yaml` for YAML 1.2 loading and the existing comment-preserving definition migration command. Its round-trip loader preserves comments; prove behavior on this repository's fixtures. Do not assume PyYAML's scalar coercion matches the current `yaml` package. Existing PyYAML use in the separate skill catalog can remain. [Official YAML API](https://yaml.dev/doc/ruamel.yaml/api/).
+- Use `ruamel.yaml` for YAML 1.2 loading and comment-preserving definition migration. Its round-trip loader preserves comments; prove behavior on this repository's fixtures. Do not assume PyYAML's scalar coercion matches the current `yaml` package. Existing PyYAML use in the separate skill catalog can remain. [Official YAML API](https://yaml.dev/doc/ruamel.yaml/api/).
 - Use typed dataclasses/TypedDicts and explicit validators for engine domain objects. Use the MCP SDK's schema facilities where needed, without changing unknown-key warnings, strictness, or absent/null handling. Do not expand accepted workflow schemas as a side effect of the port.
 - Retain `python-ulid` if needed to preserve current run identifiers. Audit actual imports before removing `typing_extensions` or other existing Python dependencies.
 - Development tools: pytest, Ruff, and mypy. Avoid introducing a Node-backed type checker. Add async test support only where tests need it.
@@ -107,7 +107,7 @@ There will be one production executor after cutover. Temporary TypeScript/Python
 
 Existing v2 runs must remain readable and resumable. Preserve their storage schema unless P0 finds an unavoidable incompatibility; that would require an explicit versioned migration and a revised gate before proceeding.
 
-Existing v1 definitions may be converted through the Python `migrate` command. Preserve dry-run default, `--out`, backup behavior for `--write`, warnings/manual notes, comment preservation, and validation exit status. This converter is an import utility, not a second execution solution.
+Existing v1 definitions may be converted through the Python `migrate` command. Preserve dry-run default, `--out`, backup behavior for `--write`, warnings/manual notes, and validation exit status. Comment preservation is an intentional improvement: the current converter explicitly drops comments. Test preservation separately and remove that obsolete warning only once it is true. This converter is an import utility, not a second execution solution.
 
 Do not convert v1 `state.yaml` runs into resumable v2 runs automatically: steps, teams, and side effects do not map safely. Preserve their files unchanged. Report them as unsupported legacy runs with guidance to migrate the definition and start a new run after reviewing already-completed side effects. Read-only legacy detection does not authorize execution. Do not delete historical runs, user definitions, or worktrees as part of code removal.
 
@@ -131,7 +131,7 @@ Depends on P0.
 
 - [ ] Add package, dependency declarations/locks, and development commands; keep production entry point on TypeScript for now.
 - [ ] Implement isolated Python parent/child MCP prototypes with the existing schemas, including long polls, cancellation, host disconnect, progress, and structured errors.
-- [ ] Prove subprocess streaming and process-group shutdown on macOS and Linux.
+- [x] Prove subprocess streaming and process-group shutdown on macOS and Linux.
 - [ ] Prove managed-environment bootstrap from a read-only plugin copy without JavaScript tools on PATH, including concurrent startup and failed-install recovery.
 - [ ] Confirm Python minimum and exact dependency versions; record them here.
 
@@ -349,3 +349,9 @@ P0 gate passed on macOS with the isolated pytest invocation documented above. No
 - Six bootstrap tests pass on macOS and in a read-only Docker mount using Python 3.11 on Linux. Ruff and mypy pass for package/bootstrap modules. Concurrent real environment creation is exercised; failed-install recovery and symlink protection are covered.
 - Full hashed runtime installation and `python -m wise_engine.bootstrap -- version` succeeded from a read-only plugin copy with spaces and Unicode in its path, cwd `/tmp`, and PATH restricted to `/usr/bin:/bin` (no JavaScript runtime on that path).
 - MCP and subprocess tasks remain separate P1 gates. This package does not yet implement workflow execution.
+
+### P1 subprocess foundation
+
+- `wise_engine/spawn.py` preserves clean-environment inheritance, explicit overrides, safe stdin writes, UTF-8 chunk decoding, UTF-16 stderr limits, process-group signals, timeout escalation, and failed-spawn results. Cancellation kills and reaps the child, including immediate cancellation.
+- 27 subprocess tests pass on macOS and Python 3.11 Linux Docker. Ruff and mypy pass. No provider or network access is used by these tests.
+- Investigation corrected the migration premise: TypeScript's v1 converter explicitly drops source comments. Python comment retention remains a required improvement, not a golden-output equality assertion.
