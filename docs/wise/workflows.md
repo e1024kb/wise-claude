@@ -806,11 +806,26 @@ derived from it. Never under the project tree, never auto-cleaned.
 
 ## Child channel
 
-Every child loads one MCP server, `wise-engine`, using the current managed
-Python interpreter with `-m wise_engine unit-mcp` and the engine package on
-`PYTHONPATH`, with `WISE_STEP_TOKEN`,
-`WISE_ENGINE_SOCKET`, `WISE_DATA_ROOT` in its environment. The token is
-scoped to one step of one run; a wrong token is `TOKEN_INVALID`.
+Each agent step receives a child MCP server using the current managed Python
+interpreter with `-m wise_engine unit-mcp`. Its environment carries the engine
+package path, daemon socket and token scoped to that step. An invalid or expired
+token produces `TOKEN_INVALID`. Provider-specific server names keep the child
+channel separate from an inherited conductor server.
+
+| Provider | Per-step registration |
+|---|---|
+| Claude | Its native `--mcp-config` argument supplies the child server. |
+| Codex | Per-invocation config overrides add a unique server; `env_vars` forwards the token through the process environment. User config and authentication stay in place. |
+| Cursor | ACP session creation/resume supplies a unique MCP server. A private stdio wrapper confirms initialization before the prompt is sent. Legacy print-session stores are copied read-only into new ACP sessions for resume; originals remain intact. The ordinary print path remains available for dispatches without a child channel. |
+| Gemini | A private system-settings overlay adds a unique server and preserves existing system settings/defaults. Authentication and user/project settings remain in their original locations. |
+| Grok | A private provider-home overlay adds a unique server. The original auth path and persistent sessions remain available; the leader socket is isolated. Only the four child tools receive explicit grants. |
+
+The Codex, Cursor, Gemini and Grok adapters forward injected token values through
+process environments; private configuration files contain references to those values. Temporary files are removed after exit,
+timeout, cancellation or startup failure. Cursor and Grok reject explicit
+`mcp: engine-only` because their supported registration routes also inherit
+provider-configured servers. This field remains a Claude-specific isolation
+control; it is not a portable promise across providers.
 
 | Tool | Params | Result |
 |---|---|---|
@@ -821,7 +836,7 @@ scoped to one step of one run; a wrong token is `TOKEN_INVALID`.
 
 Main to child: `wise_nudge {run_id, step, message}` writes a user
 message into a Claude child's stdin (`--input-format stream-json`);
-codex and grok have no open stdin, `delivered: false`.
+the other provider adapters currently return `delivered: false`.
 
 ## Unit pipelines
 
@@ -903,7 +918,7 @@ skipped, a unit with a verdict is skipped.
 Server `wise-engine` uses a fixed managed launcher under
 `$HOME/.local/share/wise/bin/wise-engine`. `/wise-init` registers it for the
 current host. The bundled `.mcp.json` is empty to avoid duplicate transports.
-The tool schemas and descriptions are in `engine/wise_engine/mcp.py`.
+The tool schemas and descriptions are in `engine/wise_engine/mcp_server.py`.
 
 | Tool | Params | Returns |
 |---|---|---|

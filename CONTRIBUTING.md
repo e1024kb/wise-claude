@@ -691,8 +691,9 @@ resolves XDG and harness-neutral data-root overrides.
   or API authentication. Harness availability and authentication are separate
   checks; choosing one harness does not require installing every provider.
 - Keep standalone supervision separate from the engine's child stale watch.
-- Host-specific setup and MCP registration instructions are finalized by the
-  P6 work in the [Python engine plan](docs/plans/python-workflow-engine.md).
+- Host registration uses the stable managed launcher. Per-step child MCP
+  registration belongs to provider adapters; see the [workflow reference](docs/wise/workflows.md)
+  and [host control](plugins/wise/references/workflow-host-control.md).
 
 ### 9.3 Definition schema (v2)
 

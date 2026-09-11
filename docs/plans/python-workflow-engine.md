@@ -198,7 +198,7 @@ Depends on P5. This is workstream 2, after the Python migration.
 - [x] Implement the shared Python launcher resolution and minimal host registration adapters. Cover fresh installs, read-only caches, spaces/Unicode paths, symlinks, relocation, and version-changing upgrades without manual path edits.
 - [x] Update init scripts/skill, registry ownership and invalidation, plugin MCP configuration, installation instructions, and workflow run/resume/status skills. Remove Claude-only assumptions from conductor setup and dependency requirements.
 - [x] Add staged diagnostics for unresolved launcher, startup exit, dependency failure, handshake failure, missing tools, unavailable session tools, daemon failure, and selected-provider login. Preserve previously chosen optional-dependency skips.
-- [ ] Test each host configuration launching the real Python MCP server: initialize, list tools, and call `wise_status`. Native startup passed for all four, inventory passed for Codex/Cursor/Grok, and native tool calls passed through Codex app-server. Other hosts use the tested CLI control fallback; their native conversational tool calls remain unverified. A direct subprocess is a diagnostic control, not proof the host configuration works.
+- [x] Test each host configuration launching the real Python MCP server: initialize, list tools, and call `wise_status`. Native startup, inventory and calls passed for all four: Codex through no-model app-server control; Claude Haiku, Cursor Mini and Grok 4.5 through native model sessions. Cursor needs its exact MCP permission grant. See final evidence and isolation limits below; no direct subprocess is counted as host proof.
 - [x] Test preflight, run, wait, approval/question answers, cancel, and resume through each host's supported interaction route against disposable fixtures. Verify all eight parent tools and four child tools where those respective interfaces are used.
 - [x] Test launching from a non-Claude host with Claude absent and a different provider selected. Verify conductor host and child-provider selection remain independent.
 - [x] Test registration update/rollback without disturbing unrelated host configuration, active runs, or saved history. Verify stale registry records cannot hide launch failures.
@@ -213,7 +213,7 @@ Depends on P6.
 - [x] Rehearse v1 definition import and unsupported-v1-run handling; original files remain unchanged unless conversion was explicitly requested.
 - [x] Rehearse daemon replacement with active and idle old daemons. Never run both implementations against the same socket/ledger.
 - [x] Run end-to-end MCP/CLI workflows in disposable projects: success, approval, question, cancel, failed-step resume, fallback, child checkpoint, and units pipeline.
-- [x] Verify the documented four-host control routes from P6 and at least one authorized live child-provider execution. Codex subscription smoke passed; native conversation UI/calls outside the tested app-server route remain tracked by the separate P6 item.
+- [x] Verify the documented four-host control routes from P6 and at least one authorized live child-provider execution. Codex subscription execution and Cursor child-tool execution passed. All four native parent-call routes also passed; graphical pickers remain optional and unverified.
 - [x] Confirm final test mapping, dependency inventory, changed public contracts, and rollback rehearsal in this plan.
 
 Gate: all acceptance criteria below pass. Publishing, pushing, tagging, merging, or running real ticket automation remains a separate release action.
@@ -506,13 +506,13 @@ protection and read-only-cache restart. Existing daemon tests retain idle/active
 replacement regressions without requiring a historical runtime.
 
 
-P6 evidence boundary: Claude native `mcp get` proves a real-server connection;
+Earlier P6 evidence boundary: Claude native `mcp get` proves a real-server connection;
 Cursor native `list-tools` and Grok native doctor prove the eight-tool inventory.
 Codex app-server additionally calls the real tools and completes the lifecycle
 with no model turn. Every host binding completes the explicit CLI interaction
 route, including status, staged input, approval, question, interrupted resume and
-cancel. Native conversation pickers and native conversational tool calls outside
-Codex's app-server control remain unverified; the tested CLI fallback is the
+cancel. At that stage, native conversation pickers and native tool calls outside
+Codex's app-server control were unverified; the tested CLI fallback is the
 supported route when those capabilities are absent. Cursor requires native
 `mcp enable wise-engine`; the test proves that approval preserves the managed
 registration fingerprint.
@@ -526,11 +526,10 @@ is proven effective through the actual host.
 Final macOS working-tree check: `just check` passed 1,468 tests, all seven repository
 validation sections, mypy on 61 modules, Ruff and format on 101 files, Python syntax,
 JSON manifests and shell syntax. The subsequent permanent literal-path regression
-and all five native-host tests passed separately. Frozen final Linux verification
-will be recorded after the implementation commit.
+and all five native-host tests passed separately. The corresponding frozen Linux verification follows below.
 
 
-### Final verification and remaining release gates
+### Verification before child-transport completion
 
 Implementation freeze: `bd36b9848e525825524f5324d3f87cf78280f233`.
 
@@ -547,11 +546,11 @@ seven validator sections, mypy on 61 source modules, Ruff/format on 101 files,
 Python compilation, JSON manifest validation and shell syntax checks. Linux logs
 are `/tmp/wise-final-linux-check.log` and `/tmp/wise-final-linux-skips.log`.
 
-The final acceptance checklist records implemented behavior and the tested CLI
-interaction route. The P6 native conversational-call item stays unchecked; the
-subsequent live-provider smoke test closes the P7 provider item. Native
-conversational forms/pickers outside the Codex no-model app-server route remain
-unverified. No push or publication occurred.
+At this earlier freeze, the acceptance checklist recorded implemented behavior
+and the tested CLI interaction route; native calls outside Codex were pending.
+The later child-transport and native parent-call checks below supersede that
+status. Native graphical forms/pickers remain unverified; the explicit-answer
+CLI route is supported. No push or publication had occurred at this freeze.
 
 ### Authorized live Codex smoke test
 
@@ -578,3 +577,104 @@ Evidence remains outside the repository under `/tmp/wise-live-gncyiwuf`:
 workspace marker. This verifies live authentication, provider dispatch, structured
 output, usage capture and completion. It does not verify live child-tool calls or
 native conversational pickers. No runtime code changed for this check.
+
+
+### Child-provider transport completion
+
+The final provider audit found that only Claude consumed the canonical child MCP
+configuration. Codex, Cursor, Gemini and Grok now inject the four scoped child
+tools through supported provider interfaces. Codex uses per-invocation TOML
+settings, Cursor uses ACP session MCP servers, Gemini uses a private system
+settings overlay, and Grok uses a private provider-home overlay with the original
+auth path and persistent sessions. New server aliases isolate simultaneous steps
+from inherited parent registrations. Injected token values travel through process
+environments, not command arguments or the new adapters' temporary config files.
+Temporary files are private and removed on success, failure, timeout and cancellation.
+
+Cursor confirms the MCP initialization response before sending a model prompt,
+because native ACP can return a session after an MCP startup failure. Its permission
+handler grants only the four child tools on the exact injected alias and otherwise
+uses Wise's permission policy. Existing print-session SQLite stores are opened
+read-only and backed up into unique ACP sessions; native loading preserves stored
+mode and initializes the new child server, while original stores remain unchanged.
+Cursor and Grok reject explicit `mcp: engine-only` rather than claim isolation that
+their inherited-config interfaces cannot provide. That field remains documented
+as Claude-specific.
+
+Deterministic adapter tests cover arguments, config preservation, token handling,
+concurrency, permissions, cleanup and resume. Native no-model checks verify Codex
+child tool calls through app-server, Cursor new/load initialization and legacy
+SQLite import, Gemini settings-overlay initialization, and Grok native MCP doctor.
+These use installed provider CLIs; no synthetic process is represented as a native
+provider proof.
+
+On 2026-09-11, live Cursor run `01M275DBQRG2F64E6JHVCKXTE9` used
+`gpt-5.4-mini-low` with approval-required mode in a disposable workspace. It
+completed from 02:40:40 to 02:40:51 UTC, called the injected `wise_context` tool
+exactly once with `key: guidance`, and returned `{"result":"WISE_CHILD_MCP_OK"}`.
+No other tool call occurred. The workspace marker remained byte-identical and the
+daemon stopped. ACP exposes no token usage, so its recorded zero counters mean
+unavailable usage, not free execution. Evidence is under
+`/tmp/wise-child-live-x1fmx934`. The subsequent token-transport adjustment passed
+native no-model initialization tests with the final environment forwarding.
+
+
+### Final child-transport verification
+
+Runtime freeze: `e861da897fa04b841aff88f1fdbe397b7f5b3f41`.
+
+- macOS Python 3.13: unmodified `just check`, 1,526 tests passed, no skips;
+  mypy checked 63 source modules and Ruff/format checked 107 files.
+- Linux Python 3.11.16 and just 1.40.0: fresh archive, unmodified `just install`
+  and `just check`, 1,510 passed and 16 expected skips. Node, npm, Bun and npx
+  were absent. Fifteen skips require native provider CLIs; one requires an SSH
+  agent. Those provider cases pass on macOS.
+- Both platforms passed all repository validators, Python compilation, JSON
+  manifest validation and shell syntax checks.
+
+Evidence: `/tmp/wise-child-final-check.log`, `/tmp/wise-child-linux-check.log`,
+and `/tmp/wise-child-linux-qvpbsyg0` (disposable archived checkout).
+
+Native parent-call follow-up used lower available models. Claude Haiku 4.5 loaded
+the managed project MCP configuration through its native `--mcp-config` interface,
+connected to the real Python server, and called `wise_status` exactly once. It
+read existing run history without invoking other tools; the temporary project
+marker and registration remained unchanged. The launcher daemon stopped afterward.
+Evidence: `/tmp/wcp-ef5qjrt6`. A first attempt relied on pending project approval
+and could not discover the server; explicitly loading the same native configuration
+provided the supported headless route.
+
+Grok 4.5 Build loaded the temporary managed registration, passed native MCP doctor
+with all eight tools, called `wise_status` exactly once and returned `[]`.
+Its three-turn response completed normally. The existing authentication file was
+referenced through `GROK_AUTH_PATH`, never copied. All data/socket/provider roots
+were isolated; the fixture workspace stayed empty and the daemon stopped.
+Evidence: `/tmp/wise-grok-native-final.dLGxgm`. Earlier fixture attempts lacked the
+auth pointer or stopped during schema discovery under a two-turn cap; neither was
+counted as a successful tool call.
+
+
+Cursor's final native parent call used `gpt-5.4-mini-low`, the canonical physical
+workspace path and only `Mcp(wise-engine:wise_status)` as an MCP allow rule, with
+shell/write and unrelated-plugin MCP denials. It executed `wise_status({})`
+exactly once and completed successfully. Initial probes exposed two host rules:
+symlink aliases select different approval records, and Ask mode denies MCP tools
+without an explicit allow rule. A trial read-only annotation did not change that
+policy and was removed, leaving the captured tool contract unchanged.
+
+Cursor filtered the probe's inherited data/socket environment overrides when
+launching its MCP process, so the successful query read existing user run summaries
+rather than the temporary ledger. No workflow mutation occurred. The actual daemon
+had zero running runs and was stopped after verification; the temporary daemon
+also stopped. The workspace marker and managed config were unchanged, but inherited
+Remember plugin hooks created `.remember` files. This is reported as a native
+read-only tool-call proof, not a fully isolated or write-free provider session.
+Evidence: `/tmp/wise-cursor-parent-nvr2339q/grant-report.json` and
+`grant-live.stdout`. The separate Cursor child-provider smoke used an isolated
+ledger and unchanged workspace.
+
+P0-P7 and all plan checkboxes are complete. Native graphical picker behavior is
+not claimed; every host has the tested explicit-answer CLI route. Optional Drive,
+Figma and Linear authentication remains skipped as requested. The user subsequently
+authorized pushing this feature branch, creating a PR, handling review/CI feedback
+and merging once green. Release review and merge follow these implementation checks.

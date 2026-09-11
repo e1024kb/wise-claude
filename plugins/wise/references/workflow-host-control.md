@@ -106,7 +106,12 @@ or restart the host and verify that only the managed Wise server remains.
   `cursor-agent mcp list-tools wise-engine` to start and list the server's tools.
   An unapproved-server error requires this native enable step, not another config
   rewrite. The tested CLI advertises form elicitation. Restart its session after
-  config repair and verify the actual conversation's tool availability.
+  config repair and verify the actual conversation's tool availability. Use the
+  same canonical workspace path for native approval and execution; symlink aliases
+  can select different approval records. Cursor Ask mode also requires an explicit
+  tool permission for MCP calls, even for status queries. A narrowly scoped
+  `Mcp(wise-engine:wise_status)` allow rule permits status without granting other
+  workflow actions; use native approval for the actions the user actually requests.
 - Grok: `grok mcp doctor wise-engine --json` checks launch, handshake and tools.
   Its tested doctor connection does not advertise elicitation. `/mcps` opens
   native MCP controls; `r` refreshes config in the TUI. A healthy doctor result
