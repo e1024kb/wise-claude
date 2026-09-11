@@ -16,11 +16,33 @@ from .version import runtime_version, source_build_id
 USAGE = """wise-engine <command> [options]
 
 Commands:
+  preflight <workflow> [--answers <json>] [--context <json>]
+                              questionary spec: {workflow, version, questions, defaults}; --answers
+                              gives the answers so far and returns the next stage
   compile-check <workflow>...  validate definitions; exit 1 on any error
   migrate <workflow.yaml> [--write] [--out <path>]
-                               rewrite a v1 workflow as v2; dry run unless --write or --out
+                               rewrite a v1 workflow as v2; dry run unless --write (in place,
+                               original kept as <file>.v1.bak) or --out; exit 1 if the result
+                               still has validation errors
   list-defs                    bundled and user workflow definitions
-  models [harness...] [--text] model catalog per harness
+  run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v] [--follow]
+                               start a run through the daemon (auto-started)
+  wait|status|answer|cancel|resume|report ...
+                               daemon client commands; see each command's --help
+  daemon serve|start|stop|status
+                               background daemon wise-engined
+  mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)
+  unit-mcp [--token <t>]       child-side stdio MCP server (wise_report/ask/context/checkpoint);
+                               token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT
+  auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);
+                               exit 1 when claude is missing or logged out
+  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)
+  dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]
+           [--mode approval-required|auto|full-access] [--cwd <dir>] [--timeout-s <n>]
+           [--add-dir <dir>] [--allowed-tools <a,b>] [--text]
+                               one child run on any harness, no daemon or ledger; prints one
+                               JSON result (or the child's text under --text); exit 1 on a
+                               failed child
   version                      plugin version and runtime
   help                         this text
 
@@ -181,11 +203,149 @@ def cmd_migrate(parsed: Json, io: Io) -> int:
     return 0 if result["ok"] else 1
 
 
+def adapter_lookup(harness: str) -> Any:
+    from .adapters import adapter_for, has_adapter
+
+    return adapter_for(harness) if has_adapter(harness) else None
+
+
+async def cmd_preflight(parsed: Json, io: Io) -> int:
+    from .auth import installed_harnesses
+    from .preflight import build_questionary_with_auth
+
+    if not parsed["positional"]:
+        io.err("preflight: missing <workflow>\n")
+        return 64
+    ref = parsed["positional"][0]
+    located = locate(ref, parsed, io)
+    if located is None:
+        io.err(f"preflight: workflow not found: {ref}\n")
+        emit(
+            io,
+            parsed,
+            {"error": {"code": "WORKFLOW_NOT_FOUND", "workflow": ref}},
+            lambda: "not found",
+        )
+        return 2
+    validation = load_and_validate(located)
+    definition, issues = validation.get("def"), validation["issues"]
+    if definition is None:
+        emit(
+            io,
+            parsed,
+            {"error": {"code": "WORKFLOW_INVALID", "workflow": located["name"], "issues": issues}},
+            lambda: "\n".join([f"{located['path']}: invalid", *map(format_issue, issues)]),
+        )
+        return 1
+    answers: Json = {}
+    context: Json | None = None
+    for name in ("answers", "context"):
+        value = flag_string(parsed["flags"], name)
+        if value is None:
+            continue
+        try:
+            decoded = json.loads(value)
+        except ValueError as error:
+            io.err(f"preflight: --{name} is not JSON: {error}\n")
+            return 64
+        if name == "answers":
+            answers = decoded
+        else:
+            context = decoded
+    ctx: Json = {"harnesses": installed_harnesses(definition, adapter_lookup, io.env)}
+    if context is not None:
+        ctx["context"] = context
+    questionary = await build_questionary_with_auth(definition, ctx, answers, adapter_lookup)
+    result = {
+        "workflow": located["name"],
+        "version": definition["version"],
+        "questions": questionary["questions"],
+        "defaults": questionary["defaults"],
+        "warnings": [issue for issue in issues if issue["level"] == "warning"],
+    }
+
+    def render() -> str:
+        lines = [f"{located['name']} v{definition['version']}"]
+        for question in questionary["questions"]:
+            default = (
+                " (default: "
+                + json.dumps(question["default"], ensure_ascii=False, separators=(",", ":"))
+                + ")"
+                if "default" in question
+                else ""
+            )
+            lines.append(
+                f"  {question['id']} [{question['kind']}{', locked' if question.get('locked') else ''}] {question['label']}{default}"
+            )
+        return "\n".join(lines)
+
+    emit(io, parsed, result, render)
+    return 0
+
+
+async def cmd_auth(parsed: Json, io: Io) -> int:
+    from .auth import LOGIN_CMDS, probe_one
+    from .defs import on_path
+
+    rows = []
+    for harness in parsed["positional"] or HARNESSES:
+        if harness not in HARNESSES:
+            io.err(f"auth: unknown harness {harness} (one of {', '.join(HARNESSES)})\n")
+            return 2
+        installed = on_path(harness, io.env)
+        probe = (
+            await probe_one(harness, "subscription", adapter_lookup)
+            if installed
+            else {"ok": False, "login_cmd": LOGIN_CMDS[harness]}
+        )
+        rows.append(
+            {
+                "harness": harness,
+                "installed": installed,
+                "login": "ok" if probe["ok"] else "missing",
+                "login_cmd": probe["login_cmd"],
+            }
+        )
+    if parsed["flags"].get("json"):
+        io.out(json.dumps(rows, separators=(",", ":")) + "\n")
+    else:
+        for row in rows:
+            io.out(
+                f"HARNESS={row['harness']} INSTALLED={'yes' if row['installed'] else 'no'} LOGIN={row['login']} LOGIN_CMD={row['login_cmd']}\n"
+            )
+    claude = next((row for row in rows if row["harness"] == "claude"), None)
+    return 1 if claude and claude["login"] != "ok" else 0
+
+
 async def main(argv: Sequence[str], io: Io | None = None) -> int:
     io = io or Io()
     parsed = parse_args(argv)
     try:
         command = parsed["cmd"]
+        if command == "daemon":
+            from .daemon import daemon_command
+
+            return await daemon_command(list(argv[1:]), io)
+        if command in ("mcp", "unit-mcp"):
+            from .mcp_server import mcp_command, unit_mcp_command
+
+            return await (
+                mcp_command(list(argv[1:]), io)
+                if command == "mcp"
+                else unit_mcp_command(list(argv[1:]), io)
+            )
+        if command in ("run", "status", "answer", "cancel", "resume", "report", "wait"):
+            from .cli_client import client_command
+
+            return await client_command(list(argv), io)
+        if command == "preflight":
+            return await cmd_preflight(parsed, io)
+        if command == "auth":
+            return await cmd_auth(parsed, io)
+        if command == "dispatch":
+            from .dispatch import DispatchIo, cmd_dispatch
+
+            return await cmd_dispatch(parsed["flags"], DispatchIo(io.out, io.err))
         if command == "compile-check":
             return cmd_compile_check(parsed, io)
         if command == "list-defs":

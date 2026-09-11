@@ -82,3 +82,76 @@ def test_migration_cli_dry_run_write_backup_and_v2(tmp_path):
     assert code == 0, err
     assert json.loads(out)["already_v2"]
     assert invoke("migrate")[0] == 64 and invoke("migrate", "absent.yaml")[0] == 2
+
+
+def test_preflight_shape_stages_and_context(monkeypatch):
+    import wise_engine.cli as cli
+
+    monkeypatch.setattr(cli, "adapter_lookup", lambda _: None)
+    groups = [
+        "analyze-design",
+        "research-context",
+        "codebase-audit",
+        "gap-analysis",
+        "build-plan",
+        "refine-plan",
+        "implement",
+    ]
+    answers = {
+        "step-select": ["analyze-design", "analyze-related", "research-context", "gap-analysis"],
+        **{"harness." + group: "claude" for group in groups},
+        "permissions.claude": "auto",
+        "model.analyze-design": "claude-sonnet-5",
+    }
+    workflow = str(ROOT / "workflows/ticket-plan/workflow.yaml")
+    code, out, err = invoke("preflight", workflow, "--answers", json.dumps(answers))
+    assert code == 0, err
+    result = json.loads(out)
+    assert result["workflow"] == "ticket-plan" and result["version"] == 2
+    assert [q["id"] for q in result["questions"] if not q["id"].startswith("input.")][:2] == [
+        "effort.analyze-design",
+        "model.research-context",
+    ]
+    assert result["defaults"]["effort.analyze-design"] == "medium"
+    code, out, err = invoke(
+        "preflight", workflow, "--context", '{"ticket":[{"ref":"A"},{"ref":"B"}]}'
+    )
+    assert code == 0, err
+    assert (
+        next(q for q in json.loads(out)["questions"] if q["id"].startswith("input."))["default"]
+        == "A, B"
+    )
+    assert invoke("preflight", workflow, "--answers", "{nope")[0] == 64
+    assert invoke("preflight", workflow, "--context", "{nope")[0] == 64
+    assert invoke("preflight", "absent")[0] == 2
+    assert invoke("preflight")[0] == 64
+    code, out, err = invoke("preflight", workflow, "--text", "--answers", json.dumps(answers))
+    assert code == 0 and "ticket-plan v2" in out and "effort.analyze-design" in out
+
+
+def test_auth_no_installed_harnesses_and_dispatch_usage():
+    code, out, err = invoke("auth", "--json", env={"PATH": ""})
+    rows = json.loads(out)
+    assert code == 1 and err == ""
+    assert all(not row["installed"] and row["login"] == "missing" for row in rows)
+    assert any(
+        row["harness"] == "cursor" and row["login_cmd"] == "cursor-agent login" for row in rows
+    )
+    assert invoke("auth", "unknown")[0] == 2
+    assert invoke("auth", "codex", env={"PATH": ""})[0] == 0
+    assert invoke("dispatch")[0] == 64
+
+
+def test_captured_cli_help_unknown_and_missing_preflight():
+    fixtures = ROOT / "engine/test/fixtures/contracts/cli.json"
+    for case in json.loads(fixtures.read_text()):
+        if case["args"][0] == "compile-check":
+            continue
+        assert invoke(*case["args"]) == (case["code"], case["out"], case["err"])
+
+
+def test_mcp_help_goes_to_stderr_without_start():
+    for command in ("mcp", "unit-mcp"):
+        code, out, err = invoke(command, "--help")
+        assert code == 0 and out == "" and f"wise-engine {command}" in err
+    assert invoke("daemon", "help")[0] == 0
