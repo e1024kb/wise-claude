@@ -5,7 +5,9 @@ import json
 import os
 import shutil
 import sys
+import sysconfig
 import tempfile
+import venv
 from pathlib import Path
 
 import pytest
@@ -47,14 +49,11 @@ def profile():
         workflow.write_text(WORKFLOW)
         data = home / ".local/share/wise"
         target = environment_path(ENGINE / "requirements.txt", data)
-        (target / "bin").mkdir(parents=True)
-        (target / "bin/python").symlink_to(sys.executable)
-        (target / "pyvenv.cfg").write_text((Path(sys.prefix) / "pyvenv.cfg").read_text())
+        venv.EnvBuilder(with_pip=False).create(target)
         version = f"python{sys.version_info.major}.{sys.version_info.minor}"
-        (target / "lib" / version).mkdir(parents=True)
-        (target / "lib" / version / "site-packages").symlink_to(
-            Path(sys.prefix) / "lib" / version / "site-packages", target_is_directory=True
-        )
+        packages = target / "lib" / version / "site-packages"
+        shutil.rmtree(packages)
+        packages.symlink_to(Path(sysconfig.get_path("purelib")), target_is_directory=True)
         (target / ".ready.json").write_text(
             json.dumps({"key": environment_key(ENGINE / "requirements.txt")})
         )
