@@ -16,7 +16,7 @@ The three queue handlers (`handle-bot-reviews.md`,
 (thread resolves, replies, Sonar status changes). That decoupling
 is intentional — those Phase-D pushes do **not** delegate here.
 
-The Jira-scope + type-classification + subject rules in §5–§7 live in
+The ticket-scope + type-classification + subject rules in §5–§7 live in
 `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md` — the shared
 single source of truth that this routine, `/wise-commit-message`, and
 `draft-body.md` all read. Change a drafting rule there, not here.
@@ -164,7 +164,7 @@ depends on `PUSH`:
 Do not invent a no-op commit; do not auto-stage untracked files; do
 not prompt.
 
-### 5. Detect a Jira ticket key
+### 5. Detect a ticket reference
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md` §1. Your
 change set is the staged index — grep `git diff --cached` for source 2.
@@ -191,7 +191,7 @@ the existing HEAD commit's subject for the final line. Continue
 straight to §8.
 
 Draft the subject per `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md`
-§3 (format with/without Jira key, imperative, lowercase, ≤72 chars, no
+§3 (format with/without ticket reference, imperative, lowercase, ≤72 chars, no
 attribution trailer). Then commit:
 
 ```bash
@@ -306,7 +306,7 @@ COMMIT: failed reason="git push rejected (non-fast-forward)"
 
 ## Guardrails
 
-- Never invent a Jira key. Unscoped > wrong-scoped.
+- Never invent a ticket reference. Unscoped > wrong-scoped.
 - Never bypass `.gitignore` to commit ignored files. The routine
   uses `git add -A`, sweeping in everything not ignored — keep
   `.gitignore` accurate to keep commits clean.

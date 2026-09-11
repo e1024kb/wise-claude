@@ -35,7 +35,7 @@ questions in autonomous or otherwise prompt-free procedures.
 ## Why this skill exists
 
 Messages generated straight from a work session read like the work
-session: exhaustive, symbol-heavy, structureless. The reader of a Jira
+session: exhaustive, symbol-heavy, structureless. The reader of a tracker
 comment or a Slack update was not in that session. They need the
 *story* - what happened, why, what's next - in the order a human tells
 it, at the altitude a human cares about. This skill is the standing

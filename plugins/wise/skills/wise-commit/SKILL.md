@@ -3,7 +3,7 @@ name: wise-commit
 description: >-
   Sweep every working-tree change into the index (`git add -A` —
   modifications, deletions, and new untracked files), draft a
-  Conventional-Commits subject from the staged diff (Jira-scoped when
+  Conventional-Commits subject from the staged diff (ticket-scoped when
   a key is detectable from the branch / diff / log / session), and
   run `git commit`. Closes the loop that `/wise-commit-message` opens
   — that one drafts and hands the subject back to the user;
@@ -42,7 +42,7 @@ The skill is a thin wrapper: read the shared
 [`commit-routine.md`](./commit-routine.md), set `PUSH=no`
 and `SIMPLIFY=yes`, and follow it. The routine is the source
 of truth for staging discipline, the §2 pre-staging simplify
-pass, Jira detection, type classification, and the final-line
+pass, ticket-reference detection, type classification, and the final-line
 emit format. Pushing is `/wise-commit-push`'s job; the per-caller
 `SIMPLIFY` default policy lives in the routine's §"Inputs the
 caller sets".
@@ -80,7 +80,7 @@ end-to-end. `PUSH=no` skips §8 (push) entirely; `SIMPLIFY=yes` runs
 the §2 simplify pass before staging so its edits land in the same
 commit (a simplify error stops the routine with
 `COMMIT: failed reason="simplify errored: …"` and nothing staged).
-The routine owns everything else — staging discipline, Jira scope,
+The routine owns everything else — staging discipline, ticket scope,
 classification, subject drafting, the commit, and the final-line emit.
 
 ### 3. Final line
@@ -133,7 +133,7 @@ The operator fixes the lint errors and re-runs.
 ## Guardrails
 
 All of `commit-routine.md`'s guardrails apply — no `--amend` /
-`--no-verify` / `--force`, never invent a Jira key, no AI attribution
+`--no-verify` / `--force`, never invent a ticket reference, no AI attribution
 trailer, no retry on failure, and `.gitignore` is the only place to
 exclude files (the routine's `git add -A` sweeps in everything else).
 This skill additionally **never pushes** — that's `/wise-commit-push`'s

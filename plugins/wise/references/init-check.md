@@ -22,6 +22,5 @@ For `INIT:uninit`, `INIT:stale:*`, `INIT:dep-missing:*`, or missing Python, run
 its session. Read-only callers may report missing setup and stop.
 
 Init state lives at `$HOME/.local/share/wise/init/<host>.json`. Legacy cache state
-is read-only migration input. Preserve optional skips, including Drive, Figma and
-Linear. `bootstrap-deps.sh --probe` never installs or writes state. Runtime-only
+is read-only migration input. Preserve all optional-connector skips, including issue trackers. `bootstrap-deps.sh --probe` never installs or writes state. Runtime-only
 bootstrap works without a host, but cannot establish host initialization.

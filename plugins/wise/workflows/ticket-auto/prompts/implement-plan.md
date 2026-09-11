@@ -105,7 +105,7 @@ subagents all return, the orchestrator processes each `done` task
    later task in the run (don't re-probe), note it once, and continue
    to the task's commit — the task is not failed.
 2. **Commit.** Stage only that task's `files` (now including any
-   simplify edits), draft a Conventional-Commits subject (Jira-scoped
+   simplify edits), draft a Conventional-Commits subject (ticket-scoped
    from the branch name when a key is present), `git commit`. One
    atomic commit per task.
 

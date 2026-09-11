@@ -184,7 +184,7 @@ resolution.
 ## Guardrails
 
 All of `commit-routine.md`'s guardrails apply (no `--amend`, no
-attribution trailer, never invent a Jira key). For the push half
+attribution trailer, never invent a ticket reference). For the push half
 specifically — every rule the routine's §8 enforces, kept explicit
 here because the stakes are high: **never** `--force` /
 `--force-with-lease`, **never** `--no-verify`, **never** push to

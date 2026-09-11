@@ -98,7 +98,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 |---|---|---|
 | `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
 | `split-tickets` | `bash` | Splits the `tickets` input on commas and semicolons, trims, dedupes, validates the charset, emits a JSON array as `ticket_list`. Fails on an empty list. |
-| `ensure-access` | `agent` (sonnet) | Reads `wise_context("ticket")` first; probes a real channel (MCP, CLI: `gh` / `glab` / `linear` / `jira`, public URL) for every ticket not already in the context. Emits `access` (`ok` / `blocked`) and `detail`. |
+| `ensure-access` | `agent` (sonnet) | Reads `wise_context("ticket")` first; probes a real channel (the configured tracker's MCP, CLI, API, or public URL) for every ticket not already in the context. Emits `access` (`ok` / `blocked`) and `detail`. |
 | `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |
 | `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
 

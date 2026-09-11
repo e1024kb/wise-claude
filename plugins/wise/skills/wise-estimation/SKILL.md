@@ -1,6 +1,6 @@
 ---
 name: wise-estimation
-description: Story-point estimation reference — a Fibonacci 0.5 → 13 SP scale for sizing work across frontend, backend, mobile, and all teams, including how to size uncertain work and the "anything > 8 SP is a research ticket, not an implementation ticket" rule. Use whenever the user says "estimate", "story points", "SP", "size this ticket", "how many points", "t-shirt size", "how long will this take", "break down the estimate", "is this a 3 or a 5", or is planning/refining a Jira ticket and needs a point value.
+description: Story-point estimation reference — a Fibonacci 0.5 → 13 SP scale for sizing work across frontend, backend, mobile, and all teams, including how to size uncertain work and the "anything > 8 SP is a research ticket, not an implementation ticket" rule. Use whenever the user says "estimate", "story points", "SP", "size this ticket", "how many points", "t-shirt size", "how long will this take", "break down the estimate", "is this a 3 or a 5", or is planning/refining a tracker ticket and needs a point value.
 allowed-tools:
   - Read
 ---
@@ -12,7 +12,7 @@ Before asking any user question, read and follow the
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.
 
-Canonical story-point (SP) scale for sizing Jira tickets. Applies to
+Canonical story-point (SP) scale for sizing tracker tickets. Applies to
 every team (frontend, backend, mobile, platform) — using the same units
 so cross-team planning works.
 

@@ -4,7 +4,7 @@ description: >-
   Detect the PR state for the current branch and either create a
   new GitHub PR or refresh an existing one — body drafted from the
   project's `.github/pull_request_template.md` (or a bundled
-  fallback) filled from the branch's diff + commits, Jira key
+  fallback) filled from the branch's diff + commits, ticket reference
   auto-detected from branch/diff/log/session, base branch picked
   interactively from `main` + recent `release*` branches when
   creating. This skill runs just the PR create/refresh piece — the
@@ -211,7 +211,7 @@ Watch pipelines + comments with:
 - Never force-push, amend, rebase, or otherwise modify the
   commits on the branch — the draft describes what's already on
   `HEAD`.
-- Never invent a Jira key or retarget an existing PR without the
+- Never invent a ticket reference or retarget an existing PR without the
   user asking. Both fragments enforce this; don't work around it.
 - Never draft the body freehand — the `wise-human-writing` read that
   `draft-body.md` §5 mandates is part of the procedure, not optional
