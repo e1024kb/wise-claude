@@ -21,12 +21,19 @@ from wise_engine.spawn import (
 
 def test_clean_env_routes_only_requested_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     parent = {name: f"value-{name}" for name in PASSTHROUGH_VARS}
-    parent.update({
-        "XDG_DATA_HOME": "/xdg", "CLAUDE_CONFIG_DIR": "/config",
-        "ANTHROPIC_API_KEY": "fixture-key", "GH_TOKEN": "fixture-token",
-        "EDITOR": "vim", "CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli",
-        "CLAUDE_SESSION_ID": "session", "CLAUDE_FOO_SESSION_BAR": "session",
-    })
+    parent.update(
+        {
+            "XDG_DATA_HOME": "/xdg",
+            "CLAUDE_CONFIG_DIR": "/config",
+            "ANTHROPIC_API_KEY": "fixture-key",
+            "GH_TOKEN": "fixture-token",
+            "EDITOR": "vim",
+            "CLAUDECODE": "1",
+            "CLAUDE_CODE_ENTRYPOINT": "cli",
+            "CLAUDE_SESSION_ID": "session",
+            "CLAUDE_FOO_SESSION_BAR": "session",
+        }
+    )
     expected = {name: parent[name] for name in PASSTHROUGH_VARS}
     expected["XDG_DATA_HOME"] = "/xdg"
     assert clean_env(parent=parent) == expected
@@ -35,15 +42,19 @@ def test_clean_env_routes_only_requested_secrets(monkeypatch: pytest.MonkeyPatch
     assert clean_env(parent={}) == {}
     assert clean_env(parent={"HOME": None}) == {}
     assert clean_env(parent=parent, keep=["CLAUDE_CONFIG_DIR", "UNSET"]) == {
-        **expected, "CLAUDE_CONFIG_DIR": "/config",
+        **expected,
+        "CLAUDE_CONFIG_DIR": "/config",
     }
     blocked = [name for name in parent if is_blocked_var(name)]
     assert clean_env(parent=parent, keep=blocked, secrets=blocked) == expected
     assert clean_env(parent=parent, secrets=["ANTHROPIC_API_KEY"]) == {
-        **expected, "ANTHROPIC_API_KEY": "fixture-key",
+        **expected,
+        "ANTHROPIC_API_KEY": "fixture-key",
     }
     assert clean_env(parent=parent, extra={"PATH": "/override", "CLAUDECODE": "explicit"}) == {
-        **expected, "PATH": "/override", "CLAUDECODE": "explicit",
+        **expected,
+        "PATH": "/override",
+        "CLAUDECODE": "explicit",
     }
     monkeypatch.setenv("PATH", "/test-path")
     monkeypatch.setenv("CLAUDECODE", "1")
@@ -51,17 +62,30 @@ def test_clean_env_routes_only_requested_secrets(monkeypatch: pytest.MonkeyPatch
     assert "CLAUDECODE" not in clean_env()
 
 
-@pytest.mark.parametrize("name", [
-    "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID",
-    "CLAUDE_SESSION_ID", "CLAUDE_X_SESSION_Y",
-])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CLAUDECODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_SESSION_ID",
+        "CLAUDE_X_SESSION_Y",
+    ],
+)
 def test_blocked_names(name: str) -> None:
     assert is_blocked_var(name)
 
 
-@pytest.mark.parametrize("name", [
-    "CLAUDE_CONFIG_DIR", "HOME", "ANTHROPIC_API_KEY", "CLAUDE", "XDG_DATA_HOME",
-])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CLAUDE_CONFIG_DIR",
+        "HOME",
+        "ANTHROPIC_API_KEY",
+        "CLAUDE",
+        "XDG_DATA_HOME",
+    ],
+)
 def test_allowed_names(name: str) -> None:
     assert not is_blocked_var(name)
 
@@ -83,10 +107,17 @@ def test_line_splitter_handles_crlf_unicode_and_unterminated_lines() -> None:
 def test_spawn_exact_environment_cwd_and_exit(tmp_path: Path) -> None:
     async def check() -> None:
         env = {"WISE_X": "1", "PYTHONCOERCECLOCALE": "0"}
-        child = await spawn_clean(sys.executable, ["-c", (
-            "import json,os,sys; print(json.dumps({'env':dict(os.environ),"
-            "'cwd':os.getcwd()})); sys.exit(3)"
-        )], SpawnOptions(tmp_path, env))
+        child = await spawn_clean(
+            sys.executable,
+            [
+                "-c",
+                (
+                    "import json,os,sys; print(json.dumps({'env':dict(os.environ),"
+                    "'cwd':os.getcwd()})); sys.exit(3)"
+                ),
+            ],
+            SpawnOptions(tmp_path, env),
+        )
         assert child.pid > 0
         assert child.process is not None
         child.stdin.close()
@@ -106,9 +137,11 @@ def test_spawn_exact_environment_cwd_and_exit(tmp_path: Path) -> None:
 @pytest.mark.parametrize(("cap", "expected"), [(0, ""), (10, "x" * 10), (100, "x" * 100)])
 def test_stderr_is_drained_after_cap(tmp_path: Path, cap: int, expected: str) -> None:
     async def check() -> None:
-        child = await spawn_clean(sys.executable, ["-c", (
-            "import sys; sys.stderr.write('x' * 300000); sys.exit(1)"
-        )], SpawnOptions(tmp_path, {}, stderr_cap=cap, timeout_ms=5000))
+        child = await spawn_clean(
+            sys.executable,
+            ["-c", ("import sys; sys.stderr.write('x' * 300000); sys.exit(1)")],
+            SpawnOptions(tmp_path, {}, stderr_cap=cap, timeout_ms=5000),
+        )
         child.stdin.end()
         result = await child.exited
         assert result.stderr == expected
@@ -120,9 +153,11 @@ def test_stderr_is_drained_after_cap(tmp_path: Path, cap: int, expected: str) ->
 
 def test_stderr_cap_uses_utf16_units(tmp_path: Path) -> None:
     async def check() -> None:
-        child = await spawn_clean(sys.executable, ["-c", (
-            "import os; os.write(2, bytes.fromhex('61f09f908d62'))"
-        )], SpawnOptions(tmp_path, {}, stderr_cap=2))
+        child = await spawn_clean(
+            sys.executable,
+            ["-c", ("import os; os.write(2, bytes.fromhex('61f09f908d62'))")],
+            SpawnOptions(tmp_path, {}, stderr_cap=2),
+        )
         child.stdin.close()
         result = await child.exited
         assert result.stderr == "a\ud83d"
@@ -132,9 +167,11 @@ def test_stderr_cap_uses_utf16_units(tmp_path: Path) -> None:
 
 def test_stdin_delivery_and_close(tmp_path: Path) -> None:
     async def check() -> None:
-        child = await spawn_clean(sys.executable, ["-c", (
-            "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read().upper())"
-        )], SpawnOptions(tmp_path, {}))
+        child = await spawn_clean(
+            sys.executable,
+            ["-c", ("import sys; sys.stdout.buffer.write(sys.stdin.buffer.read().upper())")],
+            SpawnOptions(tmp_path, {}),
+        )
         child.stdin.write("hello\n")
         await child.stdin.drain()
         child.stdin.end(b"world")
@@ -148,9 +185,11 @@ def test_stdin_delivery_and_close(tmp_path: Path) -> None:
 
 def test_child_closing_stdin_does_not_fail_caller(tmp_path: Path) -> None:
     async def check() -> None:
-        child = await spawn_clean(sys.executable, ["-c", (
-            "import os,time; os.close(0); print('closed', flush=True); time.sleep(0.1)"
-        )], SpawnOptions(tmp_path, {}))
+        child = await spawn_clean(
+            sys.executable,
+            ["-c", ("import os,time; os.close(0); print('closed', flush=True); time.sleep(0.1)")],
+            SpawnOptions(tmp_path, {}),
+        )
         assert await child.stdout.readline() == b"closed\n"
         child.stdin.write(b"x" * 1000000)
         await child.stdin.drain()
@@ -168,9 +207,16 @@ def test_timeout_signals_and_escalation(tmp_path: Path, ignore_term: bool) -> No
         if ignore_term:
             script += "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
         script += "print('ready', flush=True); time.sleep(60)"
-        child = await spawn_clean(sys.executable, ["-c", script], SpawnOptions(
-            tmp_path, {}, timeout_ms=800, kill_grace_ms=50,
-        ))
+        child = await spawn_clean(
+            sys.executable,
+            ["-c", script],
+            SpawnOptions(
+                tmp_path,
+                {},
+                timeout_ms=800,
+                kill_grace_ms=50,
+            ),
+        )
         assert await child.stdout.readline() == b"ready\n"
         result = await child.exited
         assert result.timed_out
@@ -215,9 +261,11 @@ def test_kill_signals_child_and_grandchild(tmp_path: Path) -> None:
 @pytest.mark.parametrize("wait_until_ready", [False, True])
 def test_cancelled_exit_wait_reaps_process(tmp_path: Path, wait_until_ready: bool) -> None:
     async def check() -> None:
-        child = await spawn_clean(sys.executable, ["-c", (
-            "import time; print('ready', flush=True); time.sleep(60)"
-        )], SpawnOptions(tmp_path, {}))
+        child = await spawn_clean(
+            sys.executable,
+            ["-c", ("import time; print('ready', flush=True); time.sleep(60)")],
+            SpawnOptions(tmp_path, {}),
+        )
         if wait_until_ready:
             assert await child.stdout.readline() == b"ready\n"
         child.exited.cancel()

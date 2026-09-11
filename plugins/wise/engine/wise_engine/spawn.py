@@ -10,11 +10,31 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 PASSTHROUGH_VARS = (
-    "HOME", "PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "SHELL", "USER",
-    "SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_SSH", "GIT_SSH_COMMAND",
-    "GIT_CONFIG_GLOBAL", "GNUPGHOME", "GPG_TTY", "GH_HOST", "GH_CONFIG_DIR",
-    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy",
-    "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "HOME",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "TMPDIR",
+    "SHELL",
+    "USER",
+    "SSH_AUTH_SOCK",
+    "SSH_AGENT_PID",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_CONFIG_GLOBAL",
+    "GNUPGHOME",
+    "GPG_TTY",
+    "GH_HOST",
+    "GH_CONFIG_DIR",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
 )
 
 
@@ -34,8 +54,7 @@ def clean_env(
     extra: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     source = os.environ if parent is None else parent
-    names = [*PASSTHROUGH_VARS, *(key for key in source if key.startswith("XDG_")),
-             *keep, *secrets]
+    names = [*PASSTHROUGH_VARS, *(key for key in source if key.startswith("XDG_")), *keep, *secrets]
     result = {}
     for name in names:
         value = source.get(name)
@@ -136,7 +155,7 @@ async def _capture_stderr(stream: asyncio.StreamReader, cap: int) -> str:
         nonlocal remaining
         if remaining:
             # The wire contract counts UTF-16 units, including half of a surrogate pair.
-            encoded = text.encode("utf-16-le", "surrogatepass")[:remaining * 2]
+            encoded = text.encode("utf-16-le", "surrogatepass")[: remaining * 2]
             chunks.append(encoded.decode("utf-16-le", "surrogatepass"))
             remaining -= len(encoded) // 2
 
@@ -150,15 +169,26 @@ async def spawn_clean(cmd: str, args: Sequence[str], opts: SpawnOptions) -> Spaw
     """Callers drain stdout while awaiting exited; timeout values use milliseconds."""
     try:
         process = await asyncio.create_subprocess_exec(
-            cmd, *args, cwd=opts.cwd, env=dict(opts.env), start_new_session=True,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            cmd,
+            *args,
+            cwd=opts.cwd,
+            env=dict(opts.env),
+            start_new_session=True,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError as exc:
         failed: asyncio.Future[SpawnExit] = asyncio.get_running_loop().create_future()
-        failed.set_result(SpawnExit(
-            None, None, False, "", f"{errno.errorcode.get(exc.errno or 0, 'ERROR')}: {exc}",
-        ))
+        failed.set_result(
+            SpawnExit(
+                None,
+                None,
+                False,
+                "",
+                f"{errno.errorcode.get(exc.errno or 0, 'ERROR')}: {exc}",
+            )
+        )
         stdout = asyncio.StreamReader()
         stdout.feed_eof()
         return Spawned(-1, None, SafeStdin(None), stdout, failed)
@@ -184,7 +214,8 @@ async def spawn_clean(cmd: str, args: Sequence[str], opts: SpawnOptions) -> Spaw
             return SpawnExit(
                 code if code >= 0 else None,
                 signal.Signals(-code).name if code < 0 else None,
-                timed_out, stderr,
+                timed_out,
+                stderr,
             )
         except asyncio.CancelledError:
             kill_group(process, "SIGKILL")
