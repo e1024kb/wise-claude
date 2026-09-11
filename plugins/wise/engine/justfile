@@ -25,3 +25,13 @@ test:
 
 check: typecheck lint fmt-check test
     @echo "wise-engine: all checks passed ({{runner}})"
+
+python-install:
+    uv venv .venv
+    uv pip sync --python .venv/bin/python requirements-dev.txt
+
+python-check:
+    .venv/bin/ruff check wise_engine tests
+    .venv/bin/ruff format --check wise_engine tests
+    .venv/bin/mypy wise_engine
+    .venv/bin/python -m pytest tests -q

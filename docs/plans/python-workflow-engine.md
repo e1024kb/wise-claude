@@ -1,6 +1,6 @@
 # Plan: Python workflow engine and removal of legacy execution
 
-Status: IN PROGRESS. P0 baseline capture is complete; P1 is underway on `feat/python-workflow-engine`.
+Status: IN PROGRESS. P0 and P1 gates passed; P2 is underway on `feat/python-workflow-engine`.
 
 Prepared 2026-09-11 from checkout `b1b5dee` (plugin `5.0.0-rc.6`). This plan supersedes the implementation direction in [harness-engine.md](harness-engine.md). The existing TypeScript implementation is the behavioral baseline; older milestone statuses are not evidence of current completion.
 
@@ -129,11 +129,11 @@ Gate: baseline failures documented, contract fixtures captured, and every legacy
 
 Depends on P0.
 
-- [ ] Add package, dependency declarations/locks, and development commands; keep production entry point on TypeScript for now.
-- [ ] Implement isolated Python parent/child MCP prototypes with the existing schemas, including long polls, cancellation, host disconnect, progress, and structured errors.
+- [x] Add package, dependency declarations/locks, and development commands; keep production entry point on TypeScript for now.
+- [x] Implement isolated Python parent/child MCP prototypes with the existing schemas, including long polls, cancellation, host disconnect, progress, and structured errors.
 - [x] Prove subprocess streaming and process-group shutdown on macOS and Linux.
-- [ ] Prove managed-environment bootstrap from a read-only plugin copy without JavaScript tools on PATH, including concurrent startup and failed-install recovery.
-- [ ] Confirm Python minimum and exact dependency versions; record them here.
+- [x] Prove managed-environment bootstrap from a read-only plugin copy without JavaScript tools on PATH, including concurrent startup and failed-install recovery.
+- [x] Confirm Python minimum and exact dependency versions; record them here.
 
 Gate: fixture MCP clients connect and exercise both servers; framing and tool schemas match. No provider login or model spending is required for this gate.
 
@@ -359,3 +359,9 @@ P0 gate passed on macOS with the isolated pytest invocation documented above. No
 ### P1 bootstrap cancellation correction
 
 Review found that terminating bootstrap could leave pip writing after the install lock was released. Installers now run in their own process group and are killed/reaped before cleanup or lock release. The environment is created without implicit pip subprocesses; ensurepip and pip both use the same supervised path. A regression terminates initialization mid-install, verifies the installer is gone, and retries successfully. Seven bootstrap tests pass on macOS; Linux recheck is in progress with the MCP suite.
+
+### P1 MCP transport gate
+
+Parent and child MCP prototypes preserve captured tool schemas, validation, error envelopes, staged elicitation, progress, cancellation, EOF, and broken-output shutdown. The SDK owns protocol framing. Direct dependency anyio 4.15.1 is included in hashed locks. Python 3.11 is the minimum. Development installation and checks are available as `just python-install` and `just python-check` inside the engine directory.
+
+All 87 P1 tests pass on macOS and Python 3.11 Linux using a read-only source mount. Ruff and mypy pass. P1 is complete; production still uses TypeScript until the execution and caller gates pass. Real daemon reconnect/token enforcement belongs to P3; actual host registration belongs to P6.
