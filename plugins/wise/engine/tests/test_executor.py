@@ -716,3 +716,26 @@ def test_units_pipeline_shares_slots_usage_and_report(tmp_path):
             await rig.close()
 
     asyncio.run(scenario())
+
+
+def test_cancelled_slot_waiter_returns_transferred_capacity(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path, concurrency={"global": 1})
+        try:
+            release = rig.executor.take_slot("claude")
+            waiting = asyncio.create_task(rig.executor.acquire_slot("claude"))
+            await asyncio.sleep(0)
+            assert len(rig.executor.slot_waiters) == 1
+            release()
+            waiting.cancel()
+            await asyncio.gather(waiting, return_exceptions=True)
+            assert rig.executor.in_flight_global == 0
+            assert rig.executor.in_flight["claude"] == 0
+            assert not rig.executor.slot_waiters
+            next_release = await asyncio.wait_for(rig.executor.acquire_slot("claude"), 1)
+            next_release()
+            assert not rig.executor.is_busy()
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())

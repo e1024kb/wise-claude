@@ -388,6 +388,11 @@ class Executor:
                 if not future.done():
                     raise RuntimeError("cancelled while waiting for a slot")
             return await future
+        except BaseException:
+            # A wakeup owns a slot even if its waiter is cancelled before resuming.
+            if future.done() and not future.cancelled():
+                future.result()()
+            raise
         finally:
             if aborted:
                 aborted.cancel()
