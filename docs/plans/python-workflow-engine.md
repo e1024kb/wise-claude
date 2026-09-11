@@ -340,3 +340,12 @@ Caller closure: the removal table above covers direct callers. Also update `wise
 Parity obligations beyond captured samples: all RPC framing/cancellation failures; MCP runtime envelopes and progress; gated/failed/cancelled/resumed ledger transitions and torn event tails; checkpoint/unit/log/context persistence; complete preflight trajectories; all adapter argv/environment/results; YAML scalar/regex/JS-value differences; every CLI command and mode. Existing source tests remain the executable baseline until each obligation is ported. P0 freezes that baseline; it does not certify Python parity.
 
 P0 gate passed on macOS with the isolated pytest invocation documented above. No live model run or external mutation was needed. Linux parity remains a later gate.
+
+### P1 package and bootstrap
+
+- Added source-only `wise_engine` package and dependency declarations. Plugin manifest remains the runtime version source; package metadata declares its version dynamic.
+- Stable runtime pins: mcp 2.2.0, jsonschema 4.26.0, ruamel.yaml 0.19.1, python-ulid 3.1.0. Runtime and development requirements include resolved transitive versions and hashes for Python 3.11. SDK metadata: https://pypi.org/pypi/mcp/2.2.0/json and https://pypi.org/pypi/ruamel.yaml/0.19.1/json.
+- Bootstrap owns a Python-version/platform/lock-specific environment under plugin data, uses an exclusive install lock and atomic readiness marker, leaves no failed environment published, and supports read-only probes. Production `engine.sh` remains unchanged.
+- Six bootstrap tests pass on macOS and in a read-only Docker mount using Python 3.11 on Linux. Ruff and mypy pass for package/bootstrap modules. Concurrent real environment creation is exercised; failed-install recovery and symlink protection are covered.
+- Full hashed runtime installation and `python -m wise_engine.bootstrap -- version` succeeded from a read-only plugin copy with spaces and Unicode in its path, cwd `/tmp`, and PATH restricted to `/usr/bin:/bin` (no JavaScript runtime on that path).
+- MCP and subprocess tasks remain separate P1 gates. This package does not yet implement workflow execution.
