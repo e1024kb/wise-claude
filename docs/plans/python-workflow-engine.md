@@ -1,6 +1,6 @@
 # Plan: Python workflow engine and removal of legacy execution
 
-Status: IMPLEMENTED on `feat/python-workflow-engine`. P0 through P6 passed through the documented control routes. P7 historical upgrade and rollback passed; final cross-platform checks and the live-provider decision are pending.
+Status: IMPLEMENTED and committed on `feat/python-workflow-engine`, unpushed. macOS and fresh Python-only Linux checks passed. Historical upgrade/rollback and the documented four-host control routes passed. Native conversation UI/calls outside the tested Codex app-server route and a live-provider smoke test remain explicit release gates.
 
 Prepared 2026-09-11 from checkout `b1b5dee` (plugin `5.0.0-rc.6`). This plan supersedes the implementation direction in [harness-engine.md](harness-engine.md). The existing TypeScript implementation is the behavioral baseline; older milestone statuses are not evidence of current completion.
 
@@ -198,7 +198,7 @@ Depends on P5. This is workstream 2, after the Python migration.
 - [x] Implement the shared Python launcher resolution and minimal host registration adapters. Cover fresh installs, read-only caches, spaces/Unicode paths, symlinks, relocation, and version-changing upgrades without manual path edits.
 - [x] Update init scripts/skill, registry ownership and invalidation, plugin MCP configuration, installation instructions, and workflow run/resume/status skills. Remove Claude-only assumptions from conductor setup and dependency requirements.
 - [x] Add staged diagnostics for unresolved launcher, startup exit, dependency failure, handshake failure, missing tools, unavailable session tools, daemon failure, and selected-provider login. Preserve previously chosen optional-dependency skips.
-- [x] Test each host configuration launching the real Python MCP server: initialize, list tools, and call `wise_status`. A subprocess started directly with an absolute path is a diagnostic control, not proof the host configuration works.
+- [ ] Test each host configuration launching the real Python MCP server: initialize, list tools, and call `wise_status`. Native startup passed for all four, inventory passed for Codex/Cursor/Grok, and native tool calls passed through Codex app-server. Other hosts use the tested CLI control fallback; their native conversational tool calls remain unverified. A direct subprocess is a diagnostic control, not proof the host configuration works.
 - [x] Test preflight, run, wait, approval/question answers, cancel, and resume through each host's supported interaction route against disposable fixtures. Verify all eight parent tools and four child tools where those respective interfaces are used.
 - [x] Test launching from a non-Claude host with Claude absent and a different provider selected. Verify conductor host and child-provider selection remain independent.
 - [x] Test registration update/rollback without disturbing unrelated host configuration, active runs, or saved history. Verify stale registry records cannot hide launch failures.
@@ -214,7 +214,7 @@ Depends on P6.
 - [x] Rehearse daemon replacement with active and idle old daemons. Never run both implementations against the same socket/ledger.
 - [x] Run end-to-end MCP/CLI workflows in disposable projects: success, approval, question, cancel, failed-step resume, fallback, child checkpoint, and units pipeline.
 - [ ] Verify the four-host matrix from P6, and at least one live child-provider execution when credentials and execution authorization are available. Keep host transport proof separate from paid/live model execution; record unavailable access as an unmet gate, not inferred success.
-- [ ] Confirm final test mapping, dependency inventory, changed public contracts, and rollback rehearsal in this plan.
+- [x] Confirm final test mapping, dependency inventory, changed public contracts, and rollback rehearsal in this plan.
 
 Gate: all acceptance criteria below pass. Publishing, pushing, tagging, merging, or running real ticket automation remains a separate release action.
 
@@ -228,18 +228,18 @@ Rollback uses a previous release, not a second engine shipped in the new release
 
 ## Final acceptance checklist
 
-- [ ] Python is the only shipped workflow executor; v1 conductor and TypeScript engine are gone.
-- [ ] Engine startup, MCP servers, CLI, bootstrap, validation, and tests work without JavaScript tools.
-- [ ] Codex, Claude, Cursor, and Grok each launch/control the same Python engine through tested host integration, including required interactive choices.
-- [ ] Init distinguishes configuration errors from reload requirements; the literal `${CLAUDE_PLUGIN_ROOT}` regression is covered and no manual versioned-path override is required.
-- [ ] Installation upgrades refresh host registration and invalidate host-specific probe caches without losing unrelated settings or run history.
-- [ ] All five v2 workflows validate and their supported execution paths pass fixture integration tests.
-- [ ] Parent/child MCP schemas, CLI outputs, error codes, preflight ordering, and permission behavior remain compatible except documented retirements.
-- [ ] Existing v2 history/checkpoints remain usable; restart/resume never blindly repeats completed side effects.
-- [ ] No runnable v1 fallback remains. Import assistance preserves definitions and legacy run history.
-- [ ] Shared skills, insights hook, catalog, reports, profiles, and standalone supervision still work.
-- [ ] Every previous test area is accounted for; full checks pass on macOS and Linux, including Python-only clean-install coverage.
-- [ ] Active documentation describes one architecture, and the release notes state removed contracts and runtime requirements.
+- [x] Python is the only shipped workflow executor; v1 conductor and TypeScript engine are gone.
+- [x] Engine startup, MCP servers, CLI, bootstrap, validation, and tests work without JavaScript tools.
+- [x] Codex, Claude, Cursor, and Grok each launch/control the same Python engine through tested host integration, including required interactive choices.
+- [x] Init distinguishes configuration errors from reload requirements; the literal `${CLAUDE_PLUGIN_ROOT}` regression is covered and no manual versioned-path override is required.
+- [x] Installation upgrades refresh host registration and invalidate host-specific probe caches without losing unrelated settings or run history.
+- [x] All five v2 workflows validate and their supported execution paths pass fixture integration tests.
+- [x] Parent/child MCP schemas, CLI outputs, error codes, preflight ordering, and permission behavior remain compatible except documented retirements.
+- [x] Existing v2 history/checkpoints remain usable; restart/resume never blindly repeats completed side effects.
+- [x] No runnable v1 fallback remains. Import assistance preserves definitions and legacy run history.
+- [x] Shared skills, insights hook, catalog, reports, profiles, and standalone supervision still work.
+- [x] Every previous test area is accounted for; full checks pass on macOS and Linux, including Python-only clean-install coverage.
+- [x] Active documentation describes one architecture, and the release notes state removed contracts and runtime requirements.
 
 ## Evidence limits for this planning stage
 
@@ -528,3 +528,29 @@ validation sections, mypy on 61 modules, Ruff and format on 101 files, Python sy
 JSON manifests and shell syntax. The subsequent permanent literal-path regression
 and all five native-host tests passed separately. Frozen final Linux verification
 will be recorded after the implementation commit.
+
+
+### Final verification and remaining release gates
+
+Implementation freeze: `bd36b9848e525825524f5324d3f87cf78280f233`.
+
+| Environment | Verification | Result |
+|---|---|---|
+| macOS, Python 3.13 | Full `just check` before the final regression was added | 1,468 passed; no skips |
+| macOS, installed host CLIs | Final five native-host tests, including the new literal-path regression | 5 passed; no model turns |
+| Linux, Python 3.11.16, just 1.40.0 | Fresh archive of the implementation freeze; unmodified `just install` and `just check` | 1,459 passed, 10 expected skips; exit 0 |
+
+Linux had no `node`, `npm`, `bun` or `npx` executable. Nine skips are native host
+CLIs absent from that image (Claude 2, Cursor 2, Grok 2, Codex 3); one is the absent
+SSH agent. Those native host tests passed on macOS. Both platforms passed all
+seven validator sections, mypy on 61 source modules, Ruff/format on 101 files,
+Python compilation, JSON manifest validation and shell syntax checks. Linux logs
+are `/tmp/wise-final-linux-check.log` and `/tmp/wise-final-linux-skips.log`.
+
+The final acceptance checklist records the implemented behavior and tested CLI
+interaction route; it does not claim native picker UI or paid-provider coverage.
+The P6 native conversational-call item and P7 live-provider item stay unchecked.
+A tiny read-only Codex provider smoke test was offered to the user; it has not run
+without an affirmative answer. Native conversational forms/pickers outside the
+Codex no-model app-server route remain unverified. These are release verification
+limits, not evidence of successful live execution. No push or publication occurred.
