@@ -282,6 +282,41 @@ def test_optional_plain_alternation_has_clickable_empty_choice(default):
     }
 
 
+def test_choice_defaults_only_use_selectable_values():
+    defn = {
+        "steps": [],
+        "inputs": [
+            {
+                "name": "required",
+                "prompt": "Required?",
+                "default": "invalid",
+                "from-context": "decisions.required",
+                "validate": "^(auto|ask)$",
+            },
+            {
+                "name": "optional",
+                "prompt": "Optional?",
+                "optional": True,
+                "default": "auto",
+                "from-context": "decisions.optional",
+                "validate": "^(auto|ask)$",
+            },
+        ],
+    }
+
+    result = p.build_questionary(
+        defn, {"context": {"decisions": {"required": "invalid", "optional": "invalid"}}}
+    )
+    required, optional = result["questions"]
+    assert "default" not in required
+    assert optional["default"] == "auto"
+    assert all(
+        "default" not in question
+        or question["default"] in {option["value"] for option in question["options"]}
+        for question in result["questions"]
+    )
+
+
 def test_all_bundled_enum_inputs_are_choices():
     workflows = [
         ROOT / "workflows/ticket-plan/workflow.yaml",

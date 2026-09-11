@@ -386,8 +386,12 @@ def build_questionary(
         if item.get("optional"):
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))
-        if preset is None:
-            preset = item.get("default", "" if item.get("optional") else None)
+        fallback = item.get("default", "" if item.get("optional") else None)
+        if options:
+            values = {option["value"] for option in options}
+            preset = next((value for value in (preset, fallback) if value in values), None)
+        elif preset is None:
+            preset = fallback
         if preset is not None:
             q["default"] = preset
         push(q)

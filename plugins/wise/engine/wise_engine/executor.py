@@ -1286,10 +1286,15 @@ class Executor:
             )
         inputs = {**applied["inputs"], **explicit}
         for item in definition.get("inputs", []):
-            if item.get("from-context") and not inputs.get(item["name"]):
+            name = item["name"]
+            explicitly_unset = (
+                item.get("optional") and inputs.get(name) == "" and f"input.{name}" in seeded
+            )
+            needs_context = not inputs.get(name) and not explicitly_unset
+            if item.get("from-context") and needs_context:
                 value = resolve_from_context(item["from-context"], context)
                 if value is not None:
-                    inputs[item["name"]] = value
+                    inputs[name] = value
         missing = [question["id"] for question in unanswered] + [
             key
             for key in completed["missing"]

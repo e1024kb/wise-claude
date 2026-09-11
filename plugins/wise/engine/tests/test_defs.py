@@ -3995,7 +3995,7 @@ VALIDATION_CASES = [
                     "level": "error",
                     "path": "inputs[0].options",
                     "message": 'v1 choice input "gap_mode"',
-                    "hint": 'v2 inputs are text: keep `default:` and add validate: "^(defaults|ask)$", or move the choice into an `ask` step with `options:`',
+                    "hint": 'v2 inputs use `validate:`: keep `default:` and add validate: "^(defaults|ask)$"; strict literal alternations render as choices, while other patterns render as text. Alternatively, move the choice into an `ask` step with `options:`',
                 }
             ]
         },
@@ -4026,7 +4026,7 @@ VALIDATION_CASES = [
                     "level": "error",
                     "path": "inputs[0].options",
                     "message": 'v1 choice input "mode"',
-                    "hint": 'v2 inputs are text: keep `default:` and add validate: "^(plan-only|now)$", or move the choice into an `ask` step with `options:`',
+                    "hint": 'v2 inputs use `validate:`: keep `default:` and add validate: "^(plan-only|now)$"; strict literal alternations render as choices, while other patterns render as text. Alternatively, move the choice into an `ask` step with `options:`',
                 }
             ]
         },
@@ -4099,7 +4099,7 @@ VALIDATION_CASES = [
                     "level": "error",
                     "path": "inputs[0].options",
                     "message": 'v1 choice input "mode"',
-                    "hint": "v2 inputs are text: keep `default:` and add a `validate:` regex, or move the choice into an `ask` step with `options:`",
+                    "hint": "v2 inputs use `validate:`: keep `default:` and add a `validate:` regex; strict literal alternations render as choices, while other patterns render as text. Alternatively, move the choice into an `ask` step with `options:`",
                 }
             ]
         },

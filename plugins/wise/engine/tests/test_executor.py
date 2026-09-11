@@ -570,6 +570,28 @@ def test_explicit_input_staging(tmp_path, mode, calls):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("answers,expected", [({}, "preset"), ({"input.topic": ""}, "")])
+def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            run = await rig.executor.run(
+                {
+                    "workflow": "channel",
+                    "cwd": rig.cwd,
+                    "answers": {"permissions.claude": "auto", **answers},
+                    "context": {"guidance": "preset"},
+                },
+                rig.ctx,
+            )
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["topic"] == expected
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 def test_stale_child_nudge_then_kill_and_human_gate_pause(tmp_path):
     async def scenario():
         held = Held()
