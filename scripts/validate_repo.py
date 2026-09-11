@@ -1,50 +1,20 @@
 #!/usr/bin/env python3
-"""Repo validation harness for wise-claude.
-
-Cross-checks the invariants this repo relies on contributor discipline
-for today: JSON manifests parse, every bundled workflow.yaml is
-internally consistent (v1: step ids/types/trigger-rules/depends_on via
-workflows.py; `version: 2`: delegated to the TS engine's
-`engine.sh compile-check`), every
-skill's frontmatter is well-formed (`name:` matches its directory,
-`description` non-empty, only known keys, no forbidden v1 fields,
-allowed-tools entries parse), the skill catalog stays in sync with
-the docs that list it (standalone skills ↔ README command-table rows
-and CLAUDE.md mentions, both directions), every
-`${CLAUDE_PLUGIN_ROOT}/<path>` reference in the scanned docs resolves
-to a real file, every `{{workflow.dir}}/prompts/<file>` reference
-inside a workflow's own markdown resolves to a real file (other
-`{{workflow.dir}}/...` forms, e.g. `templates/...`, are not checked),
-and every marketplace plugin `source` is either a local path or
-SHA-pinned.
-
-Exits 0 and prints a per-section OK summary when everything checks out;
-exits non-zero and prints one `file: reason` line per failure otherwise
-(all failures are collected before exiting, not just the first).
+"""Validate manifests, v2 workflows, skill and roster metadata, and live documentation.
 
 Usage: python3 scripts/validate_repo.py [--root <repo-root>]
 """
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
 import json
 import re
 import sys
 from pathlib import Path
 
-try:
-    import yaml
-except ImportError:
-    sys.exit(
-        "error: PyYAML is required to run this validator "
-        "(pip install pyyaml)"
-    )
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WISE_PLUGIN_DIR = "plugins/wise"
-
-STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 # Matches ${CLAUDE_PLUGIN_ROOT}/<path>, stopping at the first char that
 # cannot appear in a bare filesystem path reference embedded in prose /
@@ -61,21 +31,21 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # in wise-init/SKILL.md — a real absence, not a broken doc link.
 RUNTIME_GENERATED_REFS = {".wise-init-registry.yaml", ".wise-version"}
 
-def _load_workflows_module():
-    """Load `plugins/wise/scripts/workflows.py` by absolute path via
-    importlib — it is not importable by package name from the repo
-    root — so the constants below are the single source of truth
-    instead of a duplicated, driftable copy."""
-    path = REPO_ROOT / WISE_PLUGIN_DIR / "scripts" / "workflows.py"
-    spec = importlib.util.spec_from_file_location("wise_workflows", path)
+def _load_engine_modules():
+    package_dir = REPO_ROOT / WISE_PLUGIN_DIR / "engine/wise_engine"
+    name = "_wise_validator_engine"
+    for cached in list(sys.modules):
+        if cached == name or cached.startswith(name + "."):
+            del sys.modules[cached]
+    spec = importlib.util.spec_from_file_location(
+        name, package_dir / "__init__.py", submodule_search_locations=[str(package_dir)]
+    )
     if spec is None or spec.loader is None:
-        sys.exit(f"error: cannot load {path} for validation")
+        raise ImportError(f"cannot load {package_dir}")
     module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001
-        sys.exit(f"error: failed to load {path}: {exc}")
-    return module
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return importlib.import_module(name + ".defs"), importlib.import_module(name + ".resolve")
 
 
 def check_json_manifests(errors: list[str]) -> None:
@@ -92,159 +62,48 @@ def check_json_manifests(errors: list[str]) -> None:
             errors.append(f"{rel}: invalid JSON ({exc})")
 
 
-def _is_v2_workflow(workflow_yaml: Path) -> bool:
-    """True when the file declares `version: 2` (validated by the TS engine)."""
-    try:
-        data = yaml.safe_load(workflow_yaml.read_text(encoding="utf-8"))
-    except yaml.YAMLError:
-        return False
-    return isinstance(data, dict) and data.get("version") == 2
-
-
-def check_workflow_v2(errors: list[str], workflow_yaml: Path) -> None:
-    """Delegate a `version: 2` definition to the TS engine's compile-check
-    (`plugins/wise/engine/engine.sh compile-check <path>`), which owns the
-    v2 schema. One error line per issue the engine reports."""
-    import subprocess
-
-    rel = workflow_yaml.relative_to(REPO_ROOT)
-    engine = REPO_ROOT / WISE_PLUGIN_DIR / "engine" / "engine.sh"
-    try:
-        proc = subprocess.run(
-            ["bash", str(engine), "compile-check", str(workflow_yaml)],
-            capture_output=True, text=True, timeout=120, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        errors.append(f"{rel}: engine compile-check could not run ({exc})")
-        return
-    if proc.returncode == 0:
-        return
-    try:
-        report = json.loads(proc.stdout)
-        issues = [
-            f"{i.get('path') or '<root>'}: {i.get('message')}"
-            for entry in report
-            for i in entry.get("issues", [])
-            if i.get("level") == "error"
-        ]
-    except (json.JSONDecodeError, AttributeError):
-        issues = []
-    detail = "; ".join(issues) or proc.stderr.strip() or f"exit {proc.returncode}"
-    errors.append(f"{rel}: engine compile-check failed ({detail})")
-
-
-def check_workflows(errors: list[str], step_types: set, trigger_rules: set) -> None:
-    workflows_dir = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
-    for workflow_yaml in sorted(workflows_dir.glob("*/workflow.yaml")):
-        rel = workflow_yaml.relative_to(REPO_ROOT)
-        folder_name = workflow_yaml.parent.name
+def check_workflows(errors: list[str], definitions) -> None:
+    directory = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
+    paths = sorted(set(directory.glob("*/workflow.yaml")) | set(directory.glob("*.yaml")))
+    if not paths:
+        errors.append(f"{directory.relative_to(REPO_ROOT)}: no bundled workflow definitions found")
+    for path in paths:
+        rel = path.relative_to(REPO_ROOT)
         try:
-            data = yaml.safe_load(workflow_yaml.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            errors.append(f"{rel}: invalid YAML ({exc})")
+            data = definitions.load_def(path)
+            report = definitions.validate_def(data, str(path))
+        except Exception as exc:
+            errors.append(f"{rel}: cannot validate workflow ({exc})")
             continue
-        if not isinstance(data, dict):
-            errors.append(f"{rel}: top-level YAML is not a mapping")
-            continue
-        if data.get("version") == 2:
-            # v2 definitions: the TS engine owns the schema (step types,
-            # depends_on, tuning / profiles / step-select all in one pass).
-            check_workflow_v2(errors, workflow_yaml)
-            continue
-
-        top_name = data.get("name")
-        if top_name != folder_name:
-            errors.append(
-                f"{rel}: folder name {folder_name!r} != top-level name {top_name!r}"
-            )
-
-        steps = data.get("steps", [])
-        if not isinstance(steps, list):
-            errors.append(f"{rel}: top-level 'steps' is not a list: {steps!r}")
-            continue
-        seen_ids: set[str] = set()
-        for step in steps:
-            if not isinstance(step, dict):
-                errors.append(f"{rel}: step entry is not a mapping: {step!r}")
-                continue
-            step_id = step.get("id")
-            if not step_id or not STEP_ID_RE.match(str(step_id)):
-                errors.append(f"{rel}: invalid step id {step_id!r}")
-            elif step_id in seen_ids:
-                errors.append(f"{rel}: duplicate step id {step_id!r}")
-            else:
-                seen_ids.add(step_id)
-
-            step_type = step.get("type")
-            if not isinstance(step_type, str) or step_type not in step_types:
-                errors.append(
-                    f"{rel}: step {step_id!r} has unknown type {step_type!r}"
-                )
-
-            trigger_rule = step.get("trigger-rule")
-            if trigger_rule is not None and (
-                not isinstance(trigger_rule, str) or trigger_rule not in trigger_rules
-            ):
-                errors.append(
-                    f"{rel}: step {step_id!r} has unknown trigger-rule {trigger_rule!r}"
-                )
-
-        for step in steps:
-            if not isinstance(step, dict):
-                continue
-            step_id = step.get("id")
-            depends_on = step.get("depends_on", [])
-            if not isinstance(depends_on, list) or not all(
-                isinstance(dep, str) for dep in depends_on
-            ):
-                errors.append(
-                    f"{rel}: step {step_id!r} depends_on must be a list of strings, "
-                    f"got {depends_on!r}"
-                )
-                continue
-            for dep in depends_on:
-                if dep not in seen_ids:
-                    errors.append(
-                        f"{rel}: step {step_id!r} depends_on unresolved id {dep!r}"
-                    )
+        expected_name = path.parent.name if path.name == "workflow.yaml" else path.stem
+        if isinstance(data, dict) and data.get("name") != expected_name:
+            errors.append(f"{rel}: definition name {data.get('name')!r} != storage name {expected_name!r}")
+        for issue in report["issues"]:
+            if issue["level"] == "error":
+                detail = f"{issue.get('path') or '<root>'}: {issue['message']}"
+                if issue.get("hint"):
+                    detail += f" ({issue['hint']})"
+                errors.append(f"{rel}: {detail}")
 
 
-def check_workflow_schemas(errors: list[str], workflows_module) -> None:
-    """Run the engine's own tuning / step-select / profiles parsers over
-    every bundled workflow, so a schema authoring error (unknown tuning
-    group, bad profile value, preset/skip conflict) fails CI instead of
-    surfacing as a WARN-and-skip at run time."""
-    import contextlib
-    import io
-
-    try:
-        getters = (
-            ("get-tuning", workflows_module.cmd_get_tuning),
-            ("get-step-select", workflows_module.cmd_get_step_select),
-            ("get-profiles", workflows_module.cmd_get_profiles),
-        )
-    except AttributeError as exc:
-        errors.append(
-            f"workflows.py: missing expected export ({exc}) "
-            "(workflow schema checks skipped — they depend on this export)"
-        )
-        return
-    workflows_dir = REPO_ROOT / WISE_PLUGIN_DIR / "workflows"
-    for workflow_yaml in sorted(workflows_dir.glob("*/workflow.yaml")):
-        rel = workflow_yaml.relative_to(REPO_ROOT)
-        if _is_v2_workflow(workflow_yaml):
-            continue  # already covered by check_workflow_v2 (engine compile-check)
-        for label, fn in getters:
-            out, err = io.StringIO(), io.StringIO()
-            try:
-                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                    rc = fn(str(workflow_yaml))
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{rel}: {label} crashed ({exc})")
-                continue
-            if rc != 0:
-                detail = err.getvalue().strip() or f"exit {rc}"
-                errors.append(f"{rel}: {label} rejected the block ({detail})")
+def check_roster(errors: list[str], resolution) -> None:
+    directory = REPO_ROOT / WISE_PLUGIN_DIR / "agents"
+    agents = resolution.roster_agents(directory)
+    if not agents:
+        errors.append(f"{directory.relative_to(REPO_ROOT)}: no agent cards found")
+    names = set()
+    for path in sorted(directory.glob("*.md")):
+        metadata = resolution.parse_frontmatter(path)
+        rel = path.relative_to(REPO_ROOT)
+        name = metadata.get("name")
+        if name != path.stem:
+            errors.append(f"{rel}: frontmatter name {name!r} != filename {path.stem!r}")
+        if isinstance(name, str):
+            if name in names:
+                errors.append(f"{rel}: duplicate agent name {name!r}")
+            names.add(name)
+        if not isinstance(metadata.get("description"), str) or not metadata["description"].strip():
+            errors.append(f"{rel}: frontmatter 'description' missing or empty")
 
 
 # The frontmatter keys wise skills use today, plus the upstream Agent
@@ -279,7 +138,7 @@ FORBIDDEN_SKILL_KEYS = {
 
 # One allowed-tools entry: a bare tool name (`Read`, `Write`) or a
 # parenthesised scoped grant (`Bash(git:*)`,
-# `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*)`). Catches
+# `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py:*)`). Catches
 # unbalanced parens and stray characters. Well-formedness ONLY — it
 # does not judge grant scope or danger (`Bash(rm -rf ~:*)` is
 # well-formed); the "narrowly scoped" invariant stays a review call.
@@ -311,6 +170,9 @@ def _split_allowed_tools(value: str) -> list[str]:
 
 def check_skill_frontmatter(errors: list[str], parse_frontmatter) -> None:
     skills_dir = REPO_ROOT / WISE_PLUGIN_DIR / "skills"
+    if not skills_dir.is_dir():
+        errors.append(f"{skills_dir.relative_to(REPO_ROOT)}: skills directory missing")
+        return
     for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
         if not (skill_dir / "SKILL.md").is_file():
             errors.append(
@@ -603,58 +465,32 @@ def main() -> int:
 
     json_errors: list[str] = []
     workflow_errors: list[str] = []
+    roster_errors: list[str] = []
     skill_errors: list[str] = []
     doc_sync_errors: list[str] = []
     ref_errors: list[str] = []
     source_errors: list[str] = []
 
-    # Run the checks that don't depend on workflows.py first, so a
-    # missing/broken workflows.py still gets json/doc-ref/source errors
-    # reported instead of aborting the whole harness before any output.
     check_json_manifests(json_errors)
     check_doc_references(ref_errors)
     check_marketplace_sources(source_errors)
 
     try:
-        workflows_module = _load_workflows_module()
-    except SystemExit as exc:
-        workflows_py = f"{WISE_PLUGIN_DIR}/scripts/workflows.py"
-        load_error = f"{workflows_py}: {exc.code}"
-        workflow_errors.append(
-            f"{load_error} (workflow.yaml checks skipped — they depend on this module)"
-        )
-        skill_errors.append(
-            f"{load_error} (skill frontmatter check skipped — it depends on this module)"
-        )
-        doc_sync_errors.append(
-            f"{load_error} (skill doc-sync check skipped — it depends on this module)"
-        )
+        definitions, resolution = _load_engine_modules()
+    except (Exception, SystemExit) as exc:
+        message = f"{WISE_PLUGIN_DIR}/engine/wise_engine: cannot load canonical validator ({exc})"
+        for errors in (workflow_errors, roster_errors, skill_errors, doc_sync_errors):
+            errors.append(message)
     else:
-        workflows_py = f"{WISE_PLUGIN_DIR}/scripts/workflows.py"
-        try:
-            step_types = workflows_module.STEP_TYPES
-            trigger_rules = workflows_module.TRIGGER_RULES
-            parse_frontmatter = workflows_module._parse_frontmatter
-        except AttributeError as exc:
-            missing_error = f"{workflows_py}: missing expected export ({exc})"
-            workflow_errors.append(
-                f"{missing_error} (workflow.yaml checks skipped — they depend on this export)"
-            )
-            skill_errors.append(
-                f"{missing_error} (skill frontmatter check skipped — it depends on this export)"
-            )
-            doc_sync_errors.append(
-                f"{missing_error} (skill doc-sync check skipped — it depends on this export)"
-            )
-        else:
-            check_workflows(workflow_errors, step_types, trigger_rules)
-            check_workflow_schemas(workflow_errors, workflows_module)
-            check_skill_frontmatter(skill_errors, parse_frontmatter)
-            check_skill_doc_sync(doc_sync_errors, parse_frontmatter)
+        check_workflows(workflow_errors, definitions)
+        check_roster(roster_errors, resolution)
+        check_skill_frontmatter(skill_errors, resolution.parse_frontmatter)
+        check_skill_doc_sync(doc_sync_errors, resolution.parse_frontmatter)
 
     sections = [
         ("json manifests", json_errors),
         ("workflow.yaml files", workflow_errors),
+        ("agent roster", roster_errors),
         ("skill frontmatter", skill_errors),
         ("skill doc sync", doc_sync_errors),
         ("doc cross-references", ref_errors),
