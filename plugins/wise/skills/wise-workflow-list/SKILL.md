@@ -11,7 +11,7 @@ description: >-
 argument-hint: ""
 model: opus
 effort: low
-allowed-tools: Read, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*)
+allowed-tools: Read, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-workflow-list — list available workflows
@@ -21,7 +21,7 @@ allowed-tools: Read, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Ba
 Users need a quick way to see which workflows they can run. Workflows
 come from two places: bundled defaults under `${CLAUDE_PLUGIN_ROOT}/workflows/`
 (shipped with the plugin) and user-authored ones under
-`${CLAUDE_PLUGIN_DATA}/workflows/definitions/` (written by
+the `user_root` from `engine/engine.sh definition-roots` (written by
 `/wise-workflow-create`). Under each root, a workflow can live in one of
 two layouts — `<name>/workflow.yaml` (folder form, preferred) or
 `<name>.yaml` (legacy flat form). This skill lists both layouts from
@@ -39,7 +39,7 @@ the skill name.
 
 Run the init-check per `${CLAUDE_PLUGIN_ROOT}/references/init-check.md`,
 firing `init-registry.py check` and the data call
-`workflows.py list-defs` together in one message. On `INIT:ok`, use the
+`bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" list-defs` together in one message. On `INIT:ok`, use the
 `list-defs` output and jump to §2; otherwise follow the reference's
 fallback. This skill is read-only, so on `BOOTSTRAP:need-python` it
 relays the `OPTION:` lines and stops rather than driving an install
@@ -47,7 +47,7 @@ loop.
 
 ### 2. Interpret the `list-defs` output
 
-Stdout is a JSON array of `{name, description, source, shadowed}`
+Stdout is a JSON array of `{name, description, source, shadowed, path}`
 objects, with user entries first and bundled entries after (folder
 form wins on same-root collision; user wins on cross-root
 collision).

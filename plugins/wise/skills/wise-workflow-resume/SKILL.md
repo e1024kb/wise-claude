@@ -8,7 +8,7 @@ description: >-
   "resume the workflow", "continue the paused run", "pick up the run",
   "resume run <ulid>", or types `/wise-workflow-resume`.
 argument-hint: "[<run-ulid>]"
-allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/engine/engine.sh:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
+allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/engine/engine.sh:*), Bash(bash:*), Bash(python3:*), Bash(test:*)
 ---
 
 # /wise-workflow-resume
@@ -24,11 +24,12 @@ verbatim. Stop on either.
 `gated` runs are answered, not resumed. `running` runs are only
 followed.
 
-- Argument given: `wise_status {run_id}`. On `RUN_NOT_FOUND`, if
-  `~/.local/share/wise/runs/<cwd-slug>/<run_id>/state.yaml` exists it
-  is a legacy v1 run: follow
-  `${CLAUDE_PLUGIN_ROOT}/references/legacy-conductor/resume.md`.
-  Otherwise print `No run <run_id>.` and stop.
+- Argument given: `wise_status {run_id}`. On `RUN_NOT_FOUND`, use
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" runs-root`
+  to locate history. A `state.yaml` entry is a legacy v1 run: report
+  `Legacy run cannot resume. Import its definition, review it, then
+  start a new v2 run.` Keep its files unchanged. Otherwise print
+  `No run <run_id>.` and stop.
 - No argument: AskUserQuestion over the `paused`, `failed`, `gated`
   runs (label `run_id`; description `<workflow>, <status>, last
   activity <last_activity_at>, <cwd>`) plus Abort. None: print

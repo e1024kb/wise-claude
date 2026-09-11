@@ -25,6 +25,8 @@ Commands:
                                original kept as <file>.v1.bak) or --out; exit 1 if the result
                                still has validation errors
   list-defs                    bundled and user workflow definitions
+  definition-roots             canonical user and bundled definition directories
+  list-agents                  bundled role roster for workflow authors
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v] [--follow]
                                start a run through the daemon (auto-started)
   wait|status|answer|cancel|resume|report ...
@@ -356,6 +358,14 @@ async def main(argv: Sequence[str], io: Io | None = None) -> int:
                 rows,
                 lambda: "\n".join(f"{r['name']}\t{r['source']}\t{r['path']}" for r in rows),
             )
+            return 0
+        if command == "definition-roots":
+            io.out(json.dumps(roots_from(parsed, io), ensure_ascii=False, indent=2) + "\n")
+            return 0
+        if command == "list-agents":
+            from .resolve import cmd_list_agents
+
+            io.out(json.dumps(cmd_list_agents(), ensure_ascii=False, indent=2) + "\n")
             return 0
         if command == "models":
             return cmd_models(parsed, io)

@@ -8,7 +8,7 @@ description: >-
   the workflow", "kick off <workflow-name>", or types
   `/wise-workflow-run`.
 argument-hint: "[<workflow-name> [<input1> <free-form remainder…>]]"
-allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/engine/engine.sh:*), Bash(bash:*), Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
+allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/engine/engine.sh:*), Bash(bash:*), Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
 ---
 
 # /wise-workflow-run - the conductor
@@ -44,12 +44,12 @@ question. On success it returns `questions: []` plus the collected
 `answers`; pass those answers to `wise_run`.
 
 - `WORKFLOW_NOT_FOUND`: say so, stop.
-- `WORKFLOW_INVALID` whose `issues[]` name a v1 construct (`path:
-  version` with "v1 workflow", or hints that say `version: 2`): print
-  `<name> is a v1 workflow; using the legacy conductor.` and follow
-  `${CLAUDE_PLUGIN_ROOT}/references/legacy-conductor/run.md` from its
-  §1 instead of the rest of this file. Any other issue: list
-  `path: message (hint)` and stop.
+- `WORKFLOW_INVALID`: list `path: message (hint)` and stop. A v1
+  definition must be imported with
+  `bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" migrate <path>`.
+  Review the dry-run output, then use `--write` to retain a `.v1.bak`
+  backup. Compile the result before starting a fresh v2 run. Never
+  execute a v1 definition through a fallback conductor.
 - `requires_missing` non-empty: print one line per entry
   (`plugin:<name>` needs `/plugin install`, `tool:<name>` needs the
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
@@ -97,7 +97,7 @@ Never answer one for the user or drop it to save a call.
 ## 3. Context and start
 
 Ticket content is fetched HERE, before `wise_run`, never left to a
-child. A child is a fresh `claude -p` with the CLI's MCP servers and
+child. A child is a fresh process of the selected provider CLI, with its MCP servers and
 CLIs, not this session's connectors: a tracker only this session can
 reach is unreachable for it, and every child re-fetching the same
 ticket costs tokens and turns.

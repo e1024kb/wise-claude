@@ -147,7 +147,17 @@ def test_captured_cli_help_unknown_and_missing_preflight():
     for case in json.loads(fixtures.read_text()):
         if case["args"][0] == "compile-check":
             continue
-        assert invoke(*case["args"]) == (case["code"], case["out"], case["err"])
+        code, out, err = invoke(*case["args"])
+        additions = (
+            "  setup-host --host <host> --plugin-root <path> [--apply]  preview or repair registration\n",
+            "  host-doctor --host <host>    inspect launch registration (does not prove host connectivity)\n",
+            "  host-rollback <transaction>  restore setup files if they have not changed\n",
+            "  definition-roots             canonical user and bundled definition directories\n",
+            "  list-agents                  bundled role roster for workflow authors\n",
+        )
+        for line in additions:
+            out, err = out.replace(line, ""), err.replace(line, "")
+        assert (code, out, err) == (case["code"], case["out"], case["err"])
 
 
 def test_mcp_help_goes_to_stderr_without_start():
@@ -155,3 +165,16 @@ def test_mcp_help_goes_to_stderr_without_start():
         code, out, err = invoke(command, "--help")
         assert code == 0 and out == "" and f"wise-engine {command}" in err
     assert invoke("daemon", "help")[0] == 0
+
+
+def test_authoring_roots_and_roster(tmp_path):
+    code, out, err = invoke("definition-roots", env={"WISE_DATA_DIR": str(tmp_path)})
+    assert code == 0 and not err
+    assert json.loads(out) == {
+        "user_root": str(tmp_path / "workflows/definitions"),
+        "bundled_root": str(ROOT / "workflows"),
+    }
+    code, out, err = invoke("list-agents")
+    assert code == 0 and not err
+    rows = json.loads(out)
+    assert len(rows) == 13 and any(row["name"] == "software-engineer" for row in rows)
