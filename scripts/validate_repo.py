@@ -453,9 +453,15 @@ def check_question_lifecycle(errors: list[str]) -> None:
     skills_dir = REPO_ROOT / WISE_PLUGIN_DIR / "skills"
     target = "../../references/workflow-host-control.md#keep-asynchronous-questions-open"
     for path in sorted(skills_dir.glob("*/SKILL.md")):
-        if f"]({target})" not in path.read_text():
+        rel = path.relative_to(REPO_ROOT)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{rel}: could not read file ({exc})")
+            continue
+        if f"]({target})" not in text:
             errors.append(
-                f"{path.relative_to(REPO_ROOT)}: missing shared question lifecycle reference"
+                f"{rel}: missing shared question lifecycle reference"
             )
 
 

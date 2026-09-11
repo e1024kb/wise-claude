@@ -64,6 +64,18 @@ def test_new_skill_requires_shared_question_lifecycle(validator, tmp_path):
     assert errors == []
 
 
+def test_unreadable_skill_reports_question_lifecycle_error(validator, tmp_path):
+    path = tmp_path / "plugins/wise/skills/wise-new/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xff")
+
+    errors: list[str] = []
+    validator.check_question_lifecycle(errors)
+
+    assert len(errors) == 1
+    assert "wise-new/SKILL.md: could not read file" in errors[0]
+
+
 @pytest.mark.parametrize(
     "body,expected",
     [
