@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
+
+import tomlkit
 from collections.abc import Mapping
 from typing import Any
 
@@ -49,7 +52,9 @@ def prompt_via_stdin(prompt: str) -> bool:
     return len(prompt.encode("utf-8")) > PROMPT_ARGV_MAX
 
 
-def build_argv(req: Json, *, schema_path: str | None = None) -> list[str]:
+def build_argv(
+    req: Json, *, schema_path: str | None = None, mcp_args: list[str] | None = None
+) -> list[str]:
     resume = req.get("resume") if isinstance(req.get("resume"), str) and req["resume"] else None
     argv = ["exec"] if resume is None else ["exec", "resume", resume]
     argv += ["--json", "--skip-git-repo-check"]
@@ -71,6 +76,8 @@ def build_argv(req: Json, *, schema_path: str | None = None) -> list[str]:
         if schema_path is None:
             raise ValueError("codex: schema given without schemaPath")
         argv += ["--output-schema", schema_path]
+    if mcp_args:
+        argv += mcp_args
     prompt = compose_prompt(req)
     return [*argv, "-" if prompt_via_stdin(prompt) else prompt]
 
@@ -127,6 +134,36 @@ def child_env(req: Json, parent: Mapping[str, str | None] | None = None) -> dict
         secrets=[CODEX_KEY_VAR] if req["auth"] == "api-key" else [],
         extra=req.get("env"),
     )
+
+
+def child_mcp_overrides(req: Json) -> tuple[list[str], dict[str, str]]:
+    config = req.get("mcp_config")
+    if config is None:
+        return [], {}
+    if not isinstance(config, dict) or not isinstance(config.get("mcpServers"), dict):
+        raise ValueError("codex: mcp_config must contain mcpServers")
+    overrides: list[str] = []
+    environment: dict[str, str] = {}
+    for server in config["mcpServers"].values():
+        if not isinstance(server, dict) or not isinstance(server.get("command"), str):
+            raise ValueError("codex: child MCP requires a stdio command")
+        arguments = server.get("args", [])
+        values = server.get("env", {})
+        if not isinstance(arguments, list) or not all(isinstance(arg, str) for arg in arguments):
+            raise ValueError("codex: child MCP args must be strings")
+        if not isinstance(values, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in values.items()
+        ):
+            raise ValueError("codex: child MCP env must contain strings")
+        for key, value in values.items():
+            if key in environment and environment[key] != value:
+                raise ValueError("codex: child MCP servers require conflicting environment values")
+            environment[key] = value
+        spec = tomlkit.inline_table()
+        spec.update(command=server["command"], args=arguments, env_vars=list(values))
+        name = "wise-step-" + uuid.uuid4().hex
+        overrides.extend(["-c", f"mcp_servers.{name}={spec.as_string()}"])
+    return overrides, environment
 
 
 def effort_map(effort: str) -> str | None:
@@ -249,12 +286,15 @@ async def start_codex(
 ) -> AgentHandle:
     schema = write_schema_file(strict_schema(req["schema"])) if "schema" in req else None
     try:
-        argv = build_argv(req, schema_path=schema.path if schema else None)
+        mcp_args, mcp_env = child_mcp_overrides(req)
+        argv = build_argv(req, schema_path=schema.path if schema else None, mcp_args=mcp_args)
         proc = await spawn_clean(
             bin,
             argv,
             SpawnOptions(
-                cwd=req["cwd"], env=child_env(req, parent_env), timeout_ms=req["timeout_ms"]
+                cwd=req["cwd"],
+                env={**child_env(req, parent_env), **mcp_env},
+                timeout_ms=req["timeout_ms"],
             ),
         )
     except BaseException:
