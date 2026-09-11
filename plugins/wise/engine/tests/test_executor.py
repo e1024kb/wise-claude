@@ -11,9 +11,10 @@ import pytest
 
 from wise_engine.adapter_types import AgentHandle
 from wise_engine.daemon import DaemonRuntime, daemon_paths
+from wise_engine.defs import load_and_validate
 from wise_engine.executor import create_executor, load_caps, default_backoff_ms, detect_project
 from wise_engine.ledger import read_state, read_events, utc_now, usage_total
-from wise_engine.preflight import fill_answers
+from wise_engine.preflight import build_questionary, fill_answers
 from wise_engine.rpc import RpcError, domain_code, CallContext
 
 ENGINE = Path(__file__).resolve().parents[1]
@@ -564,6 +565,51 @@ def test_explicit_input_staging(tmp_path, mode, calls):
             run = await rig.conduct("gated-tuning", inputs={"mode": mode})
             assert (await rig.status(run["run_id"], "completed"))["inputs"]["mode"] == mode
             assert len(rig.adapter.calls) == calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "context,answers,expected_mode,active",
+    [
+        ({"decisions": {"mode": "on"}}, {}, "on", True),
+        ({"decisions": {"mode": "invalid"}}, {}, "off", False),
+        ({"decisions": {"mode": "on"}}, {"input.mode": "off"}, "off", False),
+        ({"decisions": {"mode": "on"}}, {"input.mode": ""}, "", False),
+    ],
+)
+def test_context_choice_gates_match_runtime_staging(
+    tmp_path, context, answers, expected_mode, active
+):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            defn = load_and_validate({"path": str(FIXTURES / "gated-tuning.yaml")})["def"]
+            staged = build_questionary(
+                defn,
+                {"context": context},
+                {"permissions.claude": "auto", **answers},
+            )
+            assert ("model.gated" in [question["id"] for question in staged["questions"]]) is active
+
+            params = {
+                "workflow": "gated-tuning",
+                "cwd": rig.cwd,
+                "answers": {"permissions.claude": "auto", **answers},
+                "context": context,
+            }
+            if active:
+                with pytest.raises(RpcError) as error:
+                    await rig.executor.run(params, rig.ctx)
+                assert domain_code(error.value) == "MISSING_ANSWERS"
+                assert error.value.data["missing"] == ["model.gated"]
+            else:
+                run = await rig.executor.run(params, rig.ctx)
+                state = await rig.status(run["run_id"], "completed")
+                assert state["inputs"]["mode"] == expected_mode
+                assert rig.adapter.calls == []
         finally:
             await rig.close()
 

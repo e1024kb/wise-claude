@@ -335,11 +335,15 @@ def resolve_from_context(path: str, context: Json | None = None) -> str | None:
 def known_inputs(definition: Json, answers: Json, context: Json | None = None) -> Json:
     known = {}
     for item in definition.get("inputs", []):
-        value = _answer_string(answers.get(f"input.{item['name']}"))
-        if value is None:
-            value = resolve_from_context(item.get("from-context", ""), context)
-        if value is None:
-            value = item.get("default", "" if item.get("optional") else None)
+        answer_id = f"input.{item['name']}"
+        value = _answer_string(answers.get(answer_id))
+        if answer_id not in answers:
+            if input_choice_values(item) is not None:
+                value = choice_input_preset(item, context)
+            else:
+                value = resolve_from_context(item.get("from-context", ""), context)
+                if value is None:
+                    value = item.get("default", "" if item.get("optional") else None)
         if value is not None:
             known[item["name"]] = value
     return known

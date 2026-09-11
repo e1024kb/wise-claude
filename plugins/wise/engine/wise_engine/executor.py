@@ -1248,7 +1248,9 @@ class Executor:
         definition = validated(located)
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         seeded = {**given, **{f"input.{key}": value for key, value in explicit.items()}}
-        completed = complete_answers(definition, {"harnesses": harnesses}, seeded)
+        completed = complete_answers(
+            definition, {"harnesses": harnesses, "context": context}, seeded
+        )
         answers = completed["answers"]
         unanswered = [
             question
