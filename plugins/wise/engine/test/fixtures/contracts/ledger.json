@@ -1,0 +1,107 @@
+{
+  "initial": {
+    "version": 2,
+    "run_id": "01FIXTURE",
+    "workflow": {
+      "name": "fixture",
+      "version": 2,
+      "dir": "/fixture/defs"
+    },
+    "cwd": "/fixture/project",
+    "project": null,
+    "status": "initializing",
+    "profile": "medium",
+    "answers": {},
+    "context": {},
+    "inputs": {},
+    "resolved": {},
+    "caps": {},
+    "usage": {
+      "subscription": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "pool": "subscription"
+      },
+      "api-key": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "pool": "api-key"
+      },
+      "by_harness": {},
+      "by_step": {}
+    },
+    "steps": {
+      "a": {
+        "status": "pending",
+        "attempts": 0
+      },
+      "b": {
+        "status": "pending",
+        "attempts": 0
+      }
+    },
+    "outputs": {},
+    "started_at": "2026-09-11T00:00:00Z",
+    "last_activity_at": "2026-09-11T00:00:00Z"
+  },
+  "running": {
+    "version": 2,
+    "run_id": "01FIXTURE",
+    "workflow": {
+      "name": "fixture",
+      "version": 2,
+      "dir": "/fixture/defs"
+    },
+    "cwd": "/fixture/project",
+    "project": null,
+    "status": "running",
+    "profile": "medium",
+    "answers": {
+      "permissions.codex": "auto"
+    },
+    "context": {},
+    "inputs": {
+      "plan": "/fixture/plan.md"
+    },
+    "resolved": {},
+    "caps": {},
+    "usage": {
+      "subscription": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "pool": "subscription"
+      },
+      "api-key": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "pool": "api-key"
+      },
+      "by_harness": {},
+      "by_step": {}
+    },
+    "steps": {
+      "a": {
+        "status": "done",
+        "attempts": 1,
+        "verdict": "fixture complete"
+      },
+      "b": {
+        "status": "pending",
+        "attempts": 0
+      }
+    },
+    "outputs": {
+      "plan": "/fixture/plan.md"
+    },
+    "started_at": "2026-09-11T00:00:00Z",
+    "last_activity_at": "2026-09-11T00:00:00Z"
+  }
+}
