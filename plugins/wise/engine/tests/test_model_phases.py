@@ -9,10 +9,12 @@ import pytest
 from test_phases import PhaseFixture, command_result
 from wise_engine.adapter_types import AgentHandle
 from wise_engine.ledger import empty_usage, read_unit
+from wise_engine.phases.common import make_unit
 from wise_engine.phases.model import (
     BOT_LOGINS,
     PHASE_MODE,
     PHASE_TOOLS,
+    _ticket_block,
     base_vars,
     engine_plan_path,
     findings_path,
@@ -201,6 +203,23 @@ def test_templates_resolution_and_context_pointer(tmp_path):
         for value in resolve_unit_phases({**step, "model": "haiku"}, tuning, "medium", {}).values()
     )
     assert "github-actions[bot]" in BOT_LOGINS
+
+
+def test_repository_qualified_ticket_uses_native_context_and_prompt_ref(tmp_path):
+    fixture = ModelFixture(tmp_path)
+    fixture.ctx["unit"] = make_unit(
+        "ticket", "owner/repo#42", str(fixture.repo), str(fixture.run_dir), "main"
+    )
+    fixture.ctx["ledger"]["unit"] = fixture.ctx["unit"]
+    fixture.ctx["config"]["tickets"] = [
+        {"ref": "owner/repo#42", "body": "Repository-specific ticket body."}
+    ]
+    ticket = _ticket_block(fixture.ctx)
+    variables = {**base_vars(fixture.ctx), "ticket": ticket}
+    prompt = render_phase_prompt("ticket", "plan", variables)
+    assert "ticket owner/repo#42" in prompt
+    assert "Repository-specific ticket body." in prompt
+    assert "# owner/repo#42: <title>" in prompt
 
 
 def test_happy_pipeline_model_requests_and_usage(tmp_path):

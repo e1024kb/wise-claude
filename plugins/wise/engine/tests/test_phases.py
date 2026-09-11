@@ -16,9 +16,16 @@ from wise_engine.phases.common import (
     plan_branch,
     spawn_runner,
     ticket_branch,
+    ticket_context,
     ticket_ref,
 )
-from wise_engine.phases.pr import default_pr_body, fill_pr_template, find_pr_template, pr_phase
+from wise_engine.phases.pr import (
+    _collect_facts,
+    default_pr_body,
+    fill_pr_template,
+    find_pr_template,
+    pr_phase,
+)
 from wise_engine.phases.push import push_phase
 from wise_engine.phases.request_review import request_review_phase
 from wise_engine.phases.worktree import parse_worktrees, worktree_phase
@@ -180,6 +187,58 @@ class PhaseFixture:
 def test_ticket_naming(value, ref, branch):
     assert ticket_ref(value) == ref
     assert ticket_branch(ref) == branch
+
+
+def test_ticket_unit_preserves_native_ref_without_changing_branch(tmp_path):
+    unit = make_unit("ticket", "owner/repo#42", str(tmp_path), str(tmp_path / "run"), "main")
+    assert unit["ref"] == "42"
+    assert unit["ticket_ref"] == "owner/repo#42"
+    assert unit["branch"] == "abstract-task-42"
+
+
+def test_ticket_context_matches_exact_url_without_ambiguous_numeric_fallback(tmp_path):
+    url = "https://github.invalid/owner/repo/issues/42"
+    url_unit = make_unit("ticket", url, str(tmp_path), str(tmp_path / "run"), "main")
+    repository_unit = make_unit(
+        "ticket", "owner/repo#42", str(tmp_path), str(tmp_path / "run"), "main"
+    )
+    tickets = [
+        {"ref": "42", "url": url, "title": "Right repository"},
+        {"ref": "owner/repo#42", "title": "Namespaced repository"},
+        {"ref": "other/repo#42", "title": "Other repository"},
+    ]
+    assert ticket_context(tickets, url_unit)["title"] == "Right repository"
+    assert ticket_context(tickets, repository_unit)["title"] == "Namespaced repository"
+    assert ticket_context(tickets[:1], repository_unit) is None
+
+
+def test_pr_facts_preserve_repository_qualified_ticket_ref(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        fixture.ctx["unit"] = make_unit(
+            "ticket", "owner/repo#42", str(fixture.repo), str(fixture.run_dir), "main"
+        )
+        fixture.ctx["config"]["tickets"] = [
+            {
+                "ref": "owner/repo#42",
+                "title": "Repository issue",
+                "url": "https://github.invalid/owner/repo/issues/42",
+            }
+        ]
+        facts = await _collect_facts(fixture.ctx)
+        assert facts["ref"] == "owner/repo#42"
+        assert facts["title"] == "owner/repo#42: Repository issue"
+        assert facts["ticket_link"].startswith("[owner/repo#42]")
+
+        url = "https://github.invalid/owner/repo/issues/42"
+        fixture.ctx["unit"] = make_unit(
+            "ticket", url, str(fixture.repo), str(fixture.run_dir), "main"
+        )
+        fixture.ctx["config"]["tickets"] = [{"ref": "42", "url": url}]
+        facts = await _collect_facts(fixture.ctx)
+        assert facts["ref"] == "42"
+
+    asyncio.run(scenario())
 
 
 def test_plan_protected_items_and_porcelain():

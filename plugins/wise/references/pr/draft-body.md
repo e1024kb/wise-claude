@@ -53,8 +53,8 @@ of the body (the PR is a stub) and continue — don't abort.
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/subject-drafting.md` §1 — the
 shared first-match-wins chain (branch → the §2 diff content → `git log
--5 --pretty=%s` → session), no invention. If none yield a key, omit the
-scope in the Context section.
+-5 --pretty=%s` → session), no invention. If none yield a verified ticket
+reference, omit ticket scope from the Context section.
 
 ### 4. Resolve the PR-body template
 

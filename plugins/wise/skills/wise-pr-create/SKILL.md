@@ -105,10 +105,11 @@ release branch is almost always a mistake.
 
 - If `current_branch` matches any of `^main$`, `^master$`,
   `^release$`, or `^release[/-]`, AND `pr_exists == no`, STOP.
-  Tell the user their current branch is protected and suggest
-  checking out a ticket-scoped branch named exactly the ticket key
-  (e.g. `git checkout -b PROJ-777`, per
-  `${CLAUDE_PLUGIN_ROOT}/references/branch-naming.md`) before re-running.
+  Tell the user their current branch is protected and suggest checking out a
+  non-protected branch before re-running. If a verified ticket reference is
+  already available, compute its `target_branch` per
+  `${CLAUDE_PLUGIN_ROOT}/references/branch-naming.md` and include that exact
+  branch in the suggestion.
 - If `current_branch` matches a protected pattern AND `pr_exists
   == yes`, continue — the user wants to refresh an existing PR
   that was created deliberately.
