@@ -1,6 +1,6 @@
 # Plan: Python workflow engine and removal of legacy execution
 
-Status: IMPLEMENTED and committed on `feat/python-workflow-engine`, unpushed. macOS and fresh Python-only Linux checks passed. Historical upgrade/rollback and the documented four-host control routes passed. Native conversation UI/calls outside the tested Codex app-server route and a live-provider smoke test remain explicit release gates.
+Status: IMPLEMENTED and committed on `feat/python-workflow-engine`, unpushed. macOS and fresh Python-only Linux checks passed. Historical upgrade/rollback and the documented four-host control routes passed. The authorized live Codex provider smoke test passed. Native conversation UI/calls outside the tested Codex app-server route remain an explicit release gate.
 
 Prepared 2026-09-11 from checkout `b1b5dee` (plugin `5.0.0-rc.6`). This plan supersedes the implementation direction in [harness-engine.md](harness-engine.md). The existing TypeScript implementation is the behavioral baseline; older milestone statuses are not evidence of current completion.
 
@@ -213,7 +213,7 @@ Depends on P6.
 - [x] Rehearse v1 definition import and unsupported-v1-run handling; original files remain unchanged unless conversion was explicitly requested.
 - [x] Rehearse daemon replacement with active and idle old daemons. Never run both implementations against the same socket/ledger.
 - [x] Run end-to-end MCP/CLI workflows in disposable projects: success, approval, question, cancel, failed-step resume, fallback, child checkpoint, and units pipeline.
-- [ ] Verify the four-host matrix from P6, and at least one live child-provider execution when credentials and execution authorization are available. Keep host transport proof separate from paid/live model execution; record unavailable access as an unmet gate, not inferred success.
+- [x] Verify the documented four-host control routes from P6 and at least one authorized live child-provider execution. Codex subscription smoke passed; native conversation UI/calls outside the tested app-server route remain tracked by the separate P6 item.
 - [x] Confirm final test mapping, dependency inventory, changed public contracts, and rollback rehearsal in this plan.
 
 Gate: all acceptance criteria below pass. Publishing, pushing, tagging, merging, or running real ticket automation remains a separate release action.
@@ -469,9 +469,9 @@ rehearsals). Final counts and remaining live-access gates follow below.
   In-flight steps are reset for continuation; completed side effects are not
   replayed. A resumed failed run can immediately fail again.
 
-No uninstall of system JavaScript runtimes, user configuration migration, live
-provider execution, ticket automation, push, PR, tag or publication is performed
-by this implementation session.
+No uninstall of system JavaScript runtimes, user configuration migration, ticket
+automation, push, PR, tag or publication was performed. The subsequent authorized
+live Codex smoke test is recorded below.
 
 ### P7 historical upgrade and rollback evidence
 
@@ -547,10 +547,34 @@ seven validator sections, mypy on 61 source modules, Ruff/format on 101 files,
 Python compilation, JSON manifest validation and shell syntax checks. Linux logs
 are `/tmp/wise-final-linux-check.log` and `/tmp/wise-final-linux-skips.log`.
 
-The final acceptance checklist records the implemented behavior and tested CLI
-interaction route; it does not claim native picker UI or paid-provider coverage.
-The P6 native conversational-call item and P7 live-provider item stay unchecked.
-A tiny read-only Codex provider smoke test was offered to the user; it has not run
-without an affirmative answer. Native conversational forms/pickers outside the
-Codex no-model app-server route remain unverified. These are release verification
-limits, not evidence of successful live execution. No push or publication occurred.
+The final acceptance checklist records implemented behavior and the tested CLI
+interaction route. The P6 native conversational-call item stays unchecked; the
+subsequent live-provider smoke test closes the P7 provider item. Native
+conversational forms/pickers outside the Codex no-model app-server route remain
+unverified. No push or publication occurred.
+
+### Authorized live Codex smoke test
+
+On 2026-09-11, after explicit user authorization, the Python engine ran one Codex
+subscription step using the existing ChatGPT login. The step inherited the user's
+Codex model, used `approval-required` (Codex `read-only` sandbox), and requested
+only a fixed structured response without tool use. Preflight returned no pending
+questions after the authorized read-only provider permission was supplied.
+
+Run `01M2733TV951B70NNBKP9HPMCE` completed from 02:00:31 to 02:00:37 UTC. The
+engine captured `{"result":"WISE_PYTHON_SMOKE_OK"}`, one completed provider turn,
+23,278 input tokens, 21 output tokens and 1,408 cached input tokens. Subscription
+usage was recorded without an inferred dollar cost. The inherited Codex skill
+catalog contributed context despite the tiny test prompt.
+
+The provider event log contains no command execution, file changes, MCP calls or
+web searches. The disposable workspace still contains only its original,
+byte-identical marker. The isolated daemon stopped successfully after the run.
+Codex emitted non-fatal notices about its existing experimental-feature setting
+and shortened skill descriptions; neither blocked structured output or completion.
+
+Evidence remains outside the repository under `/tmp/wise-live-gncyiwuf`:
+`smoke.yaml`, the daemon run ledger/events/raw provider log, and the unchanged
+workspace marker. This verifies live authentication, provider dispatch, structured
+output, usage capture and completion. It does not verify live child-tool calls or
+native conversational pickers. No runtime code changed for this check.
