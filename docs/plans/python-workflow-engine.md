@@ -1,6 +1,6 @@
 # Plan: Python workflow engine and removal of legacy execution
 
-Status: IN PROGRESS. P0 through P2 core gates passed; P3 is underway on `feat/python-workflow-engine`.
+Status: IN PROGRESS. P0 through P5 gates passed; P6 is underway on `feat/python-workflow-engine`.
 
 Prepared 2026-09-11 from checkout `b1b5dee` (plugin `5.0.0-rc.6`). This plan supersedes the implementation direction in [harness-engine.md](harness-engine.md). The existing TypeScript implementation is the behavioral baseline; older milestone statuses are not evidence of current completion.
 
@@ -153,12 +153,12 @@ Gate: every bundled workflow compiles; staged preflight and migration fixtures m
 
 Depends on P2.
 
-- [ ] Port all five adapters and authentication probes, plus standalone dispatch/model commands.
-- [ ] Port RPC client/server, daemon lifecycle, startup arbitration, build identity, host watching, and long polling.
-- [ ] Port agent/bash/gate execution, fallback, retries where currently supported, cancellation, and concurrency controls.
-- [ ] Port units and all phases: claim, worktree, plan/implementation/review/fix/watch, push, PR, review request, and cleanup as implemented by current sources.
-- [ ] Connect both MCP servers and child channel to the real Python executor; preserve token scoping, checkpoint semantics, and permission filtering.
-- [ ] Replace TypeScript fake child programs with Python equivalents; use local disposable Git repositories and mocked GitHub/tracker responses for side-effect tests.
+- [x] Port all five adapters and authentication probes, plus standalone dispatch/model commands.
+- [x] Port RPC client/server, daemon lifecycle, startup arbitration, build identity, host watching, and long polling.
+- [x] Port agent/bash/gate execution, fallback, retries where currently supported, cancellation, and concurrency controls.
+- [x] Port units and all phases: claim, worktree, plan/implementation/review/fix/watch, push, PR, review request, and cleanup as implemented by current sources.
+- [x] Connect both MCP servers and child channel to the real Python executor; preserve token scoping, checkpoint semantics, and permission filtering.
+- [x] Replace TypeScript fake child programs with Python equivalents; use local disposable Git repositories and mocked GitHub/tracker responses for side-effect tests.
 
 Gate: behavioral parity across lifecycle, channels, permissions, adapter failures, and unit loops. Crash/restart tests prove completed phases are not replayed and timed-out child trees are reaped. Fixture success must not be reported as live provider verification.
 
@@ -166,12 +166,12 @@ Gate: behavioral parity across lifecycle, channels, permissions, adapter failure
 
 Depends on P3.
 
-- [ ] Switch the public `engine/engine.sh` to Python; keep `.mcp.json` server identity and command contract stable.
-- [ ] Update daemon self-launch and all child MCP injection to the managed interpreter/package path.
-- [ ] Migrate workflow skills, profiles, reports, shared references, supervisor helpers, insights import, and validator as listed in the removal table.
-- [ ] Remove legacy skill fallback branches, `references/legacy-conductor/`, and `scripts/workflows.py` after caller checks pass.
-- [ ] Replace global Node/Bun requirements in bootstrap, init wizard, registry, and shared init references. Recognize older registry records without treating a stale success marker as proof that Python engine dependencies exist.
-- [ ] Exercise every affected public skill's command path, not only workflow-run.
+- [x] Switch the public `engine/engine.sh` to Python; keep `.mcp.json` server identity and command contract stable.
+- [x] Update daemon self-launch and all child MCP injection to the managed interpreter/package path.
+- [x] Migrate workflow skills, profiles, reports, shared references, supervisor helpers, insights import, and validator as listed in the removal table.
+- [x] Remove legacy skill fallback branches, `references/legacy-conductor/`, and `scripts/workflows.py` after caller checks pass.
+- [x] Replace global Node/Bun requirements in bootstrap, init wizard, registry, and shared init references. Recognize older registry records without treating a stale success marker as proof that Python engine dependencies exist.
+- [x] Exercise every affected public skill's command path, not only workflow-run.
 
 Gate: exactly one reachable workflow executor. `/wise`, profiles, insights, reports, supervision, authoring, discovery, run/resume/status all retain their supported behavior. v1 runs never silently execute.
 
@@ -179,13 +179,13 @@ Gate: exactly one reachable workflow executor. `/wise`, profiles, insights, repo
 
 Depends on P4.
 
-- [ ] Delete TypeScript implementation/tests after the parity map accounts for their behavior. Keep JSON/YAML/transcript fixtures needed by Python tests.
-- [ ] Delete JS manifests/lockfile/configuration and remove Bun/npm commands from root and engine justfiles.
-- [ ] Remove Node setup from CI; install pinned Python dependencies and run Python lint, type checks, tests, structural validation, JSON parsing, and shell syntax checks. Include `engine/engine.sh` in syntax coverage.
-- [ ] Update `scripts/validate_repo.py` and test discovery so zero collected tests fails CI instead of being accepted.
-- [ ] Reconcile root/plugin AGENTS guidance, CLAUDE guidance, CONTRIBUTING, READMEs, `docs/wise/workflows.md`, and affected skills/references. Update bundled workflow READMEs when their prompts/instructions change.
-- [ ] Mark earlier engine plan/research as superseded historical records with a link here; remove stale operational instructions from active documentation.
-- [ ] Bump the plugin version per repository policy. Explicitly document retirement of v1 execution and removed CLI contracts; do not treat it as a transparent patch release.
+- [x] Delete TypeScript implementation/tests after the parity map accounts for their behavior. Keep JSON/YAML/transcript fixtures needed by Python tests.
+- [x] Delete JS manifests/lockfile/configuration and remove Bun/npm commands from root and engine justfiles.
+- [x] Remove Node setup from CI; install pinned Python dependencies and run Python lint, type checks, tests, structural validation, JSON parsing, and shell syntax checks. Include `engine/engine.sh` in syntax coverage.
+- [x] Update `scripts/validate_repo.py` and test discovery so zero collected tests fails CI instead of being accepted.
+- [x] Reconcile root/plugin AGENTS guidance, CLAUDE guidance, CONTRIBUTING, READMEs, `docs/wise/workflows.md`, and affected skills/references. Update bundled workflow READMEs when their prompts/instructions change.
+- [x] Mark earlier engine plan/research as superseded historical records with a link here; remove stale operational instructions from active documentation.
+- [x] Bump the plugin version per repository policy. Explicitly document retirement of v1 execution and removed CLI contracts; do not treat it as a transparent patch release.
 
 Gate: clean install and full `just check` pass in a Python-only environment with JavaScript executables absent. Repository searches find no engine-owned JS runtime requirement or executable legacy reference. Historical records and commands belonging to user projects are reviewed exceptions, not blanket failures.
 
@@ -260,16 +260,16 @@ The Codex launch failure and successful absolute-path handshake were supplied by
 
 ### P0 test and caller disposition
 
-All destinations are planned, not completed ports. Retain all current TS test cases and skips until equivalent Python assertions pass.
+P3 parity is implemented and verified at frozen commit `c20c4ef`. The table records actual Python owners; provider transcript/argv fixtures are grouped by family in shared parametrized tests. Original TypeScript files are retired in P5; language-neutral captures remain.
 
 | TypeScript test | Python destination under `engine/tests/` |
 |---|---|
-| `adapters.claude.test.ts` | `test_adapters_claude.py` |
-| `adapters.codex.test.ts` | `test_adapters_codex.py` |
-| `adapters.cursor.test.ts` | `test_adapters_cursor.py` |
-| `adapters.gemini.test.ts` | `test_adapters_gemini.py` |
-| `adapters.grok.test.ts` | `test_adapters_grok.py` |
-| `adapters.spawn.test.ts` | `test_adapters_spawn.py` |
+| `adapters.claude.test.ts` | `test_adapters_contracts.py`, `test_adapters_process.py` |
+| `adapters.codex.test.ts` | `test_adapters_contracts.py`, `test_adapters_process.py` |
+| `adapters.cursor.test.ts` | `test_adapters_contracts.py`, `test_adapters_process.py` |
+| `adapters.gemini.test.ts` | `test_adapters_contracts.py`, `test_adapters_process.py` |
+| `adapters.grok.test.ts` | `test_adapters_contracts.py`, `test_adapters_process.py` |
+| `adapters.spawn.test.ts` | `test_spawn.py` |
 | `channel.test.ts` | `test_channel.py` |
 | `cli-client.test.ts` | `test_cli_client.py` |
 | `cli.test.ts` | `test_cli.py` |
@@ -281,7 +281,7 @@ All destinations are planned, not completed ports. Retain all current TS test ca
 | `host-watch.test.ts` | `test_host_watch.py` |
 | `integration.test.ts` | `test_integration.py` |
 | `ledger.test.ts` | `test_ledger.py` |
-| `mcp.test.ts` | `test_mcp.py` |
+| `mcp.test.ts` | `test_mcp_transport.py`, `test_mcp_link.py` |
 | `migrate.test.ts` | `test_migrate.py` |
 | `model-phases.test.ts` | `test_model_phases.py` |
 | `permissions.test.ts` | `test_permissions.py` |
@@ -295,7 +295,7 @@ All destinations are planned, not completed ports. Retain all current TS test ca
 | `scheduler.test.ts` | `test_scheduler.py` |
 | `smoke.test.ts` | `test_smoke.py` |
 | `steps.test.ts` | `test_steps.py` |
-| `unit-mcp.test.ts` | `test_unit_mcp.py` |
+| `unit-mcp.test.ts` | `test_executor.py`, `test_mcp_transport.py`, `test_mcp_link.py` |
 | `units.test.ts` | `test_units.py` |
 
 Legacy pytest mapping (13 test files plus conftest):
@@ -384,3 +384,23 @@ The P2 gate passes: all bundled definitions compile, staged preflight and migrat
 
 Approved compatibility boundary: case-insensitive backreferences require a capture that can be proven ASCII-only. Unicode or broad captures in that combination fail validation with a clear error; case-sensitive Unicode backreferences and ordinary regexes remain supported. The user explicitly approved this restriction during implementation. The incomplete Unicode postfilter was removed. Definition tests pass 343 cases, including same-start alternatives and negative assertions. This resolves the tracked production-switch blocker without claiming blanket JavaScript-RegExp equivalence.
 
+
+### P3 execution gate passed
+
+Frozen commit `c20c4ef` passed 1,384 Python tests on macOS (26.31 seconds) and Python 3.11 Linux with a read-only source mount (18.73 seconds). Ruff and mypy passed before freezing. Tests cover all five provider adapters with fake executables, daemon/RPC lifecycle, actual host-process exit, parent/child MCP connections, staged CLI controls, gates, cancellation, rate-limit fallback, token ceilings, bundled example execution, and local Git unit pipelines. The Unix-socket executor integration ran real bash steps and a fake provider and verified persisted Unicode output, usage and completion. The transport comparison exercised 454 requests and compared 389 normalized responses with zero mismatches.
+
+Intentional resume correction: unit pipelines snapshot the original saved phase before claim/worktree rechecks, preserving that boundary even if those rechecks are interrupted. Completed model phases and their side effects are not replayed. Provider fixture success is not live-provider verification. The public launcher is now being switched to Python; old execution callers and TypeScript files are removed in P4/P5.
+
+### P4/P5 caller and test retirement
+
+Public `engine/engine.sh` enters the managed Python package and works from an unrelated cwd. All workflow skills use the v2 executor; v1 definitions receive importer guidance and saved v1 runs receive read-only legacy notices. Authoring and removal use `definition-roots`, avoiding duplicated data-root precedence. The authoring wizard now emits only canonical v2 schema. Shared helper commands moved to `wise-helpers.py`, with canonical profile/path/ledger/supervision ownership; insights imports stdlib paths directly.
+
+The legacy `scripts/workflows.py`, `references/legacy-conductor/`, TypeScript source/tests, JavaScript manifests/lock/configs and engine node_modules were removed after parity verification. JSON/YAML/NDJSON captures are retained. Legacy pytest files were retired according to the map, except the independent hook and SSH init tests. Registry atomic-write checks moved to `test_init.py`; insights atomicity and synthetic-session/history composition moved to `test_standalone.py`. The old empty-workflow-dir preservation assertion belonged to retired v1 rendering; v2 has always substituted the empty string, now explicitly tested. CI no longer accepts pytest exit 5.
+
+An independent lifecycle review reproduced a slot handoff cancellation leak in the Python executor. Commit `3e3be1e` releases an assigned slot when its queued waiter is cancelled before resuming; the regression proves capacity can be acquired again.
+
+### P4/P5 clean-install gate passed
+
+Frozen commit `51fc876` passed `just install && just check` from a fresh archive on macOS Python 3.13 and Linux Python 3.11.16. Both runs passed 1,407 tests and skipped one SSH-agent-dependent test because the clean environment had no SSH_AUTH_SOCK. Linux explicitly checked that Node, npm, Bun and npx were absent. All seven repository validation sections, mypy (59 modules), Ruff, formatting (95 files), Python compilation, JSON manifests and shell syntax passed. The Linux image used distro just 1.40.0. No provider login, model call, real tracker issue, real remote push or PR was used by these gates.
+
+P6 implementation decision: host setup owns the single `wise-engine` registration. The bundled `.mcp.json` has no automatic server entry, preventing a plugin-owned duplicate alongside the managed registration. `/wise-init` resolves its loaded skill installation and creates an upgrade-safe fixed launcher registration. Missing tools before first setup are diagnosed through CLI setup, not a restart-only loop.
