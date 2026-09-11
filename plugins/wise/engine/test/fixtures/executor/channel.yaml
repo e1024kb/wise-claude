@@ -6,6 +6,7 @@ inputs:
     prompt: Topic
     optional: true
     from-context: guidance
+    validate: "^(engines|other)$"
 steps:
   - id: prep
     type: bash

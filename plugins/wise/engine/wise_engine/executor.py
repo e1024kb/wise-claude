@@ -55,7 +55,9 @@ from .paths import cwd_slug, ENGINE_ROOT
 from .permissions import effective_mode, provider_permission
 from .preflight import (
     apply_answers,
+    build_questionary,
     complete_answers,
+    invalid_choice_input_ids,
     invalid_provider_permission_answers,
     resolve_from_context,
 )
@@ -1295,20 +1297,39 @@ class Executor:
                 value = resolve_from_context(item["from-context"], context)
                 if value is not None:
                     inputs[name] = value
-        missing = [question["id"] for question in unanswered] + [
-            key
-            for key in completed["missing"]
-            if not (key.startswith("input.") and inputs.get(key[6:]))
-        ]
+        invalid_inputs = invalid_choice_input_ids(definition, inputs)
+        missing = list(
+            dict.fromkeys(
+                [question["id"] for question in unanswered]
+                + [
+                    key
+                    for key in completed["missing"]
+                    if not (
+                        key.startswith("input.")
+                        and inputs.get(key[6:])
+                        and key not in invalid_inputs
+                    )
+                ]
+                + invalid_inputs
+            )
+        )
         if missing:
+            questions = {question["id"]: question for question in completed["questions"]}
+            if invalid_inputs:
+                retry_answers = {
+                    key: value for key, value in answers.items() if key not in invalid_inputs
+                }
+                for question in build_questionary(
+                    definition, {"harnesses": harnesses}, retry_answers
+                )["questions"]:
+                    if question["id"] in invalid_inputs:
+                        questions[question["id"]] = question
             raise domain_error(
                 "MISSING_ANSWERS",
                 f"pre-flight questions left unanswered (ask them, never default them): {', '.join(missing)}",
                 dict(
                     missing=missing,
-                    questions=[
-                        question for question in completed["questions"] if question["id"] in missing
-                    ],
+                    questions=[questions[key] for key in missing if key in questions],
                 ),
             )
         await probe_harnesses(

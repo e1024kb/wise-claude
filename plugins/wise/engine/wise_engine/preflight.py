@@ -26,6 +26,22 @@ def _input_options(validate: Any) -> list[Json] | None:
     return [dict(value=value, label=value) for value in values]
 
 
+def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
+    invalid = []
+    for item in definition.get("inputs", []):
+        options = None if item.get("extract") else _input_options(item.get("validate"))
+        name = item["name"]
+        if options is None or name not in inputs:
+            continue
+        values = {option["value"] for option in options}
+        if item.get("optional"):
+            values.add("")
+        value = inputs[name]
+        if not isinstance(value, str) or value not in values:
+            invalid.append(f"input.{name}")
+    return invalid
+
+
 def describe_tuning(value: Json) -> str:
     return " / ".join(value[k] for k in ("harness", "model", "effort") if value.get(k)) or "inherit"
 

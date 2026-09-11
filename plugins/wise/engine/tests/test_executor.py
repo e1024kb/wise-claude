@@ -570,7 +570,7 @@ def test_explicit_input_staging(tmp_path, mode, calls):
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("answers,expected", [({}, "preset"), ({"input.topic": ""}, "")])
+@pytest.mark.parametrize("answers,expected", [({}, "engines"), ({"input.topic": ""}, "")])
 def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
     async def scenario():
         rig = Rig(tmp_path)
@@ -580,12 +580,66 @@ def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
                     "workflow": "channel",
                     "cwd": rig.cwd,
                     "answers": {"permissions.claude": "auto", **answers},
-                    "context": {"guidance": "preset"},
+                    "context": {"guidance": "engines"},
                 },
                 rig.ctx,
             )
             state = await rig.status(run["run_id"], "completed")
             assert state["inputs"]["topic"] == expected
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "default,answers,context,inputs",
+    [
+        (None, {"input.mode": "invalid"}, {}, {}),
+        (None, {}, {"decisions": {"mode": "invalid"}}, {}),
+        ("invalid", {}, {}, {}),
+        (None, {}, {}, {"mode": {"invalid": True}}),
+    ],
+)
+def test_run_rejects_invalid_inferred_choice_inputs(tmp_path, default, answers, context, inputs):
+    async def scenario():
+        definitions = tmp_path / "definitions"
+        definitions.mkdir()
+        default_line = f'    default: "{default}"\n' if default is not None else ""
+        (definitions / "enum-input.yaml").write_text(
+            "version: 2\n"
+            "name: enum-input\n"
+            "inputs:\n"
+            "  - name: mode\n"
+            "    prompt: Mode?\n"
+            f"{default_line}"
+            "    from-context: decisions.mode\n"
+            '    validate: "^(auto|ask)$"\n'
+            "steps:\n"
+            "  - id: only\n"
+            "    type: bash\n"
+            '    run: echo "{{mode}}"\n'
+        )
+        rig = Rig(
+            tmp_path,
+            roots={"user_root": str(definitions), "bundled_root": str(BUNDLED)},
+        )
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "enum-input",
+                        "cwd": rig.cwd,
+                        "answers": answers,
+                        "context": context,
+                        "inputs": inputs,
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["missing"] == ["input.mode"]
+            assert [question["id"] for question in error.value.data["questions"]] == ["input.mode"]
+            assert rig.rt.list_run_dirs() == []
         finally:
             await rig.close()
 
