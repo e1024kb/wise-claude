@@ -26,16 +26,38 @@ def _input_options(validate: Any) -> list[Json] | None:
     return [dict(value=value, label=value) for value in values]
 
 
+def input_choice_values(item: Json) -> set[str] | None:
+    options = None if item.get("extract") else _input_options(item.get("validate"))
+    if options is None:
+        return None
+    values = {option["value"] for option in options}
+    if item.get("optional"):
+        values.add("")
+    return values
+
+
+def choice_input_preset(item: Json, context: Json | None = None) -> str | None:
+    values = input_choice_values(item)
+    if values is None:
+        return None
+    candidates = (
+        resolve_from_context(item.get("from-context", ""), context),
+        item.get("default"),
+        "" if item.get("optional") else None,
+    )
+    return next(
+        (value for value in candidates if isinstance(value, str) and value in values),
+        None,
+    )
+
+
 def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
     invalid = []
     for item in definition.get("inputs", []):
-        options = None if item.get("extract") else _input_options(item.get("validate"))
+        values = input_choice_values(item)
         name = item["name"]
-        if options is None or name not in inputs:
+        if values is None or name not in inputs:
             continue
-        values = {option["value"] for option in options}
-        if item.get("optional"):
-            values.add("")
         value = inputs[name]
         if not isinstance(value, str) or value not in values:
             invalid.append(f"input.{name}")
@@ -404,8 +426,7 @@ def build_questionary(
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))
         fallback = item.get("default", "" if item.get("optional") else None)
         if options:
-            values = {option["value"] for option in options}
-            preset = next((value for value in (preset, fallback) if value in values), None)
+            preset = choice_input_preset(item, ctx.get("context"))
         elif preset is None:
             preset = fallback
         if preset is not None:

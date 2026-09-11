@@ -592,6 +592,75 @@ def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
     asyncio.run(scenario())
 
 
+def enum_input_rig(tmp_path, default=None, optional=False):
+    definitions = tmp_path / "definitions"
+    definitions.mkdir()
+    optional_line = "    optional: true\n" if optional else ""
+    default_line = f'    default: "{default}"\n' if default is not None else ""
+    (definitions / "enum-input.yaml").write_text(
+        "version: 2\n"
+        "name: enum-input\n"
+        "inputs:\n"
+        "  - name: mode\n"
+        "    prompt: Mode?\n"
+        f"{optional_line}"
+        f"{default_line}"
+        "    from-context: decisions.mode\n"
+        '    validate: "^(auto|ask)$"\n'
+        "steps:\n"
+        "  - id: only\n"
+        "    type: bash\n"
+        '    run: echo "{{mode}}"\n'
+    )
+    return Rig(
+        tmp_path,
+        roots={"user_root": str(definitions), "bundled_root": str(BUNDLED)},
+    )
+
+
+@pytest.mark.parametrize(
+    "default,optional,answers,context,inputs,expected",
+    [
+        ("auto", False, {}, {"decisions": {"mode": "ask"}}, {}, "ask"),
+        ("invalid", False, {}, {"decisions": {"mode": "ask"}}, {}, "ask"),
+        ("auto", False, {}, {"decisions": {"mode": "invalid"}}, {}, "auto"),
+        ("ask", False, {"input.mode": "auto"}, {"decisions": {"mode": "ask"}}, {}, "auto"),
+        (
+            "ask",
+            False,
+            {"input.mode": "ask"},
+            {"decisions": {"mode": "ask"}},
+            {"mode": "auto"},
+            "auto",
+        ),
+        ("invalid", True, {}, {}, {}, ""),
+        ("auto", True, {"input.mode": ""}, {"decisions": {"mode": "ask"}}, {}, ""),
+    ],
+)
+def test_inferred_choice_runtime_precedence(
+    tmp_path, default, optional, answers, context, inputs, expected
+):
+    async def scenario():
+        rig = enum_input_rig(tmp_path, default, optional)
+        try:
+            run = await rig.executor.run(
+                {
+                    "workflow": "enum-input",
+                    "cwd": rig.cwd,
+                    "answers": answers,
+                    "context": context,
+                    "inputs": inputs,
+                },
+                rig.ctx,
+            )
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["mode"] == expected
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "default,answers,context,inputs",
     [
@@ -603,27 +672,7 @@ def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
 )
 def test_run_rejects_invalid_inferred_choice_inputs(tmp_path, default, answers, context, inputs):
     async def scenario():
-        definitions = tmp_path / "definitions"
-        definitions.mkdir()
-        default_line = f'    default: "{default}"\n' if default is not None else ""
-        (definitions / "enum-input.yaml").write_text(
-            "version: 2\n"
-            "name: enum-input\n"
-            "inputs:\n"
-            "  - name: mode\n"
-            "    prompt: Mode?\n"
-            f"{default_line}"
-            "    from-context: decisions.mode\n"
-            '    validate: "^(auto|ask)$"\n'
-            "steps:\n"
-            "  - id: only\n"
-            "    type: bash\n"
-            '    run: echo "{{mode}}"\n'
-        )
-        rig = Rig(
-            tmp_path,
-            roots={"user_root": str(definitions), "bundled_root": str(BUNDLED)},
-        )
+        rig = enum_input_rig(tmp_path, default)
         try:
             with pytest.raises(RpcError) as error:
                 await rig.executor.run(

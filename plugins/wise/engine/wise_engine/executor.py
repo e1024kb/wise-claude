@@ -56,7 +56,9 @@ from .permissions import effective_mode, provider_permission
 from .preflight import (
     apply_answers,
     build_questionary,
+    choice_input_preset,
     complete_answers,
+    input_choice_values,
     invalid_choice_input_ids,
     invalid_provider_permission_answers,
     resolve_from_context,
@@ -1289,8 +1291,21 @@ class Executor:
         inputs = {**applied["inputs"], **explicit}
         for item in definition.get("inputs", []):
             name = item["name"]
+            answer_id = f"input.{name}"
+            if input_choice_values(item) is not None:
+                if name in explicit:
+                    inputs[name] = explicit[name]
+                elif answer_id in given:
+                    inputs[name] = given[answer_id]
+                else:
+                    preset = choice_input_preset(item, context)
+                    if preset is None:
+                        inputs.pop(name, None)
+                    else:
+                        inputs[name] = preset
+                continue
             explicitly_unset = (
-                item.get("optional") and inputs.get(name) == "" and f"input.{name}" in seeded
+                item.get("optional") and inputs.get(name) == "" and answer_id in seeded
             )
             needs_context = not inputs.get(name) and not explicitly_unset
             if item.get("from-context") and needs_context:

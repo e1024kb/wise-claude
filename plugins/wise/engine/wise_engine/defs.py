@@ -867,7 +867,7 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
             iss.error(
                 f"{p}.options",
                 f"v1 choice input {js_json(name)}",
-                f"v2 inputs use `validate:`: keep `default:` and add {alt}; strict literal alternations render as choices, while other patterns render as text. Alternatively, move the choice into an `ask` step with `options:`",
+                f"v2 inputs use `validate:`: keep `default:` and add {alt}; without `extract:`, strict literal alternations containing only ASCII letters, digits, underscores, or hyphens render as choices. Other values and patterns render as text; use an `ask` step with `options:` when those values need a picker",
             )
         for key in ("prompt", "description"):
             _field(

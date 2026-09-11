@@ -244,8 +244,8 @@ def test_plain_alternation_inputs_are_choices_and_keep_validation():
     }
 
 
-@pytest.mark.parametrize("default", [None, "yes"])
-def test_optional_plain_alternation_has_clickable_empty_choice(default):
+@pytest.mark.parametrize("default,expected_default", [(None, ""), ("yes", "yes"), ("invalid", "")])
+def test_optional_plain_alternation_has_clickable_empty_choice(default, expected_default):
     item = {
         "name": "mode",
         "prompt": "Mode?",
@@ -256,7 +256,6 @@ def test_optional_plain_alternation_has_clickable_empty_choice(default):
         item["default"] = default
 
     question = p.build_questionary({"steps": [], "inputs": [item]})["questions"][0]
-    expected_default = default if default is not None else ""
     assert question["kind"] == "choice"
     assert question["default"] == expected_default
     assert question["options"] == [
