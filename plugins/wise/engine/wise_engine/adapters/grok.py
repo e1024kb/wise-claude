@@ -113,8 +113,9 @@ class StreamParser(Parser):
         self.text_deltas: list[str] = []
 
     def feed(self, chunk: str | bytes) -> list[Json]:
-        self.buffer += chunk.decode("utf-8", "replace") if isinstance(chunk, bytes) else chunk
-        return super().feed(chunk)
+        text = self.decode_chunk(chunk)
+        self.buffer += text
+        return super().feed(text)
 
     def ingest(self, line: str) -> Json:
         self.snap["lines"] += 1

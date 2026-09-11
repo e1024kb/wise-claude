@@ -91,6 +91,7 @@ class Parser:
             .replace("+00:00", "Z")
         )
         self.lines = LineSplitter()
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.snap: Json = {}
 
     def ingest(self, line: str) -> Json:
@@ -108,10 +109,14 @@ class Parser:
     def accept(self, parsed: Json) -> None:
         raise NotImplementedError
 
+    def decode_chunk(self, chunk: str | bytes) -> str:
+        return self.decoder.decode(chunk) if isinstance(chunk, bytes) else chunk
+
     def feed(self, chunk: str | bytes) -> list[Json]:
-        return [self.ingest(line) for line in self.lines.feed(chunk)]
+        return [self.ingest(line) for line in self.lines.feed(self.decode_chunk(chunk))]
 
     def flush(self) -> None:
+        self.feed(self.decoder.decode(b"", final=True))
         for line in self.lines.finish():
             self.ingest(line)
 

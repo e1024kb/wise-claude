@@ -373,3 +373,81 @@ async def test_real_host_death_closes_stdio_and_daemon_socket(root):
         parent.stdin.close()
         os.close(held_stdin)
         await daemon.close()
+
+
+@pytest.mark.parametrize("child", [False, True])
+async def test_default_module_entry_stdio_handshake_and_tool(root, child):
+    import os
+    import sys
+    from wise_engine.paths import ENGINE_ROOT
+    from wise_engine.version import source_build_id
+
+    daemon = await start_daemon(
+        data_root=root,
+        env={},
+        version=source_build_id(),
+        handlers={"child_context": lambda params, ctx: {"value": params["token"]}},
+    )
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(ENGINE_ROOT),
+        "WISE_ENGINE_SOCKET": daemon.runtime.paths.socket_path,
+        "WISE_DATA_ROOT": root,
+        "WISE_STEP_TOKEN": "fixture",
+    }
+    args = [sys.executable, "-m", "wise_engine", "unit-mcp" if child else "mcp"]
+    if not child:
+        args += ["--data-root", root, "--socket", daemon.runtime.paths.socket_path, "--no-start"]
+    process = await asyncio.create_subprocess_exec(
+        *args,
+        env=env,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd="/tmp",
+    )
+    try:
+
+        async def send(message):
+            process.stdin.write((json.dumps(message) + "\n").encode())
+            await process.stdin.drain()
+
+        await send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "fixture", "version": "1"},
+                },
+            }
+        )
+        assert json.loads(await asyncio.wait_for(process.stdout.readline(), 2))["id"] == 1
+        await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        await send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        assert len(
+            json.loads(await asyncio.wait_for(process.stdout.readline(), 2))["result"]["tools"]
+        ) == (4 if child else 8)
+        await send(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "wise_context" if child else "wise_status",
+                    "arguments": {"key": "ticket"} if child else {},
+                },
+            }
+        )
+        result = json.loads(await asyncio.wait_for(process.stdout.readline(), 2))["result"]
+        assert json.loads(result["content"][0]["text"]) == ({"value": "fixture"} if child else [])
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == 0
+        assert await process.stdout.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+        await daemon.close()

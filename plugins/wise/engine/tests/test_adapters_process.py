@@ -428,3 +428,19 @@ def test_claude_messages_escape_isolated_surrogates():
     line = user_message("clipped \ud83d")
     assert line.encode("utf-8")
     assert json.loads(line)["message"]["content"][0]["text"] == "clipped \ud83d"
+
+
+def test_grok_pretty_json_reassembles_unicode_bytes():
+    from wise_engine.adapters.grok import create_stream_parser
+    from wise_engine.spawn import SpawnExit
+
+    parser = create_stream_parser(pool="subscription")
+    wire = json.dumps(
+        {"text": "🙂é", "structuredOutput": {"value": "🙂é"}}, ensure_ascii=False, indent=2
+    ).encode()
+    for byte in wire:
+        parser.feed(bytes([byte]))
+    result = parser.finish(SpawnExit(0, None, False, ""))
+    assert result["exit"] == "ok"
+    assert result["text"] == "🙂é"
+    assert result["json"] == {"value": "🙂é"}
