@@ -1,5 +1,9 @@
 # watch-pipelines — strategy-driven CI watch loop
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 Source of truth for the CI watch loop of the standalone
 `/wise-pr-watch` skill (the `ticket-auto` workflow runs an autonomous
 analogue, `watch-pipelines-auto.md`).

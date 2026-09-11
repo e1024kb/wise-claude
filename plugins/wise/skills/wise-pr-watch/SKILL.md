@@ -23,6 +23,11 @@ allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(mak
 
 # /wise-pr-watch — watch a PR's pipelines and drive fixes
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 After a PR lands, the ritual is: watch checks, fix the failures,

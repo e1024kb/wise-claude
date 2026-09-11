@@ -449,6 +449,22 @@ def check_marketplace_sources(errors: list[str]) -> None:
             )
 
 
+def check_question_lifecycle(errors: list[str]) -> None:
+    skills_dir = REPO_ROOT / WISE_PLUGIN_DIR / "skills"
+    target = "../../references/workflow-host-control.md#keep-asynchronous-questions-open"
+    for path in sorted(skills_dir.glob("*/SKILL.md")):
+        rel = path.relative_to(REPO_ROOT)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{rel}: could not read file ({exc})")
+            continue
+        if f"]({target})" not in text:
+            errors.append(
+                f"{rel}: missing shared question lifecycle reference"
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -470,10 +486,12 @@ def main() -> int:
     doc_sync_errors: list[str] = []
     ref_errors: list[str] = []
     source_errors: list[str] = []
+    question_errors: list[str] = []
 
     check_json_manifests(json_errors)
     check_doc_references(ref_errors)
     check_marketplace_sources(source_errors)
+    check_question_lifecycle(question_errors)
 
     try:
         definitions, resolution = _load_engine_modules()
@@ -495,6 +513,7 @@ def main() -> int:
         ("skill doc sync", doc_sync_errors),
         ("doc cross-references", ref_errors),
         ("marketplace source pins", source_errors),
+        ("question lifecycle coverage", question_errors),
     ]
 
     all_errors = [e for _, errs in sections for e in errs]

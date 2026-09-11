@@ -27,6 +27,11 @@ allowed-tools:
 
 # wise-human-writing - write for humans, not for logs
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 Messages generated straight from a work session read like the work

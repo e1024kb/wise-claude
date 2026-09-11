@@ -407,6 +407,46 @@ async def test_preflight_without_form_capability_starts_nothing() -> None:
     assert daemon.refreshed == 0
 
 
+async def test_preflight_stays_pending_until_user_answers() -> None:
+    daemon = FakeDaemon()
+    displayed = anyio.Event()
+    answer_ready = anyio.Event()
+    completed = anyio.Event()
+    results: list[Any] = []
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "questions": [] if params["answers"] else [question("step-select", "multi")],
+            "requires_missing": [],
+        }
+
+    async def elicit(ctx: Any, params: Any) -> ElicitResult:
+        displayed.set()
+        await answer_ready.wait()
+        return ElicitResult(action="accept", content={"step-select": ["b"]})
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
+
+        async def collect() -> None:
+            results.append(
+                body(await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/p"}))
+            )
+            completed.set()
+
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tasks:
+                tasks.start_soon(collect)
+                await displayed.wait()
+                assert not completed.is_set()
+                assert len(daemon.calls) == 1
+                assert daemon.calls[0][1]["answers"] == {}
+                answer_ready.set()
+                await completed.wait()
+    assert results[0]["answers"] == {"step-select": ["b"]}
+
+
 @pytest.mark.parametrize(
     "action,answer,expected",
     [

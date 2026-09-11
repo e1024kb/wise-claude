@@ -667,7 +667,13 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 The conductor requests `interactive: true`, so the MCP server renders
 one question at a time through the host's form UI. A host without MCP
 form support may use its native structured picker against the raw
-questionary; it must never substitute ordinary chat. The terminal
+questionary. An asynchronous picker acknowledgement is not an answer: the
+conductor keeps its turn active until the user responds, because ending the
+turn may dismiss the pending form. If no persistent picker is available, it
+presents each engine question in plain text and waits for an explicit reply,
+preserving all labels and values. See the
+[host question lifecycle](../../plugins/wise/references/workflow-host-control.md#keep-asynchronous-questions-open).
+The terminal
 client provides the equivalent TUI with `run --interactive`. Locked
 questions and inputs filled positionally are skipped. The conductor
 then calls `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks

@@ -17,6 +17,11 @@ allowed-tools: Read, Skill, Bash(test:*), Bash(git:*), Bash(pwd:*), Bash(cat:*),
 
 # /wise-skills-create — scaffold a new wise plugin skill
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 The wise plugin hosts two skill shapes:
@@ -186,6 +191,15 @@ USER-PROVIDED INTENT (free-form; may be empty):
 The intent above is authoritative where it overlaps with a wizard
 question — skip that question and confirm the implied answer
 instead of re-asking.
+
+Before this wizard asks any question, read and follow
+[WISE_PLUGIN_ROOT]/references/workflow-host-control.md, section
+"Keep asynchronous questions open". In the resulting SKILL.md body, include this
+exact Markdown link before any user-question procedure:
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Preserve this link even for prompt-free skills; it does not authorize new prompts.
+For a skill that can ask questions, include `Read` in any explicit `allowed-tools`
+list so it can load the reference. Preserve existing no-prompt restrictions.
 
 WIZARD — ask the user in order (skip any question the intent already
 answers):

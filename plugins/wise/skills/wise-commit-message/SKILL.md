@@ -20,6 +20,11 @@ allowed-tools: Read, Bash(git:*), Bash(pbcopy:*), Bash(pbpaste:*), Bash(printf:*
 
 # /wise-commit-message — draft a Conventional-Commits subject from pending changes
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 Every PR should land with a Conventional-Commits first line, and the

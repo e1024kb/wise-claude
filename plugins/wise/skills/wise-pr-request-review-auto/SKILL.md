@@ -17,6 +17,11 @@ allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*), AskUserQ
 
 # /wise-pr-request-review-auto — request bot review, autonomously
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 `/wise-pr-add-reviewers` asks the user whether to add human reviewers

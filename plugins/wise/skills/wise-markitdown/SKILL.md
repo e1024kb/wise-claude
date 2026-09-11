@@ -18,6 +18,11 @@ allowed-tools: Read, Bash(markitdown:*), Bash(uvx markitdown:*), Bash(uv tool di
 
 # markitdown — extract text from (almost) any file
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 Canonical routine for getting the textual content out of a file wise
 can't read natively. [`markitdown`](https://github.com/microsoft/markitdown)
 converts a long list of formats to markdown in one command — so

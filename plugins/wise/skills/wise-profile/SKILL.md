@@ -15,10 +15,15 @@ description: >-
 argument-hint: "[low|medium|max]"
 model: opus
 effort: low
-allowed-tools: Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(printf:*), Bash(mv:*), ToolSearch, AskUserQuestion
+allowed-tools: Read, Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(printf:*), Bash(mv:*), ToolSearch, AskUserQuestion
 ---
 
 # /wise-profile — session token-budget profile
+
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
 
 ## Why this skill exists
 

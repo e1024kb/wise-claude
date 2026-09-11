@@ -1,5 +1,9 @@
 # ensure-pr — create or refresh the PR
 
+Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
+A display acknowledgement is not an answer; keep asynchronous prompts open.
+This does not add prompts to autonomous paths.
+
 This prompt fragment is the source of truth for the create-or-update
 logic of the standalone `/wise-pr-create` skill (the `ticket-auto`
 workflow uses an autonomous analogue, `ensure-pr-auto.md`).

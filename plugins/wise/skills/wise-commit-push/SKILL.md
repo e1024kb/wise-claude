@@ -25,6 +25,11 @@ allowed-tools: Bash(git:*), Read, Edit, Write, Task
 
 # /wise-commit-push — draft, commit, and push
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 `/wise-commit` closes the local loop — stage, draft, commit. The

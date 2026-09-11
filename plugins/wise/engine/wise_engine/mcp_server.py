@@ -305,8 +305,10 @@ async def _preflight(
     ):
         return error_result(
             "INTERACTIVE_UI_REQUIRED",
-            "This MCP host does not support form elicitation. Use a native picker or the terminal TUI; "
-            "never ask these questions in plain chat.",
+            "This MCP host does not support form elicitation. Use a native picker and await "
+            "the user's answer, keeping asynchronous prompts open, or use the terminal TUI. "
+            "If no persistent picker is available, show each raw preflight question in text "
+            "and wait for an explicit reply; never submit defaults as answers.",
         )
     if refresh is not None:
         refresh()

@@ -23,6 +23,11 @@ allowed-tools: Read, Write, Edit, Task, Glob, Grep, Bash(git:*)
 
 # /wise-revise — investigate a scope, write executable improvement plans
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 wise has reactive quality tiers (the per-commit simplify pass, the

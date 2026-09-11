@@ -10,10 +10,15 @@ description: >-
   <free-form description>` (to find the right command).
 argument-hint: "[<natural-language request>]"
 disable-model-invocation: true
-allowed-tools: Skill, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/engine.sh:*)
+allowed-tools: Read, Skill, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/engine.sh:*)
 ---
 
 # /wise — wise copilot
+
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
 
 ## Why this skill exists
 

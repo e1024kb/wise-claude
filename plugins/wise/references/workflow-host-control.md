@@ -127,6 +127,53 @@ stop collecting answers and preserve the engine's resumable state. Provider
 installation and login are checked only for providers required by the selected
 workflow steps.
 
+### Keep asynchronous questions open
+
+This section applies to every Wise skill and shared routine that collects user
+input, including setup, discovery, document wizards, confirmations, dispatch
+selection, preflight, and workflow gates. Read this section alone for non-workflow
+skills; it does not require engine setup. Existing no-prompt rules and prior user
+decisions still apply. Do not add a question merely to use this procedure.
+
+Treat `AskUserQuestion` in skill prose as the host's supported question mechanism,
+not a guarantee of a blocking tool. Use only tools available in the current mode.
+Preserve the question's labels, values, and selection semantics. If a host picker
+cannot represent multiple selections, collect them explicitly through free text;
+never silently turn a multi-select question into a single-choice decision.
+
+Check the native picker's response contract before collecting answers. A blocking
+picker returns the user's answer. An asynchronous picker (for example,
+`request_user_input_async`) may return only `accepted: true`: that acknowledges
+display, not a selection, cancellation, or approval.
+
+After opening an asynchronous question, keep the asking agent's turn active until
+an actual user response arrives. Use the host's interruptible wait or yield facility
+in intervals of at most 60 seconds, handling incoming messages between waits.
+Do not send a final response such as "awaiting your selection" while the GUI
+question is pending: hosts may dismiss it when the turn ends. Do not open duplicate
+questions while the original is active, interpret elapsed time as an answer, or
+advance preflight on an acknowledgement. A repeated workflow invocation without
+a choice is not an answer.
+On an explicit cancellation, stop the pending operation without treating it as
+permission to proceed. A user message that replaces the task or cancels it ends the
+old question; a status request does not answer it. Follow host instructions for
+progress updates while waiting, without replacing the pending question.
+
+If a prior turn ended and its unanswered picker is no longer active, re-present
+that question when the user resumes the operation. Keep already supplied answers
+and do not merely report that the vanished question is still awaiting a selection.
+
+If the host cannot keep an asynchronous question alive, use a plain-text question
+instead of opening that picker, and wait for the user's next message. Apply this
+same lifecycle to preflight selections and workflow approval/ask gates.
+
+Pass this section's instructions to delegated interactive wizards. A headless
+workflow child must use the engine's blocking `wise_ask` channel when its workflow
+permits questions, not a host GUI tool; return `needs-human` when that channel
+cannot obtain an answer. Autonomous children keep their existing no-prompt policy.
+The conductor collects a real answer before calling `wise_answer`; a gate ID or
+question-display acknowledgement is never an answer.
+
 Official host references: [Claude MCP](https://code.claude.com/docs/en/mcp),
 [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
 [Cursor MCP](https://cursor.com/docs/mcp),

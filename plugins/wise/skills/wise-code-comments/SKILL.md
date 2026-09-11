@@ -15,6 +15,11 @@ description: >-
 
 # Code-comment standards
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 Standing contract for every code comment and docstring wise writes,
 in any language. No slash command - it is auto-consulted whenever
 comments are written or edited.

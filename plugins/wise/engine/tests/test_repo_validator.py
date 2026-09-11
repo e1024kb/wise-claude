@@ -46,6 +46,36 @@ def test_missing_workflows_fail(validator):
     assert len(errors) == 1 and "no bundled workflow definitions" in errors[0]
 
 
+def test_new_skill_requires_shared_question_lifecycle(validator, tmp_path):
+    path = write(
+        tmp_path,
+        "plugins/wise/skills/wise-new/SKILL.md",
+        "# New skill\nAsk the user to choose.\n",
+    )
+    errors: list[str] = []
+    validator.check_question_lifecycle(errors)
+    assert len(errors) == 1 and "wise-new/SKILL.md" in errors[0]
+    path.write_text(
+        path.read_text() + "Follow the [question lifecycle]"
+        "(../../references/workflow-host-control.md#keep-asynchronous-questions-open).\n"
+    )
+    errors = []
+    validator.check_question_lifecycle(errors)
+    assert errors == []
+
+
+def test_unreadable_skill_reports_question_lifecycle_error(validator, tmp_path):
+    path = tmp_path / "plugins/wise/skills/wise-new/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xff")
+
+    errors: list[str] = []
+    validator.check_question_lifecycle(errors)
+
+    assert len(errors) == 1
+    assert "wise-new/SKILL.md: could not read file" in errors[0]
+
+
 @pytest.mark.parametrize(
     "body,expected",
     [

@@ -18,6 +18,11 @@ allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*), AskUserQ
 
 # /wise-pr-add-reviewers — attach reviewers to the current branch's PR
 
+Before asking any user question, read and follow the
+[question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
+Keep asynchronous prompts open until answered; this rule does not authorize
+questions in autonomous or otherwise prompt-free procedures.
+
 ## Why this skill exists
 
 Most PRs end up requesting Copilot code review plus 0–N individuals
