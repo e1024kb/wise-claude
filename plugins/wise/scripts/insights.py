@@ -80,7 +80,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 sys.path.insert(0, str(SCRIPT_DIR.parent / "engine"))
-from wise_engine.paths import wise_data_root
+from wise_engine.paths import wise_data_root  # noqa: E402
 
 
 def _wise_data_root() -> Path:

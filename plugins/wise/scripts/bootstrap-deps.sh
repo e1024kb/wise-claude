@@ -3,6 +3,7 @@
 
 set -u
 WISE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=plugins/wise/scripts/init.sh
 source "$WISE_SCRIPT_DIR/init.sh"
 WISE_BOOTSTRAP_PY="$(find_python || true)"
 

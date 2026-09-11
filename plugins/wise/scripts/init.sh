@@ -127,7 +127,7 @@ probe_git_ssh() {
     return 0
   fi
   local agent=unset
-  [[ -n "${SSH_AUTH_SOCK:-}" ]] && agent=set
+  [[ -n "${SSH_AUTH_SOCK:-}" ]] && agent="set"
   echo "AGENT=$agent"
   # The engine's child env, reduced to what ssh reads (adapters/spawn.py PASSTHROUGH_VARS).
   local -a clean=(env -i "HOME=$HOME" "PATH=$PATH")

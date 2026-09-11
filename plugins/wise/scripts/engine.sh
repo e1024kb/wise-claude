@@ -3,6 +3,7 @@
 
 set -u
 WISE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=plugins/wise/scripts/init.sh
 source "$WISE_SCRIPT_DIR/init.sh"
 WISE_CATALOG_PY="$(find_python || true)"
 if [[ -z "$WISE_CATALOG_PY" ]] || ! "$WISE_CATALOG_PY" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
