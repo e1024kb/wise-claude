@@ -10,7 +10,7 @@
 
 `wise-claude` is the Claude Code plugin marketplace that hosts the
 **`wise`** copilot: flat `/wise-*` skills, YAML **workflows** run by a
-TypeScript engine that drives `claude`, `codex`, `cursor-agent`, `gemini` and `grok`
+Python engine that drives `claude`, `codex`, `cursor-agent`, `gemini` and `grok`
 headless, and an SDLC **agent roster** (CEO / CTO / architect / engineer / QA /
 security / SRE / …) that take everyday engineering chores off your
 plate — drafting commits, opening and shepherding PRs, planning tickets,
@@ -25,8 +25,14 @@ pipeline to run unattended.
 /plugin install wise@wise-claude
 ```
 
-Then run the `wise-init` skill once to probe dependencies, and `/wise`
-to print the full command catalog.
+Then run the `wise-init` skill to prepare Python and register the workflow
+engine for the current host, and `/wise` to print the command catalog.
+
+For Codex, Cursor or Grok, load Wise's skills through that host's supported
+skill installation mechanism, then run `wise-init` from the loaded installation.
+The [host setup guide](plugins/wise/references/workflow-host-control.md) covers
+registration and workflow control. The conductor host does not determine which
+provider CLI runs workflow steps.
 
 ## What you get
 
@@ -76,18 +82,20 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 
 ## Requirements
 
-- **Claude Code**.
+- **Claude Code, Codex, Cursor or Grok** as the workflow conductor.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
-- **bun** or **Node 24+** for the workflow engine (`plugins/wise/engine`,
-  TypeScript run as source, no build), and `claude auth login` so the
-  engine can spawn `claude -p` under your subscription. `codex`, `cursor-agent`,
-  `grok` and `gemini` are optional extra harnesses; install and authenticate any
-  provider before selecting it.
-- **Python 3** (with `pyyaml` + `python-ulid`) for `/wise-workflow-list`,
-  `/wise-workflow-create`, `/wise-workflow-remove` and the legacy v1
-  conductor; removed in plan M3.4.
-- The `wise-init` skill probes these and walks you through anything
-  missing.
+- **Python 3.11+** for the workflow engine. The launcher manages pinned
+  dependencies outside the plugin installation; no Bun, Node or npm is required
+  by the engine.
+- Authenticate the provider CLI you select (`claude`, `codex`, `cursor-agent`,
+  `gemini` or `grok`). Subscription and API authentication use that provider's CLI.
+- Run `wise-init` for each conductor host. Its stable managed registration
+  avoids host-specific plugin-root expansion and stores dependencies outside
+  read-only plugin caches.
+
+Only YAML v2 workflows execute. Import v1 definitions with `engine.sh migrate`;
+legacy run files remain unchanged and cannot resume. Standalone profile,
+session and supervision commands use `scripts/wise-helpers.py`.
 
 ## Repository layout
 

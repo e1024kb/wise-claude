@@ -28,10 +28,10 @@ wise-claude/
     └── wise/                      # THE plugin — canonical, hand-edited source
         ├── .claude-plugin/plugin.json   # manifest — the single version source
         ├── CLAUDE.md · README.md · AGENTS.md
-        ├── .mcp.json             # bundled MCP servers (currently empty)
+        ├── .mcp.json             # empty; wise-init manages host registration
         ├── agents/               # SDLC role roster (plugin subagents)
         ├── references/           # shared prose routines
-        ├── scripts/              # engine.*, workflows.py, bootstrap-deps.sh, init*
+        ├── scripts/              # catalog, wise-helpers.py, bootstrap-deps.sh, init*
         ├── hooks/                # the SessionEnd insights hook
         ├── workflows/            # bundled workflow definitions
         ├── tests/                # engine test suite (pytest)
@@ -464,9 +464,8 @@ no hidden-action intermediate shape.
      fallback for invalid input. Never invoke another action skill
      directly (the `/wise` helper is the only skill that does); if
      two actions share logic, extract it into `scripts/` (see
-     [§2.1](#21-skill-shapes) invariants). The one narrow exception
-     is `wise-workflow-run` / `wise-workflow-resume`, which compose
-     over validated workflow YAML.
+     [§2.1](#21-skill-shapes) invariants). Workflow conductors call the
+     engine; provider children execute their steps.
 
 4. That's it. No engine.py or dispatcher edit needed —
    `scripts/engine.py list-skills` globs `skills/*/SKILL.md` and
@@ -516,7 +515,7 @@ tree:
 
 - **Init registry** — `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`,
   written by `/wise-init` and by `scripts/bootstrap-deps.sh`. It
-  caches dependency probe results (Python / Node / gh paths and
+  caches dependency probe results (Python / provider CLI / gh paths and
   versions) so workflow engine skills can fast-path past the full
   probe. It lives in the install dir on purpose — every
   `/plugin install wise@…` wipes it, giving natural invalidation —
@@ -563,42 +562,31 @@ installs: `/plugin uninstall wise --keep-data`.
 
 ### 6.2 Syntax and structural checks
 
-Before opening a PR:
+Run `just install` once to create the pinned development environment, then
+`just check` before opening a PR. It uses the pinned Python development
+environment for repository validation, pytest, Ruff and mypy. The engine
+requires Python 3.11 or newer; its dependency files are under
+`plugins/wise/engine/`. Do not install engine packages into system Python.
+
+For targeted syntax checks:
 
 ```bash
-# JSON manifests parse
 python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
 python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
-
-# Bash scripts parse
-bash -n plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh
-
-# Python scripts compile
+for f in plugins/wise/engine/engine.sh plugins/wise/scripts/*.sh plugins/wise/hooks/*.sh; do bash -n "$f"; done
 python3 -m py_compile plugins/wise/scripts/*.py scripts/*.py
-
-# No stale /wise:* name references (after a rename):
-grep -Rn "/wise:old-name" plugins/ docs/ README.md CONTRIBUTING.md || echo "clean"
-
-# Structural validation of the repo + plugin:
-python3 scripts/validate_repo.py
-
-# Engine test suite:
-python3 -m pytest plugins/wise/tests -q
 ```
 
-Or run everything at once with `just check` (= `just validate` +
-`just test`). CI runs the same steps, plus non-blocking `shellcheck`
-and `ruff` passes and a version-bump check: any non-doc change under
-`plugins/wise/` must bump `plugins/wise/.claude-plugin/plugin.json` in
-the same PR (doc-only `.md` files at the plugin root are excluded) —
-see [§8](#8-versioning).
+CI also checks the plugin version: changes under `plugins/wise/` must follow
+[§8](#8-versioning). Engine tests use fake providers and temporary repositories;
+they must not create real tracker issues, push remote branches, or open PRs.
 
 ### 6.3 Skill smoke tests
 
 There is no Vitest/Codeception-style harness for skills. After
 `/plugin install wise@wise-claude`, verify manually:
 
-- `/wise-init` walks through the Python + Node + `gh` dep probes and
+- `/wise-init` walks through the Python + provider CLI + `gh` dep probes and
   writes `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`.
 - **Bare `/wise`** (helper, no args) prints the full catalog of
   `/wise-*` slash commands plus reference skills.
@@ -663,180 +651,91 @@ docs describe the *current* behaviour; don't sprinkle
 
 ## 9. Workflow subsystem
 
-The workflow subsystem lets users compose `wise`
-actions, third-party skills, shell commands, and approval gates into
-named multi-step procedures invoked as `/wise-workflow-run <name>`. The
-main Claude Code conversation is the conductor — no backgrounded
-subagent, no backend service.
+The Python v2 engine owns workflow scheduling and execution. The conversation
+collects decisions and context, follows events, and answers gates through MCP
+or the CLI. It does not execute the workflow DAG itself.
 
 User-facing reference: [`docs/wise/workflows.md`](./docs/wise/workflows.md).
-This section is the **contributor** reference: schema details, the
-invariant exception, and the procedure for extending or modifying the
-subsystem.
 
 ### 9.1 Moving parts
 
-```
-plugins/wise/
-├── AGENTS.md                     # catalog of the agent roster
-├── agents/                       # plugin-level SDLC role roster (wise:<name>)
-│   └── <role>.md                 # one subagent per file; consumed by `workflows.py list-agents`
-├── scripts/
-│   ├── bootstrap-deps.sh       # ensures python3 + pyyaml + python-ulid
-│   └── workflows.py              # all YAML + state + ULID + dep-probe + roster logic
-├── workflows/                    # bundled workflow definitions (shipped)
-│   └── <name>/                   # folder form (preferred)
-│       ├── workflow.yaml         # the definition
-│       ├── templates/            # optional — addressable as {{workflow.dir}}/templates/…
-│       └── prompts/              # optional — addressable as {{workflow.dir}}/prompts/…
-└── skills/
-    ├── wise-workflow-list/       # /wise-workflow-list
-    ├── wise-workflow-create/     # /wise-workflow-create <name>    (wizard)
-    ├── wise-workflow-run/        # /wise-workflow-run <name>       (conductor)
-    ├── wise-workflow-resume/     # /wise-workflow-resume <ulid>
-    ├── wise-workflow-status/     # /wise-workflow-status [<ulid>]
-    └── wise-workflow-remove/     # /wise-workflow-remove <name>
-```
+- `plugins/wise/engine/engine.sh` launches Python 3.11+ through the managed,
+  versioned environment outside the installed plugin. Pinned requirements and
+  the bootstrap lock prevent partial environments from becoming ready.
+- `engine/wise_engine/defs.py`, `scheduler.py`, `executor.py` and `ledger.py`
+  own definition validation, the DAG, execution and persisted JSON state.
+- `engine/wise_engine/adapters/`, `steps/` and `phases/` run provider CLIs,
+  individual steps and resumable unit pipelines. Prompts are package resources.
+- `scripts/wise-helpers.py` exposes standalone session/profile/history and
+  supervision commands using the canonical package. Insights imports the
+  stdlib-only `wise_engine.paths` helper and needs no MCP dependencies.
+- `workflows/<name>/workflow.yaml` and sibling `prompts/` contain bundled
+  definitions and their workflow-specific artifacts.
+- `agents/<role>.md` contains the SDLC role cards, catalogued in `AGENTS.md`.
 
-Runtime-created, never committed:
-
-- `${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>/workflow.yaml`
-  — user definitions (wizard output, folder form). Legacy flat
-  `<name>.yaml` is still accepted.
-- `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/state.yaml` —
-  run state (canonical truth). Honours `XDG_DATA_HOME`; path
-  computed by `wise_runs_root_for_cwd()` in `scripts/workflows.py`.
-- `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/logs/<step-id>.<step-run-ulid>.log`
-  — per-step-execution log.
+User definitions live under `<plugin-data>/workflows/definitions/`; run state
+lives under `<wise-data>/runs/<cwd-slug>/<run-id>/state.json`, with ordered
+`events.jsonl`, step logs and unit ledgers beside it. `wise_engine.paths`
+resolves XDG and harness-neutral data-root overrides.
 
 ### 9.2 Invariants
 
-All of the conventions in [§2](#2-conventions-that-apply-to-every-plugin) still apply. The workflow subsystem adds:
+- Only schema version 2 executes. The `migrate` command imports v1 definitions;
+  it cannot resume or execute a v1 `state.yaml` run. Preserve historical files
+  and review prior side effects before starting a new run.
+- Folder and flat definition storage remain supported. Folder form wins
+  within one root; user definitions win over bundled definitions.
+- Skills call `wise_*` MCP tools or `engine/engine.sh`; canonical Python owns
+  YAML parsing, validation, scheduling and state changes.
+- Provider CLIs run headless under the selected harness's subscription login
+  or API authentication. Harness availability and authentication are separate
+  checks; choosing one harness does not require installing every provider.
+- Keep standalone supervision separate from the engine's child stale watch.
+- Host registration uses the stable managed launcher. Per-step child MCP
+  registration belongs to provider adapters; see the [workflow reference](docs/wise/workflows.md)
+  and [host control](plugins/wise/references/workflow-host-control.md).
 
-- **Workflow run state lives per-workspace**, never under
-  `${CLAUDE_PLUGIN_DATA}`. Definitions go the other way — shipped
-  at `${CLAUDE_PLUGIN_ROOT}/workflows/` and user-authored at
-  `${CLAUDE_PLUGIN_DATA}/workflows/definitions/`. Under each root,
-  a workflow can live in one of two layouts:
-  `<name>/workflow.yaml` (folder form, preferred — enables sibling
-  `templates/` and `prompts/` artifacts addressable via
-  `{{workflow.dir}}`) or `<name>.yaml` (legacy flat form). Folder
-  form wins on same-root collision.
-- **Narrow exception to "action skills never invoke other action
-  skills" for `wise-workflow-run` and `wise-workflow-resume` only.**
-  Those two skills compose over other skills by design. Allowed:
-  `Skill` calls that map to `type: skill` steps in a validated
-  workflow YAML. Disallowed: any `Skill` call to `wise:wise` (the
-  natural-language helper), any `Skill` call outside the validated
-  DAG. Every other action skill still obeys the blanket rule.
-- **All YAML + state handling lives in `scripts/workflows.py`.**
-  SKILL.md bodies shell out to its subcommands; they never parse or
-  emit YAML themselves. This mirrors how `engine.py` owns catalog
-  emit for the `/wise` helper.
-- **Python is a hard dep of the workflow subsystem.** The
-  recommended install path is the `/wise-init` wizard, which
-  walks the user through Python + Node + `gh` + `gh auth` and
-  caches the probe results at
-  `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`. Workflow engine
-  skills call `scripts/init-registry.py check` first; on
-  `INIT:ok` they proceed silently. On any other result they fall
-  back to `scripts/bootstrap-deps.sh`. Non-engine skills (`wise-pr-*`)
-  don't run either probe — they just invoke their underlying
-  command and fail naturally if deps are missing.
+### 9.3 Definition schema (v2)
 
-### 9.3 Definition schema (v1)
+`wise_engine.defs` is authoritative. Definitions declare `version: 2`, a
+non-empty name, and unique step IDs. The supported types are `agent`, `bash`,
+`approval`, `ask` and `units`. Dependencies may refer to any declared step;
+cycles and unresolved IDs fail validation.
 
-See [`docs/wise/workflows.md`](./docs/wise/workflows.md) for the complete
-user-facing reference. Contributor-side invariants:
+Agent steps carry their prompt and optional harness/model/effort, schema and
+outputs. Bind tuning groups through `group:`. `preflight`, `profiles`,
+`inputs` and `step-select` use the v2 shapes in the
+[workflow reference](docs/wise/workflows.md). Invalid fields fail validation
+with migration hints where applicable. Templating uses literal replacements;
+`when` expressions are parsed by the canonical scheduler.
 
-- **Top-level `version:` is always a plain integer on its own line.**
-  Reserved for a future migration path.
-- **`name:` is kebab-case** (`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`) and
-  matches the filename. Not one of the reserved verbs
-  `list|add|run|resume|remove|status`.
-- **`steps[]` is a list; ids are unique.** `depends_on` entries must
-  reference earlier or peer step ids — forward references are
-  illegal. The script will reject cycles.
-- **Templating is literal replacement.** `{{project.path}}`,
-  `{{project.name}}`, `{{project.kind}}`, and any named `outputs`
-  from earlier steps. No expression language. `when:` supports one
-  trivial form: `name == 'literal'` / `name != 'literal'`.
-- **`preflight:` is optional and omitted when empty.** The block
-  pins any or all of the five pre-flight answers (`control-mode`,
-  `worktree`, `rename_session` — default `prompt`; plus the opt-in
-  `tuning` and `step-select` questionaries — default `skip`) so the
-  runner isn't offered choices that don't make sense for the
-  workflow. Invalid values on any key fall back to that key's default
-  with a `WARN:` line from `workflows.py get-preflight`. Valid enum
-  values per key are tracked in the `PREFLIGHT_KEYS` map in
-  `scripts/workflows.py`. A workflow may additionally declare a
-  top-level `profiles:` block mapping the budget levels
-  (`low`/`medium`/`max`) to tuning tiers, step skips, team-mode, and
-  caps — see `docs/wise/workflows.md § Profiles`; the convention
-  `medium: {}` (empty = declared defaults) is enforced by review, not
-  schema.
-- **Agent binding is `prompt`-only and passes through untouched.** The
-  workflow-level `agents: off|auto` policy and the step-level `agent:` /
-  `model:` / `effort:` fields bind only to `type: prompt` steps. The
-  engine does not whitelist step keys — `_render_step` renders the whole
-  step dict, so these fields reach the conductor with no schema change;
-  the dispatch logic lives entirely in the `wise-workflow-run` SKILL body.
-  `agent:` is **scalar OR a list**: a scalar is a single role / `auto` /
-  `off`; a list is a **team** (each item a bare role or
-  `{role, lead?, model?, effort?}`) dispatched together and
-  **conductor-synthesized** into one step result, with an optional single
-  `lead` integrating peers' drafts first. The conductor normalizes `agent:`
-  through `workflows.py resolve-team` (it folds in per-member model
-  resolution and validates roles + the at-most-one-lead rule). A team step is
-  **atomic** — a resume mid-team re-runs it whole, so no new run state is
-  added. All step execution is **in-conversation** (`Task` subagents,
-  subscription-covered — no headless subprocess backend, which would bill as
-  separate API usage). `model:` is a native Task per-call override (the real
-  per-step knob); `effort:` is NOT a native per-call knob, so the conductor
-  conveys it as a prompt directive only (best-effort). See
-  [§9.10](#910-the-agent-roster).
+### 9.4 Public command contract
 
-### 9.4 `workflows.py` subcommand contract
+`bash plugins/wise/engine/engine.sh <command>` exposes compilation, preflight,
+run control, status, migration and MCP. See the
+[CLI reference](docs/wise/workflows.md#cli) for exact arguments and exit codes.
+The managed launcher is the stable entrypoint; callers never choose a runtime
+or import an executor themselves.
 
-The script is the sole source of truth for YAML parsing, state
-mutation, and DAG evaluation. When modifying it, keep the subcommands
-stable — SKILL bodies reference them by exact token:
+`python3 plugins/wise/scripts/wise-helpers.py <command>` supplies
+`runs-root`, `current-session-id`, `session-path`, `session-label`,
+`profile-set`, `profile-get`, `list-runs`, `dump-state`,
+`list-resumable-runs`, `find-runs-by-session`, `prune-runs`,
+`worker-heartbeat`, `stale-workers` and `supervise-config`.
 
-```
-locate-def <name>                        # prints abs path; exit 1 if not found
-probe-requires <def>                     # OK or MISSING: lines; exit 2 on missing
-new-ulid                                 # stdout: one ULID
-init-state <def> <run-dir> <run-id> <ctx-json>
-                                         # writes state.yaml; stdout: its path
-next-wave <def> <state>                  # JSON { runnable, to_skip, terminal? }
-update-step <state> <step-id> key=val... # mutate one step
-update-run  <state>            key=val...# mutate top-level
-record-output <state> <name> <value>     # capture into outputs map
-reset-running <state>                    # running → pending (resume preamble)
-list-runs <runs-root>                    # summary table
-dump-state <state>                       # pretty-print YAML
-render <template> <state>                # expand {{…}} literally
-list-agents                              # JSON of the agents/ roster (auto-select + wizard)
-resolve-model <pinned> [effort]          # JSON {model,effort,fell_back,reason,next_fallback}
-resolve-team <def> <step-id>             # JSON {mode,lead,members,errors} — normalize a step's agent: into a model-resolved team
-```
-
-Breaking any of these is a major-version event (CLI contract change) — see
-[§8](#8-versioning).
+The old `workflows.py` execution/state-mutation CLI and prose conductor are
+retired. Definition conversion is an explicit import operation with dry-run
+by default, backups for in-place writes, retained comments and manual warnings.
+This removal is a breaking CLI/runtime change, not a transparent patch.
 
 ### 9.5 Adding a step type
 
-1. Extend the definition schema in `docs/wise/workflows.md` with a
-   clear spec: which fields are required, success semantics, failure
-   modes, captured output.
-2. Teach `workflows.py next-wave` to include the new type's
-   type-specific fields in the rendered descriptor.
-3. Teach the `wise-workflow-run` SKILL body how to dispatch the new
-   type — which tool to invoke, how to collect, how to score success.
-4. Add a step of the new type to the `example-workflow` bundled
-   workflow (`plugins/wise/workflows/example-workflow/workflow.yaml`)
-   so the type is exercised in smoke tests.
-5. Bump the plugin's `version` per [§8](#8-versioning). New step types are a minor bump.
+1. Define its schema and failure/output semantics in `wise_engine/defs.py`
+   and the workflow reference.
+2. Implement its runner and executor dispatch in the canonical Python package.
+3. Add focused validation, execution and resume tests using fake providers.
+4. Update the bundled example and its README when the new type fits that example.
+5. Bump the plugin version under [§8](#8-versioning).
 
 ### 9.6 Adding or editing a bundled workflow
 
@@ -866,35 +765,20 @@ worse than none — readers trust it. The invariant is codified in
 [`plugins/wise/CLAUDE.md`](./plugins/wise/CLAUDE.md)'s Invariants
 section.
 
-After either: verify with `python3 scripts/workflows.py locate-def
-<name>`, confirm any declared `requires:` plugins are resolvable, and
-take a minor version bump.
+After either, run `bash plugins/wise/engine/engine.sh compile-check <name>`
+and `just check`. Confirm declared dependencies and bump the version.
 
 ### 9.7 Testing a workflow change locally
 
 ```bash
-# 1. Syntax + compile
-bash -n plugins/wise/scripts/bootstrap-deps.sh
-python3 -m py_compile plugins/wise/scripts/workflows.py
-python3 -m json.tool plugins/wise/.claude-plugin/plugin.json > /dev/null
-
-# 2. Bootstrap (installs deps if missing)
-bash plugins/wise/scripts/bootstrap-deps.sh
-
-# 3. Drive the script directly (no Claude Code needed).
-# `locate-def` abstracts over both layouts (folder form
-# `<name>/workflow.yaml` and legacy flat `<name>.yaml`), so always
-# feed its output into `probe-requires` rather than hard-coding a path.
-python3 plugins/wise/scripts/workflows.py new-ulid
-DEF="$(python3 plugins/wise/scripts/workflows.py locate-def example-workflow)"
-python3 plugins/wise/scripts/workflows.py probe-requires "$DEF"
-
-# 4. End-to-end via Claude Code
-/plugin uninstall wise --keep-data
-/plugin install wise@wise-claude
-/reload-plugins
-/wise-workflow-run example-workflow
+bash plugins/wise/engine/engine.sh compile-check example-workflow
+bash plugins/wise/engine/engine.sh preflight example-workflow
+just check
 ```
+
+The checks validate definitions without launching a model. An interactive
+end-to-end run uses `/wise-workflow-run example-workflow` after plugin reload;
+select and authenticate the intended provider first.
 
 ### 9.8 Adding a required dep to `/wise-init`
 
@@ -904,7 +788,7 @@ worth caching up-front (rare — most new deps belong either in
 three-step procedure is:
 
 1. **Add a probe to `plugins/wise/scripts/init.sh`.** New subcommand
-   `probe-<name>` following the `probe-python` / `probe-node` /
+   `probe-<name>` following the `probe-python` /
    `probe-gh` pattern. Must emit `STATUS=ok|missing`, `BINARY=`,
    `VERSION=`, plus any dep-specific fields. No Python dependency in
    this script — it runs before Python is confirmed.
@@ -922,40 +806,28 @@ user-visible change).
 
 ### 9.9 Explicitly deferred
 
-Listed so proposals land in the right version:
-
-- **`TeamCreate` / `Monitor` / `SendMessage` for general step execution.**
-  `Task` stays the default step backend. Team tools are permitted ONLY inside
-  the supervised-execution surface — see [§9.11](#911-supervised-execution);
-  do not reach for them as a generic "run a step in the background" mechanism.
-- **Workflow-definition schema migrations** — the path is designed,
-  not yet built.
-- **Cross-workflow composition** (workflow as a step type).
-- **Worktree cleanup (`/wise-workflow-gc`)** by age or count.
-- **Declarative retry / backoff on step failure.** A failed step is
-  currently terminal.
+Cross-workflow composition and age-based worktree cleanup are not implemented.
+Host-specific setup and registration acceptance belongs to P6 of the
+[Python engine plan](docs/plans/python-workflow-engine.md).
 
 ### 9.10 The agent roster
 
 `plugins/wise/agents/*.md` is a plugin-level roster of SDLC role
 subagents (catalogued in `plugins/wise/AGENTS.md`). They are real Claude
 Code plugin subagents — auto-discovered on install, invocable as
-`subagent_type: wise:<name>` — that the workflow engine dispatches
-`prompt` steps to.
+`subagent_type: wise:<name>` — that a Claude agent child can adopt or delegate to.
 
 **To add or edit a role:**
 
 1. Add/edit the card `plugins/wise/agents/<role>.md` — frontmatter is
    `name` (= filename stem), `description` (concrete enough to drive
-   `agent: auto` routing), `tools`, `model: inherit`, `effort`, and
+   role selection), `tools`, `model: inherit`, `effort`, and
    `color`, then the role's system prompt as the body. Plugin
    subagents **ignore** `hooks` / `mcpServers` / `permissionMode` —
    never add them.
 2. Add/update the role's row in `plugins/wise/AGENTS.md` AND the repo-root
-   `AGENTS.md` table — the "When `auto` picks it" cell is the routing hint
-   the conductor reads.
-3. Verify it parses: `python3 plugins/wise/scripts/workflows.py
-   list-agents` should list it with the right `model` / `effort`.
+   `AGENTS.md` table.
+3. Run `just validate`; canonical roster checks validate the card.
 4. Minor version bump (new roles are additive).
 
 `plugins/wise/agents/*.md` is the canonical source; the repo-root
@@ -963,9 +835,8 @@ Code plugin subagents — auto-discovered on install, invocable as
 docs (not loadable registries) whose roster tables mirror it — keep
 them in sync the same way workflow READMEs track their YAML.
 
-The `agent:` / `model:` / `effort:` step fields and the `agents:` workflow
-policy that bind to this roster are documented in
-[§9.3](#93-definition-schema-v1) and `docs/wise/workflows.md`.
+V2 workflow steps use `type: agent` and an explicit prompt. V1 roster bindings
+are folded into prompts by the importer; they are not a second dispatch path.
 
 ### 9.11 Supervised execution
 
@@ -979,9 +850,6 @@ the automation of the manual "ping all your subagents, are you on track?" nudge.
 The single source of truth for the routine is
 `plugins/wise/references/supervise-loop.md`. It is consumed by:
 
-- the `type: supervised-prompt` step (dispatched in `wise-workflow-run` §9d) —
-  a `prompt` step run as one watched background worker instead of a blocking
-  `Task`;
 - the `implement-plan.md §2a` executor fan-out under `SUPERVISE=yes` (the
   `-auto` orchestrators pass it; the default is plain blocking `Task`);
 - the standalone `/wise-supervise [team]` skill — attach the loop to any
@@ -989,24 +857,22 @@ The single source of truth for the routine is
 
 **The hard invariant:** a live watchdog is only possible when workers are
 addressable BACKGROUND teammates (`Agent(team_name, name, run_in_background:
-true)`), so the conductor's turn stays free to poll + `SendMessage`. This is
-the ONLY sanctioned use of `TeamCreate` / `SendMessage` / `Monitor` / the
-`Task*` tools in step execution. It does NOT relax the no-headless rule:
-background `Agent` teammates are in-conversation and subscription-covered, so
-they satisfy the same constraint as `Task`. **Never** shell out to `claude -p`
-or any external agent CLI to supervise or to work.
+true)`), so the conductor's turn stays free to poll + `SendMessage`.
+The standalone supervisor watches conversation teammates. The Python workflow
+engine independently runs headless provider children and monitors their
+activity through `wise_engine.channel`.
 
 **Liveness contract.** Workers heartbeat via
-`workflows.py worker-heartbeat <run-dir> <name> [phase] [task]` (writes
+`wise-helpers.py worker-heartbeat <run-dir> <name> [phase] [task]` (writes
 `<run-dir>/workers/<name>.hb`); the supervisor polls via
-`workflows.py stale-workers <run-dir> [expected-csv]` (silent when all fresh —
-Monitor-safe) and reads thresholds via `workflows.py supervise-config`. The
+`wise-helpers.py stale-workers <run-dir> [expected-csv]` (silent when all fresh —
+Monitor-safe) and reads thresholds via `wise-helpers.py supervise-config`. The
 knobs are distinct from the session-staleness knob on purpose: `WISE_WORKER_STALE_SECS`
 (180s, worker-hang) is NOT `WISE_SESSION_STALE_SECS` (1800s, run-abandonment);
 plus `WISE_WORKER_POLL_SECS` / `_MAX_NUDGES` / `_MAX_RESPAWNS`.
 
 **To change the supervisor's behaviour,** edit `supervise-loop.md` (the routine)
-and/or the `workflows.py` `worker-heartbeat` / `stale-workers` / `supervise-config`
+and/or the `wise_engine.supervision` `worker-heartbeat` / `stale-workers` / `supervise-config`
 subcommands — never fork a divergent copy into a skill. Minor version bump
 (supervised execution is additive — the blocking-`Task` path stays the default
 everywhere except the `-auto` implement phase).

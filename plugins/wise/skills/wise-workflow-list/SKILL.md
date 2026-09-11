@@ -3,7 +3,7 @@ name: wise-workflow-list
 description: >-
   List every workflow available to the wise plugin — both the bundled
   defaults that ship with the plugin and the user-authored ones under
-  ${CLAUDE_PLUGIN_DATA}/workflows/definitions/. Read-only. Invoked as
+  the engine-selected user definition directory. Read-only. Invoked as
   `/wise-workflow-list` (bare alias) or `/wise:wise-workflow-list`
   (canonical). Use when the user says "list workflows", "show
   workflows", "which workflows are available", "what workflows can I
@@ -11,17 +11,24 @@ description: >-
 argument-hint: ""
 model: opus
 effort: low
-allowed-tools: Read, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(bash:*), Bash(python3:*)
+allowed-tools: Read, Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-workflow-list — list available workflows
 
+First read [host control](../../references/workflow-host-control.md). Resolve the
+loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
+to that installation. Use its managed launcher for shell commands. Follow the
+reference's diagnostics and explicit-answer fallback when MCP or a native picker
+is unavailable. Conductor host and child provider are independent.
+
+
 ## Why this skill exists
 
 Users need a quick way to see which workflows they can run. Workflows
-come from two places: bundled defaults under `${CLAUDE_PLUGIN_ROOT}/workflows/`
+come from two places: bundled defaults under `${WISE_PLUGIN_ROOT}/workflows/`
 (shipped with the plugin) and user-authored ones under
-`${CLAUDE_PLUGIN_DATA}/workflows/definitions/` (written by
+the `user_root` from `engine/engine.sh definition-roots` (written by
 `/wise-workflow-create`). Under each root, a workflow can live in one of
 two layouts — `<name>/workflow.yaml` (folder form, preferred) or
 `<name>.yaml` (legacy flat form). This skill lists both layouts from
@@ -37,9 +44,9 @@ the skill name.
 
 ### 1. Init-check + list — in ONE message
 
-Run the init-check per `${CLAUDE_PLUGIN_ROOT}/references/init-check.md`,
+Run the init-check per `${WISE_PLUGIN_ROOT}/references/init-check.md`,
 firing `init-registry.py check` and the data call
-`workflows.py list-defs` together in one message. On `INIT:ok`, use the
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs` together in one message. On `INIT:ok`, use the
 `list-defs` output and jump to §2; otherwise follow the reference's
 fallback. This skill is read-only, so on `BOOTSTRAP:need-python` it
 relays the `OPTION:` lines and stops rather than driving an install
@@ -47,7 +54,7 @@ loop.
 
 ### 2. Interpret the `list-defs` output
 
-Stdout is a JSON array of `{name, description, source, shadowed}`
+Stdout is a JSON array of `{name, description, source, shadowed, path}`
 objects, with user entries first and bundled entries after (folder
 form wins on same-root collision; user wins on cross-root
 collision).

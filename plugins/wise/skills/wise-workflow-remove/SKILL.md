@@ -2,7 +2,7 @@
 name: wise-workflow-remove
 description: >-
   Delete a user-authored workflow definition from
-  `${CLAUDE_PLUGIN_DATA}/workflows/definitions/` — handles both
+  `the engine-selected user definition directory` — handles both
   layouts (`<name>/workflow.yaml` folder form AND legacy
   `<name>.yaml` flat form). Refuses to touch bundled workflows —
   they ship with the plugin and are replaced by a reinstall, not a
@@ -16,114 +16,50 @@ effort: low
 allowed-tools: Read, Bash(rm:*), Bash(test:*), Bash(bash:*), AskUserQuestion
 ---
 
-# /wise-workflow-remove — delete a user workflow
+# /wise-workflow-remove - remove a user definition
 
-## Why this skill exists
+First read [host control](../../references/workflow-host-control.md). Resolve the
+loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
+to that installation. Use its managed launcher for shell commands. Follow the
+reference's diagnostics and explicit-answer fallback when MCP or a native picker
+is unavailable. Conductor host and child provider are independent.
 
-`/wise-workflow-create` writes a YAML to `${CLAUDE_PLUGIN_DATA}/workflows/definitions/`.
-This skill is the matching removal path. Bundled workflows are
-immutable from the plugin's perspective (they live in the read-only
-plugin install directory) — this skill refuses to delete them rather
-than silently failing or producing confusing errors.
 
-## Arguments
+The first argument is the workflow name. Require
+`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`; missing or invalid input stops with a
+pointer to `/wise-workflow-list`.
 
-Read `$ARGUMENTS`. The first whitespace-separated token is the
-`name` — the kebab-case workflow name (required). Matches the
-filename without the `.yaml` extension. When `$ARGUMENTS` is empty,
-stop with a clear error pointing at `/wise-workflow-list` to discover
-available workflows.
-
-## Procedure
-
-### 1. Parse and validate
-
-Read `name` from `$ARGUMENTS`. Reject anything that doesn't match
-`^[a-z][a-z0-9]*(-[a-z0-9]+)*$` — the same kebab-case shape
-`/wise-workflow-create` enforces; anything else is not a filename we
-would have written.
-
-### 2. Refuse bundled
-
-Check both layouts under the bundled root — a bundled workflow in
-either form is off-limits:
+## Locate through canonical roots
 
 ```bash
-test -f "${CLAUDE_PLUGIN_ROOT}/workflows/${name}/workflow.yaml" \
-  || test -f "${CLAUDE_PLUGIN_ROOT}/workflows/${name}.yaml"
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" definition-roots
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs
 ```
 
-If either exits 0, the target is a bundled workflow. Stop with:
+Use the returned `user_root` and `bundled_root`, not a duplicated
+home-directory or Claude-specific default. Check both folder
+`<name>/workflow.yaml` and flat `<name>.yaml` forms. If either exists
+under the bundled root, refuse: `Refusing to delete bundled workflow
+<name>. Create a user override with a different name or edit the source
+repository.` Never remove files from the plugin installation.
 
-```
-Refusing to delete bundled workflow <name>.
+Under the user root, prefer folder form when both exist. If neither
+exists, say `No user workflow named <name>.` and stop. Verify the real
+path remains inside the canonical user root; refuse a definition whose
+symlink resolves outside it. Record the exact matched path and form.
 
-Bundled workflows ship with the wise plugin and are replaced by a
-reinstall. If you want to override this workflow locally, create a
-user version with the same name at:
+## Confirm the exact removal
 
-  ${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>/workflow.yaml
+Show the full path and ask Delete or Keep through the host's structured
+picker. Folder deletion removes its `workflow.yaml` plus sibling
+prompts/templates/README. Flat deletion removes only that YAML file.
+Saved run history is not part of the deletion. On Keep, stop unchanged.
 
-The user version wins at run time.
-```
+After Delete, recheck the target and its containment. Remove only the
+selected folder or flat file, quoting the complete path. Do not touch
+another definition, shared data directory, active run, or history.
 
-### 3. Locate the user definition
-
-Check both layouts and remember which one matched:
-
-```bash
-if [ -f "${CLAUDE_PLUGIN_DATA}/workflows/definitions/${name}/workflow.yaml" ]; then
-  TARGET_KIND=folder
-  TARGET="${CLAUDE_PLUGIN_DATA}/workflows/definitions/${name}"
-elif [ -f "${CLAUDE_PLUGIN_DATA}/workflows/definitions/${name}.yaml" ]; then
-  TARGET_KIND=flat
-  TARGET="${CLAUDE_PLUGIN_DATA}/workflows/definitions/${name}.yaml"
-else
-  echo "No user workflow named ${name}. Run /wise-workflow-list to see what's registered."
-  exit 1
-fi
-```
-
-### 4. Confirm
-
-Use `AskUserQuestion`. The delete description differs by layout —
-folder form removes the whole folder (including any sibling
-`templates/` or `prompts/` the user put there).
-
-- Question: `Delete user workflow <name>?`
-- Header: `Confirm delete`
-- Options:
-  - `Delete` — for folder form: `This removes ${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>/ entirely (workflow.yaml + any sibling templates/ and prompts/). Any in-flight runs of this workflow remain in ~/.local/share/wise/runs/<cwd-slug>/ and are not affected.`; for flat form: `This removes ${CLAUDE_PLUGIN_DATA}/workflows/definitions/<name>.yaml. Any in-flight runs of this workflow remain in ~/.local/share/wise/runs/<cwd-slug>/ and are not affected.`
-  - `Keep` — `Abort without changing anything.`
-
-On `Keep`, stop without touching the file.
-
-### 5. Delete
-
-On `Delete`, remove whichever form matched:
-
-```bash
-if [ "$TARGET_KIND" = folder ]; then
-  rm -rf "$TARGET"
-else
-  rm "$TARGET"
-fi
-```
-
-Then confirm:
-
-```
-Removed user workflow <name>.
-
-Any existing runs of this workflow under
-  ~/.local/share/wise/runs/<cwd-slug>/
-are unaffected. Resume them with:
-  /wise-workflow-resume <run-ulid>
-```
-
-## Guardrails
-
-- Never remove a bundled workflow.
-- Never remove a run directory — resuming a run after its definition
-  was deleted is a legitimate (if narrow) use case.
-- Do not invoke any other skill.
+Report `Removed user workflow <name> from <path>.` If an alternate flat
+or folder definition remains, say it is now the discovered definition;
+do not delete it without a separate explicit choice. Never delete a
+second path merely to make the name disappear.

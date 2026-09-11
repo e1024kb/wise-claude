@@ -1,62 +1,27 @@
-# init-check — dependency fast-path for workflow skills
+# init-check
 
-The workflow skills (`run` / `resume` / `list` / `status`) all gate
-their first real work on the init-registry fast-path, falling back to a
-full dep probe when the registry is missing or stale. The protocol is
-identical; only the caller's own data call(s) differ, plus whether the
-caller drives the install loop (state-mutating skills) or just relays
-and stops (read-only skills).
+Use the current conductor host explicitly: `claude`, `codex`, `cursor`, or `grok`.
+Set `WISE_HOST` from the session, never from installed provider CLIs. Resolve the
+loaded plugin root as described in [host control](workflow-host-control.md).
+Run its guarded `refresh-host` before checking init. An upgrade refresh invalidates
+previous runtime/registration probes; run init to rebuild that evidence while
+preserving optional skips. Do not interpret a successful file refresh as a native
+session connection.
 
-## The one-message fire
+```bash
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" check
+```
 
-In a SINGLE assistant message with NO text between the tool uses, fire
-together:
+`INIT:ok` confirms this host's recorded plugin root, managed Python runtime and
+requirements fingerprint, and current launcher/registration evidence. It does not
+prove native MCP connectivity or provider authentication. Another host's registry
+cannot satisfy this check.
 
-1. The init-check:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" check 2>/dev/null || true
-   ```
-2. The caller's data call(s) — e.g. `workflows.py list-defs`,
-   `list-resumable-runs`, `runs-root`, `list-runs <runs-root>`, or
-   `dump-state <state>` (whatever the caller specifies).
-3. Any `ToolSearch` the caller needs (e.g. `select:AskUserQuestion`
-   for a picker).
+For `INIT:uninit`, `INIT:stale:*`, `INIT:dep-missing:*`, or missing Python, run
+**/wise-init** to prepare Python 3.11+, refresh this host's registration and verify
+its session. Read-only callers may report missing setup and stop.
 
-Parse all results together in the next message.
-
-**Why parallel is safe.** `workflows.py` and `init-registry.py` both
-hard-fail identically when Python / PyYAML are absent (import error at
-the top of the file), so a broken environment makes the data-call
-output suspect — and the fallback below discards it. Worst case is one
-wasted fork whose stderr was silenced.
-
-## Interpreting the result
-
-- **stdout `INIT:ok`** → registry good; use the data-call output
-  directly and proceed.
-- **Anything else** (`INIT:uninit` / `INIT:stale:*` /
-  `INIT:dep-missing:*` / empty stdout when Python is missing) →
-  discard the data-call output, nudge once, and run the full probe:
-
-  ```bash
-  echo "Tip: run /wise-init to cache dep probe results and speed up future runs." >&2
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
-  ```
-
-  Parse the probe stdout:
-
-  - `READY:<py-path>` → re-run the data call(s) and continue.
-  - `BOOTSTRAP:need-python` (+ one or more `OPTION:` lines):
-    - **State-mutating callers** (`wise-workflow-run`) drive an install
-      loop — relay the `OPTION:` install commands via `AskUserQuestion`
-      (`Install mise (recommended)` / `Install system Python 3` /
-      `Abort`, each description mirroring the `OPTION:` text), tell the
-      user to run them out of band, add a `Re-check` option, and re-run
-      bootstrap until `READY` or `Abort`.
-    - **Read-only callers** (`wise-workflow-list` / `-status`, and
-      `-resume`'s picker) may simply relay the `OPTION:` lines and stop
-      — there is nothing to proceed to without Python.
-  - `BOOTSTRAP:pip-failed` → relay stderr and stop.
-
-  Bootstrap auto-populates `.wise-init-registry.yaml` on a successful
-  probe, so the next invocation hits the fast path.
+Init state lives at `$HOME/.local/share/wise/init/<host>.json`. Legacy cache state
+is read-only migration input. Preserve optional skips, including Drive, Figma and
+Linear. `bootstrap-deps.sh --probe` never installs or writes state. Runtime-only
+bootstrap works without a host, but cannot establish host initialization.

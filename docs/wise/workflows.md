@@ -4,19 +4,20 @@ A workflow is a YAML v2 definition the wise engine runs: a DAG of steps
 (`agent`, `bash`, `approval`, `ask`, `units`) with a pre-flight
 questionary (harness, permission floor, model and effort, plus optional
 steps and inputs).
-The engine is TypeScript under `plugins/wise/engine`, run as source on
-bun or Node 24 (`engine/engine.sh`). It runs as a per-user daemon
+The engine is Python under `plugins/wise/engine`. The `engine/engine.sh`
+launcher selects Python 3.11+ and installs pinned dependencies into a managed
+versioned environment outside the plugin. It runs as a per-user daemon
 (`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
 `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`) and exposes MCP tools to the
-Claude Code conversation through the plugin's `.mcp.json` server
-`wise-engine`. The conversation is a thin conductor: it renders
+Claude Code, Codex, Cursor or Grok conversation through the managed
+`wise-engine` registration created by `/wise-init`. The conversation is a thin conductor: it renders
 questions, forwards context, prints one line per event and answers
 gates. It never sees step output.
 
-Source of truth for this page: `plugins/wise/engine/src/*.ts`
-(`defs.ts` schema, `scheduler.ts` DAG, `executor.ts` run loop,
-`units.ts` and `phases/` pipelines, `adapters/` harnesses,
-`migrate.ts` v1 rewrite).
+Source of truth for this page: `plugins/wise/engine/wise_engine/*.py`
+(`defs.py` schema, `scheduler.py` DAG, `executor.py` run loop,
+`units.py` and `phases/` pipelines, `adapters/` harnesses,
+`migrate.py` v1 rewrite).
 
 ## Commands
 
@@ -28,11 +29,14 @@ Source of truth for this page: `plugins/wise/engine/src/*.ts`
 | `/wise-workflow-list` | List bundled and user definitions. |
 | `/wise-workflow-create <name>` | Wizard that writes a user definition. |
 | `/wise-workflow-remove <name>` | Delete a user definition. Bundled ones are immutable. |
-| `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh <command>` | The engine CLI (see [CLI](#cli)). |
+| `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" <command>` | The engine CLI (see [CLI](#cli)). |
 
-Setup once: `/wise-init` (bun or Node 24, `claude auth login`, `gh`).
-`DAEMON_UNAVAILABLE` from any tool means the daemon could not start:
-run `/wise-init`, then retry.
+The runtime requires Python 3.11+, the selected provider CLI and its login,
+and `gh` for GitHub phases. Set `WISE_HOST` to the current conductor (`claude`,
+`codex`, `cursor` or `grok`); this does not select the child provider.
+Follow [host setup and control](../../plugins/wise/references/workflow-host-control.md)
+for registration, upgrade refresh, diagnostics and explicit interactive choices.
+A host reload cannot fix an unresolved path or failed daemon startup.
 
 ## Where things live
 
@@ -60,7 +64,7 @@ inputs, outputs, examples, related. Keep it in sync with the YAML.
 
 ## Definition
 
-Top-level keys (`defs.ts` `TOP_KEYS`). Unknown keys warn; `agents` is a
+Top-level keys (`defs.py` `TOP_KEYS`). Unknown keys warn; `agents` is a
 v1 error.
 
 | Key | Required | Value |
@@ -450,7 +454,7 @@ is undefined, so `x != ''` alone is true.
 
 ## Templating
 
-`render.ts` replaces, in this order and by plain text substitution:
+`render.py` replaces, in this order and by plain text substitution:
 
 | Placeholder | Value |
 |---|---|
@@ -490,14 +494,14 @@ fails `wise_run` with `AUTH_REQUIRED` and `login_cmd`.
 
 ### Model and effort resolution
 
-`resolve.ts`, applied at run start per enabled `agent` step and per
+`resolve.py`, applied at run start per enabled `agent` step and per
 `units` phase (`state.resolved[<step>]` and `[<step>.<phase>]`):
 
 1. Retired id swap: a known retired full id (`claude-opus-4-1-20250805`
    and the like) becomes its alias, with `reason`.
 2. Low-profile Opus rule: dormant for workflows. The run profile is
    fixed to `medium`, so the rule that sends every Opus-family pin to
-   `claude-opus-4-8` under `low` never fires; `resolve.ts` keeps it for
+   `claude-opus-4-8` under `low` never fires; `resolve.py` keeps it for
    callers that pass `low`.
 3. Capability clamp (`MODEL_EFFORT_SUPPORT`): `opus`, `fable`, `sonnet`
    take every effort; `haiku` has none, the effort is dropped.
@@ -563,7 +567,7 @@ engine is the permission host: every Claude child runs with
 `initialize` control request before the first user message, and each
 tool call the child's mode would prompt for arrives on stdout as a
 `control_request` (`can_use_tool`) that the engine answers on stdin.
-The policy (`permissions.ts`) is shape-based so it holds for any server
+The policy (`permissions.py`) is shape-based so it holds for any server
 the child inherits: read-only built-ins (`Read`, `Glob`, `Grep`,
 `WebFetch`, `WebSearch`, `ToolSearch`, ...) and read-shaped MCP tools
 (a `get` / `list` / `search` / `read` / `fetch` / `view` / `query` verb
@@ -631,7 +635,7 @@ empty. An answered question is never repeated.
 | `input.<name>` | `text` | | context value, else `default`, else empty when optional |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
-| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/src/models.ts`) | the group's pinned model when the catalog has it, else the catalog's first entry |
+| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/wise_engine/models.py`) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
 `step-select` and `input.<name>` are stage-free and come on the first
@@ -802,10 +806,26 @@ derived from it. Never under the project tree, never auto-cleaned.
 
 ## Child channel
 
-Every child loads one MCP server, `wise-engine` (`bash
-engine/engine.sh unit-mcp`), with `WISE_STEP_TOKEN`,
-`WISE_ENGINE_SOCKET`, `WISE_DATA_ROOT` in its environment. The token is
-scoped to one step of one run; a wrong token is `TOKEN_INVALID`.
+Each agent step receives a child MCP server using the current managed Python
+interpreter with `-m wise_engine unit-mcp`. Its environment carries the engine
+package path, daemon socket and token scoped to that step. An invalid or expired
+token produces `TOKEN_INVALID`. Provider-specific server names keep the child
+channel separate from an inherited conductor server.
+
+| Provider | Per-step registration |
+|---|---|
+| Claude | Its native `--mcp-config` argument supplies the child server. |
+| Codex | Per-invocation config overrides add a unique server; `env_vars` forwards the token through the process environment. User config and authentication stay in place. |
+| Cursor | ACP session creation/resume supplies a unique MCP server. A private stdio wrapper confirms initialization before the prompt is sent. Legacy print-session stores are copied read-only into new ACP sessions for resume; originals remain intact. The ordinary print path remains available for dispatches without a child channel. |
+| Gemini | A private system-settings overlay adds a unique server and preserves existing system settings/defaults. Authentication and user/project settings remain in their original locations. |
+| Grok | A private provider-home overlay adds a unique server. The original auth path and persistent sessions remain available; the leader socket is isolated. Only the four child tools receive explicit grants. |
+
+The Codex, Cursor, Gemini and Grok adapters forward injected token values through
+process environments; private configuration files contain references to those values. Temporary files are removed after exit,
+timeout, cancellation or startup failure. Cursor and Grok reject explicit
+`mcp: engine-only` because their supported registration routes also inherit
+provider-configured servers. This field remains a Claude-specific isolation
+control; it is not a portable promise across providers.
 
 | Tool | Params | Result |
 |---|---|---|
@@ -816,11 +836,11 @@ scoped to one step of one run; a wrong token is `TOKEN_INVALID`.
 
 Main to child: `wise_nudge {run_id, step, message}` writes a user
 message into a Claude child's stdin (`--input-format stream-json`);
-codex and grok have no open stdin, `delivered: false`.
+the other provider adapters currently return `delivered: false`.
 
 ## Unit pipelines
 
-`units.ts` and `phases/` run the ticket -> PR and plan -> PR loops the
+`units.py` and `phases/` run the ticket -> PR and plan -> PR loops the
 v1 prose orchestrators used to describe. Phases in order:
 
 | Phase | Kind | Does |
@@ -837,7 +857,7 @@ v1 prose orchestrators used to describe. Phases in order:
 | `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. |
 | `cleanup` | code | On `merged`: remove worktree, delete local branch, `cleaned: true`. Runs after a failure too. |
 
-Branch and worktree naming (`phases/common.ts`): a ticket ref with a
+Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
 file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
@@ -854,7 +874,7 @@ Worktree: `<run dir>/worktrees/<branch>`.
 | `watch` | `full-access` | 15 min | claude / sonnet | edit tools, `Bash(gh:*)`, `Bash(git:*)`, `Bash(date:*)` |
 
 The step's `timeout` and `max_turns` apply to every phase. Prompts are
-templates under `engine/src/prompts/units/` (`ticket/plan.md`,
+templates under `engine/wise_engine/prompts/units/` (`ticket/plan.md`,
 `plan/plan.md`, `shared/{implement,review,fix,watch}.md`); the
 workflow hands them `guidance`, `decisions`, the ticket block or seed
 plan, and paths. Structured results:
@@ -895,9 +915,10 @@ skipped, a unit with a verdict is skipped.
 
 ## MCP tools
 
-Server `wise-engine` from `plugins/wise/.mcp.json` (`bash
-${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`, tool timeout 660 s). The
-descriptions the model reads are in `engine/src/mcp.ts`.
+Server `wise-engine` uses a fixed managed launcher under
+`$HOME/.local/share/wise/bin/wise-engine`. `/wise-init` registers it for the
+current host. The bundled `.mcp.json` is empty to avoid duplicate transports.
+The tool schemas and descriptions are in `engine/wise_engine/mcp_server.py`.
 
 | Tool | Params | Returns |
 |---|---|---|
@@ -918,8 +939,10 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 
 ## CLI
 
-`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh <command>` (bun, else Node
-24; exit 69 when neither is present).
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" <command>` uses the managed
+Python runtime. Standalone session/profile/history/supervision commands use
+`python3 "$WISE_PLUGIN_ROOT/scripts/wise-helpers.py" <command>`, where
+`WISE_PLUGIN_ROOT` is the loaded installation resolved through host control.
 
 | Command | Purpose |
 |---|---|
@@ -930,7 +953,12 @@ Errors come back as `{"error": {code, message, ...}}`. Codes:
 | `run <workflow> [--cwd] [--answers <json>] [--context <json>] [--input k=v] [--interactive] [--follow] [--timeout-ms]` | Start a run through the daemon. `--interactive` asks every preflight question in the terminal instead of filling defaults for a script; `--follow` streams events and answers gates from stdin. |
 | `wait <run_id> [--after] [--timeout-ms]`, `status [run_id]`, `answer <run_id> <gate_id> <value>`, `cancel <run_id> [--reason]`, `resume <run_id>`, `report <run_id>` | Daemon client commands. `report` prints verdicts, units and usage per pool. |
 | `daemon serve\|start\|stop [--now]\|status` | The background daemon. Its handshake id is `<plugin version>+<10-hex sha1 of engine/src>`, so any engine code change (a reinstall, a branch checkout) makes the next client stop the old daemon when idle and start the current code. A long-lived MCP server re-reads that id from disk before every `wise_preflight` / `wise_run`, so a plugin update under an open desktop session also replaces the daemon. |
-| `mcp [--no-start]` | The stdio MCP server used by `.mcp.json`. |
+| `setup-host --host <host> --plugin-root <path> [--apply]` | Preview or apply managed host registration. |
+| `refresh-host --host <host> --plugin-root <path>` | Refresh an unchanged Wise-owned registration from the loaded skill after upgrade. |
+| `host-doctor --host <host>` | Inspect local registration; native host connection requires a separate probe. |
+| `host-rollback <transaction>` | Restore exact prior config bytes if files have not changed. |
+| `nudge <run_id> <step> <message>` | Forward user steering to a running step. |
+| `mcp [--no-start]` | The stdio MCP server used by managed host registration. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
 | `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
@@ -958,10 +986,10 @@ codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
 
 1. `mkdir <user root>/<name>` and write `workflow.yaml` (or run
    `/wise-workflow-create <name>`).
-2. `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh compile-check <path>`
+2. `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" compile-check <path>`
    until it prints no errors. Warnings (`until`, `group` on a bash
    step, unknown keys) are allowed but mean something is ignored.
-3. `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh preflight <name>` to
+3. `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" preflight <name>` to
    see the questionary a conductor will render.
 4. Run it with `/wise-workflow-run <name>`.
 
@@ -971,19 +999,27 @@ files under `{{run.dir}}`; ask every user decision at pre-flight
 (inputs with `validate`, an `ask` escape value, `when:` guards on the
 mid-run `ask` step); pin `control-mode: synchronous` only when the
 workflow has no `approval` step that needs a human. The repo validator
-(`python3 scripts/validate_repo.py`) runs `compile-check` on every
-bundled `version: 2` definition. Bundled workflows:
+(`just validate`) calls the canonical Python definition validator on every
+bundled definition. Bundled workflows:
 `example-workflow` (every step type), `ticket-plan`, `ticket-auto`,
 `impl-plan-auto`, `code-review` (see their READMEs).
+
+## Resume limits
+
+`resume` changes interrupted `running` steps to `pending` and continues the DAG.
+It preserves completed work and steps already marked `failed`; it does not retry
+failed steps. A failed run with no runnable pending work immediately fails again.
+Review previous side effects before correcting the cause and starting a new run.
+Answer a gated run's gate instead of resuming it.
 
 ## Migration from v1
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh migrate <workflow.yaml>            # dry run: prints the v2 YAML and the notes
-bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh migrate <workflow.yaml> --write    # in place, original kept as <file>.v1.bak
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" migrate <workflow.yaml>            # dry run: prints the v2 YAML and the notes
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" migrate <workflow.yaml> --write    # in place, original kept as <file>.v1.bak
 ```
 
-Rules (`migrate.ts`):
+Rules (`migrate.py`):
 
 | v1 | v2 |
 |---|---|
@@ -1021,6 +1057,8 @@ mid-run (use `wise_ask` from the child, or pre-flight inputs plus
 `stale_after`); teams (one lead child, or several `agent` steps in one
 wave); `surface` output review (write a file under `{{run.dir}}` and
 mention it in the verdict); anything the notes mark MANUAL. Legacy v1
-runs (`state.yaml`) are followed by the prose conductor under
-`references/legacy-conductor/` until plan M3.4 removes it together
-with `scripts/workflows.py`.
+runs (`state.yaml`) are unsupported for execution or resume. Their files are
+preserved unchanged. Review completed side effects, migrate the definition and
+start a new run. The importer preserves source comments, keeps dry-run as the
+default and reports unsupported conversions with manual warnings. The old
+`workflows.py` mutation commands and prose conductor are retired.

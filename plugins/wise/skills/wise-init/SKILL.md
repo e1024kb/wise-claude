@@ -1,614 +1,209 @@
 ---
 name: wise-init
 description: >-
-  First-time setup wizard — walk the user through installing wise's
-  system deps (Python 3 + pyyaml/ulid/typing_extensions, bun or Node ≥24,
-  the `claude` CLI login, gh CLI + `gh auth login`, markitdown for file-to-markdown extraction),
-  self-check the workflow engine and its `wise-engine` MCP server, replace a daemon left
-  running on an older engine build, check git over ssh from the engine's child environment,
-  report the optional harness CLIs (codex, cursor-agent, gemini, grok), and cache the probe results so
-  workflow runs skip the live check.
-  Idempotent — re-running only prompts for gaps.
-  Invoked as `/wise-init` (bare alias) or `/wise:wise-init` (canonical).
-  Use when the user says "init wise", "set up wise", "install wise deps",
-  "first-time setup", "run the setup wizard", or types `/wise-init`.
+  Set up wise's Python 3.11+ runtime and managed engine dependencies, check the engine,
+  report provider and connector readiness, and cache the results. GitHub, provider
+  logins, SSH, MCP connectors, and markitdown are optional until a selected action
+  needs them. Preserve earlier skip decisions on repeat runs. Use when the user says
+  "init wise", "set up wise", "install wise deps", "first-time setup", or types /wise-init.
 argument-hint: ""
 allowed-tools: Read, AskUserQuestion, Bash(bash:*), Bash(python3:*), Bash(printf:*), Bash(test:*), Bash(cat:*), Bash(uv:*), Bash(mise exec:*)
 ---
 
-# /wise-init — first-time setup wizard
+# /wise-init
 
-## Why this skill exists
+Set up the Python runtime, then report the optional capabilities the user selects.
+Select the conductor host explicitly from the current session: `claude`, `codex`,
+`cursor`, or `grok`. Set `WISE_HOST` to that host. Never infer it from installed
+provider CLIs. Resolve `WISE_PLUGIN_ROOT` from this loaded skill's location, two
+directories above its skill folder, rather than searching for a newer cache version.
+The registry lives at `$HOME/.local/share/wise/init/<host>.json`. Engine dependencies
+live in the configured plugin data root. No init state is written into the plugin cache.
 
-Before 0.41.0, every workflow-adjacent wise skill ran
-`scripts/bootstrap-deps.sh` as its first step — probing Python,
-Node, and the gh CLI on every invocation. That was correct but
-slow on the hot path and clumsy for fresh installs: the user got
-piecemeal "install X, now install Y, now `gh auth login`" across
-successive skill invocations instead of one guided walkthrough.
-
-`/wise-init` is that walkthrough. It probes each dep in turn, shows
-installer options with exact commands to paste when something's
-missing, pauses for the user to run them, re-probes, and finally
-writes a registry file the workflow engine consumes as a
-fast-path on every subsequent run. Re-runs are cheap — the wizard
-skips deps that are already present.
-
-**The registry lives at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml`.**
-That's inside the plugin install dir on purpose — it gets wiped on
-every `/plugin install wise@…`, which is exactly the invalidation
-signal we want: "the plugin updated, something new might be
-required, user should re-init".
-
-## Arguments
-
-This skill takes no arguments. Ignore anything the user types beyond
-the skill name.
-
-## Procedure
-
-### 1. Preamble
-
-Print one short paragraph to the user introducing the flow. Keep
-it under 4 lines:
-
-```
-First-time setup. I'll walk you through the system deps wise needs —
-Python 3, bun or Node ≥24 (the workflow engine runtime), the claude
-CLI login, the gh CLI (with auth), and markitdown (file → markdown text
-extraction) — then self-check the engine and its MCP server and report
-the optional harness CLIs (codex, cursor-agent, gemini, grok). Re-runs are safe: I
-skip what's already installed. After this I cache the probe results so
-future workflow runs skip the live check.
-```
-
-### 2. Python (and its pip modules)
-
-**2a. Probe.**
+## 1. Read existing decisions
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-python
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" read
 ```
 
-The probe emits **bare** `KEY=VALUE` lines — `STATUS`, `BINARY`,
-`VERSION`, `MODULE_YAML`, `MODULE_ULID`, `MODULE_TYPING_EXTENSIONS`
-(all three probes reuse the same bare key names by design; see
-`init.sh`). Read them into per-dep Claude-side variables — referred
-to below as `PY_STATUS`, `PY_BINARY`, `PY_VERSION`, `PY_MODULE_*`.
+The helper reads a legacy `.wise-init-registry.yaml` from this plugin root only when
+this host has no new registry. Its first write preserves the full legacy document
+and optional entries in the new location. Never edit or remove that cache file.
+Preserve `skipped: true`, missing tools, unauthenticated logins, connector failures,
+and history. In particular, retain earlier Drive, Figma, and Linear skips. Do not
+ask again about a skipped capability unless the user asks to revisit it.
 
-**2b. Handle the result.**
+Tell the user: "I'll check Python 3.11+, prepare wise's managed engine environment,
+and report the optional tools you want to configure. Earlier skips stay in place."
 
-- **`PY_STATUS=ok` and all modules `ok`:** print one line
-  `Python <ver> ✓ at <binary>` and move to §3. No AskUserQuestion
-  needed — this is the happy path.
-
-- **`PY_STATUS=ok` but at least one module is `missing`:** offer to
-  pip-install the missing ones. `AskUserQuestion`:
-  - Question: `Python <ver> is installed but these modules are missing: <list>. Install them now?`
-  - Header: `pip install`
-  - Options:
-    - `Install (recommended)` — description: `Run: <PY_BINARY> -m pip install --user <missing pkgs>`
-    - `Skip` — description: `Continue without these modules. wise's workflow engine will fail with an import error later.`
-  - multiSelect: false
-
-  On `Install`: run
-  ```bash
-  "<PY_BINARY>" -m pip install --user --quiet pyyaml python-ulid typing_extensions
-  ```
-  (substituting the mapping: `yaml → pyyaml`, `ulid → python-ulid`,
-  `typing_extensions → typing_extensions`; only include the ones
-  that were `missing`). Re-probe via §2a.
-
-  **If pip exits with `error: externally-managed-environment` (PEP 668)** —
-  almost always the case when `<PY_BINARY>` is the Homebrew system
-  Python on macOS — do NOT silently fall back to
-  `--break-system-packages`. Instead, pivot the user onto
-  mise-managed Python, which doesn't have the lockdown:
-
-  - `AskUserQuestion`:
-    - Question: `pip refused to install into <PY_BINARY> because of PEP 668 (externally-managed-environment). The recommended fix is to install a user-owned Python via mise — it sidesteps the lockdown and pins per-project versions cleanly. How would you like to proceed?`
-    - Header: `pip-failed`
-    - Options:
-      - `Install Python via mise (recommended)` — description: `brew install mise && mise use -g python@latest, then re-probe. The re-probe should pick up the mise-managed interpreter, and pip --user works against it.`
-      - `Override with --break-system-packages` — description: `Run: <PY_BINARY> -m pip install --user --break-system-packages <missing pkgs>. Escape hatch — packages can get stranded if brew upgrades the underlying Python.`
-      - `Abort init` — description: `Stop here; resolve manually and re-run /wise-init.`
-    - multiSelect: false
-
-  On `Install Python via mise`: print the two-line install block
-  and pause for the user to run them in their terminal, then jump
-  to the `Done — re-probe` follow-up below (same shape as the
-  `PY_STATUS=missing` path). On `Override`: run the
-  `--break-system-packages` invocation and re-probe via §2a.
-  On `Abort`: stop with a one-line summary.
-
-  If after the chosen path any module is still missing, surface
-  the pip error and `Abort init`.
-
-- **`PY_STATUS=missing`:** `AskUserQuestion`:
-  - Question: `Python 3 isn't installed. How would you like to install it? mise is strongly recommended — it gives you a user-owned Python that pip --user can write into (no PEP 668 lockdown) and lets you pin versions per project.`
-  - Header: `Install Python`
-  - Options:
-    - `mise (strongly recommended)` — description: `brew install mise && mise use -g python@latest. Sidesteps the PEP 668 lockdown that bites Homebrew system Python on macOS.`
-    - `brew (system Python)` — description: `brew install python@3. Works, but pip install --user will hit "externally-managed-environment" — you'll have to use --break-system-packages or a venv for every install.`
-    - `Manual` — description: `I'll install Python myself — hold the wizard until I'm done.`
-  - multiSelect: false
-
-  Whichever the user picks, the wizard's job is just to wait for
-  them to run the commands in their own terminal. Claude doesn't
-  run the installer — we can't `brew install` a new binary from
-  inside a skill. After the user picks, print:
-
-  ```
-  Run the commands above in your terminal, then reply "done" (or
-  use the "Done — re-probe" option below).
-  ```
-
-  Then a follow-up `AskUserQuestion`:
-  - Options: `Done — re-probe` / `Abort init`.
-
-  On `Done — re-probe`: re-run §2a. Up to 2 retries total; on the
-  third miss offer `Abort init` or continue anyway.
-
-**2c. Record.**
-
-Once §2b terminates with Python usable (or the user explicitly
-chose to proceed without it), hold a Python result object in
-Claude-side state:
-
-```json
-{
-  "status": "ok" | "missing",
-  "binary": "<PY_BINARY or empty>",
-  "version": "<PY_VERSION or empty>",
-  "modules": {
-    "yaml": "ok" | "missing",
-    "ulid": "ok" | "missing",
-    "typing_extensions": "ok" | "missing"
-  }
-}
-```
-
-### 3. Engine runtime: bun (preferred) or Node ≥24
-
-**3a. Probe bun first.**
+## 2. Python 3.11 or newer
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-bun
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-python
 ```
 
-Bare keys `STATUS`, `BINARY`, `VERSION` → `BUN_STATUS`, `BUN_BINARY`,
-`BUN_VERSION`.
+Read the bare `STATUS`, `BINARY`, and `VERSION` fields as Python probe results.
+`WISE_PYTHON`, when set, selects the interpreter; otherwise it uses `python3` on PATH, including a mise shim when present.
 
-- **`BUN_STATUS=ok`:** print `bun <ver> ✓ at <binary>` and skip to §3c.
-- **`BUN_STATUS=missing`:** fall through to §3b; bun is optional when
-  Node ≥24 is present.
+- `STATUS=ok`: report the interpreter and version, then continue.
+- `STATUS=missing` or `too-old`: show the detected version and ask which installation
+  path the user prefers: their package manager, `mise use -g python@3.12`, or manual
+  installation. Explain that `WISE_PYTHON` can select an existing Python 3.11+ binary.
+  The user runs system installation commands in their own terminal. Offer
+  `Done - re-probe` and `Abort init`, then re-run the probe after they respond.
 
-**3b. Probe Node.** Same pattern as §2, with `init.sh probe-node`. Bare
-keys `STATUS`, `BINARY`, `VERSION`, `MAJOR` → `NODE_STATUS`,
-`NODE_BINARY`, `NODE_VERSION`, `NODE_MAJOR`.
+Python packages are installed only in the managed engine environment. Never use a
+user-site install, change system Python packages, or override package-manager protections.
 
-- **`NODE_STATUS=ok`:** print `Node <ver> ✓ at <binary>` and move on.
-- **`NODE_STATUS=too-old` or `missing` (and no bun):** `AskUserQuestion`:
-  - Question: `wise's workflow engine needs bun or Node 24+. Detected <ver or nothing>. How would you like to install a runtime?`
-  - Options:
-    - `bun (recommended)` — description: `brew install oven-sh/bun/bun`
-    - `mise` — description: `mise use -g node@24`
-    - `brew` — description: `brew install node@24 && brew link --overwrite --force node@24`
-    - `Manual` — description: `I'll install it myself — hold the wizard.`
-  Same `Done — re-probe` loop as §2b.
-
-**3c. Probe the claude CLI login.** The engine runs workflow steps as
-`claude -p` children under the user's subscription login. A desktop-app
-session does not log the terminal CLI in, so this is a common gap.
+## 3. Managed engine dependencies and self-check
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-claude-auth
+bash "${WISE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh"
 ```
 
-Bare keys `STATUS`, `BINARY`, `METHOD` → `CLAUDE_AUTH_STATUS`,
-`CLAUDE_AUTH_BINARY`, `CLAUDE_AUTH_METHOD`.
+This installs the exact hashed requirements in a managed virtual environment and
+prints `READY:<managed-python-path>`. It does not require a provider login,
+GitHub, or an optional connector. Repeated calls reuse the matching environment;
+concurrent calls share an installation lock.
 
-- **`CLAUDE_AUTH_STATUS=ok`:** print `claude login ✓ (<method>)`.
-- **`CLAUDE_AUTH_STATUS=logged-out`:** tell the user to run
-  `claude auth login` in a terminal (not inside this session), wait for
-  `Done — re-probe`, re-run the probe.
-- **`CLAUDE_AUTH_STATUS=missing`:** the `claude` binary is not on PATH;
-  print the install hint from https://code.claude.com/docs and stop the
-  wizard at this step (workflows cannot run without it).
-
-Record:
-
-```json
-{
-  "runtime": {"kind": "bun" | "node", "binary": "...", "version": "..."} | null,
-  "claude_auth": {"status": "ok" | "logged-out" | "missing", "method": "..."}
-}
-```
-
-**3d. Engine self-check.** Skip when §3 found no runtime. A plugin
-install copies the engine without its dependencies; the first engine
-call installs them (one `installing runtime dependencies` line on
-stderr, then the answer).
+- `BOOTSTRAP:need-python`: return to the Python probe.
+- `BOOTSTRAP:install-failed`: show stderr and stop engine setup. Keep optional
+  decisions intact. The next invocation retries an incomplete installation.
+- `READY:`: bootstrap refreshes the Python and engine registry fields while
+  retaining optional entries. Continue with:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" version
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" version
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" daemon status
 ```
 
-- Prints `wise-engine <version> (<bun|node> <ver>)`: print it and go on.
-- Exit 69 or an install error: print the stderr verbatim. Usual causes:
-  no network for the dependency fetch, or neither bun nor npm on PATH.
-  Record `engine.status: failed` and continue with §4 (the wizard
-  finishes; workflows will not run until this passes).
+The version line identifies `python`. A stopped daemon is normal; the first client
+starts it. A version mismatch identifies an older running build. Run `daemon stop`
+only when it can stop without cancelling active work, then verify its status.
+If it reports active runs, record `stale-busy` and leave them running.
 
-Next, the daemon. A daemon started before a plugin update keeps
-serving the old code until a client replaces it, and a desktop session
-holds its socket open, so check the build here:
+Register the selected host with a concrete preview, then apply the setup requested
+by this init invocation:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" daemon status
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" setup-host --host "$WISE_HOST" --plugin-root "$WISE_PLUGIN_ROOT"
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" setup-host --host "$WISE_HOST" --plugin-root "$WISE_PLUGIN_ROOT" --apply
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" host-doctor --host "$WISE_HOST"
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" refresh-runtime
 ```
 
-- `engined not running`: nothing to do; the first tool call starts it.
-- `engined running: pid <n>, v<build>, <socket>`: print it and go on.
-- The line ends with `(version mismatch)`: the daemon runs another
-  build than the engine on disk. Run
-  `bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" daemon stop`, print
-  `stale daemon (v<old>) stopped; the next call starts <engine version>`,
-  and re-run `daemon status` to confirm `not running`. `stop` waits
-  for active runs; if it reports runs still active, say so and leave
-  the daemon alone (a run in flight keeps its build).
+Show the preview's configuration paths and changes before applying. For a custom
+configuration path, pass the same absolute `--config` to setup, doctor, and registry
+refresh/check. Follow the shared [host control reference](../../references/workflow-host-control.md)
+for host-specific registration, exact Claude installation selectors, and rollback.
+The stable launcher is `$HOME/.local/share/wise/bin/wise-engine`; select its host
+with `--wise-host "$WISE_HOST"` or `WISE_HOST`.
 
-Then, in the same message, call the `wise_status` MCP tool with no
-arguments.
+For Cursor, run `cursor-agent mcp enable wise-engine` as part of this authorized
+setup before `cursor-agent mcp list-tools wise-engine`; its native server approval
+is separate from writing configuration. For other hosts, use their native checks
+in the shared reference.
 
-- Result (a run list, possibly empty): MCP `ok`.
-- Tool not available in this session: MCP `restart-needed`. Print
-  `The wise-engine MCP server loads at session start; open a new
-  session after installing the plugin, then re-run /wise-init.`
-- `DAEMON_UNAVAILABLE`: MCP `failed`; print the error's message.
+Doctor validates registration and launcher files; it does not prove a native host
+session connected. Reload the host as its setup instructions require, then call
+`wise_status` when available. Record a successful call as host verified. If unavailable,
+report registration checked but native session unverified. Preserve connection errors.
+No Claude installation or login is required to use a different conductor host.
 
-**3e. Harness CLIs.** The engine can also dispatch steps to `codex`,
-`cursor-agent`, `gemini` and `grok`; each is optional and a workflow that names one
-fails at pre-flight with `AUTH_REQUIRED` and the login command when it
-is missing.
+## 4. Optional capabilities
+
+Offer to inspect optional capabilities that the user has not already skipped.
+The user may skip any of them; no optional check blocks Python engine readiness.
+Do not install a CLI or perform a login merely because a probe reports it missing.
+Show the command for the capability the user chooses to configure, then re-probe
+after the user completes it. Never print credential values.
+
+### Provider CLIs
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/engine/engine.sh" auth
+bash "${WISE_PLUGIN_ROOT}/engine/engine.sh" auth
 ```
 
-One `HARNESS=<name> INSTALLED=yes|no LOGIN=ok|missing LOGIN_CMD=<cmd>`
-line per harness. Print one row each; for `LOGIN=missing` on an
-installed harness, show `LOGIN_CMD` as the thing to run in a terminal
-and never run it yourself. The `claude` row must be `LOGIN=ok` here
-(same fact as §3c, probed the engine's way); if it is not, the exit
-code is 1: repeat the §3c guidance.
+Report each harness's `INSTALLED`, `LOGIN`, and `LOGIN_CMD` fields. All five
+providers are optional: `claude`, `codex`, `cursor-agent`, `gemini`, and `grok`.
+An unsuccessful aggregate auth exit is diagnostic and does not invalidate the
+managed runtime. A workflow probes only the providers its enabled steps require.
+Explain the selected provider's identity before discussing its login or billing.
+Show login commands for the user to run; do not run them yourself.
 
-Record:
+### GitHub CLI
 
-```json
-{
-  "engine": {"version": "...", "status": "ok" | "failed", "mcp": "ok" | "restart-needed" | "failed",
-             "daemon": "not-running" | "current" | "replaced" | "stale-busy"},
-  "harnesses": {
-    "codex":  {"installed": true|false, "login": "ok" | "missing", "login_cmd": "..."},
-    "cursor": {...},
-    "gemini": {...},
-    "grok":   {...}
-  }
-}
-```
-
-### 4. gh CLI + auth
-
-**4a. Probe.**
+Only inspect GitHub setup when the user selects GitHub actions:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-gh
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-gh
 ```
 
-Bare keys `STATUS`, `BINARY`, `VERSION`, `AUTHENTICATED`, `LOGIN`
-→ `GH_STATUS`, `GH_BINARY`, `GH_VERSION`, `GH_AUTHENTICATED`,
-`GH_LOGIN`.
+Report `STATUS`, `VERSION`, `AUTHENTICATED`, and `LOGIN`. If needed, show
+`brew install gh` or the user's package-manager equivalent, then `gh auth login`.
+Offer `Done - re-probe` and `Skip for now`. A skipped GitHub login affects GitHub
+operations, not the core engine or workflows that do not use GitHub.
 
-**4b. Binary check.**
+### Git over SSH
 
-- **`GH_STATUS=missing`:** offer install options:
-  - `brew (recommended)` — description: `brew install gh`
-  - `mise` — description: `mise use -g gh@latest`
-  - `Manual`
-  Same `Done — re-probe` loop. On success, continue to §4c.
-
-**4c. Auth check.**
-
-Once the gh binary is present, check `GH_AUTHENTICATED`:
-
-- **`GH_AUTHENTICATED=true`:** print
-  `gh <ver> ✓ (authenticated as <GH_LOGIN>)` and move on.
-- **`GH_AUTHENTICATED=false`:** `AskUserQuestion`:
-  - Question: `gh is installed but not authenticated. Run "gh auth login" in your terminal to complete the browser flow.`
-  - Header: `gh auth`
-  - Options:
-    - `Done — re-probe` — user ran `gh auth login`; re-probe and check.
-    - `Skip auth for now` — description: `Continue without authentication. wise-pr-* skills and any workflow step that hits the GitHub API will fail until you run gh auth login.`
-  Re-probe after `Done`. After 2 failed attempts, offer to skip.
-
-Record:
-
-```json
-{
-  "status": "ok" | "missing",
-  "binary": "...",
-  "version": "...",
-  "authenticated": true | false,
-  "login": "<handle or empty>"
-}
-```
-
-**4d. git over ssh from the engine's child environment.** Engine
-children (harness CLIs, bash steps, the unit phases' own `git` and
-`gh` calls) start from a clean environment; git reaches an ssh remote
-only through the agent socket it inherits. A key that is not loaded in
-the agent fails every `git@github.com` call with
-`Permission denied (publickey)`, and a workflow dies at its first
-`ls-remote`.
+Only inspect SSH when the user selects a workflow with SSH remotes:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-git-ssh
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-git-ssh
 ```
 
-Bare keys `STATUS`, `AGENT`, `HOST`, `DETAIL` → `GIT_SSH_STATUS`,
-`GIT_SSH_AGENT`, `GIT_SSH_HOST`, `GIT_SSH_DETAIL`.
+Report `STATUS`, `AGENT`, `HOST`, and `DETAIL`. For `denied`, explain loading the
+appropriate key with `ssh-add` in the user's terminal. Distinguish an unreachable
+network from an authentication failure. HTTPS remotes do not require this check.
+Record skipped setup without repeating it on the next init.
 
-- **`GIT_SSH_STATUS=ok`:** print `git over ssh ✓ (<DETAIL>)`.
-- **`GIT_SSH_STATUS=denied`:** `AskUserQuestion`:
-  - Question: `git over ssh is denied from the engine's environment (<DETAIL>). Load your key into the agent in a terminal: ssh-add --apple-use-keychain ~/.ssh/<key> (macOS) or ssh-add ~/.ssh/<key>. If AGENT=unset, start the app from a login that exports SSH_AUTH_SOCK.`
-  - Header: `git ssh`
-  - Options: `Done — re-probe`; `Skip for now` — description:
-    `Continue. Any workflow that pushes or fetches over ssh fails at its first git call until this passes; https remotes with gh credentials are unaffected.`
-- **`GIT_SSH_STATUS=unreachable`:** print the detail; a network
-  problem, not a setup gap. Record and move on.
-- **`GIT_SSH_STATUS=missing-ssh`:** print `ssh not on PATH`; record.
-- **`GIT_SSH_STATUS=unknown`:** print the detail verbatim; record.
+### Provider MCP connectors
 
-Record:
-
-```json
-{
-  "status": "ok" | "denied" | "unreachable" | "missing-ssh" | "unknown",
-  "agent": "set" | "unset",
-  "host": "github.com",
-  "detail": "..."
-}
-```
-
-**4e. MCP servers a workflow child inherits.** Engine children run
-`claude -p` with the CLI's own MCP servers (user, project, plugin and
-claude.ai connectors) on top of the engine's channel server. That
-inventory is the CLI's, not this app session's: a connector authorized
-only in the desktop app, or a server the CLI lists as "Needs
-authentication", is unreachable from every child, and a workflow that
-needs a tracker fails at its first fetch.
+Only inspect a provider's connector inventory when the user requests it. The
+existing Claude-specific inventory probe is:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-mcp
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-mcp
 ```
 
-Bare keys `STATUS`, `COUNT`, `CONNECTED`, `NEEDS_AUTH`, `FAILED`,
-`DETAIL` → `MCP_STATUS`, `MCP_COUNT`, `MCP_CONNECTED`,
-`MCP_NEEDS_AUTH`, `MCP_FAILED`, `MCP_DETAIL` (name lists are
-`;`-separated).
+Label this result as the Claude CLI inventory, not the current host's inventory.
+Report `CONNECTED`, `NEEDS_AUTH`, and `FAILED` separately. The connected count is
+the number of entries in `CONNECTED`, not `COUNT`. A failed connection is not
+necessarily an authentication problem. Show the relevant provider's configuration
+or login instruction and offer `Done - re-probe` or `Skip for now`.
 
-- **`MCP_STATUS=ok`:** print `MCP servers ✓ (<COUNT> connected)`.
-- **`MCP_STATUS=partial`:** print one line per name in `MCP_NEEDS_AUTH`
-  and `MCP_FAILED`, then `AskUserQuestion`. `MCP_NEEDS_AUTH` and
-  `MCP_FAILED` are different problems — authenticating fixes the
-  first, not the second — so give each its own guidance:
-  - Question: `These MCP servers are not usable from workflow children: <MCP_NEEDS_AUTH names> need authentication — run /mcp in an interactive claude session, pick the server, complete its login; claude mcp adds or inspects servers (e.g. a server the desktop app has but the CLI does not needs claude mcp add). <MCP_FAILED names> failed to connect — that isn't an auth problem, check the server's command/config with claude mcp get <name>.`
-  - Header: `MCP servers`
-  - Options: `Done — re-probe`; `Skip for now` — description:
-    `Continue. Children can still use the connected servers, CLIs and public URLs; a workflow that needs one of the listed servers fails at its first fetch unless the conductor fetches the ticket itself (it does for tickets).`
-- **`MCP_STATUS=none`:** print `no MCP servers configured for the CLI`;
-  record and move on (tracker access then relies on CLIs and the
-  conductor's own fetch).
-- **`MCP_STATUS=missing-claude`:** already reported by §3c; record.
-- **`MCP_STATUS=unknown`:** print the detail verbatim; record.
+A connector may have its own runtime dependency. Check that dependency only for
+the chosen connector; it is not an engine prerequisite.
 
-Record:
+### Markitdown
 
-```json
-{
-  "status": "ok" | "partial" | "none" | "missing-claude" | "unknown",
-  "count": 9,
-  "connected": ["..."],
-  "needs_auth": ["..."],
-  "failed": ["..."],
-  "detail": "..."
-}
-```
-
-### 5. markitdown (file → markdown extraction)
-
-The [`markitdown`](https://github.com/microsoft/markitdown) CLI powers
-the `wise-markitdown` reference skill — text extraction from PDF /
-DOCX / XLSX / PPTX / images / audio / EPUB / ZIP / … to markdown.
-Optional in the sense that no workflow engine step needs it, but the
-extraction skill degrades to one-shot `uvx` runs without it, so the
-wizard installs it properly here.
-
-**5a. Probe.**
+Only inspect file extraction when the user selects it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" probe-markitdown
+bash "${WISE_PLUGIN_ROOT}/scripts/init.sh" probe-markitdown
 ```
 
-Bare keys `STATUS`, `BINARY`, `VERSION`, `UV` → `MD_STATUS`,
-`MD_BINARY`, `MD_VERSION`, `MD_UV`. `UV` reports whether the `uv`
-installer is reachable (directly or via mise) — it is emitted even
-when markitdown itself is already installed.
+If missing and `UV=ok`, offer `Install` or `Skip`. On an explicit install choice,
+run `uv tool install 'markitdown[all]'`, or the equivalent through the detected mise
+installation. This creates an isolated optional tool environment. If uv is absent,
+show its installation instructions for the user to run, or record a skip. Never
+replace the engine's locked requirements with optional extraction packages.
 
-**5b. Handle the result.**
+## 5. Save optional results and report
 
-- **`MD_STATUS=ok`:** print `markitdown <ver> ✓ at <binary>` and move
-  to §6. (The probe can't tell a bare `markitdown` install from a
-  `markitdown[all]` one — if conversions later fail with
-  `MissingDependencyException`, the fix is
-  `uv tool install --force 'markitdown[all]'`; the `wise-markitdown`
-  skill documents this.)
-
-- **`MD_STATUS=missing` and `MD_UV=ok`:** `AskUserQuestion`:
-  - Question: `markitdown (file → markdown text extraction: PDF, DOCX, XLSX, PPTX, images, audio, …) isn't installed. Install it now via uv?`
-  - Header: `markitdown`
-  - Options:
-    - `Install (recommended)` — description: `Run: uv tool install 'markitdown[all]' — a user-space tool install, no sudo, no system Python touched.`
-    - `Skip` — description: `Continue without it. The wise-markitdown skill will fall back to one-shot uvx runs (re-downloads on a cold cache).`
-  - multiSelect: false
-
-  On `Install`: run
-
-  ```bash
-  uv tool install 'markitdown[all]'
-  ```
-
-  (when `uv` is only reachable through mise, run
-  `mise exec uv -- uv tool install 'markitdown[all]'` instead).
-  This IS run by the wizard — like the pip-module installs in §2b,
-  it's a user-space install with no sudo and no system packages.
-  Unpinned on purpose: wise tracks the latest release for every CLI
-  dep (gh, node, the pip modules) — markitdown follows the same
-  policy.
-  Re-probe via §5a; on success print the ✓ line. If the install
-  fails, surface the error and record `missing` — never retry blind.
-
-- **`MD_STATUS=missing` and `MD_UV=missing`:** `uv` itself is absent,
-  so there's nothing for the wizard to run. `AskUserQuestion`:
-  - Question: `markitdown needs the uv installer, which isn't installed either. Install uv first?`
-  - Header: `uv missing`
-  - Options:
-    - `Install uv via mise (recommended)` — description: `Run in your terminal: brew install mise && mise use -g uv@latest — then I re-probe and install markitdown.`
-    - `Skip` — description: `Continue without markitdown. Re-run /wise-init after installing uv.`
-  - multiSelect: false
-
-  Like the §2b/§3 system installers, installing `uv`/`mise` is the
-  user's move — print the command, pause with the same
-  `Done — re-probe` / `Abort` follow-up, then resume the
-  `MD_UV=ok` branch above. On `Skip`, record `missing` and move on.
-
-**5c. Record.**
-
-```json
-{"status": "ok" | "missing", "binary": "...", "version": "..."}
-```
-
-### 6. Write the registry
-
-Compose a JSON object from the four result blobs above plus the
-plugin version:
-
-```json
-{
-  "version": 1,
-  "plugin_version": "<contents of plugin.json's version field>",
-  "completed_at": "<utc ISO8601, see below>",
-  "deps": {
-    "python":      { ... from §2c ... },
-    "node":        { ... runtime from §3a/§3b ... },
-    "claude_auth": { ... from §3c ... },
-    "engine":      { ... from §3d ... },
-    "harnesses":   { ... from §3e ... },
-    "gh":          { ... from §4 ... },
-    "git_ssh":     { ... from §4d ... },
-    "mcp":         { ... from §4e ... },
-    "markitdown":  { ... from §5c ... }
-  }
-}
-```
-
-Read the plugin version:
+Merge the actual optional results into the registry without replacing the runtime
+fields written by the host-specific runtime refresh. Include `skipped: true` for explicit skips. Existing
+skipped entries remain unless the user chose to revisit them. Write the optional result entries with the registry helper:
 
 ```bash
-python3 -c 'import json; print(json.load(open("'"${CLAUDE_PLUGIN_ROOT}"'/.claude-plugin/plugin.json"))["version"])'
+"${WISE_PYTHON:-python3}" "${WISE_PLUGIN_ROOT}/scripts/init-registry.py" --host "$WISE_HOST" write '<JSON containing the optional deps entries>'
 ```
 
-Compute the timestamp:
+The current registry is standard-library readable. If the helper reports that an
+older registry cannot be read, re-run bootstrap to migrate it with the managed
+parser, then retry the merge. Never erase an unreadable registry to make the check pass.
 
-```bash
-date -u +%Y-%m-%dT%H:%M:%SZ
-```
-
-Then write the registry:
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py" write '<the JSON blob>'
-```
-
-The script prints the registry path on stdout — capture that for
-the summary.
-
-### 7. Summary
-
-Print a one-block report:
-
-```
-/wise-init complete.
-
-  Python 3.12.5       ✓
-  bun 1.4.1           ✓
-  claude login        ✓ (claude.ai)
-  wise-engine 5.0.0   ✓  MCP ✓  daemon current
-  codex               ✓ logged in
-  grok                ✓ logged in
-  gemini              ⚠ installed, not logged in (optional)
-  gh 2.54.0 (auth: your-username) ✓
-  git over ssh        ✓ (github.com, agent set)
-  MCP servers         ⚠ 7 connected, needs auth: plugin:linear:linear
-  markitdown 0.1.3    ✓
-
-Registry cached at:
-  ${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml
-
-Workflow runs (/wise-workflow-run, …) will use this cache instead
-of re-probing. Re-run /wise-init any time your environment changes
-or after `/plugin install wise@…` (which wipes the cache by design).
-```
-
-Adjust the row's checkmark to `⚠` and the label suffix when a dep
-ended up `missing` or `authenticated: false`. The `MCP servers` row's
-connected count is the length of `MCP_CONNECTED`, never `MCP_COUNT` —
-`MCP_COUNT` is every parsed server, connected or not, so using it here
-overstates the connected count whenever `MCP_NEEDS_AUTH` or
-`MCP_FAILED` is non-empty. The row shows `⚠` whenever either is
-non-empty, appending `needs auth: <names>` and/or `failed: <names>` to
-the label — a non-empty `MCP_FAILED` must never be silently dropped
-from a row that otherwise reads as a success. Optional harness rows
-are `⚠`, never `✗`: a missing codex, cursor-agent, gemini or grok blocks nothing
-until a workflow names it. `MCP restart-needed` is the one row that
-ends with an instruction (open a new session); `daemon replaced` names
-the old build that was stopped, `daemon stale-busy` says a run kept
-it. A `git over ssh ⚠ denied` row repeats the ssh-add hint. Be honest — don't
-claim success for something the user skipped.
-
-## Guardrails
-
-- **Never run a system installer for the user.** The wizard shows
-  the commands, the user pastes them in their own terminal. We can't
-  `brew install` / `mise use -g` from inside a skill (and wouldn't
-  want to — it prompts for sudo in some environments and changes the
-  user's `$PATH`). Our job is guidance + re-probe. The two sanctioned
-  exceptions are user-space package installs into an ALREADY-present
-  toolchain — `pip install --user` (§2b) and
-  `uv tool install` (§5b) — no sudo, no PATH mutation, and only
-  after an explicit AskUserQuestion confirm.
-- **Never run `gh auth login` for the user.** It opens a browser
-  and requires a device code; the user has to be the one driving.
-  Pause with `Done — re-probe` and check `GH_AUTHENTICATED` after.
-- **Never write anywhere but the registry path.** The registry
-  lives at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` and
-  nowhere else. `init-registry.py write` enforces this.
-- **Never block on a skipped dep.** Record the actual state
-  (`status: missing` or `authenticated: false`) and move on. The
-  workflow engine's fast-path check treats the registry as
-  ground truth — a dep recorded as `missing` tells the engine to
-  fall back to the live probe on use.
-- **Never invoke another action skill from here.** `/wise-init` is a
-  standalone wizard — not composed over `wise-workflow-run` /
-  `wise-workflow-resume`.
+Summarize Python and managed-engine readiness first. Then list the optional
+capabilities inspected, including missing, failed, unavailable, and skipped states.
+Name the registry path. Claim host MCP readiness only after an actual tool call
+succeeded; runtime readiness and provider logins do not establish host registration.

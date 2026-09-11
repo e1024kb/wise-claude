@@ -35,7 +35,7 @@ schema change, or a dep upgrade.
 
 ## Prerequisites
 
-- `/wise-init` completed at least once (bun or Node 24 for the engine).
+- `/wise-init` completed at least once (Python 3.11+ for the engine).
 - Run from inside a git repository: `project-selection: current`
   auto-detects the project from the current directory.
 

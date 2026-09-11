@@ -1,0 +1,110 @@
+{
+  "tools": [
+    {
+      "name": "wise_report",
+      "description": "Tell the orchestrator how you are doing. kind progress: milestone reached; blocker: something stops you; decision: a choice you made; finding: a fact worth recording. Keep text to one line.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "progress",
+              "blocker",
+              "decision",
+              "finding"
+            ],
+            "description": "progress | blocker | decision | finding"
+          },
+          "text": {
+            "type": "string",
+            "description": "One line, <= 200 chars; longer text is clipped."
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Small JSON payload, <= 1 kB; dropped when larger."
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_ask",
+      "description": "Ask the human a question and wait for the answer. Blocks until answered; returns {value}. Give options when a choice is enough. In an unattended run the answer comes from the run's recorded decisions or the first option; {error: 'needs-human'} means proceed with your best judgement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Choices offered to the human."
+          },
+          "allow_text": {
+            "type": "boolean",
+            "description": "Accept free text; default true when no options."
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_context",
+      "description": "Fetch run context by key instead of guessing: ticket (array of {ref, title, url, path}; Read `path` for the ticket's content, `body` appears only when no file was written), guidance, decisions, links, a prior step's output by name or step id, or an input. Returns {value}; null when unknown.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "ticket | guidance | decisions | links | <output name> | <step id> | <input name>"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_checkpoint",
+      "description": "Save partial results as JSON so they survive if you are stopped. Overwrites the previous checkpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "Partial result as JSON."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

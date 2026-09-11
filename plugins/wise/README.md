@@ -53,19 +53,14 @@ Run once after installing:
 /wise-init
 ```
 
-This wizard walks you through installing bun or Node ≥24 (the workflow
-engine runtime), logging the `claude` CLI in (`claude auth login`, so
-the engine can spawn `claude -p` under your subscription), self-checks
-the engine and its `wise-engine` MCP server, reports the optional
-`codex` / `cursor-agent` / `gemini` / `grok` CLIs and their logins, the `gh` CLI
-(plus `gh auth login`), markitdown, and Python 3 + `pyyaml` /
-`python-ulid` / `typing_extensions` (still used by
-`/wise-workflow-list` / `-create` / `-remove` and the legacy v1
-conductor until plan M3.4). It skips deps that are already present, so
-re-runs are cheap — expect to re-run it after every `/plugin install
-wise@…` since that wipes the cached dep registry the wizard writes. The
-engine daemon (`wise-engined`) starts on demand from the plugin's
-`.mcp.json` server `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
+The engine requires Python 3.11+ and manages its pinned packages in an external
+versioned environment. Install and authenticate the provider CLI you select;
+`gh` is required for GitHub phases. Standalone session/profile/supervision and
+insights helpers remain stdlib-only. Host-specific setup and MCP registration
+instructions are finalized in P6 of the
+[Python engine plan](../../docs/plans/python-workflow-engine.md). The
+engine daemon (`wise-engined`) starts on demand from the managed host
+registration for `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
 `wise_*` tool means the runtime is missing: run `/wise-init`.
 
 ## Commands
@@ -76,7 +71,7 @@ below.
 
 | Invocation | Description |
 |---|---|
-| `/wise-init` | First-time setup wizard - walks you through installing bun or Node 24 (the engine runtime), the `claude` CLI login, the `gh` CLI, markitdown and Python, replaces a daemon left on an older engine build, checks git over ssh from the engine's child environment, then caches the probe results. Re-run any time your environment changes or after `/plugin install wise@…` (which wipes the cache by design). |
+| `/wise-init` | Setup and dependency checks. Host-specific registration guidance is finalized with the P6 setup work. |
 | `/wise-skills-create <skill-name>` | Scaffold a new action or reference skill via Claude Code's `skill-creator`. Marketplace-repo only. |
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |
@@ -176,7 +171,7 @@ list-skills`.
 ## Workflows
 
 A **workflow** in wise is a named, reusable, multi-step procedure
-defined in YAML (schema version 2) and run by the TypeScript engine
+defined in YAML (schema version 2) and run by the Python engine
 under [`engine/`](./engine/). You compose harness children, shell
 commands and gates into a single `/wise-workflow-run <name>`
 invocation. The engine runs as a per-user daemon (`wise-engined`,
@@ -362,10 +357,9 @@ of the following mechanisms, and update the table below.
 
 | Dependency | Kind | Registered in | Used by |
 |---|---|---|---|
-| bun or Node ≥24 | CLI / runtime - the TypeScript workflow engine (`engine/engine.sh` picks bun, else Node 24; TypeScript run as source, no build) | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` at `${CLAUDE_PLUGIN_ROOT}/.wise-init-registry.yaml` | the `wise-engine` MCP server and daemon behind `wise-workflow-run` / `-resume` / `-status` |
-| `wise-engine` MCP server (`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`) | MCP server - `wise_preflight` presents interactive questions through host form elicitation, plus `wise_run`, `wise_wait`, `wise_answer`, `wise_status`, `wise_cancel`, `wise_nudge`, `wise_resume`; starts the `wise-engined` daemon on demand | `plugins/wise/.mcp.json` (tool timeout 660 s) | the three conductor skills |
+| Python 3.11+ | Runtime for the Python v2 workflow engine; pinned packages in a managed environment outside the plugin | `engine/engine.sh` and `wise_engine.bootstrap` | Workflow execution, discovery, validation and migration |
+| `wise-engine` MCP server | Eight parent workflow tools; starts the daemon on demand | Managed host registration through `/wise-init`; bundled `.mcp.json` is empty | Workflow conductor skills |
 | `claude` CLI login (`claude auth login`); optionally `codex login`, `cursor-agent login`, `gemini`, `grok login` | CLI binaries - the harnesses the engine spawns headless under your subscription | probed by the engine before every run (`AUTH_REQUIRED` carries the login command); `/wise-init` checks every harness | every `agent` step and `units` phase |
-| Python 3 + PyYAML + python-ulid + typing_extensions | CLI / runtime - the v1 workflow scripts (`scripts/workflows.py`) still behind `/wise-workflow-list` / `-create` / `-remove` and the legacy v1 conductor; removed in plan M3.4 | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | `wise-workflow-list`, `wise-workflow-create`, `wise-workflow-remove` |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 | [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `plugins/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |
 | [`code-simplifier` plugin](https://github.com/anthropics/claude-plugins-official) (`claude-plugins-official`) — ships the `code-simplifier` agent | Plugin-to-plugin — **optional, install manually**: `/plugin install code-simplifier@claude-plugins-official` (not declared in `plugin.json` `dependencies:`; see CONTRIBUTING §2.3) | documented here only | the per-commit simplify pass (`references/simplify-pass.md`): the commit routine (`/wise-commit`, `/wise-commit-push`), the implement phase, `/wise-simplify-auto` |
@@ -389,12 +383,9 @@ without the cleanup; only `/wise-simplify-auto` refuses.
   the Claude desktop app drop wise silently at session start
   (CONTRIBUTING §2.3). The consuming skill must degrade gracefully
   when the plugin is absent.
-- **MCP server** → add to `plugins/wise/.mcp.json` (today: the
-  `wise-engine` server). Claude Code auto-registers the server when the
-  plugin loads. Note that MCP tool ids are derived from the plugin name
-  (`mcp__plugin_<plugin>_<server>__<tool>`); both the `.mcp.json`
-  entry AND the consuming skills' `allowed-tools` list must stay in
-  sync.
+- **MCP server**: `wise-engine` uses one managed host registration installed by
+  `/wise-init`; the bundled `.mcp.json` is empty. Additional plugin-owned MCP
+  dependencies may use that manifest, but must not duplicate the managed engine.
 - **CLI binary or language runtime** that neither of the above can
   install (Python, `brew` packages, system tools) → a bootstrap
   script probes at run time and, if missing, surfaces a one-shot

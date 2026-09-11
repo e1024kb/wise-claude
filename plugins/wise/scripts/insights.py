@@ -14,12 +14,7 @@
 #     changed/unseen transcripts in scope), clusters, gates, and prints
 #     gated candidates for the skill to act on.
 #
-# STDLIB ONLY. This file must import nothing outside the standard library
-# so the SessionEnd hook works on a fresh install, BEFORE `/wise-init` /
-# bootstrap-deps.sh has installed yaml/ulid. (That is also why we do NOT
-# `import workflows` unconditionally — workflows.py hard-imports yaml/ulid
-# at module load. We import its `wise_data_root` when it's available and
-# fall back to an exact mirror otherwise; see below.)
+# Only stdlib modules and the shared stdlib path helper load at hook startup.
 #
 # Subcommands:
 #   ingest <transcript_path> [--session-id <id>]
@@ -84,26 +79,12 @@ HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
-# ---- persistent per-user data root -----------------------------------------
-#
-# The wise invariant: all persistent state routes through `wise_data_root()`
-# in workflows.py (single source of truth, never hard-code paths). But that
-# module hard-imports yaml/ulid, which may be absent when the SessionEnd hook
-# runs on a fresh install. So: use the canonical helper when importable, and
-# fall back to an EXACT mirror otherwise. Post-bootstrap (the common case) the
-# canonical function is used, so a future relocation in workflows.py still
-# propagates here. Keep the fallback identical to workflows.wise_data_root().
+sys.path.insert(0, str(SCRIPT_DIR.parent / "engine"))
+from wise_engine.paths import wise_data_root  # noqa: E402
+
 
 def _wise_data_root() -> Path:
-    try:
-        sys.path.insert(0, str(SCRIPT_DIR))
-        from workflows import wise_data_root  # type: ignore
-
-        return wise_data_root()
-    except Exception:
-        xdg = os.environ.get("XDG_DATA_HOME")
-        base = Path(xdg) if xdg else HOME / ".local" / "share"
-        return base / "wise"
+    return wise_data_root()
 
 
 def insights_root() -> Path:

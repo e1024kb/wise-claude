@@ -8,20 +8,27 @@ description: >-
   the workflow", "kick off <workflow-name>", or types
   `/wise-workflow-run`.
 argument-hint: "[<workflow-name> [<input1> <free-form remainder…>]]"
-allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-deps.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/engine/engine.sh:*), Bash(bash:*), Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
+allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, Bash(bash:*), Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(git:*), Bash(test:*)
 ---
 
 # /wise-workflow-run - the conductor
 
+First read [host control](../../references/workflow-host-control.md). Resolve the
+loaded installation, set `WISE_HOST` to this conductor and `WISE_PLUGIN_ROOT`
+to that installation. Use its managed launcher for shell commands. Follow the
+reference's diagnostics and explicit-answer fallback when MCP or a native picker
+is unavailable. Conductor host and child provider are independent.
+
+
 The `wise_*` tools (`wise_status`, `wise_preflight`, `wise_run`,
 `wise_wait`, `wise_answer`, `wise_cancel`, `wise_nudge`, `wise_resume`)
-come from the plugin's `wise-engine` MCP server; Claude Code shows them
+come from the managed `wise-engine` MCP server; Claude Code shows them
 with a server prefix. Errors return `{"error":{code,message,...}}`.
 
 ## Arguments
 
 `$ARGUMENTS`: first token is the workflow name (empty: run
-`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh list-defs`, pick with
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs`, pick with
 AskUserQuestion plus Abort). Remaining tokens fill the declared inputs
 in order; the last declared input absorbs the rest of the line.
 
@@ -31,8 +38,11 @@ Call `wise_status` (no id). Workflows do not read the session profile
 set by `/wise-profile`; pre-flight asks harness, provider permissions, model and effort
 instead.
 
-- `wise_*` tools missing, or `DAEMON_UNAVAILABLE`: print
-  `Run /wise-init, then retry.` and stop.
+- `wise_*` tools missing: follow host-control diagnostics. Use the registered
+  CLI route when available; repair missing or stale registration through init.
+- `DAEMON_UNAVAILABLE`: inspect the daemon error through the CLI. Fix the
+  reported startup/dependency/socket problem before retrying; reloading the host
+  alone does not repair it.
 - `AUTH_REQUIRED`: print `login_cmd` verbatim and stop.
 
 ## 2. Pre-flight
@@ -44,25 +54,22 @@ question. On success it returns `questions: []` plus the collected
 `answers`; pass those answers to `wise_run`.
 
 - `WORKFLOW_NOT_FOUND`: say so, stop.
-- `WORKFLOW_INVALID` whose `issues[]` name a v1 construct (`path:
-  version` with "v1 workflow", or hints that say `version: 2`): print
-  `<name> is a v1 workflow; using the legacy conductor.` and follow
-  `${CLAUDE_PLUGIN_ROOT}/references/legacy-conductor/run.md` from its
-  §1 instead of the rest of this file. Any other issue: list
-  `path: message (hint)` and stop.
+- `WORKFLOW_INVALID`: list `path: message (hint)` and stop. A v1
+  definition must be imported with
+  `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" migrate <path>`.
+  Review the dry-run output, then use `--write` to retain a `.v1.bak`
+  backup. Compile the result before starting a fresh v2 run. Never
+  execute a v1 definition through a fallback conductor.
 - `requires_missing` non-empty: print one line per entry
   (`plugin:<name>` needs `/plugin install`, `tool:<name>` needs the
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
   until they are installed.
 - `PREFLIGHT_CANCELLED`: stop without starting a run.
-- `INTERACTIVE_UI_REQUIRED`: never print the questions or ask them in
-  ordinary chat. Call `wise_preflight` with `interactive: false` and
-  render its staged questions only through the harness's native
-  structured picker (`AskUserQuestion` on Claude Code,
-  `request_user_input` on Codex, or the equivalent GUI on another
-  harness). If this session has no native picker, stop and give the
-  terminal fallback:
-  `bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh run <workflow> --cwd <cwd> --interactive --follow --text`.
+- `INTERACTIVE_UI_REQUIRED`: call `wise_preflight` with `interactive: false`
+  and render each staged question through the host's native picker when available.
+  Otherwise use the explicit CLI interaction route in host control. Show each
+  engine-provided question, wait for the user's answer, and submit it unchanged.
+  Never turn a displayed default into an answer. Cancellation stops collection.
 
 The questionary is staged. The first form asks `step-select`
 (which optional steps run) and the `input.<name>` questions. Once
@@ -86,9 +93,8 @@ model question is not asked is when the engine did not return it
 (one CLI installed, a one-model catalog, a one-effort model). `wise_run`
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
-The normal path never renders the questionary in model text: MCP form
-elicitation presents the choices, labels, descriptions and defaults in
-the host UI. In the native-picker fallback, use one structured picker
+Prefer MCP form elicitation, then the host's native picker. In the explicit
+CLI fallback, preserve the same labels, descriptions and values. Ask one
 question at a time, preserve the defaults and option values, skip
 `locked: true` questions and `input.<name>` filled positionally, and
 call raw `wise_preflight` after each answer to unlock the next stage.
@@ -97,7 +103,7 @@ Never answer one for the user or drop it to save a call.
 ## 3. Context and start
 
 Ticket content is fetched HERE, before `wise_run`, never left to a
-child. A child is a fresh `claude -p` with the CLI's MCP servers and
+child. A child is a fresh process of the selected provider CLI, with its MCP servers and
 CLIs, not this session's connectors: a tracker only this session can
 reach is unreachable for it, and every child re-fetching the same
 ticket costs tokens and turns.
@@ -131,8 +137,7 @@ with a ticket that has no body.
 `run_id`. Print `Run <run_id> started (<workflow>).` `MISSING_ANSWERS`
 lists every pre-flight question still without an answer (a tuning
 stage you skipped, a required input): go back to the §2 interactive
-preflight, then call `wise_run` again. Never repair it through plain
-chat.
+preflight, then call `wise_run` again. Use the same explicit-answer interaction route for missing answers.
 
 ## 4. Wait loop
 
@@ -167,7 +172,8 @@ When you act on the run yourself (a nudge, fetching something a step
 lost, a second run), say what you are doing and why in one line before
 the tool call, and what came back after it.
 
-`gate` present: AskUserQuestion with `gate.message` and `gate.options`
+`gate` present: use the host control reference's explicit-answer route with
+`gate.message` and `gate.options`
 (free text when `allow_text`), then `wise_answer {run_id, gate_id,
 value}`. `GATE_STALE`: wait again. `done: true`: stop looping.
 Ticket ids are markdown links when a URL is known.
@@ -176,10 +182,12 @@ Ticket ids are markdown links when a URL is known.
 
 Compact table from the collected events: step | verdict | harness and
 model | tokens, then the run totals, then
-`bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh report <run_id>` for usage
-by pool and harness plus per-step verdicts (`units` is empty until M4).
+`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" report <run_id>` for usage
+by pool and harness plus per-step verdicts and unit summaries.
 On `run.failed`: print `status` and `error` from `wise_status
-{run_id}` and point to `/wise-workflow-resume <run_id>`.
+{run_id}`. Explain that resume continues pending/interrupted work but does not
+retry steps already marked failed; refer to `/wise-workflow-resume <run_id>`
+only with that limitation.
 
 ## Rules
 

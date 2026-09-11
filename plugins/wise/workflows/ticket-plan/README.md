@@ -253,7 +253,7 @@ defaults auto auto now`.
 | `impl_waves` / `impl_tasks` / `impl_done` / `impl_failed` | `implement` | Implementation tallies (set only when `implement` ran). |
 
 The plan file lives at `<run-dir>/plans/PLAN-<ref>.md` (beside
-`state.yaml`, off the project tree), so it persists with the run and
+`state.json`, off the project tree), so it persists with the run and
 never lands in the feature branch — and, when the gap analysis found
 gaps, `BLUEPRINT-<ref>.md` sits beside it as the question / decision
 record. `/wise-workflow-status <run-ulid>` shows `plan_path`.

@@ -60,7 +60,7 @@ Prove you're alive — as your **first action of every turn** and **after each
 significant tool call** (a file edit, a test run), shell:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" worker-heartbeat \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" worker-heartbeat \
   "<run.dir>" "<worker-name>" "<phase>" "<task-id>"
 ```
 

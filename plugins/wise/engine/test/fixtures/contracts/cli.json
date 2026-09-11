@@ -1,0 +1,37 @@
+[
+  {
+    "args": [
+      "help"
+    ],
+    "code": 0,
+    "out": "wise-engine <command> [options]\n\nCommands:\n  preflight <workflow> [--answers <json>] [--context <json>]\n                              questionary spec: {workflow, version, questions, defaults}; --answers\n                              gives the answers so far and returns the next stage\n  compile-check <workflow>...  validate definitions; exit 1 on any error\n  migrate <workflow.yaml> [--write] [--out <path>]\n                               rewrite a v1 workflow as v2; dry run unless --write (in place,\n                               original kept as <file>.v1.bak) or --out; exit 1 if the result\n                               still has validation errors\n  list-defs                    bundled and user workflow definitions\n  run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v] [--follow]\n                               start a run through the daemon (auto-started)\n  wait|status|answer|cancel|resume|report ...\n                               daemon client commands; see each command's --help\n  daemon serve|start|stop|status\n                               background daemon wise-engined\n  mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)\n  unit-mcp [--token <t>]       child-side stdio MCP server (wise_report/ask/context/checkpoint);\n                               token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT\n  auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);\n                               exit 1 when claude is missing or logged out\n  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)\n  dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]\n           [--mode approval-required|auto|full-access] [--cwd <dir>] [--timeout-s <n>]\n           [--add-dir <dir>] [--allowed-tools <a,b>] [--text]\n                               one child run on any harness, no daemon or ledger; prints one\n                               JSON result (or the child's text under --text); exit 1 on a\n                               failed child\n  version                      plugin version and runtime\n  help                         this text\n\n<workflow> is a definition name (user root shadows bundled) or a path to a .yaml file.\nOptions: --json (default) | --text   --user-root <dir>   --bundled-root <dir>\n",
+    "err": ""
+  },
+  {
+    "args": [
+      "unknown-command"
+    ],
+    "code": 64,
+    "out": "",
+    "err": "wise-engine: unknown command 'unknown-command'\n\nwise-engine <command> [options]\n\nCommands:\n  preflight <workflow> [--answers <json>] [--context <json>]\n                              questionary spec: {workflow, version, questions, defaults}; --answers\n                              gives the answers so far and returns the next stage\n  compile-check <workflow>...  validate definitions; exit 1 on any error\n  migrate <workflow.yaml> [--write] [--out <path>]\n                               rewrite a v1 workflow as v2; dry run unless --write (in place,\n                               original kept as <file>.v1.bak) or --out; exit 1 if the result\n                               still has validation errors\n  list-defs                    bundled and user workflow definitions\n  run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input k=v] [--follow]\n                               start a run through the daemon (auto-started)\n  wait|status|answer|cancel|resume|report ...\n                               daemon client commands; see each command's --help\n  daemon serve|start|stop|status\n                               background daemon wise-engined\n  mcp [--no-start]             stdio MCP server (thin daemon client; used by .mcp.json)\n  unit-mcp [--token <t>]       child-side stdio MCP server (wise_report/ask/context/checkpoint);\n                               token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT\n  auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);\n                               exit 1 when claude is missing or logged out\n  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)\n  dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]\n           [--mode approval-required|auto|full-access] [--cwd <dir>] [--timeout-s <n>]\n           [--add-dir <dir>] [--allowed-tools <a,b>] [--text]\n                               one child run on any harness, no daemon or ledger; prints one\n                               JSON result (or the child's text under --text); exit 1 on a\n                               failed child\n  version                      plugin version and runtime\n  help                         this text\n\n<workflow> is a definition name (user root shadows bundled) or a path to a .yaml file.\nOptions: --json (default) | --text   --user-root <dir>   --bundled-root <dir>\n"
+  },
+  {
+    "args": [
+      "compile-check",
+      "../workflows/example-workflow/workflow.yaml"
+    ],
+    "code": 0,
+    "out": "[\n  {\n    \"workflow\": \"example-workflow\",\n    \"path\": \"/fixture/plugin/workflows/example-workflow/workflow.yaml\",\n    \"ok\": true,\n    \"issues\": []\n  }\n]\n",
+    "err": ""
+  },
+  {
+    "args": [
+      "preflight",
+      "--answers",
+      "{nope"
+    ],
+    "code": 64,
+    "out": "",
+    "err": "preflight: missing <workflow>\n"
+  }
+]

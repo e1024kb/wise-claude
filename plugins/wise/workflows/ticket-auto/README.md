@@ -15,10 +15,10 @@ human with the worktree kept for inspection. No prompts after launch:
 pre-flight asks harness, provider permissions, model and effort per phase group, and the
 inputs.
 
-The per-ticket loop is engine code (`plugins/wise/engine/src/units.ts`,
+The per-ticket loop is engine code (`plugins/wise/engine/wise_engine/units.py`,
 design in `docs/wise/research-ts-engine.md` P4). The five model phases
 run from the engine's prompt templates under
-`plugins/wise/engine/src/prompts/units/`; this workflow declares only
+`plugins/wise/engine/wise_engine/prompts/units/`; this workflow declares only
 the phase -> tuning-group binding, the unit caps, the reviewers,
 the intake and the report. The prompt fragments still under `prompts/`
 (`implement-plan.md`, `review-branch-auto.md`, `watch-pipelines-auto.md`,
@@ -39,7 +39,7 @@ the intake and the report. The prompt fragments still under `prompts/`
 
 ## Prerequisites
 
-- `/wise-init` completed at least once (Node, gh CLI + auth).
+- `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
 - Run from inside the project's git repository (`project-selection:
   current`); the base working tree must be clean and have an `origin`
   remote (`preflight-checks` refuses otherwise).

@@ -107,14 +107,15 @@ instead of relying on the list window:
 **Wise workflow runs (when the plugin scripts are reachable):**
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" list-runs "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/null)" 2>/dev/null || true
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" list-runs "$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" runs-root 2>/dev/null)" || true
 ```
 
 Confirms: paused or running workflow runs - the classic forgotten
 leftover. (A future caller whose `SCOPE` is one run should instead
 dump that run's state directly -
-`workflows.py dump-state <runs-root>/<ulid>/state.yaml` - the
-per-step statuses there are primary evidence.)
+`wise-helpers.py dump-state <runs-root>/<ulid>/state.json` - the
+per-step statuses there are primary evidence.) Legacy `state.yaml` runs
+are reported as unsupported; their files stay unchanged.
 
 **Files (targeted):** for claims about specific edits, check the
 file exists and contains the change (`Read` / `Grep`). One check per
@@ -194,7 +195,7 @@ either way.
 markdown to the per-workspace handoff store:
 
 ```bash
-root="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/null)"
+root="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" runs-root 2>/dev/null)"
 ```
 
 - If it prints a non-empty path, decompose it instead of
@@ -204,7 +205,7 @@ root="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" runs-root 2>/dev/nu
   same workspace slug, sibling of the runs tree.
 - If it fails or prints nothing, fall back to
   `"${XDG_DATA_HOME:-$HOME/.local/share}/wise/reports/$(pwd -P | tr '/' '-')"`
-  (`pwd -P` resolves symlinks the same way `workflows.py` does; keep
+  (`pwd -P` resolves symlinks the same way `wise-helpers.py` does; keep
   the whole path quoted).
 
 `mkdir -p` the dir and write `report-<YYYYMMDD-HHMMSS>.md`. If that

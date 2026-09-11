@@ -92,7 +92,7 @@ available, then ask ONE question:
 ### 3. Persist
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workflows.py" profile-set <level>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/wise-helpers.py" profile-set <level>
 ```
 
 It prints `PROFILE: level=<level> scope=session session=<sid>` on
@@ -105,7 +105,7 @@ environment; never guess one:
 
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-${WISE_SESSION_ID:-}}"
-# Same token rule as workflows.py's _profile_safe_sid():
+# Same token rule as wise_engine.profile.profile_safe_sid():
 case "$sid" in ""|.|..|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) sid= ;; esac
 [ -n "$sid" ] || { echo "Cannot resolve a session id — run /wise-init to install python3, then retry."; exit 1; }
 d="${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile"

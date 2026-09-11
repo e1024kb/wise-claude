@@ -1,0 +1,29 @@
+[
+  {
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+        "version": "fixture",
+        "client": "fixture"
+      }
+    },
+    "wire": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"version\":\"fixture\",\"client\":\"fixture\"}}\n"
+  },
+  {
+    "message": {
+      "jsonrpc": "2.0",
+      "id": "fixture",
+      "error": {
+        "code": -32000,
+        "message": "No such run",
+        "data": {
+          "run_id": "missing",
+          "code": "RUN_NOT_FOUND"
+        }
+      }
+    },
+    "wire": "{\"jsonrpc\":\"2.0\",\"id\":\"fixture\",\"error\":{\"code\":-32000,\"message\":\"No such run\",\"data\":{\"run_id\":\"missing\",\"code\":\"RUN_NOT_FOUND\"}}}\n"
+  }
+]

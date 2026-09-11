@@ -1,5 +1,7 @@
 # Research: TypeScript workflow engine, multi-harness, subscription or API auth
 
+> Superseded by the [Python workflow engine plan](../plans/python-workflow-engine.md). This file is a historical design record; its TypeScript runtime and legacy execution instructions are not operational guidance.
+
 Date: 2026-09-04. Branch: `research/ts-engine-ai-sdk`. Status: research + implementation plan, nothing built.
 
 Requirement as stated: user drives workflows from Claude Code (CLI or desktop). Claude delegates the run to a TypeScript engine on bun. Every step declares provider, model, and effort explicitly. Each provider must work with the user's consumer subscription (OAuth login: Claude, ChatGPT, SuperGrok, Google) or with an API key. Results flow back into the Claude Code session.

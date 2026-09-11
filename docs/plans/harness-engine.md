@@ -1,5 +1,7 @@
 # PLAN — wise Harness Engine
 
+> Superseded by the [Python workflow engine plan](python-workflow-engine.md). This file is a historical design record; its TypeScript runtime and legacy execution instructions are not operational guidance.
+
 Master plan for replacing the Python + prose workflow engine with a TypeScript harness-adapter engine. Design record and decision log: [docs/wise/research-ts-engine.md](../wise/research-ts-engine.md) (D1-D21, E-rules, P1-P8, R1-R8). Status values: TODO → IN PROGRESS → DONE → DROPPED. Update this file first, then republish the artifact.
 
 Created 2026-09-05 on branch `research/ts-engine-ai-sdk` at df467c6. Each milestone ends with a gate; a gate that fails stops the next milestone until the plan is revised.

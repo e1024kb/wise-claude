@@ -4,6 +4,6 @@
 # naturally re-generates when the user re-runs `/wise-init`.
 .wise-init-registry.yaml
 
-# Python byte-compile cache from engine.py / workflows.py / init-registry.py.
+# Python byte-compile cache from catalog / workflow package / init registry.
 # Regenerated on every invocation; never committed.
 scripts/__pycache__/

@@ -42,8 +42,7 @@ it through `AskUserQuestion`.
 Current actions (all standalone):
 
 - `/wise-init` — first-time dep-install wizard; walks the user through
-  bun or Node 24 (the engine runtime), the `claude` CLI login, gh,
-  markitdown and Python (v1 scripts, until plan M3.4), caches results
+  Python 3.11+, the selected provider CLI login, gh and markitdown, caches results
   for the workflow skills' fast-path.
 - `/wise-skills-create` — scaffold a new action skill via `skill-creator`.
 - `/wise-skills-edit` — modify an existing action skill via `skill-creator`.
@@ -174,17 +173,17 @@ asks for a role.
 ```
 plugins/wise/
 ├── .claude-plugin/plugin.json      # manifest (no `dependencies:` — see CONTRIBUTING §2.3)
-├── .mcp.json                       # bundled MCP servers: `wise-engine` (bash engine/engine.sh mcp)
-├── engine/                         # the workflow engine: TypeScript run as source on bun or Node 24
-│   ├── engine.sh                   # entry: bun, else node >= 24, execs src/cli.ts
-│   ├── package.json                # deps (@modelcontextprotocol/sdk, yaml, zod); `npm run check`
-│   ├── src/                        # defs (YAML v2 schema), scheduler, executor, ledger, daemon, mcp,
+├── .mcp.json                       # empty; wise-init manages host registration
+├── engine/                         # Python v2 workflow engine
+│   ├── engine.sh                   # managed Python 3.11+ launcher
+│   ├── pyproject.toml              # Python metadata and pinned dependencies
+│   ├── wise_engine/                # defs (YAML v2 schema), scheduler, executor, ledger, daemon, mcp,
 │   │   │                           #   unit-mcp, channel, resolve, render, preflight, migrate, auth
 │   │   ├── adapters/               # claude, codex, cursor-agent, gemini, grok + clean-env spawn
 │   │   ├── steps/                  # agent, bash, gate step runners
 │   │   ├── phases/                 # unit pipeline phases (claim, worktree, model phases, push, pr, ...)
 │   │   └── prompts/units/          # the model-phase prompt templates + schemas
-│   └── test/                       # node --test / bun test suite
+│   └── tests/                      # pytest suite; just check includes Ruff and mypy
 ├── hooks/                          # the ONE sanctioned hook (see CONTRIBUTING §2.4)
 │   ├── hooks.json                  # auto-discovered; registers the SessionEnd hook
 │   └── session-end-ingest.sh       # SessionEnd → insights.py ingest (stdlib-only, exit 0, no LLM)
@@ -202,10 +201,10 @@ plugins/wise/
 ├── scripts/
 │   ├── engine.sh                   # thin bash bootstrap → execs engine.py (skill catalog only; not the workflow engine)
 │   ├── engine.py                   # skill-catalog emitter (`list-skills` subcommand) — consumed by the /wise helper
-│   ├── bootstrap-deps.sh           # full dep probe (python3 + pyyaml/ulid/typing_extensions, bun or node ≥24, gh + auth); cold-start fallback
+│   ├── bootstrap-deps.sh           # dependency probes; host setup details follow P6
 │   ├── init.sh                     # bash-only per-dep probes used by `/wise-init` (works before Python is installed)
 │   ├── init-registry.py            # YAML I/O for .wise-init-registry.yaml + fast-path `check` for the workflow skills
-│   ├── workflows.py                # LEGACY v1 workflow scripts: list/create/remove skills, profile store, legacy conductor; deleted in plan M3.4
+│   ├── wise-helpers.py             # stdlib session/profile/history/supervision entrypoint
 │   └── insights.py                 # self-improvement engine: ingest/mine/gate sessions → skill candidates (STDLIB ONLY)
 ├── workflows/                      # bundled workflow definitions (shipped defaults)
 │   └── <name>/                     # folder form: workflow.yaml + sibling artifacts
@@ -223,7 +222,6 @@ plugins/wise/
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
 │   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report + the ticket-auto / impl-plan-auto report steps)
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by the -auto implement phase + /wise-supervise
-│   ├── legacy-conductor/           # the v1 prose conductor (run/resume/status/preflight/step-types/roster); followed only for v1 definitions and state.yaml runs until M3.4
 │   ├── insights-init-guard.md      # /wise-init gate read by wise-insights-mine / -refine
 │   ├── grill/                      # the subject-understanding routines (context sweep + gap analysis + blueprint schema) — read by /wise-grill (any subject), ticket-plan, ticket-auto (tickets)
 │   └── pr/                         # shared PR/commit fragments (draft-body, ensure-pr, watch-pipelines, handle-*, commit-from-fix, paged-bulk-mode, comment-surfaces, sonar-fetch) + templates/pr-template.md — read by the wise-pr-* skills + ticket-auto
@@ -289,14 +287,12 @@ the SessionEnd insights-ingest hook (`hooks/session-end-ingest.sh` +
 no-hooks default; its rationale and hard constraints live in
 `CONTRIBUTING.md` [§2.4](../../CONTRIBUTING.md#24-hooks). No other hook
 (and no `SessionStart` hook) may be added without that same discussion.
-`.mcp.json` IS present — it bundles the MCP servers wise skills depend
-on: today the `wise-engine` server (`bash
-${CLAUDE_PLUGIN_ROOT}/engine/engine.sh mcp`, tool timeout 660 s), a thin
-client that starts the `wise-engined` daemon on demand. See the
-bundled-tooling convention in `CONTRIBUTING.md`
-[§2.2](../../CONTRIBUTING.md#22-bundled-tooling-convention). An
-`engine/` directory IS present: the TypeScript workflow engine, run as
-source (no build step; `cd engine && npm run check` for typecheck, lint,
+`.mcp.json` is empty. `/wise-init` registers the single `wise-engine`
+transport through the stable managed launcher for Claude Code, Codex, Cursor or
+Grok. See [host control](references/workflow-host-control.md) for resolution,
+upgrade refresh and diagnostics. The server starts `wise-engined` on demand. An
+`engine/` directory IS present: the Python workflow engine, run from source
+(no build step; `just check` runs validation, typecheck, lint,
 format and tests).
 
 ---
@@ -367,19 +363,16 @@ one-liners below are the rule, not the argument for it.
   (e) the **session profile store** under
   `~/.local/share/wise/profile/<session-id>` — one word
   (`low|medium|max`) written atomically by `/wise-profile`
-  (`workflows.py profile-set`), read via
+  (`wise-helpers.py profile-set`), read via
   `references/profile-read.md` / `profile-get` with silent degradation
-  to `medium` (the engine keeps `engine/src/profile.ts` for the data
-  root only; workflows run at `medium`), and
+  to `medium`, and
   GC'd opportunistically (files from sessions older than 30 days) on
-  each write. Routed through `wise_data_root()` (engine: `paths.ts`).
+  each write. Routed through `wise_data_root()` (engine: `paths.py`).
   New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
-  `wise_data_root()` helper in `scripts/workflows.py` — never
+  `wise_data_root()` helper in `engine/wise_engine/paths.py` — never
   hard-code paths so future relocations are one-function changes.
-  (`insights.py` mirrors that helper with a stdlib-only fallback,
-  because the SessionEnd hook may run before pyyaml is installed; the
-  canonical helper is still used whenever importable.) When
+  `insights.py` imports the stdlib-only canonical path helper directly. When
   `${CLAUDE_PLUGIN_DATA}` is unset (e.g. the scripts are run directly,
   outside Claude Code), `plugin_data_root()` falls back to
   `$WISE_DATA_DIR` then `wise_data_root()`; under Claude Code the
@@ -423,8 +416,8 @@ one-liners below are the rule, not the argument for it.
   There is no `agent:` / `agents:` field, no teams, no conductor-side
   synthesis. Model resolution (retired-id swap, capability clamp,
   policy ceiling; the low-profile Opus rule stays dormant because
-  workflows run at `medium`) is `engine/src/resolve.ts`; the model
-  catalog pre-flight offers is `engine/src/models.ts`. Keep
+  workflows run at `medium`) is `engine/wise_engine/resolve.py`; the model
+  catalog pre-flight offers is `engine/wise_engine/models.py`. Keep
   `AGENTS.md`'s catalog table in sync with `agents/*.md`, the same way
   workflow READMEs stay in sync with YAML.
 - **Provider permissions are floors, not overrides.** Pre-flight asks
@@ -491,17 +484,10 @@ one-liners below are the rule, not the argument for it.
   bundled root on cross-root collision. See
   [`docs/wise/workflows.md`](../../docs/wise/workflows.md) for
   the full reference.
-- **Exception to "action skills never invoke other action skills" —
-  the legacy v1 conductor only.** On the v2 engine the conductor skills
-  (`wise-workflow-run`, `wise-workflow-resume`, `wise-workflow-status`)
-  call only the `wise_*` MCP tools and the engine CLI; a workflow step
-  that runs a skill is an `agent` step with `skill: <name>` (the prompt
-  `Run /<name>` on the `claude` harness), executed by the engine's child,
-  never by the conductor. The `references/legacy-conductor/` prose,
-  followed only for `version: 1` definitions and `state.yaml` runs until
-  plan M3.4, keeps the old narrow exception: it may call `Skill` on a
-  wise-namespaced action skill as part of a `type: skill` step, never
-  re-entering the `wise` helper.
+- **The conductor never executes workflow steps itself.** It calls the
+  `wise_*` MCP tools or the engine CLI. Agent steps run in provider children;
+  `skill:` expands to a prompt on the Claude harness. V1 execution and its
+  prose conductor are retired; historical runs stay unchanged.
 - **Workflow README.md stays in sync with `workflow.yaml` +
   `prompts/`.** When you touch a bundled workflow's YAML or any of
   its `prompts/*.md` fragments, update the workflow's `README.md` in
@@ -509,7 +495,7 @@ one-liners below are the rule, not the argument for it.
   and Related-links section must reflect the new shape.
 - **The unit pipelines are idempotent on resume.** `ticket-auto` and
   `impl-plan-auto` are one `units` step; the loop is engine code
-  (`engine/src/units.ts`, `engine/src/phases/`), not prose. Its `claim`
+  (`engine/wise_engine/units.py`, `engine/wise_engine/phases/`), not prose. Its `claim`
   phase must *ensure* (create, re-attach, or adopt) each unit's worktree
   from the per-unit ledger under `<run dir>/units/` plus live `git` /
   `gh` probes - never reintroduce a collide-and-fail `git worktree add
@@ -517,17 +503,14 @@ one-liners below are the rule, not the argument for it.
   worktree or branch the run did not claim is skipped, never adopted.
   `.worktreeinclude` files are carried over once per worktree
   (`includes-done` ledger key). Phase prompts live under
-  `engine/src/prompts/units/`; change a rule there, never in a workflow.
-- **All workflow YAML, scheduling and state handling lives in
-  `engine/`.** `engine/src/defs.ts` owns the v2 schema (with v1 hints),
-  `scheduler.ts` the DAG, `executor.ts` the run loop, `ledger.ts` the run
-  directory. SKILL.md bodies call the `wise_*` MCP tools or
-  `engine/engine.sh`; they never parse YAML or state themselves.
-  `scripts/workflows.py` is the v1 engine, kept only for
-  `/wise-workflow-list` / `-create` / `-remove`, the profile store and
-  the legacy conductor; it is deleted in plan M3.4 and gains no new
-  behaviour. Validate a definition with `engine.sh compile-check`; the
-  repo validator runs it on every bundled `version: 2` workflow.
+  `engine/wise_engine/prompts/units/`; change a rule there, never in a workflow.
+- **Canonical Python owns workflow YAML, scheduling and state.**
+  `engine/wise_engine/defs.py` owns the v2 schema, `scheduler.py` the DAG,
+  `executor.py` the run loop and `ledger.py` persisted JSON. Skills call MCP
+  or `engine/engine.sh`. `scripts/wise-helpers.py` exposes standalone
+  profile/session/history/supervision commands; insights imports stdlib paths.
+  Validate with `engine.sh compile-check` and `just check`. V1 definitions
+  require explicit migration, and `state.yaml` runs cannot resume.
 - **External-tool dependencies — bundle the static ones, probe the
   open-ended ones.** When a skill needs a third-party tool, prefer
   declaring it so the install is one step; but when the *set* of
@@ -540,7 +523,7 @@ one-liners below are the rule, not the argument for it.
     `code-simplifier` agent the per-commit simplify pass dispatches)
     are documented in the README's Bundled-tooling table instead, and
     the consuming skill degrades gracefully when they are absent.
-  - MCP server deps go in `.mcp.json` (today: `wise-engine`). MCP tool
+  - Additional MCP server deps go in `.mcp.json`; `wise-engine` uses managed host registration. MCP tool
     ids are derived from the plugin name, so moving an MCP between
     plugins is a breaking rename.
   - CLI / environment deps that neither mechanism can install (Python,

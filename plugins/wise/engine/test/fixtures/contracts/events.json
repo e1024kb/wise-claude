@@ -1,0 +1,21 @@
+[
+  {
+    "type": "run.started",
+    "message": "fixture",
+    "seq": 1,
+    "ts": "2026-09-11T00:00:00Z"
+  },
+  {
+    "type": "step.started",
+    "step": "a",
+    "seq": 2,
+    "ts": "2026-09-11T00:00:00Z"
+  },
+  {
+    "type": "step.done",
+    "step": "a",
+    "verdict": "complete",
+    "seq": 3,
+    "ts": "2026-09-11T00:00:00Z"
+  }
+]

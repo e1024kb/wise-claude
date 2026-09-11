@@ -1,0 +1,313 @@
+{
+  "tools": [
+    {
+      "name": "wise_preflight",
+      "description": "Call before wise_run with interactive=true. The MCP server opens the host's form UI for every question and returns {workflow, version, questions: [], defaults, answers}; pass those answers to wise_run. It fails with INTERACTIVE_UI_REQUIRED when the host has no form UI: never replace the picker with plain chat. step-select (which optional steps run) and input.<name> come first; provider and tuning stages follow once step-select is answered, for the groups of steps that will run (selected, and not ruled out by a when: gate the inputs already settle): harness.<group> (which installed CLI: claude, codex, cursor, gemini, grok; asked whenever two or more are installed, a logged-out one is flagged with its login command), then permissions.<harness> once per provider (auto is recommended; bypass permissions is available), then model.<group> (that harness's model catalog), then effort.<group> (that model's efforts; skipped when it has one or none). UI mode is the default; interactive=false returns the raw staged questionary for API clients only. Never answer a question for the user: wise_run refuses a run whose pre-flight questions were not all answered. requires_missing lists plugin:<name> / tool:<name> the workflow declares but the machine lacks; wise_run refuses with REQUIRES_MISSING until they are installed. Read-only, starts nothing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "description": "Workflow name or path to its YAML."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Absolute path of the target project."
+          },
+          "interactive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use the host's MCP form UI to collect every open answer. Never substitutes chat."
+          },
+          "answers": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "description": "Answers collected so far (question id -> value). Pass them back to get the next stage: harness.<group> unlocks model.<group>, which unlocks effort.<group>."
+          }
+        },
+        "required": [
+          "workflow",
+          "cwd"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_run",
+      "description": "Start a workflow run; returns {run_id, status} at once, then loop on wise_wait. answers: question id -> value from wise_preflight. context: build it from what this conversation already knows (ticket refs with title and body, operator guidance, decisions made, links); child agents never see the transcript, so anything missing here they must refetch. inputs: workflow inputs by name. AUTH_REQUIRED errors carry login_cmd: show it to the user verbatim. MISSING_ANSWERS lists every pre-flight question left unanswered (tuning stages included: the engine never defaults them) and every required input without a value; go back to the wise_preflight loop, ask them, then retry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "description": "Workflow name or path to its YAML."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Absolute path of the target project."
+          },
+          "answers": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "description": "Question id -> value, from wise_preflight.",
+            "default": {}
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "ticket": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Tickets already fetched in this conversation, with their bodies."
+              },
+              "guidance": {
+                "type": "string",
+                "description": "Operator free-text guidance for the run."
+              },
+              "decisions": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Decisions already settled in the conversation."
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "description": "What the conversation already knows and the run needs. Children never see this transcript.",
+            "default": {}
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Workflow inputs by name."
+          }
+        },
+        "required": [
+          "workflow",
+          "cwd"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_wait",
+      "description": "Long-poll a run. Blocks until a new event past `after`, an open gate, the run ending, or timeout_ms (default 110000, max 600000), then returns {events, status, gate?, done}. Events are one-line verdicts plus structured outputs; step logs and agent output never appear. gate present: ask the user, call wise_answer. done true: stop. Otherwise call again with after = last event seq. Progress notifications are sent every 30 s while blocked.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Return events with seq greater than this; the last seq you saw. Default 0."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Default 110000, capped at 600000."
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_answer",
+      "description": "Answer the gate wise_wait returned. value: the option value, free text when allow_text, or a string array for multi. Returns {accepted}. GATE_STALE means the gate is already closed: call wise_wait again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "gate_id": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Chosen option value, free text when allowed, or a list for multi."
+          }
+        },
+        "required": [
+          "run_id",
+          "gate_id",
+          "value"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_status",
+      "description": "Run summaries, no step output: one RunSummary for run_id, or every known run without it, newest activity first. Cheapest daemon health check; DAEMON_UNAVAILABLE means /wise-init has not run.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_cancel",
+      "description": "Cancel a run and kill its child processes. Returns {status: 'cancelled'}. reason is recorded in the run's events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_nudge",
+      "description": "Send a mid-run user message to a running agent step (Claude children only; their stdin stays open). Returns {delivered}. delivered false: the step is not running, has ended, or its harness takes no input; nothing is queued. Use sparingly: to unblock, redirect, or ask a child to wrap up.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string",
+            "description": "Step id of the running agent child."
+          },
+          "message": {
+            "type": "string",
+            "description": "Text delivered to the child as a user message."
+          }
+        },
+        "required": [
+          "run_id",
+          "step",
+          "message"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "wise_resume",
+      "description": "Resume a paused or failed run: in-flight steps reset to pending and the scheduler continues from the ledger. Returns {run_id, status}; then loop on wise_wait. A gated run is not resumable: answer its gate with wise_answer. Completed and cancelled runs are refused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}
