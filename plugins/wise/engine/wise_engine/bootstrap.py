@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import shutil
+import signal
+import threading
 import subprocess
 import sys
 import sysconfig
@@ -43,6 +45,39 @@ def is_ready(target: Path, requirements: Path) -> bool:
         return False
 
 
+def _run_installer(command: list[str]) -> None:
+    if threading.current_thread() is not threading.main_thread():
+        raise BootstrapError("Dependency installation must run on the main thread")
+    previous = signal.getsignal(signal.SIGTERM)
+    process = None
+
+    def terminate(signum: int, frame: object) -> None:
+        raise BootstrapError("Dependency installation interrupted")
+
+    signal.signal(signal.SIGTERM, terminate)
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+            start_new_session=True,
+        )
+        code = process.wait()
+        if code:
+            raise BootstrapError(f"Dependency installation failed (exit {code})")
+    except BaseException:
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
 def ensure_environment(
     requirements: Path,
     data_root: Path,
@@ -68,9 +103,10 @@ def ensure_environment(
             shutil.rmtree(target)
         try:
             print("wise-engine: installing Python dependencies", file=sys.stderr)
-            venv.EnvBuilder(with_pip=True).create(target)
+            venv.EnvBuilder(with_pip=False).create(target)
             interpreter = target / "bin/python"
-            result = subprocess.run(
+            _run_installer([str(interpreter), "-m", "ensurepip", "--upgrade"])
+            _run_installer(
                 [
                     str(interpreter),
                     "-m",
@@ -81,13 +117,8 @@ def ensure_environment(
                     "--only-binary=:all:",
                     "-r",
                     str(requirements),
-                ],
-                stdout=sys.stderr,
-                stderr=sys.stderr,
-                check=False,
+                ]
             )
-            if result.returncode:
-                raise BootstrapError(f"Dependency installation failed (exit {result.returncode})")
             marker = target / ".ready.json.tmp"
             marker.write_text(json.dumps({"key": environment_key(requirements)}))
             marker.replace(target / ".ready.json")

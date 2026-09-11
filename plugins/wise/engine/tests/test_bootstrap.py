@@ -31,16 +31,16 @@ def test_failed_install_can_retry_without_publishing_environment(tmp_path):
         (path / "bin/python").touch(mode=0o700)
 
     with patch("wise_engine.bootstrap.venv.EnvBuilder.create", side_effect=create):
-        with patch("wise_engine.bootstrap.subprocess.run") as run:
-            run.return_value.returncode = 1
+        with patch("wise_engine.bootstrap._run_installer") as run:
+            run.side_effect = BootstrapError("Dependency installation failed (exit 1)")
             with pytest.raises(BootstrapError, match="exit 1"):
                 ensure_environment(requirements, data)
             assert not target.exists()
-            run.return_value.returncode = 0
+            run.side_effect = None
             result = ensure_environment(requirements, data)
             assert result == target / "bin/python"
             assert ensure_environment(requirements, data, probe=True) == result
-            assert run.call_count == 2
+            assert run.call_count == 3
 
 
 def test_lock_content_change_invalidates_environment(tmp_path):
@@ -110,3 +110,55 @@ def test_concurrent_startup_publishes_one_complete_environment(tmp_path):
         check=True,
     )
     assert str(environment_path(requirements, data)) == check.stdout.strip()
+
+
+def test_termination_reaps_installer_before_retry(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("")
+    data = tmp_path / "data"
+    pid_file = tmp_path / "installer.pid"
+    code = """
+import sys
+from pathlib import Path
+import wise_engine.bootstrap as bootstrap
+requirements, data, pid_file = map(Path, sys.argv[1:])
+def create(target):
+    (target / 'bin').mkdir(parents=True)
+    child = target / 'bin/python'
+    child.write_text('#!' + sys.executable + '\\nimport os,time\\n'
+                     + 'from pathlib import Path\\n'
+                     + 'Path(' + repr(str(pid_file)) + ').write_text(str(os.getpid()))\\n'
+                     + 'time.sleep(60)\\n')
+    child.chmod(0o700)
+bootstrap.venv.EnvBuilder.create = lambda self, target: create(target)
+bootstrap.ensure_environment(requirements, data)
+"""
+    parent = subprocess.Popen(
+        [sys.executable, "-c", code, str(requirements), str(data), str(pid_file)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pid_file.exists()
+        child_pid = int(pid_file.read_text())
+        parent.terminate()
+        _, stderr = parent.communicate(timeout=10)
+        assert parent.returncode != 0
+        assert "interrupted" in stderr
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+        assert not environment_path(requirements, data).exists()
+        assert ensure_environment(requirements, data).exists()
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait()

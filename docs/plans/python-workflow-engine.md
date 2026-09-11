@@ -355,3 +355,7 @@ P0 gate passed on macOS with the isolated pytest invocation documented above. No
 - `wise_engine/spawn.py` preserves clean-environment inheritance, explicit overrides, safe stdin writes, UTF-8 chunk decoding, UTF-16 stderr limits, process-group signals, timeout escalation, and failed-spawn results. Cancellation kills and reaps the child, including immediate cancellation.
 - 27 subprocess tests pass on macOS and Python 3.11 Linux Docker. Ruff and mypy pass. No provider or network access is used by these tests.
 - Investigation corrected the migration premise: TypeScript's v1 converter explicitly drops source comments. Python comment retention remains a required improvement, not a golden-output equality assertion.
+
+### P1 bootstrap cancellation correction
+
+Review found that terminating bootstrap could leave pip writing after the install lock was released. Installers now run in their own process group and are killed/reaped before cleanup or lock release. The environment is created without implicit pip subprocesses; ensurepip and pip both use the same supervised path. A regression terminates initialization mid-install, verifies the installer is gone, and retries successfully. Seven bootstrap tests pass on macOS; Linux recheck is in progress with the MCP suite.
