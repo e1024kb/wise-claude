@@ -1,6 +1,6 @@
 # Plan: Python workflow engine and removal of legacy execution
 
-Status: IN PROGRESS. P0 and P1 gates passed; P2 is underway on `feat/python-workflow-engine`.
+Status: IN PROGRESS. P0 through P2 core gates passed; P3 is underway on `feat/python-workflow-engine`.
 
 Prepared 2026-09-11 from checkout `b1b5dee` (plugin `5.0.0-rc.6`). This plan supersedes the implementation direction in [harness-engine.md](harness-engine.md). The existing TypeScript implementation is the behavioral baseline; older milestone statuses are not evidence of current completion.
 
@@ -141,11 +141,11 @@ Gate: fixture MCP clients connect and exercise both servers; framing and tool sc
 
 Depends on P1.
 
-- [ ] Port definitions, validation, rendering, scheduler, models/resolution, profiles, permissions, pricing, paths, preflight, and context resources.
-- [ ] Port ledger, events, unit checkpoint storage, pruning safeguards, and worktree inclusion.
-- [ ] Port v1 definition converter with round-trip fixtures and manual-warning semantics.
-- [ ] Add non-executing CLI commands and necessary shared helper destinations.
-- [ ] Compare outputs against P0 fixtures and the TypeScript implementation using isolated data roots.
+- [x] Port definitions, validation, rendering, scheduler, models/resolution, profiles, permissions, pricing, paths, preflight, and context resources.
+- [x] Port ledger, events, unit checkpoint storage, pruning safeguards, and worktree inclusion.
+- [x] Port v1 definition converter with round-trip fixtures and manual-warning semantics.
+- [x] Add non-executing CLI commands and necessary shared helper destinations.
+- [x] Compare outputs against P0 fixtures and the TypeScript implementation using isolated data roots.
 
 Gate: every bundled workflow compiles; staged preflight and migration fixtures match; saved v2 runs load; event order and atomic-write recovery tests pass. No v1 executor is introduced.
 
@@ -373,3 +373,14 @@ All 87 P1 tests pass on macOS and Python 3.11 Linux using a read-only source mou
 - Ledger: state lifecycle, usage views, pruning, logs, checkpoints, worktree inclusion, and event recovery ported. 36 tests cover the TypeScript ledger areas plus captured state snapshots, atomic-write failure, legacy-history protection, and Unicode recovery.
 - Intentional persistence corrections: protect legacy `state.yaml` directories from pruning; recover the sequence after an event larger than the 64 KiB tail window. Truncated UTF-8 and Unicode line separators preserve earlier complete event records. Failed runs remain resumable and protected from automatic pruning.
 - Python CLI definition compilation, discovery, catalog, and version commands are available through `python -m wise_engine`; production `engine.sh` still launches TypeScript. Execution, authentication, daemon, and host registration gates have not passed.
+
+P2 dependency refinement: pinned `regex==2026.9.10` with hashes to retain JavaScript-style variable-width lookbehind in existing input validators without a JavaScript runtime. Compatibility translation also covers scoped flags, identity/control escapes, optional/forward backreferences, JavaScript whitespace, end anchors, and UTF-16 matching. Exact edge-case coverage is recorded in `tests/test_defs.py`; unsupported full-domain equivalence is not inferred from those cases. Package reference: https://pypi.org/project/regex/2026.9.10/.
+
+P2 additional review: recursive worktree inclusion refuses destination symlinks that escape the worktree, matching the original copier's refusal instead of Python copytree's default traversal. Preflight preserves empty context values and JavaScript whitespace semantics. The pure preflight comparison matched 180 scenarios across the five bundled workflows (questionary, applied answers, and completed answers in each scenario). Scheduler/rendering/permissions/context comparison matched 2,058 normalized cases. Importer comparison matched all 31 captured calls and 176 migration notes; comment retention is the documented improvement.
+
+### P2 gate and tracked compatibility follow-up
+
+The P2 gate passes: all bundled definitions compile, staged preflight and migration fixtures match, v2 state loads, and ordered-event/atomic-write recovery tests pass. The CLI exposes non-executing definition and import operations. Shared standalone callers move in P4 as planned.
+
+Approved compatibility boundary: case-insensitive backreferences require a capture that can be proven ASCII-only. Unicode or broad captures in that combination fail validation with a clear error; case-sensitive Unicode backreferences and ordinary regexes remain supported. The user explicitly approved this restriction during implementation. The incomplete Unicode postfilter was removed. Definition tests pass 343 cases, including same-start alternatives and negative assertions. This resolves the tracked production-switch blocker without claiming blanket JavaScript-RegExp equivalence.
+

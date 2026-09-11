@@ -4,12 +4,15 @@ import json
 import math
 import os
 import re
+
+import regex  # type: ignore[import-untyped]
 from collections.abc import Callable, Mapping, Set
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from .paths import PLUGIN_ROOT, plugin_data_root
-from .yaml_compat import MISSING, js_items, js_json, js_string, parse_yaml
+from .yaml_compat import MISSING, js_items, js_json, js_string, parse_yaml, json_value
 
 from .constants import (
     HARNESSES,
@@ -394,14 +397,395 @@ def _profiles(iss: _Issues, raw: Any, group_ids: set[str]) -> dict[str, Any]:
     return out
 
 
-def _compile_regex(pattern: str) -> re.Pattern[str]:
-    converted = re.sub(r"\(\?<([A-Za-z_][A-Za-z0-9_]*)>", r"(?P<\1>", pattern)
-    converted = re.sub(r"\\k<([A-Za-z_][A-Za-z0-9_]*)>", r"(?P=\1)", converted)
+def _utf16_units(text: str) -> str:
+    encoded = text.encode("utf-16-le", "surrogatepass")
+    return "".join(
+        chr(int.from_bytes(encoded[i : i + 2], "little")) for i in range(0, len(encoded), 2)
+    )
+
+
+def _from_utf16(text: str) -> str:
+    return b"".join(ord(char).to_bytes(2, "little") for char in text).decode(
+        "utf-16-le", "surrogatepass"
+    )
+
+
+class _RegexMatch:
+    def __init__(self, match: Any) -> None:
+        self._match = match
+
+    def group(self, number: int = 0) -> str | None:
+        value = self._match.group(f"wise_group_{number}" if number else 0)
+        return _from_utf16(value) if value is not None else None
+
+
+class _Regex:
+    def __init__(self, compiled: Any, groups: int) -> None:
+        self._compiled = compiled
+        self.groups = groups
+
+    def search(self, value: str) -> _RegexMatch | None:
+        match = self._compiled.search(_utf16_units(value))
+        return _RegexMatch(match) if match is not None else None
+
+
+@lru_cache(maxsize=128)
+def _ascii_capture_only(pattern: str, wanted: int) -> bool:
+    stack: list[tuple[int | None, int]] = []
+    count = index = 0
+    in_class = False
+    body = None
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[" and not in_class:
+            in_class = True
+        elif char == "]" and in_class:
+            in_class = False
+        elif char == "(" and not in_class:
+            capture = not pattern.startswith("(?", index) or (
+                pattern.startswith("(?<", index)
+                and pattern[index + 3 : index + 4] not in ("=", "!")
+            )
+            start = index + 1
+            if capture:
+                count += 1
+                if pattern.startswith("(?<", index):
+                    start = pattern.index(">", index) + 1
+            stack.append((count if capture else None, start))
+        elif char == ")" and not in_class and stack:
+            number, start = stack.pop()
+            if number == wanted:
+                body = pattern[start:index]
+                break
+        index += 1
+    if body is None or not body.isascii():
+        return False
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if ord(char) > 127 or char == ".":
+            return False
+        if char == "[":
+            end = index + 1
+            while end < len(body):
+                if body[end] == "\\":
+                    end += 2
+                elif body[end] == "]":
+                    break
+                else:
+                    end += 1
+            token = body[index : end + 1]
+            compiled = regex.compile(_translate_regex(token), regex.VERSION0 | regex.ASCII)
+            if compiled.search("".join(map(chr, range(128, 65536)))) is not None:
+                return False
+            index = end + 1
+            continue
+        if char == "\\" and index + 1 < len(body):
+            escaped = body[index + 1]
+            if escaped in "sSDWk123456789":
+                return False
+            if escaped in "xu":
+                length = 2 if escaped == "x" else 4
+                digits = body[index + 2 : index + 2 + length]
+                if len(digits) == length and re.fullmatch(r"[0-9a-fA-F]+", digits):
+                    if int(digits, 16) > 127:
+                        return False
+                    index += length
+            index += 2
+            continue
+        index += 1
+    return True
+
+
+def _space_class(complement: bool = False) -> str:
+    spaces = (
+        set(range(9, 14))
+        | {32, 160, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF}
+        | set(range(0x2000, 0x200B))
+    )
+    points = sorted(set(range(65536)) - spaces if complement else spaces)
+    ranges = []
+    start = previous = points[0]
+    for point in points[1:]:
+        if point != previous + 1:
+            ranges.append((start, previous))
+            start = point
+        previous = point
+    ranges.append((start, previous))
+    return "".join(
+        f"\\u{start:04x}" + (f"-\\u{end:04x}" if end != start else "") for start, end in ranges
+    )
+
+
+_JS_SPACE = _space_class()
+_JS_NONSPACE = _space_class(True)
+
+
+@lru_cache(maxsize=1)
+def _case_equivalents() -> dict[str, tuple[str, ...]]:
+    groups: dict[str, list[str]] = {}
+    for point in range(65536):
+        char = chr(point)
+        upper = char.upper()
+        # Expansions and non-ASCII-to-ASCII uppercase folds leave the character unchanged.
+        canonical = char if len(upper) != 1 or (point >= 128 and ord(upper) < 128) else upper
+        groups.setdefault(canonical, []).append(char)
+    return {char: tuple(group) for group in groups.values() if len(group) > 1 for char in group}
+
+
+def _case_literal(text: str) -> str:
+    out = []
+    for char in _utf16_units(text):
+        group = _case_equivalents().get(char, (char,))
+        encoded = "".join(f"\\u{ord(value):04x}" for value in group)
+        out.append(f"[{encoded}]" if len(group) > 1 else encoded)
+    return "".join(out)
+
+
+@lru_cache(maxsize=128)
+def _case_class(source: str) -> str:
+    negative = source.startswith("[^")
+    positive = "[" + source[2:] if negative else source
+    compiled = regex.compile(_translate_regex(positive), regex.VERSION0 | regex.ASCII)
+    points: set[int] = set()
+    equivalents = _case_equivalents()
+    for point in range(65536):
+        char = chr(point)
+        if compiled.fullmatch(char) is not None:
+            points.update(ord(value) for value in equivalents.get(char, (char,)))
+    if not points:
+        return r"[\s\S]" if negative else "(?!)"
+    ordered = sorted(points)
+    ranges = []
+    start = previous = ordered[0]
+    for point in ordered[1:]:
+        if point != previous + 1:
+            ranges.append((start, previous))
+            start = point
+        previous = point
+    ranges.append((start, previous))
+    body = "".join(
+        f"\\u{start:04x}" + (f"-\\u{end:04x}" if end != start else "") for start, end in ranges
+    )
+    return f"[{'^' if negative else ''}{body}]"
+
+
+def _regex_groups(pattern: str) -> tuple[int, dict[str, int]]:
+    count = 0
+    names = {}
+    in_class = False
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[" and not in_class:
+            in_class = True
+        elif char == "]" and in_class:
+            in_class = False
+        elif char == "(" and not in_class:
+            if not pattern.startswith("(?", index):
+                count += 1
+            elif pattern.startswith("(?<", index) and pattern[index + 3 : index + 4] not in (
+                "=",
+                "!",
+            ):
+                end = pattern.find(">", index + 3)
+                name = pattern[index + 3 : end] if end >= 0 else ""
+                if not re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", name):
+                    raise ValueError("Invalid capture group name")
+                if name in names:
+                    raise ValueError("Duplicate capture group name")
+                count += 1
+                names[name] = count
+            elif pattern[index + 2 : index + 3] not in (":", "=", "!") and not pattern.startswith(
+                ("(?<=", "(?<!"), index
+            ):
+                modifier = re.match(r"\(\?([ims]*)(?:-([ims]*))?:", pattern[index:])
+                if modifier is None or not (modifier[1] or modifier[2]):
+                    raise ValueError("Invalid group")
+                flags = modifier[1] + (modifier[2] or "")
+                if len(flags) != len(set(flags)):
+                    raise ValueError("Repeated flag in flag group")
+        index += 1
+    return count, names
+
+
+def _translate_regex(pattern: str) -> str:
+    count, names = _regex_groups(pattern)
+    capture_index = 0
+    output = []
+    in_class = False
+    dot_all = multiline = ignore_case = False
+    scopes: list[tuple[bool, bool, bool]] = []
+
+    def backreference(number: int) -> str:
+        target = f"wise_group_{number}"
+        if ignore_case:
+            if not _ascii_capture_only(pattern, number):
+                raise ValueError(
+                    "case-insensitive backreferences require an ASCII-only capture; Unicode backreference matching is unsupported"
+                )
+            return f"(?({target})(?ai:\\g<{target}>)|)"
+        return f"(?({target})\\g<{target}>|)"
+
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "[" and not in_class:
+            if pattern.startswith("[^]", index):
+                output.append(r"[\s\S]")
+                index += 3
+                continue
+            if pattern.startswith("[]", index):
+                output.append("(?!)")
+                index += 2
+                continue
+            if ignore_case:
+                end = index + 1
+                while end < len(pattern):
+                    if pattern[end] == "\\":
+                        end += 2
+                    elif pattern[end] == "]":
+                        break
+                    else:
+                        end += 1
+                if end >= len(pattern):
+                    raise ValueError("Unterminated character class")
+                output.append(_case_class(pattern[index : end + 1]))
+                index = end + 1
+                continue
+            in_class = True
+        elif char == "]" and in_class:
+            in_class = False
+        if not in_class and char == "(":
+            scopes.append((dot_all, multiline, ignore_case))
+            if not pattern.startswith("(?", index):
+                capture_index += 1
+                output.append(f"(?P<wise_group_{capture_index}>")
+                index += 1
+                continue
+            modifier = re.match(r"\(\?([ims]*)(?:-([ims]*))?:", pattern[index:])
+            if modifier is not None and (modifier[1] or modifier[2]):
+                enabled, disabled = modifier[1], modifier[2] or ""
+                dot_all = (dot_all or "s" in enabled) and "s" not in disabled
+                multiline = (multiline or "m" in enabled) and "m" not in disabled
+                ignore_case = (ignore_case or "i" in enabled) and "i" not in disabled
+                output.append("(?:")
+                index += len(modifier[0])
+                continue
+        elif not in_class and char == ")" and scopes:
+            dot_all, multiline, ignore_case = scopes.pop()
+        if (
+            not in_class
+            and pattern.startswith("(?<", index)
+            and pattern[index + 3 : index + 4] not in ("=", "!")
+        ):
+            end = pattern.index(">", index + 3)
+            name = pattern[index + 3 : end]
+            capture_index += 1
+            output.append(f"(?P<wise_group_{names[name]}>")
+            index = end + 1
+            continue
+        if char == "\\":
+            if index + 1 == len(pattern):
+                raise ValueError("\\ at end of pattern")
+            escaped = pattern[index + 1]
+            index += 2
+            if escaped in "sS":
+                body = _JS_SPACE if escaped == "s" else _JS_NONSPACE
+                output.append(body if in_class else f"[{body}]")
+            elif escaped == "B" and in_class:
+                output.append("B")
+            elif escaped in "dDwWbBfnrtv" or escaped in r"^$\.*+?()[]{}|/-":
+                output.append("\\" + escaped)
+            elif (
+                escaped == "c"
+                and index < len(pattern)
+                and pattern[index].isascii()
+                and (
+                    pattern[index].isalpha()
+                    or (in_class and (pattern[index].isdigit() or pattern[index] == "_"))
+                )
+            ):
+                output.append(f"\\x{ord(pattern[index].upper()) % 32:02x}")
+                index += 1
+            elif escaped in "xu" and re.match(
+                r"[0-9a-fA-F]{" + ("2" if escaped == "x" else "4") + "}", pattern[index:]
+            ):
+                length = 2 if escaped == "x" else 4
+                literal = chr(int(pattern[index : index + length], 16))
+                output.append(
+                    _case_literal(literal)
+                    if ignore_case
+                    else "\\" + escaped + pattern[index : index + length]
+                )
+                index += length
+            elif escaped == "k" and names and not in_class:
+                match = re.match(r"<([^>]+)>", pattern[index:])
+                if match is None or match[1] not in names:
+                    raise ValueError("Invalid named capture referenced")
+                number = names[match[1]]
+                output.append(backreference(number))
+                index += len(match[0])
+            elif escaped.isascii() and escaped.isdigit():
+                match = re.match(r"[0-9]+", pattern[index - 1 :])
+                assert match is not None
+                digits = match[0]
+                number = int(digits)
+                if not in_class and escaped != "0" and number <= count:
+                    output.append(backreference(number))
+                    index += len(digits) - 1
+                elif escaped in "01234567":
+                    length = 3 if escaped in "0123" else 2
+                    octal = re.match(r"[0-7]{1," + str(length) + "}", digits)
+                    assert octal is not None
+                    output.append(f"\\x{int(octal[0], 8):02x}")
+                    index += len(octal[0]) - 1
+                else:
+                    output.append(escaped)
+            elif escaped == "c":
+                output.append(r"\\c")
+            else:
+                output.append(_case_literal(escaped) if ignore_case else escaped)
+            continue
+        if not in_class:
+            if char == ".":
+                output.append(r"[\s\S]" if dot_all else r"[^\n\r\u2028\u2029]")
+            elif char == "^":
+                output.append(r"(?:\A|(?<=[\n\r\u2028\u2029]))" if multiline else r"\A")
+            elif char == "$":
+                output.append(r"(?=[\n\r\u2028\u2029]|\Z)" if multiline else r"\Z")
+            elif (
+                char == "+"
+                and output
+                and (
+                    output[-1] in ("*", "+", "?")
+                    or re.search(r"(?<!\\)\{[0-9]+(?:,[0-9]*)?\}$", "".join(output))
+                )
+            ):
+                raise ValueError("Nothing to repeat")
+            else:
+                output.append(_case_literal(char) if ignore_case and char.isalpha() else char)
+        else:
+            output.append(char)
+        index += 1
+    return _utf16_units("".join(output))
+
+
+def _compile_regex(pattern: str) -> _Regex:
     try:
-        return re.compile(converted, re.ASCII)
-    except re.error as exc:
+        converted = _translate_regex(pattern)
+        return _Regex(
+            regex.compile(converted, regex.VERSION0 | regex.ASCII), _regex_groups(pattern)[0]
+        )
+    except (ValueError, regex.error) as exc:
         reason = str(exc)
-        if "unterminated subpattern" in reason:
+        if "missing )" in reason:
             reason = "Unterminated group"
         elif "unterminated character set" in reason:
             reason = "Unterminated character class"
@@ -1063,7 +1447,7 @@ def validate_def(raw: Any, path: str) -> dict[str, Any]:
             definition[key] = normalized
     if step_select is not None:
         definition["step-select"] = step_select
-    return {"def": definition, "issues": iss.list}
+    return {"def": json_value(definition), "issues": iss.list}
 
 
 def default_roots(
@@ -1290,7 +1674,7 @@ def validate_input(
         match = pattern.search(raw)
         if match is None:
             return {"ok": False, "reason": "no-match", "message": "INVALID:no-match"}
-        value = (match.group(1) or "") if pattern.groups else match.group(0)
+        value = (match.group(1) or "") if pattern.groups else (match.group(0) or "")
     if validate:
         try:
             _compile_regex(validate)
