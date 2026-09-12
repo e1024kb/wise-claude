@@ -27,7 +27,7 @@ Source of truth for this page: `plugins/wise/engine/wise_engine/*.py`
 | `/wise-workflow-resume [<run-ulid>]` | Resume a `paused` or `failed` run, or answer a `gated` one, then follow it. |
 | `/wise-workflow-status [<run-ulid>]` | List runs, or show one run and its open gate. |
 | `/wise-workflow-list` | List bundled and user definitions. |
-| `/wise-workflow-create <prompt>` | Infer steps, ask harness/model/effort per step, then validate and save a user definition. |
+| `/wise-workflow-create [--name <name>] <prompt>` | Infer steps, ask harness/model/effort per step, then validate and save a user definition. |
 | `/wise-workflow-remove <name>` | Delete a user definition. Bundled ones are immutable. |
 | `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" <command>` | The engine CLI (see [CLI](#cli)). |
 
