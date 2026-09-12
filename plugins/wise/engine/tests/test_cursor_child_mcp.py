@@ -10,6 +10,7 @@ import pytest
 
 from wise_engine.adapters import cursor
 from wise_engine.adapters.cursor_acp import permission_result, prepare_servers
+from wise_engine.models import catalog_for
 
 ACP = r"""import json,os,subprocess,sys,time
 from pathlib import Path
@@ -94,6 +95,19 @@ def fixture(tmp_path: Path, *, token: str = "secret-fixture") -> tuple[dict, Pat
 
 def records(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("model", [entry["id"] for entry in catalog_for("cursor")])
+async def test_cursor_catalog_models_reach_both_transports(tmp_path: Path, model: str) -> None:
+    req, executable, capture = fixture(tmp_path)
+    req["model"] = model
+    argv = cursor.build_argv(req)
+    assert argv[argv.index("--model") + 1] == model
+    handle = await cursor.start_cursor(req, lambda _: None, bin=str(executable))
+    assert (await handle.done)["exit"] == "ok"
+    argv = records(capture)[0]["argv"]
+    assert argv[argv.index("--model") + 1] == model
 
 
 @pytest.mark.anyio
