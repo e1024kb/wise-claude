@@ -75,7 +75,7 @@ below.
 | `/wise-skills-create <skill-name>` | Scaffold a new action or reference skill via Claude Code's `skill-creator`. Marketplace-repo only. |
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |
-| `/wise-workflow-create <name>` | Wizard to scaffold a new user workflow. |
+| `/wise-workflow-create <prompt>` | Infer steps from a prompt, select harness/model/effort per step, then validate and save. |
 | `/wise-workflow-run [<workflow-name>]` | Start a workflow run on the wise engine. The main conversation is the conductor: pre-flight questions, run context, one line per event, gates. |
 | `/wise-workflow-resume [<run-ulid>]` | Resume a paused or failed engine run, or answer a gated one, then follow it. |
 | `/wise-workflow-status [<run-ulid>]` | List engine runs, or show one run and its open gate. |

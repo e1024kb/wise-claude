@@ -47,7 +47,8 @@ Current actions (all standalone):
 - `/wise-skills-create` — scaffold a new action skill via `skill-creator`.
 - `/wise-skills-edit` — modify an existing action skill via `skill-creator`.
 - `/wise-workflow-list` — list bundled + user workflow definitions.
-- `/wise-workflow-create` — wizard to scaffold a new user workflow.
+- `/wise-workflow-create [--name <name>] <prompt>` - infer workflow steps,
+  select harness/model/effort per step through GUI/TUI, then validate and save.
 - `/wise-workflow-run` - start a run on the wise engine: pre-flight
   questions, run context, one line per event, gates (this conversation
   is a thin conductor over the `wise_*` MCP tools).

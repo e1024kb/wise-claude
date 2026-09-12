@@ -126,7 +126,7 @@ Print the discovered skills grouped by shape. Use this structure:
   - `/wise-workflow-resume [<run-ulid>]` — Resume a paused run.
   - `/wise-workflow-status [<run-ulid>]` — Show runs or dump one.
   - `/wise-workflow-list` — List available workflows.
-  - `/wise-workflow-create <name>` — Scaffold a new workflow.
+  - `/wise-workflow-create [--name <name>] <prompt>` - Infer steps, select harness/model/effort per step through GUI/TUI, then validate and save.
   - `/wise-workflow-remove <name>` — Delete a user workflow.
   - `/wise-skills-create <skill-name>` — Scaffold a new skill.
   - `/wise-skills-edit <skill-name>` — Edit an existing skill.
