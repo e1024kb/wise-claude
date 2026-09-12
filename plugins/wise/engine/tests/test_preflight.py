@@ -357,6 +357,10 @@ def test_all_bundled_enum_inputs_are_choices():
             dict(harness="claude", model="claude-opus-5", effort="high"),
         ),
         ({"harness.analyze-design": "grok"}, dict(harness="grok", model="grok-4.6")),
+        (
+            {"harness.analyze-design": "cursor"},
+            dict(harness="cursor", model="cursor-grok-4.6-high"),
+        ),
         ({"harness.analyze-design": "gemini"}, dict(harness="gemini", model="gemini-3.8-flash")),
         (
             {"model.analyze-design": "claude-sonnet-5"},

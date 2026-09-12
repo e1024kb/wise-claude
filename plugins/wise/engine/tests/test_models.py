@@ -29,4 +29,9 @@ def test_alias_and_effort_boundaries():
     assert default_effort({"efforts": ["medium", "xhigh"]}, "high") == "medium"
     assert default_effort({"efforts": ["medium", "xhigh"]}, "low") == "medium"
     assert default_effort({"efforts": ["medium", "xhigh"]}, "bogus") == "medium"
-    assert [entry["id"] for entry in catalog_for("cursor")] == ["grok-4.6", "composer-2.5"]
+    assert [entry["id"] for entry in catalog_for("cursor")] == [
+        "cursor-grok-4.6-high",
+        "composer-2.5",
+    ]
+    assert catalog_model("cursor", "grok-4.6") is None
+    assert catalog_model("grok", "grok-4.6")["id"] == "grok-4.6"
