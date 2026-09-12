@@ -66,7 +66,7 @@ MODEL_CATALOG: dict[str, Any] = {
     "cursor": [
         {
             "id": "cursor-grok-4.6-high",
-            "label": "Cursor Grok 4.6",
+            "label": "Cursor Grok 4.6 High",
             "description": "Cursor's frontier model for complex agentic work",
             "efforts": [],
         },
