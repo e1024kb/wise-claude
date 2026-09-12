@@ -35,6 +35,8 @@ Treat the entire `$ARGUMENTS` string as the workflow's free-form description,
 not the first word as a name. Support an optional leading `--name <name>`;
 validate that explicit name against `^[a-z][a-z0-9]*(-[a-z0-9]+)*$` before
 any work, and reject a missing or invalid flag value without re-prompting.
+Reject engine-reserved explicit names (`list`, `create`, `run`, `resume`,
+`remove`, `status`), including legacy lone names, without re-prompting.
 For compatibility, a lone valid slug is a name and uses the workflow description
 already given in the conversation. With empty arguments, use the workflow request
 in the conversation. Only if no workflow intent is available, ask once for a
@@ -49,7 +51,8 @@ then read canonical roots and existing definitions:
 ```
 
 Derive a short valid name from the prompt unless explicitly supplied. If a derived
-name collides, append the first available numeric suffix starting at `-2`.
+name is reserved or collides, append the first available numeric suffix starting
+at `-2`, skipping reserved and existing names.
 Reject an explicitly supplied existing name. Check both roots, including flat
 `<name>.yaml` and folder `<name>/workflow.yaml` forms. Never overwrite.
 
@@ -167,7 +170,7 @@ rewrite the input rule.
 
 Show the exact destination and files, then save automatically after all required
 tuning answers are received. Do not ask Create/Keep editing or another
-confirmation. Recheck collisions, make the folder, write `workflow.yaml`
+confirmation. Recheck reserved names and collisions, make the folder, write `workflow.yaml`
 and `README.md`, and compile the final path. If validation fails, fix
 only the generated files and rerun it. Do not report success while the
 final definition is invalid.
