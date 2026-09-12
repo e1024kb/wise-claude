@@ -27,7 +27,7 @@ Source of truth for this page: `plugins/wise/engine/wise_engine/*.py`
 | `/wise-workflow-resume [<run-ulid>]` | Resume a `paused` or `failed` run, or answer a `gated` one, then follow it. |
 | `/wise-workflow-status [<run-ulid>]` | List runs, or show one run and its open gate. |
 | `/wise-workflow-list` | List bundled and user definitions. |
-| `/wise-workflow-create <name>` | Wizard that writes a user definition. |
+| `/wise-workflow-create <prompt>` | Infer steps, ask harness/model/effort per step, then validate and save a user definition. |
 | `/wise-workflow-remove <name>` | Delete a user definition. Bundled ones are immutable. |
 | `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" <command>` | The engine CLI (see [CLI](#cli)). |
 
@@ -1002,8 +1002,25 @@ codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
 
 ## Authoring
 
-1. `mkdir <user root>/<name>` and write `workflow.yaml` (or run
-   `/wise-workflow-create <name>`).
+`/wise-workflow-create <free-form prompt>` automatically derives the name,
+settings, steps and dependencies. For example,
+`/wise-workflow-create Review the current branch, fix findings, and run tests`
+drafts those steps, then asks harness, model and supported effort for each model
+step in order. These questions MUST use the host's GUI/TUI single-choice
+pickers, just like predefined workflow preflight, with selectable options. If no
+permitted picker is available, authoring stops without saving; typed chat answers
+are not a fallback. Non-model steps need no tuning. Models without effort controls
+omit effort. Use `--name <name> <prompt>` to supply a name; the legacy lone name
+uses the workflow description from the conversation.
+
+After those selections, the skill validates and saves `workflow.yaml` and
+`README.md` in the user definition root without further authoring questions.
+Bundled storage requires an explicit request. Runtime inputs and provider
+permissions remain run preflight questions; creation never starts a run.
+
+To author a definition manually:
+
+1. `mkdir <user root>/<name>` and write `workflow.yaml`.
 2. `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" compile-check <path>`
    until it prints no errors. Warnings (`until`, `group` on a bash
    step, unknown keys) are allowed but mean something is ignored.

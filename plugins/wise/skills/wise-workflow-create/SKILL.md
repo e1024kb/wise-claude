@@ -1,18 +1,13 @@
 ---
 name: wise-workflow-create
 description: >-
-  Scaffold a new workflow through a step-by-step wizard — collects name,
-  description, control mode, inputs, provider tuning, and
-  steps (id, type, type-specific fields, dependencies), previews the
-  generated YAML + README, and writes on confirmation. Writes to
-  `the engine-selected user definition directory<name>/` by default, or
-  offers the bundled `plugins/wise/workflows/<name>/` path when run
-  inside a clone of the marketplace repo. Invoked as
-  `/wise-workflow-create` (bare alias) or `/wise:wise-workflow-create`
-  (canonical). Use when the user says "create a workflow", "scaffold a
-  workflow", "new workflow", "author a workflow", or types
-  `/wise-workflow-create`.
-argument-hint: "<name>"
+  Create a workflow from a free-form prompt. Automatically infer its name,
+  settings, steps and dependencies, then ask for harness, model and effort
+  for each model-executing step in sequence. Validate and save YAML + README
+  without additional authoring questions. Use when the user says "create a
+  workflow", "scaffold a workflow", "new workflow", "author a workflow", or
+  invokes `/wise-workflow-create` or `/wise:wise-workflow-create`.
+argument-hint: "[<workflow prompt> | --name <name> <workflow prompt>]"
 allowed-tools: Read, Write, AskUserQuestion, Bash(mkdir:*), Bash(test:*), Bash(bash:*), Bash(pwd:*), Bash(dirname:*), Bash(python3:*), Bash(${WISE_PLUGIN_ROOT}/scripts/init-registry.py:*)
 ---
 
@@ -34,7 +29,16 @@ Create `version: 2` definitions for the Python engine. Use the host's
 structured picker for choices and text inputs. Keep accepted answers
 across stages; never create v1 `prompt`, `loop`, or `interactive` steps.
 
-## 1. Resolve the destination
+## 1. Read the prompt and resolve the destination
+
+Treat the entire `$ARGUMENTS` string as the workflow's free-form description,
+not the first word as a name. Support an optional leading `--name <name>`;
+validate that explicit name against `^[a-z][a-z0-9]*(-[a-z0-9]+)*$` before
+any work, and reject a missing or invalid flag value without re-prompting.
+For compatibility, a lone valid slug is a name and uses the workflow description
+already given in the conversation. With empty arguments, use the workflow request
+in the conversation. Only if no workflow intent is available, ask once for a
+free-form description. Do not ask the user to split it into steps.
 
 Run the init check in `${WISE_PLUGIN_ROOT}/references/init-check.md`,
 then read canonical roots and existing definitions:
@@ -44,80 +48,106 @@ then read canonical roots and existing definitions:
 "$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs
 ```
 
-The first argument is the workflow name. Ask for it if absent; require
-`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. Reject an existing name in either root,
-including flat `<name>.yaml` and folder `<name>/workflow.yaml` forms.
-Never overwrite an existing definition.
+Derive a short valid name from the prompt unless explicitly supplied. If a derived
+name collides, append the first available numeric suffix starting at `-2`.
+Reject an explicitly supplied existing name. Check both roots, including flat
+`<name>.yaml` and folder `<name>/workflow.yaml` forms. Never overwrite.
 
-Default destination: `<user_root>/<name>/workflow.yaml`. When cwd is
-inside a marketplace clone containing both `.claude-plugin/marketplace.json`
-and `plugins/wise/.claude-plugin/plugin.json`, offer User (private) or
-Bundled (tracked in that clone). Use `<repo>/plugins/wise/workflows/<name>/`
-only after the user chooses Bundled. A plugin cache is not a repository
+Default destination: `<user_root>/<name>/workflow.yaml`, including inside a
+marketplace clone. Do not ask for a destination. Use
+`<repo>/plugins/wise/workflows/<name>/` only when the user explicitly requests a
+bundled workflow and the clone contains `.claude-plugin/marketplace.json` and
+`plugins/wise/.claude-plugin/plugin.json`. A plugin cache is not a repository
 authoring destination. Recheck the chosen target before writing.
 
-## 2. Collect workflow settings
+## 2. Automatically draft the workflow
 
-Ask for a short description, then control mode: leave the runner to
-choose, pin `interactive`, or pin `synchronous`. Interactive workflows
-pause at approval/question gates. Synchronous workflows auto-approve
-approval steps; child questions use supplied decisions or report that
-human input is needed. Do not describe synchronous mode as permission
-bypass. Provider permissions are separate preflight answers.
+Read the canonical v2 schema in `docs/wise/workflows.md` when available in the
+checkout, otherwise the loaded plugin's `engine/wise_engine/defs.py` and bundled
+workflow examples. Infer the description, inputs, step IDs, types, prompts,
+outputs and dependencies from the user's intent. This is the default behavior;
+no opt-in flag or separate planning request is needed.
 
-Ask whether the workflow needs inputs. For each input collect `name`,
-`prompt`, optional `default`, optional `from-context`, and optional
-`validate`/`extract` regexes. Read the canonical schema reference in
-`docs/wise/workflows.md` before using additional fields. Inputs become
-`{{name}}` template values. A missing required answer must remain a
-preflight question, not an invented value.
-For a fixed set of input values made of ASCII letters, digits, underscores or hyphens,
-use a plain anchored alternation such as `^(auto|ask)$` for `validate`; the engine
-emits those values as picker options when no extraction rule is needed. Use text
-for genuinely open-ended inputs and raw content requiring extraction.
-Do not use a general validation regex merely to encode a known literal enum.
+Do not ask for a name, description, control mode, input schema, step count,
+step types, dependencies, tuning groups, or approval of the draft. Preserve
+explicit constraints and choose routine details yourself. Leave control mode
+unset unless requested. Do not infer synchronous auto-approval or permission
+bypass. Required runtime values not supplied by the prompt become workflow
+inputs with clear preflight questions, not invented answers or authoring prompts.
+For literal enums use anchored alternation validation such as `^(auto|ask)$`.
 
-## 3. Collect steps and dependencies
+Split the intent into concrete steps with unique lowercase IDs and sufficient
+prompts to run independently of this authoring conversation. Preserve requested
+order and data flow with `depends_on`; leave unrelated work independent. Use
+`agent` for model work, `bash` for known deterministic commands, `approval` or
+`ask` only for gates required by the requested workflow, and `units` only for a
+supported ticket or plan pipeline. Do not add execution, publishing or other
+side effects beyond the described workflow. Authoring never executes these steps.
 
-Repeat until the user selects Done. Every step has a unique lowercase
-`id`, a description when useful, and one supported type:
+For agent outputs, define the JSON schema and explicit `outputs` properties
+needed downstream. Prefer portable prompts; `skill:` forces Claude and must not
+be combined with another harness. Read `list-agents` through the managed engine
+when composing role instructions. For `units`, inspect bundled `ticket-auto` or
+`impl-plan-auto` for phase bindings and caps instead of inventing fields.
+Use canonical `step-select`, trigger rules and profiles only when needed.
 
-- `agent`: prompt or a referenced prompt file, provider/model/effort or
-  a tuning group, optional timeout and resume policy. For outputs,
-  collect a JSON schema and an explicit `outputs` list of properties.
-  `skill:` is a Claude-specific convenience and must not be offered as
-  portable execution on other providers. Use a plain prompt for a
-  workflow intended to run across providers.
-- `bash`: command, timeout, optional outputs. The first output receives
-  trimmed stdout. Explain the exact command in the final preview.
-- `approval`: message and dependencies. Runtime answers approve/reject.
-- `ask`: message, choices, whether free text is allowed, and output name.
-- `units`: choose the supported `ticket` or `plan` pipeline, items input,
-  parallelism, model-phase tuning groups and caps. Read the current
-  bundled `ticket-auto` or `impl-plan-auto` definition for the exact
-  pipeline shape; do not invent phase fields.
+Show a concise ordered step table with purpose, type and dependencies, then
+proceed directly to tuning. This is an informational preview, not a question.
 
-Offer prior step IDs as `depends_on` choices. Keep independent work
-parallel by leaving unrelated dependencies absent. Choose a trigger
-rule only where needed: `all-success` (default), `one-success`,
-`all-done`, `none-failed`, or `none-failed-min-one-success`. `when` is
-an expression or supported list of expressions evaluated by the engine.
-Never write a cycle or a dependency on an unknown step.
+## 3. Select harness, model and effort for each step
 
-For model steps, ask whether shared tuning groups are useful. Read
-`"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" models` for catalogs.
-Groups use mapping defaults such as
-`{harness: codex, model: inherit, effort: medium}`. Keep harness/model
-choices available at run preflight unless the author explicitly pins
-them. Provider permission choices remain explicit runtime questions.
-Read `engine/engine.sh list-agents` for role names when composing role
-instructions; do not copy the retired v1 `agents` roster syntax.
+Read the current catalog; never hardcode provider, model or effort options:
 
-Optional steps use the canonical `step-select` block. Resource limits
-use `profiles.<profile>.caps` and referenced cap names. Inspect bundled
-examples and compile rather than copying v1 profile or tuning syntax.
+```bash
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" models
+```
 
-## 4. Preview and validate
+Visit model-executing steps in the displayed order. For each step, complete these
+questions before moving to the next step. Include the step ID and purpose in
+every question:
+
+1. Ask which harness to use, using catalog harnesses.
+2. After that answer arrives, ask which model from that harness's catalog to use.
+   Show model labels and descriptions, and retain the exact model ID.
+3. After that answer arrives, ask which of that model's supported efforts to use.
+   If there are no supported efforts, show "Effort: not supported by this model"
+   and omit `effort`; do not invent an effort option. If only one value exists,
+   still present it for explicit selection.
+
+**MUST: ask every harness, model and effort question through the host's GUI/TUI
+single-choice picker, using the same structured question controls as predefined
+workflow preflight.** Follow the shared question lifecycle and populate the
+actual tool `options` field with selectable catalog values. A chat message,
+numbered prose list, or text-only question with choices in its title does not
+satisfy this rule. Paginate choices when the picker limits option counts.
+
+If no permitted GUI/TUI picker is available, stop authoring and explain that
+structured selection is required. Preserve answers in the conversation, but do
+not fall back to typed chat answers, invent defaults, or save a partial workflow.
+This requirement overrides the shared reference's optional text fallback for
+these authoring questions. An asynchronous display acknowledgement is not an
+answer: keep the question pending until the user submits a selection.
+
+Do not batch
+all harness questions ahead of models and efforts, reuse one step's answers for
+another, or silently accept recommended/preselected defaults. Explicit choices
+already supplied for a particular step count as answers; ask only its missing
+choices. If the user changes a harness or model, discard incompatible dependent
+answers and collect them again. On cancellation stop without saving a partial
+workflow. If the catalog cannot be loaded, report the failure instead of guessing.
+
+Persist selected `harness`, `model` and supported `effort` directly on each
+`agent` step so runtime group defaults cannot replace the author's choices.
+For `units`, collect the same sequence separately for every model phase and
+bind each to its own `locked: true` tuning group with the selected mapping
+under `default`; do not share groups across steps or phases by default.
+For `bash`, `approval` and `ask`, show tuning as not applicable and skip the
+provider questions because those types do not run models.
+
+Provider permissions and any installation/login requirements remain runtime
+preflight concerns. These authoring selections do not grant execution permission.
+
+## 4. Validate and save
 
 Render complete YAML beginning with `version: 2`, plus a README with
 the purpose, inputs, step table, provider requirements and run command.
@@ -135,8 +165,9 @@ candidate after the preview. Unsupported Unicode case-insensitive
 backreferences must be reported as validation errors; do not silently
 rewrite the input rule.
 
-Show the exact destination and files, then ask Create or Keep editing.
-On Create, recheck collisions, make the folder, write `workflow.yaml`
+Show the exact destination and files, then save automatically after all required
+tuning answers are received. Do not ask Create/Keep editing or another
+confirmation. Recheck collisions, make the folder, write `workflow.yaml`
 and `README.md`, and compile the final path. If validation fails, fix
 only the generated files and rerun it. Do not report success while the
 final definition is invalid.
