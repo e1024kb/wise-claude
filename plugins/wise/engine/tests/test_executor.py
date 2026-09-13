@@ -1272,8 +1272,9 @@ def test_detached_current_resume_checks_setup_commit(tmp_path, saved_head):
         ("new", "#678", "abstract-task-678"),
     ],
 )
+@pytest.mark.parametrize("contaminated_env", [False, True])
 def test_ticket_plan_dispatches_in_validated_selected_checkout(
-    tmp_path, mode, ref, selected_branch
+    tmp_path, mode, ref, selected_branch, contaminated_env, monkeypatch
 ):
     from wise_engine.ledger import update_run
 
@@ -1292,11 +1293,79 @@ def test_ticket_plan_dispatches_in_validated_selected_checkout(
                 "outputs": {"work_branch": branch, "work_path": str(path), "ticket_ref": ref},
             },
         )
+        if contaminated_env:
+            overrides = {
+                "GIT_DIR": str(tmp_path / "unrelated.git"),
+                "GIT_WORK_TREE": str(tmp_path / "unrelated"),
+                "GIT_INDEX_FILE": str(tmp_path / "unrelated-index"),
+            }
+            for name, value in overrides.items():
+                monkeypatch.setenv(name, value)
+            rig.executor.env.update(overrides)
         try:
             await rig.executor.resume(dict(run_id=run_id))
             await rig.status(run_id, "completed")
             assert rig.adapter.calls[0]["cwd"] == str(path)
         finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        ["git", "rev-parse", "--show-toplevel"],
+        ["git", "worktree", "list", "--porcelain"],
+    ],
+)
+@pytest.mark.parametrize("ending", ["complete", "cancel", "task-cancel"])
+def test_ticket_checkout_validation_yields_and_drains(tmp_path, monkeypatch, command, ending):
+    from threading import Event
+
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        rig, run_id = await legacy_ticket_run(tmp_path, inputs={"worktree_mode": "current"})
+        entered, released, timed_out = Event(), Event(), Event()
+        original_run = subprocess.run
+
+        def held_git(args, **kwargs):
+            if args == command:
+                entered.set()
+                if not released.wait(2):
+                    timed_out.set()
+            return original_run(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "run", held_git)
+        lock_path = Path(rig.cwd) / ".git/wise-current-tree.lock"
+        try:
+            await rig.executor.resume(dict(run_id=run_id))
+            live = rig.executor.lives[run_id]
+            await rig.until(entered.is_set)
+            assert not timed_out.is_set()
+            assert not rig.adapter.calls
+            if ending != "complete":
+                rig.executor.cancel(dict(run_id=run_id))
+                if ending == "task-cancel":
+                    for task in list(rig.executor.tasks):
+                        task.cancel()
+                await asyncio.sleep(0)
+                with pytest.raises(RuntimeError, match="another workflow"):
+                    acquire_checkout_lock(lock_path)
+            released.set()
+            await rig.until(lambda: not rig.executor.tasks)
+            if ending == "complete":
+                await rig.status(run_id, "completed")
+                assert rig.adapter.calls[0]["cwd"] == rig.cwd
+            else:
+                assert not rig.adapter.calls
+            assert live.dispatches == 0
+            with acquire_checkout_lock(lock_path):
+                pass
+        finally:
+            released.set()
             await rig.close()
 
     asyncio.run(scenario())

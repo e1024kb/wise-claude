@@ -71,6 +71,7 @@ from .render import render_step, _json
 from .resolve import resolve_model_dict
 from .rpc import RpcError, domain_error
 from .scheduler import next_wave, JS_WHITESPACE
+from .spawn import clean_env
 from .steps.agent import headline, start_agent_step
 from .steps.bash import start_bash_step
 from .steps.gate import APPROVAL_OPTIONS, build_gate, decide_gate, is_gate_step
@@ -495,6 +496,7 @@ class Executor:
         path = subprocess.check_output(
             ["git", "rev-parse", "--path-format=absolute", "--git-path", "wise-current-tree.lock"],
             cwd=state["cwd"],
+            env=clean_env(parent=self.env),
             text=True,
             stderr=subprocess.PIPE,
             timeout=10,
@@ -509,6 +511,7 @@ class Executor:
             branch = subprocess.check_output(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 cwd=state["cwd"],
+                env=clean_env(parent=self.env),
                 text=True,
                 stderr=subprocess.PIPE,
                 timeout=10,
@@ -519,6 +522,7 @@ class Executor:
                 head = subprocess.check_output(
                     ["git", "rev-parse", "HEAD"],
                     cwd=state["cwd"],
+                    env=clean_env(parent=self.env),
                     text=True,
                     stderr=subprocess.PIPE,
                     timeout=10,
@@ -770,13 +774,18 @@ class Executor:
                     raise RuntimeError(
                         "ticket-plan: setup checkout does not match the selected tree"
                     )
-                branch = subprocess.run(
-                    ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
-                    cwd=path,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+                draining = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        subprocess.run,
+                        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+                        cwd=path,
+                        env=clean_env(parent=self.env),
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
                 )
+                branch = await asyncio.shield(draining)
                 if branch.returncode or branch.stdout.strip() != fresh["outputs"].get(
                     "work_branch"
                 ):
@@ -784,24 +793,30 @@ class Executor:
                         "ticket-plan: implementation requires the named branch selected at setup; "
                         "start a new run with branch_mode=auto or choose a named branch in ask mode"
                     )
-                root = Path(
-                    subprocess.check_output(
+                draining = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        subprocess.check_output,
                         ["git", "rev-parse", "--show-toplevel"],
                         cwd=selected,
-                        text=True,
-                        stderr=subprocess.PIPE,
-                        timeout=10,
-                    ).strip()
-                ).resolve()
-                registered = parse_worktrees(
-                    subprocess.check_output(
-                        ["git", "worktree", "list", "--porcelain"],
-                        cwd=source,
+                        env=clean_env(parent=self.env),
                         text=True,
                         stderr=subprocess.PIPE,
                         timeout=10,
                     )
                 )
+                root = Path((await asyncio.shield(draining)).strip()).resolve()
+                draining = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        subprocess.check_output,
+                        ["git", "worktree", "list", "--porcelain"],
+                        cwd=source,
+                        env=clean_env(parent=self.env),
+                        text=True,
+                        stderr=subprocess.PIPE,
+                        timeout=10,
+                    )
+                )
+                registered = parse_worktrees(await asyncio.shield(draining))
                 if (
                     (mode == "new" and root != selected)
                     or not any(
@@ -815,6 +830,8 @@ class Executor:
                         "ticket-plan: selected checkout is not registered on its expected branch"
                     )
                 step_cwd = str(selected)
+                if not self.current(live, step_id, step_run_id):
+                    return
             event = dict(type="step.started", step=step_id)
             if definition.get("description"):
                 event["message"] = headline(definition["description"])
