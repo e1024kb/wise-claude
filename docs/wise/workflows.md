@@ -672,8 +672,9 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 `composer-2.5` (no effort flag); grok `grok-4.6`; gemini
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-The conductor requests `interactive: true`, so the MCP server renders
-one question at a time through the host's form UI. Every fresh preflight starts
+The conductor uses its native structured picker when available, or requests
+`interactive: true` so the MCP server renders one question at a time through the
+host's form UI. Every fresh preflight starts
 by asking whether changes belong in the current checkout or a separate worktree.
 The conductor in the main harness owns every prompt; child harnesses and agents
 can only request that it ask on their behalf.
@@ -690,6 +691,9 @@ or an explicitly allowed custom answer. Strict literal input enums such as
 `^(auto|ask)$` without extraction become choice questions; general validation
 patterns and extracted inputs stay text. Optional enums retain a clickable
 `Leave unset` choice.
+MCP multi-select forms encode each option as a required boolean field and map the
+accepted booleans back to the engine's string array. This works in clients that
+do not render MCP array-enum fields.
 An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
 turn may dismiss the pending form. If no persistent picker is available, use

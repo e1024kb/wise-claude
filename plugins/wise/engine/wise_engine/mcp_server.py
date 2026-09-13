@@ -248,14 +248,25 @@ def _normalize(value: Any, schema: dict[str, Any]) -> Any:
 
 def question_form_schema(question: Mapping[str, Any]) -> dict[str, Any]:
     options = question.get("options") or []
+    if question["kind"] == "multi" and options:
+        selected = set(question.get("default") or [])
+        properties = {
+            f"{question['id']}.{index}": {
+                "type": "boolean",
+                "title": item["label"],
+                **({"description": item["description"]} if item.get("description") else {}),
+                "default": item["value"] in selected,
+            }
+            for index, item in enumerate(options)
+        }
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties),
+        }
     prop: dict[str, Any] = {"type": "string", "title": question["label"]}
     if question["kind"] == "choice" and options:
         prop["oneOf"] = [{"const": item["value"], "title": item["label"]} for item in options]
-    elif question["kind"] == "multi" and options:
-        prop["type"] = "array"
-        prop["items"] = {
-            "anyOf": [{"const": item["value"], "title": item["label"]} for item in options]
-        }
     elif not question.get("optional"):
         prop["minLength"] = 1
     if options and question["kind"] in ("choice", "multi"):
@@ -265,9 +276,7 @@ def question_form_schema(question: Mapping[str, Any]) -> dict[str, Any]:
         if notes:
             prop["description"] = "\n".join(notes)
     default = question.get("default")
-    if (prop["type"] == "string" and isinstance(default, str)) or (
-        prop["type"] == "array" and isinstance(default, list)
-    ):
+    if isinstance(default, str):
         prop["default"] = default
     key = question["id"]
     return {"type": "object", "properties": {key: prop}, "required": [key]}
@@ -278,6 +287,15 @@ def _accepted_answer(question: Mapping[str, Any], content: Mapping[str, Any]) ->
     options = question.get("options") or []
     allowed = {item["value"] for item in options}
     if question["kind"] == "multi":
+        if options and value is None:
+            fields = [content.get(f"{question['id']}.{index}") for index in range(len(options))]
+            if not all(isinstance(item, bool) for item in fields):
+                return None
+            return [
+                option["value"]
+                for option, selected in zip(options, fields, strict=True)
+                if selected
+            ]
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             return None
         return None if allowed and any(item not in allowed for item in value) else value

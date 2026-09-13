@@ -373,7 +373,12 @@ async def test_interactive_preflight_collects_real_staged_answers() -> None:
 
     async def elicit(ctx: Any, params: Any) -> ElicitResult:
         forms.append(params.requested_schema)
-        identifier = params.requested_schema["required"][0]
+        identifier = questions[len(forms) - 1]["id"]
+        if identifier == "step-select":
+            return ElicitResult(
+                action="accept",
+                content={key: key.endswith(".1") for key in params.requested_schema["required"]},
+            )
         return ElicitResult(
             action="accept",
             content={

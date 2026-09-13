@@ -108,7 +108,8 @@ model question is not asked is when the engine did not return it
 (one CLI installed, a one-model catalog, a one-effort model). `wise_run`
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
-Prefer MCP form elicitation, then the host's native picker. Follow the
+Prefer the main harness's available native structured picker, then MCP form
+elicitation. Follow the
 [asynchronous question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open):
 a display acknowledgement is not an answer; keep the turn active while that
 question is pending, without sending a final response that dismisses it.
@@ -122,6 +123,11 @@ answer unless the user explicitly selected that mode for both providers.
 Render `choice` questions with options and `multi` questions with native
 multi-select or the shared clickable Include/Exclude sequence. Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
+Codex Desktop currently advertises MCP elicitation but can immediately decline
+standard forms without rendering them, so use its native inline picker when that
+control is available. An unrendered automatic decline is a failed transport
+route, not a user cancellation. Codex CLI does not render MCP array-enum fields;
+current Wise versions encode MCP multi-select as required boolean fields instead.
 In the explicit
 CLI fallback, use `wise-engine preflight <workflow> --interactive`; it preserves
 the labels, descriptions, values and staged order without starting the run.

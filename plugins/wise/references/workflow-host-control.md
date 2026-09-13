@@ -99,7 +99,13 @@ or restart the host and verify that only the managed Wise server remains.
 - Codex: `codex mcp get wise-engine --json` reads config, not connectivity. The
   native app-server can initialize, list MCP tools and call a selected tool with
   no model turn. Direct app-server tool calls may decline elicitation; do not
-  count that control route as proof of a picker. Reconnect the host session after
+  count that control route as proof of a picker. Codex Desktop can also advertise
+  elicitation in a model-driven turn but immediately return `decline` without
+  rendering a form. Prefer the Desktop main harness's native inline picker when
+  it is available. Treat an observed unrendered automatic decline as an unusable
+  transport route, not as a user decision. Codex CLI currently drops MCP
+  array-enum fields, so Wise encodes each multi-select option as a required
+  boolean form field. Reconnect the host session after
   registration changes, or use its supported MCP reload control and verify again.
 - Cursor: the tested CLI requires native server approval as well as registration.
   During authorized init, run `cursor-agent mcp enable wise-engine`, then
@@ -117,9 +123,9 @@ or restart the host and verify that only the managed Wise server remains.
   native MCP controls; `r` refreshes config in the TUI. A healthy doctor result
   does not prove the conversational picker.
 
-Prefer supported MCP form elicitation. Otherwise render the engine's current
-questionary with the host's native structured picker. If that host cannot provide
-one, use the terminal TUI:
+Prefer a structured picker owned by the main harness when one is available in
+the current client and mode. Otherwise use supported MCP form elicitation. If
+neither route is usable, use the terminal TUI:
 
 ```bash
 "$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" \

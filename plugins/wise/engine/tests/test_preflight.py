@@ -327,6 +327,42 @@ def test_choice_defaults_only_use_selectable_values():
     )
 
 
+def test_multi_form_uses_boolean_fields_for_broad_host_support():
+    question = {
+        "id": "step-select",
+        "kind": "multi",
+        "label": "Which passes should run?",
+        "options": [
+            {"value": "review", "label": "Review", "description": "Check the change"},
+            {"value": "verify", "label": "Verify"},
+        ],
+        "default": ["verify"],
+    }
+
+    assert question_form_schema(question) == {
+        "type": "object",
+        "properties": {
+            "step-select.0": {
+                "type": "boolean",
+                "title": "Review",
+                "description": "Check the change",
+                "default": False,
+            },
+            "step-select.1": {
+                "type": "boolean",
+                "title": "Verify",
+                "default": True,
+            },
+        },
+        "required": ["step-select.0", "step-select.1"],
+    }
+    assert _accepted_answer(
+        question,
+        {"step-select.0": True, "step-select.1": False},
+    ) == ["review"]
+    assert _accepted_answer(question, {"step-select.0": True}) is None
+
+
 def test_all_bundled_enum_inputs_are_choices():
     workflows = [
         ROOT / "workflows/ticket-plan/workflow.yaml",

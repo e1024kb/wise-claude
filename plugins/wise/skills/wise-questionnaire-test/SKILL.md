@@ -73,12 +73,11 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
    `code-review` definition using `list-defs` when needed; a user override is
    `WORKFLOW_SHADOWED`, not evidence about the bundled smoke test.
 
-4. Collect real user answers through the first usable route:
+4. Collect real user answers through the first usable route. Prefer a structured
+   input tool owned by the main harness when one is available in the current
+   client and mode, then use MCP forms, then a user-operable terminal TUI:
 
-   - **MCP form:** call `wise_preflight` with the same workflow/cwd, empty
-     answers and `interactive: true`. Let its forms own staged collection.
-   - **Native picker:** on `INTERACTIVE_UI_REQUIRED`, or if the MCP tool is
-     absent but CLI inspection works, render the current engine questions with
+   - **Native picker:** render the current engine questions with
      the host's supported structured input tool. Populate its actual options
      field. Process `worktree` first, then `step-select` and inputs, then the
      returned harness, permission, model and effort stages. Re-call
@@ -88,6 +87,15 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
      Free text belongs in a native text field. Honor each input tool's rules
      for permission questions; choose another permitted structured route when
      necessary. Do not rename a permission question to evade a restriction.
+   - **MCP form:** when no native structured input tool is available, call
+     `wise_preflight` with the same workflow/cwd, empty answers and
+     `interactive: true`. Let its forms own staged collection. Codex Desktop can
+     advertise elicitation but immediately return `decline` without rendering a
+     form. When live UI evidence shows no form appeared, record
+     `INTERACTIVE_UI_REQUIRED` and continue to a user-operable TUI. Do not report
+     that transport failure as a user cancellation. A visible decline or cancel
+     remains terminal. Current Wise MCP forms represent multi-select options as
+     required boolean fields because Codex CLI drops array-enum fields.
    - **Terminal TUI:** when no permitted persistent native control covers the
      next question, use the host-selected stable launcher in a terminal the
      user can actually operate:
