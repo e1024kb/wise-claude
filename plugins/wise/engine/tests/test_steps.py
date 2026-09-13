@@ -121,6 +121,8 @@ def test_project_system_prompt_loads_both_instruction_formats_and_requires_inher
         < prompt.index("claude child")
     )
     assert "pass this entire contract" in prompt
+    assert "The main harness conductor owns every user interaction" in prompt
+    assert "request it through `wise_ask`" in prompt
     assert "same recursively" in prompt
 
 

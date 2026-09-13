@@ -47,6 +47,8 @@ Current actions (all standalone):
 - `/wise-skills-create` — scaffold a new action skill via `skill-creator`.
 - `/wise-skills-edit` — modify an existing action skill via `skill-creator`.
 - `/wise-workflow-list` — list bundled + user workflow definitions.
+- `/wise-questionnaire-test [<workflow-name>]` - smoke-test native GUI/TUI
+  preflight and its answer contract without starting a workflow.
 - `/wise-workflow-create [--name <name>] <prompt>` - infer workflow steps,
   select harness/model/effort per step through GUI/TUI, then validate and save.
 - `/wise-workflow-run` - start a run on the wise engine: pre-flight
@@ -240,6 +242,7 @@ plugins/wise/
     ├── wise-workflow-remove/SKILL.md
     ├── wise-prd-architect/           # model-invoked PRD authoring (SKILL.md + agents/ + references/)
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
+    ├── wise-questionnaire-test/SKILL.md # preflight-only native GUI/TUI smoke test
     ├── wise-feedback/SKILL.md       # file a feedback issue
     ├── wise-profile/SKILL.md        # session token-budget profile (low|medium|max; budget only, never correctness)
     ├── wise-fork/SKILL.md           # reorient a forked session (context = background; pre-fork work dropped)

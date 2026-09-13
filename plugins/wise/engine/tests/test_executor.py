@@ -19,6 +19,7 @@ from wise_engine.executor import (
     detect_project,
     load_caps,
     workflow_branch_component,
+    workflow_manages_worktrees,
 )
 from wise_engine.ledger import read_state, read_events, utc_now, usage_total
 from wise_engine.preflight import build_questionary, fill_answers
@@ -175,6 +176,18 @@ def test_workflow_branch_component_is_git_ref_safe_and_bounded():
     assert workflow_branch_component("team plan: review") == "team-plan-review"
     assert workflow_branch_component(":::") == "workflow"
     assert len(workflow_branch_component("a" * 200)) == 80
+
+
+def test_only_enabled_units_steps_manage_worktrees():
+    definition = {
+        "inputs": [],
+        "steps": [
+            {"id": "prepare", "type": "agent"},
+            {"id": "batch", "type": "units"},
+        ],
+    }
+    assert not workflow_manages_worktrees(definition, {"prepare"})
+    assert workflow_manages_worktrees(definition, {"prepare", "batch"})
 
 
 def test_preflight_strict_answers_and_errors(tmp_path):
@@ -346,6 +359,44 @@ def test_invalid_worktree_answer_never_falls_back_to_default(tmp_path, answers):
     asyncio.run(scenario())
 
 
+def test_invalid_input_retry_preserves_context_default(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "retry-definitions"
+        definitions.mkdir()
+        (definitions / "retry.yaml").write_text(
+            "version: 2\n"
+            "name: retry\n"
+            "inputs:\n"
+            "  - name: mode\n"
+            "    prompt: Mode?\n"
+            "    from-context: guidance\n"
+            "    validate: '^(small|large)$'\n"
+            "steps:\n"
+            "  - id: verify\n"
+            "    type: bash\n"
+            "    run: 'true'\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "retry",
+                        "cwd": rig.cwd,
+                        "answers": {"worktree": "current", "input.mode": "invalid"},
+                        "context": {"guidance": "small"},
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["questions"][0]["default"] == "small"
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 def test_shared_worktree_answer_reaches_workflow_managed_input(tmp_path):
     async def scenario():
         rig = Rig(tmp_path)
@@ -366,7 +417,9 @@ def test_shared_worktree_answer_reaches_workflow_managed_input(tmp_path):
         )
         rig.executor.roots["user_root"] = str(definitions)
         try:
-            run = await rig.conduct("managed", answers={"worktree": "new"})
+            run = await rig.conduct(
+                "managed", answers={"worktree": "new"}, inputs={"worktree_mode": "current"}
+            )
             state = await rig.status(run["run_id"], "completed")
             assert state["inputs"]["worktree_mode"] == "new"
             assert state["cwd"] == rig.cwd

@@ -316,14 +316,18 @@ async def _preflight(
     if refresh is not None:
         refresh()
     answers = dict(args.get("answers", {}))
+    context = dict(args.get("context", {}))
     for _ in range(256):
         result = await call(
             "preflight",
-            {"workflow": args["workflow"], "cwd": args["cwd"], "answers": answers.copy()},
+            {
+                "workflow": args["workflow"],
+                "cwd": args["cwd"],
+                "answers": answers.copy(),
+                "context": context,
+            },
         )
-        questions = [
-            q for q in result["questions"] if not q.get("locked") and q["id"] not in answers
-        ]
+        questions = [q for q in result["questions"] if not q.get("locked")]
         if result["requires_missing"] or not questions:
             return ok_result({**result, "questions": [], "answers": answers})
         question = questions[0]

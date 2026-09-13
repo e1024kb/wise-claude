@@ -130,7 +130,14 @@ async def fake(monkeypatch):
                 if method in state.fail:
                     raise state.fail[method]
                 if method == "preflight":
-                    return state.preflight
+                    result = copy.deepcopy(state.preflight)
+                    answers = params.get("answers", {})
+                    result["questions"] = [
+                        question
+                        for question in result["questions"]
+                        if question.get("locked") or question["id"] not in answers
+                    ]
+                    return result
                 if method == "run":
                     return {"run_id": "01RUN", "status": "running"}
                 if method == "wait":
@@ -243,6 +250,43 @@ async def test_interactive_preflight_tui_returns_answers_without_starting_run(fa
     }
     assert all(call["context"] == {"guidance": "brief"} for call in fake.method("preflight"))
     assert not fake.method("run")
+
+
+async def test_interactive_preflight_reasks_invalid_existing_answer() -> None:
+    calls = []
+
+    class Client:
+        async def call(self, method, params):
+            calls.append(copy.deepcopy(params))
+            questions = (
+                [
+                    {
+                        "id": "worktree",
+                        "kind": "choice",
+                        "label": "Where should changes be made?",
+                        "options": [
+                            {"value": "current", "label": "Current checkout"},
+                            {"value": "new", "label": "Separate worktree"},
+                        ],
+                    }
+                ]
+                if params["answers"].get("worktree") == "invalid"
+                else []
+            )
+            return {"workflow": "wf", "questions": questions, "requires_missing": []}
+
+    errors = []
+    result = await cli.collect_interactive_answers(
+        Client(),
+        "wf",
+        "/project",
+        {"worktree": "invalid"},
+        {},
+        cli.LineSource(io.StringIO("2\n")),
+        SimpleNamespace(err=errors.append),
+    )
+    assert result["answers"]["worktree"] == "new"
+    assert [call["answers"]["worktree"] for call in calls] == ["invalid", "new"]
 
 
 async def test_answers_inputs_defaults_and_staged_preflight(fake):

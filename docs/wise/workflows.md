@@ -627,7 +627,7 @@ Children in flight are capped globally and per harness: global 4,
 
 ## Pre-flight questionary
 
-`wise_preflight {workflow, cwd, answers?, interactive?}` returns
+`wise_preflight {workflow, cwd, answers?, context?, interactive?}` returns
 `{workflow, version, questions, defaults, requires_missing}`. With
 UI mode is the default. With `interactive: true`, the MCP server presents every question through the
 host's form elicitation UI and returns `questions: []` plus `answers`.
@@ -638,6 +638,7 @@ empty. An answered question is never repeated.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|
+| `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `choice` for strict literal enums without extraction; otherwise `text` | enum values, plus `Leave unset` for optional enums; none for text | context value, else `default`, else empty when optional |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
@@ -645,8 +646,8 @@ empty. An answered question is never repeated.
 | `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/wise_engine/models.py`) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
-`step-select` and `input.<name>` are stage-free and come on the first
-call. The tuning stages wait for the `step-select` answer (which steps
+`worktree` is always the first question. `step-select` and `input.<name>` follow
+after it. The tuning stages wait for the `step-select` answer (which steps
 run decides which groups matter) and are asked only for the groups a
 step that will run binds (`group:` on an agent step, a `units` phase).
 A step will run when `step-select` keeps it and its `when:` is not
@@ -674,6 +675,8 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 The conductor requests `interactive: true`, so the MCP server renders
 one question at a time through the host's form UI. Every fresh preflight starts
 by asking whether changes belong in the current checkout or a separate worktree.
+The conductor in the main harness owns every prompt; child harnesses and agents
+can only request that it ask on their behalf.
 A host without MCP form support may use its native structured picker against the raw
 questionary. `choice` questions use single-select controls; `multi` questions use
 native multi-select or a sequence of clickable Include/Exclude choices when the
@@ -690,7 +693,8 @@ patterns and extracted inputs stay text. Optional enums retain a clickable
 An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
 turn may dismiss the pending form. If no persistent picker is available, use
-`wise-engine preflight <workflow> --interactive`; the terminal TUI returns the
+`wise-engine preflight <workflow> --interactive` in a terminal owned by the main
+harness; the terminal TUI returns the
 collected answers without starting a run. Raw preflight questions are never
 rendered as ordinary chat prompts. See the
 [host question lifecycle](../../plugins/wise/references/workflow-host-control.md#keep-asynchronous-questions-open).
@@ -699,9 +703,9 @@ The terminal client also provides an integrated start-and-follow TUI with
 questions and inputs filled positionally are skipped. The conductor
 then calls `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
 the same staged questionary over the answers it was given and refuses
-with `MISSING_ANSWERS` (listing the open questions) when any
-`step-select`, `harness.<group>`, `permissions.<harness>`, `model.<group>` or `effort.<group>`
-question was left unanswered, or a required input has no value; the
+with `MISSING_ANSWERS` (listing the open questions) when any `worktree`,
+`step-select`, `input.<name>`, `harness.<group>`, `permissions.<harness>`,
+`model.<group>` or `effort.<group>` question was left unanswered; the
 engine never fills a tuning stage with its default on the conductor's
 behalf. The CLI's `run` fills defaults itself before calling the
 daemon, for scripted use. Answers, per-provider permission floors, inputs,
@@ -777,6 +781,10 @@ value}`; `value` is the option value, free text when `allow_text`, or a
 string array for multi. `GATE_STALE`: the gate closed, wait again. A
 child `wise_ask` opens an `ask` gate the same way; the answer is
 delivered to the child as a tool result (and as a nudge on Claude).
+The main harness conductor owns every user interaction. Child harnesses and
+nested agents never open their own GUI, TUI, terminal prompt, or chat
+questionnaire; they route questions through `wise_ask` for the conductor to
+present in the main harness.
 
 ### Stale children
 
@@ -889,9 +897,10 @@ project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
 file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
 New worktree: `<run dir>/worktrees/<branch>`. The shared `worktree` pre-flight
-question supplies `worktree_mode: current | new` to the ticket workflows. `ticket-plan` asks immediately
-before branch handling and returns the selected `work_path` from setup.
-`ticket-auto` asks before ticket intake, which determines branch names. Its
+question supplies `worktree_mode: current | new` to the ticket workflows and is
+asked first for every workflow. Ticket-specific branch handling and units use
+that answer. `ticket-plan` returns the selected `work_path` from setup.
+For `ticket-auto`, ticket intake determines branch names. Its
 `current` mode runs units sequentially in `cwd`, refuses dirty branch switches,
 and retains the checkout and branches even after merge. The default remains
 `current` for ticket-plan and `new` for ticket-auto. Current-tree workflows
@@ -958,7 +967,7 @@ The tool schemas and descriptions are in `engine/wise_engine/mcp_server.py`.
 
 | Tool | Params | Returns |
 |---|---|---|
-| `wise_preflight` | `workflow`, `cwd`, `answers?`, `interactive?` | By default, opens MCP form UI for each question and returns `questions: []` plus `answers`; fails with `INTERACTIVE_UI_REQUIRED` when the host lacks form support. `interactive: false` returns the raw `{workflow, version, questions, defaults, requires_missing}` questionary for API clients. Read-only. |
+| `wise_preflight` | `workflow`, `cwd`, `answers?`, `context?`, `interactive?` | By default, opens MCP form UI for each question and returns `questions: []` plus `answers`; pass conversation context on every staged call so input defaults remain available. Fails with `INTERACTIVE_UI_REQUIRED` when the host lacks form support. `interactive: false` returns the raw `{workflow, version, questions, defaults, requires_missing}` questionary for API clients. Read-only. |
 | `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `AUTH_REQUIRED {login_cmd}`. |
 | `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
 | `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |

@@ -14,6 +14,11 @@
             "type": "string",
             "description": "Absolute path of the target project."
           },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Conversation context used to resolve input defaults while the staged native questionnaire is open."
+          },
           "interactive": {
             "type": "boolean",
             "default": true,

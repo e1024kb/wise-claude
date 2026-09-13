@@ -386,7 +386,14 @@ async def test_interactive_preflight_collects_real_staged_answers() -> None:
     daemon.handlers["preflight"] = preflight
     async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
         result = body(
-            await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
+            await client.call_tool(
+                "wise_preflight",
+                {
+                    "workflow": "flow",
+                    "cwd": "/project",
+                    "context": {"guidance": "keep it small"},
+                },
+            )
         )
     assert result["answers"] == {
         "step-select": ["b"],
@@ -396,6 +403,44 @@ async def test_interactive_preflight_collects_real_staged_answers() -> None:
     assert result["questions"] == []
     assert forms == [question_form_schema(q) for q in questions]
     assert len(daemon.calls) == 4
+    assert all(
+        params["context"] == {"guidance": "keep it small"}
+        for method, params, _ in daemon.calls
+        if method == "preflight"
+    )
+
+
+async def test_interactive_preflight_reasks_invalid_existing_answer() -> None:
+    daemon = FakeDaemon()
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "version": 2,
+            "questions": (
+                [question("worktree")] if params["answers"].get("worktree") == "invalid" else []
+            ),
+            "defaults": {"worktree": "a"},
+            "requires_missing": [],
+        }
+
+    async def elicit(ctx: Any, params: Any) -> ElicitResult:
+        return ElicitResult(action="accept", content={"worktree": "b"})
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
+        result = body(
+            await client.call_tool(
+                "wise_preflight",
+                {
+                    "workflow": "flow",
+                    "cwd": "/project",
+                    "answers": {"worktree": "invalid"},
+                },
+            )
+        )
+    assert result["answers"]["worktree"] == "b"
+    assert [params["answers"]["worktree"] for _, params, _ in daemon.calls] == ["invalid", "b"]
 
 
 async def test_preflight_without_form_capability_starts_nothing() -> None:

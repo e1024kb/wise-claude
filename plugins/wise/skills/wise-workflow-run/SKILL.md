@@ -52,9 +52,10 @@ instead.
 
 ## 2. Pre-flight
 
-`wise_preflight {workflow, cwd, answers, interactive: true}`; `cwd` is
+`wise_preflight {workflow, cwd, answers, context, interactive: true}`; `cwd` is
 the absolute git toplevel, else pwd; `answers` is `{}` on the first
-call. The MCP server owns the interaction and opens one host form per
+call. Pass the conversation context needed for input defaults on every staged call.
+The MCP server owns the interaction and opens one host form per
 question. On success it returns `questions: []` plus the collected
 `answers`; pass those answers to `wise_run`.
 
@@ -92,8 +93,15 @@ it asks `permissions.<harness>` once per selected or fallback provider
 takes (`effort.<group>`). Each accepted form unlocks the next stage.
 An answered question is never returned twice.
 
-MUST: every `harness.<group>`, `permissions.<harness>`, `model.<group>`, `effort.<group>` and
-`step-select` question the engine returns is put to the user. Never
+The main harness conductor owns all user interaction. Provider children and
+nested agents may request an answer through `wise_ask`, but they never open a
+GUI, TUI, terminal prompt, or ordinary chat questionnaire themselves. Render
+every resulting gate in this main harness and return the answer with
+`wise_answer`.
+
+MUST: every `worktree`, `step-select`, `input.<name>`, `harness.<group>`,
+`permissions.<harness>`, `model.<group>` and `effort.<group>` question the engine
+returns is put to the user. Never
 answer one yourself, including a permission question; never take its default to save a call, never
 start the run with a stage still open. The only time a harness or
 model question is not asked is when the engine did not return it

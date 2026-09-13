@@ -65,6 +65,11 @@ subagent, teammate, Task, or Agent, pass this entire contract and every
 applicable instruction file to it before its task details, and require it to do
 the same recursively. Harness defaults do not override these project rules.
 
+The main harness conductor owns every user interaction. Never ask the user
+directly or open a GUI, TUI, terminal prompt, or chat questionnaire. When an
+answer is required, request it through `wise_ask`; nested agents must route
+their question back through you so it reaches the same conductor.
+
 ## Instructions loaded for {root}
 
 {loaded}"""

@@ -87,9 +87,9 @@ DEFAULT_CAPS: Json = {
 WORKFLOW_BRANCH_COMPONENT_MAX = 80
 
 
-def workflow_manages_worktrees(definition: Json) -> bool:
+def workflow_manages_worktrees(definition: Json, enabled_steps: set[str]) -> bool:
     return any(item.get("name") == "worktree_mode" for item in definition.get("inputs", [])) or any(
-        step["type"] == "units" for step in definition["steps"]
+        step["type"] == "units" and step["id"] in enabled_steps for step in definition["steps"]
     )
 
 
@@ -1557,6 +1557,7 @@ class Executor:
                 value = resolve_from_context(item["from-context"], context)
                 if value is not None:
                     inputs[name] = value
+        inputs["worktree_mode"] = applied["worktree"]
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
         invalid_worktree = invalid_worktree_answers(seeded)
         missing = list(
@@ -1584,7 +1585,7 @@ class Executor:
                     if key not in (*invalid_inputs, *invalid_worktree)
                 }
                 for question in build_questionary(
-                    definition, {"harnesses": harnesses}, retry_answers
+                    definition, {"harnesses": harnesses, "context": context}, retry_answers
                 )["questions"]:
                     if question["id"] in (*invalid_inputs, "worktree"):
                         questions[question["id"]] = question
@@ -1603,7 +1604,9 @@ class Executor:
         run_dir = str(Path(self.rt.paths.runs_root) / cwd_slug(cwd) / run_id)
         selected_worktree = None
         effective_cwd = cwd
-        if applied["worktree"] == "new" and not workflow_manages_worktrees(definition):
+        if applied["worktree"] == "new" and not workflow_manages_worktrees(
+            definition, applied["enabled_steps"]
+        ):
             selected_worktree = await create_run_worktree(cwd, located["name"], run_id, self.env)
             effective_cwd = selected_worktree["path"]
         state = init_state(

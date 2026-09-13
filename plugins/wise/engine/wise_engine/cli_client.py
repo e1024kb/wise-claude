@@ -436,14 +436,7 @@ async def collect_interactive_answers(
             "preflight",
             {"workflow": workflow, "cwd": cwd, "answers": answers, "context": context},
         )
-        question = next(
-            (
-                item
-                for item in pre["questions"]
-                if not item.get("locked") and item["id"] not in answers
-            ),
-            None,
-        )
+        question = next((item for item in pre["questions"] if not item.get("locked")), None)
         if question is None or pre["requires_missing"]:
             return {"pre": pre, "answers": answers}
         answer = await read_question(question, stdin, io)
