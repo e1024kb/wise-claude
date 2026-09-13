@@ -28,11 +28,18 @@ everything a wise skill needs in one step. See
 
 ## Install
 
-Add the marketplace, then install the plugin:
+Claude Code:
 
 ```
 /plugin marketplace add e1024kb/wise-claude
 /plugin install wise@wise-claude
+```
+
+Codex, from a terminal rather than the Codex prompt:
+
+```bash
+codex plugin marketplace add e1024kb/wise-claude
+codex plugin add wise@wise-claude
 ```
 
 Update in place:
@@ -41,6 +48,14 @@ Update in place:
 /plugin uninstall wise --keep-data
 /plugin install wise@wise-claude
 /reload-plugins
+```
+
+For Codex, refresh the marketplace and reinstall from a terminal:
+
+```bash
+codex plugin marketplace upgrade wise-claude
+codex plugin remove wise@wise-claude
+codex plugin add wise@wise-claude
 ```
 
 `--keep-data` preserves your workflow definitions across the reinstall.

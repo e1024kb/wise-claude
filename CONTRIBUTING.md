@@ -551,14 +551,24 @@ populated from that resolution, not from a stored file.
 
 ### 6.1 Install the plugin from a clone
 
+Claude Code:
+
 ```
 /plugin marketplace add /Users/<you>/Projects/wise-claude
 /plugin install wise@wise-claude
 ```
 
-Re-running `/plugin install` after an edit picks up changes. You can pass
-`--keep-data` on uninstall to preserve your workflow definitions between
-installs: `/plugin uninstall wise --keep-data`.
+Codex, from a terminal:
+
+```bash
+codex plugin marketplace add /Users/<you>/Projects/wise-claude
+codex plugin add wise@wise-claude
+```
+
+Re-running the host's install command after an edit picks up changes. Claude Code
+accepts `--keep-data` on uninstall to preserve workflow definitions:
+`/plugin uninstall wise --keep-data`. Codex commands run in the shell, not as
+slash commands inside its prompt.
 
 ### 6.2 Syntax and structural checks
 

@@ -20,16 +20,25 @@ pipeline to run unattended.
 
 ## Install
 
+Claude Code:
+
 ```
 /plugin marketplace add e1024kb/wise-claude
 /plugin install wise@wise-claude
 ```
 
+Codex, from a terminal rather than the Codex prompt:
+
+```bash
+codex plugin marketplace add e1024kb/wise-claude
+codex plugin add wise@wise-claude
+```
+
 Then run the `wise-init` skill to prepare Python and register the workflow
 engine for the current host, and `/wise` to print the command catalog.
 
-For Codex, Cursor or Grok, load Wise's skills through that host's supported
-skill installation mechanism, then run `wise-init` from the loaded installation.
+For Cursor or Grok, load Wise's skills through that host's supported skill
+installation mechanism, then run `wise-init` from the loaded installation.
 The [host setup guide](plugins/wise/references/workflow-host-control.md) covers
 registration and workflow control. The conductor host does not determine which
 provider CLI runs workflow steps.
