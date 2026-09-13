@@ -38,6 +38,7 @@ from .daemon import (
 )
 from .defs import default_roots, locate_def, load_and_validate, probe_requires
 from .ledger import (
+    apply_worktree_include,
     append_event,
     init_state,
     read_state,
@@ -63,6 +64,7 @@ from .preflight import (
     input_choice_values,
     invalid_choice_input_ids,
     invalid_provider_permission_answers,
+    invalid_worktree_answers,
     resolve_from_context,
 )
 from .pricing import price_usage
@@ -81,6 +83,44 @@ DEFAULT_CAPS: Json = {
     "global": 4,
     "harness": {"claude": 2, "codex": 1, "cursor": 1, "gemini": 1, "grok": 1},
 }
+
+
+def workflow_manages_worktrees(definition: Json) -> bool:
+    return any(item.get("name") == "worktree_mode" for item in definition.get("inputs", [])) or any(
+        step["type"] == "units" for step in definition["steps"]
+    )
+
+
+async def create_run_worktree(cwd: str, workflow: str, run_id: str, env: dict[str, str]) -> Json:
+    source = Path(cwd).resolve()
+    suffix = run_id.lower()
+    path = source.with_name(f"{source.name}.wise-{suffix}")
+    branch = f"wise/{workflow}-{suffix}"
+    try:
+        process = await asyncio.to_thread(
+            subprocess.run,
+            ["git", "worktree", "add", "-b", branch, str(path), "HEAD"],
+            cwd=source,
+            env=clean_env(parent=env),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise domain_error(
+            "WORKTREE_CREATE_FAILED",
+            f"could not create the selected worktree: {error}",
+            {"cwd": str(source), "worktree": str(path), "branch": branch},
+        ) from error
+    if process.returncode:
+        message = (process.stderr or process.stdout).strip()
+        raise domain_error(
+            "WORKTREE_CREATE_FAILED",
+            f"could not create the selected worktree: {message or 'git worktree add failed'}",
+            {"cwd": str(source), "worktree": str(path), "branch": branch},
+        )
+    include = await asyncio.to_thread(apply_worktree_include, source, path)
+    return {"source_cwd": str(source), "path": str(path), "branch": branch, "include": include}
 
 
 def default_config_path(env: Any = None) -> str:
@@ -493,14 +533,23 @@ class Executor:
             return
         from .units import acquire_checkout_lock
 
-        path = subprocess.check_output(
-            ["git", "rev-parse", "--path-format=absolute", "--git-path", "wise-current-tree.lock"],
-            cwd=state["cwd"],
-            env=clean_env(parent=self.env),
-            text=True,
-            stderr=subprocess.PIPE,
-            timeout=10,
-        ).strip()
+        try:
+            path = subprocess.check_output(
+                [
+                    "git",
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "wise-current-tree.lock",
+                ],
+                cwd=state["cwd"],
+                env=clean_env(parent=self.env),
+                text=True,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            ).strip()
+        except (OSError, subprocess.SubprocessError):
+            return
         live.checkout_lock = acquire_checkout_lock(Path(path))
         outputs = state.get("outputs", {})
         if (
@@ -1469,6 +1518,9 @@ class Executor:
         for item in definition.get("inputs", []):
             name = item["name"]
             answer_id = f"input.{name}"
+            if name == "worktree_mode":
+                inputs[name] = applied["worktree"]
+                continue
             if input_choice_values(item) is not None:
                 if name in explicit:
                     inputs[name] = explicit[name]
@@ -1490,6 +1542,7 @@ class Executor:
                 if value is not None:
                     inputs[name] = value
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
+        invalid_worktree = invalid_worktree_answers(seeded)
         missing = list(
             dict.fromkeys(
                 [question["id"] for question in unanswered]
@@ -1503,18 +1556,21 @@ class Executor:
                     )
                 ]
                 + invalid_inputs
+                + (["worktree"] if invalid_worktree else [])
             )
         )
         if missing:
             questions = {question["id"]: question for question in completed["questions"]}
-            if invalid_inputs:
+            if invalid_inputs or invalid_worktree:
                 retry_answers = {
-                    key: value for key, value in answers.items() if key not in invalid_inputs
+                    key: value
+                    for key, value in answers.items()
+                    if key not in (*invalid_inputs, *invalid_worktree)
                 }
                 for question in build_questionary(
                     definition, {"harnesses": harnesses}, retry_answers
                 )["questions"]:
-                    if question["id"] in invalid_inputs:
+                    if question["id"] in (*invalid_inputs, "worktree"):
                         questions[question["id"]] = question
             raise domain_error(
                 "MISSING_ANSWERS",
@@ -1529,14 +1585,24 @@ class Executor:
         )
         run_id = new_ulid()
         run_dir = str(Path(self.rt.paths.runs_root) / cwd_slug(cwd) / run_id)
+        selected_worktree = None
+        effective_cwd = cwd
+        if applied["worktree"] == "new" and not workflow_manages_worktrees(definition):
+            selected_worktree = await create_run_worktree(cwd, located["name"], run_id, self.env)
+            effective_cwd = selected_worktree["path"]
         state = init_state(
             run_dir=run_dir,
             run_id=run_id,
             workflow=dict(name=located["name"], version=definition["version"], dir=located["dir"]),
             step_ids=[step["id"] for step in definition["steps"]],
-            cwd=cwd,
+            cwd=effective_cwd,
             profile=applied["profile"],
         )
+        if selected_worktree is not None:
+            state["source_cwd"] = selected_worktree["source_cwd"]
+            state["worktree"] = {
+                key: selected_worktree[key] for key in ("path", "branch", "include")
+            }
         for step in definition["steps"]:
             if step["id"] not in applied["enabled_steps"]:
                 state["steps"][step["id"]].update(
@@ -1549,7 +1615,7 @@ class Executor:
         if legacy not in ("allowlist", "full"):
             legacy = definition.get("preflight", {}).get("permissions")
         run_context = dict(
-            project=self.project_of(cwd),
+            project=self.project_of(effective_cwd),
             inputs=inputs,
             answers=answers,
             context=persist_context(run_dir, context),
@@ -1572,7 +1638,7 @@ class Executor:
                 ),
             )
         )
-        self.rt.log(f"run {run_id}: started {located['name']} in {cwd}")
+        self.rt.log(f"run {run_id}: started {located['name']} in {effective_cwd}")
         self.defer(live)
         return dict(run_id=run_id, status="running")
 

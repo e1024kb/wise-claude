@@ -99,6 +99,7 @@ def test_preflight_shape_stages_and_context(monkeypatch):
     ]
     answers = {
         "step-select": ["analyze-design", "analyze-related", "research-context", "gap-analysis"],
+        "worktree": "current",
         **{"harness." + group: "claude" for group in groups},
         "permissions.claude": "auto",
         "model.analyze-design": "claude-sonnet-5",

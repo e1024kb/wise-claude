@@ -74,7 +74,7 @@ v1 error.
 | `description` | no | Free text. |
 | `author` | no | Free text. |
 | `project-selection` | no | `current` (default) \| `ask` \| `none`. |
-| `preflight` | no | `{control-mode, worktree, permissions}` pins. |
+| `preflight` | no | `{control-mode, worktree, permissions}` defaults and pins. |
 | `requires` | no | `{plugins: [...], tools: [...]}`. |
 | `tuning` | no | `{groups: [...]}`. |
 | `profiles` | no | Mapping keyed `low` \| `medium` \| `max`; only `medium` is applied. |
@@ -168,7 +168,7 @@ is unmet, before the auth probes and before a run directory exists.
 | Key | Values | Effect |
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
-| `worktree` | `current` (default) \| `new` | Recorded. The engine runs steps in `cwd`; `units` steps make their own worktrees under the run directory. |
+| `worktree` | `current` (default) \| `new` | Default for the required worktree question. `new` creates branch `wise/<workflow>-<run-id>` at sibling path `<cwd>.wise-<run-id>` for ordinary workflows and retains it after the run. Workflows with a `worktree_mode` input or `units` step apply the same answer through their own worktree handling. |
 | `permissions` | `allowlist` \| `full` | Legacy global pin. `full` maps every provider to `full-access`; `allowlist` maps every provider to `approval-required`. New workflows should omit it and use the per-provider pre-flight questions. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
@@ -665,8 +665,9 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
 The conductor requests `interactive: true`, so the MCP server renders
-one question at a time through the host's form UI. A host without MCP
-form support may use its native structured picker against the raw
+one question at a time through the host's form UI. Every fresh preflight starts
+by asking whether changes belong in the current checkout or a separate worktree.
+A host without MCP form support may use its native structured picker against the raw
 questionary. `choice` questions use single-select controls; `multi` questions use
 native multi-select or a sequence of clickable Include/Exclude choices when the
 host only supports single-select. Known options belong in the tool's options
@@ -681,12 +682,13 @@ patterns and extracted inputs stay text. Optional enums retain a clickable
 `Leave unset` choice.
 An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
-turn may dismiss the pending form. If no persistent picker is available, it
-presents each engine question in plain text and waits for an explicit reply,
-preserving all labels and values. See the
+turn may dismiss the pending form. If no persistent picker is available, use
+`wise-engine preflight <workflow> --interactive`; the terminal TUI returns the
+collected answers without starting a run. Raw preflight questions are never
+rendered as ordinary chat prompts. See the
 [host question lifecycle](../../plugins/wise/references/workflow-host-control.md#keep-asynchronous-questions-open).
-The terminal
-client provides the equivalent TUI with `run --interactive`. Locked
+The terminal client also provides an integrated start-and-follow TUI with
+`run --interactive`. Locked
 questions and inputs filled positionally are skipped. The conductor
 then calls `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
 the same staged questionary over the answers it was given and refuses
@@ -879,8 +881,8 @@ Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
 file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
-New worktree: `<run dir>/worktrees/<branch>`. The ticket workflows ask for
-`worktree_mode: current | new` during pre-flight. `ticket-plan` asks immediately
+New worktree: `<run dir>/worktrees/<branch>`. The shared `worktree` pre-flight
+question supplies `worktree_mode: current | new` to the ticket workflows. `ticket-plan` asks immediately
 before branch handling and returns the selected `work_path` from setup.
 `ticket-auto` asks before ticket intake, which determines branch names. Its
 `current` mode runs units sequentially in `cwd`, refuses dirty branch switches,
@@ -961,6 +963,7 @@ The tool schemas and descriptions are in `engine/wise_engine/mcp_server.py`.
 Errors come back as `{"error": {code, message, ...}}`. Codes:
 `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID`, `RUN_NOT_FOUND`, `GATE_STALE`,
 `HARNESS_UNAVAILABLE`, `AUTH_REQUIRED`, `BUDGET_EXCEEDED`,
+`WORKTREE_CREATE_FAILED`,
 `DAEMON_VERSION_MISMATCH`, `NOT_IMPLEMENTED`, `ALREADY_RUNNING`,
 `TOKEN_INVALID`, plus `DAEMON_UNAVAILABLE` from the MCP server itself.
 
@@ -973,7 +976,7 @@ Python runtime. Standalone session/profile/history/supervision commands use
 
 | Command | Purpose |
 |---|---|
-| `preflight <workflow> [--answers <json>] [--context <json>]` | The questionary spec for the answers so far. |
+| `preflight <workflow> [--answers <json>] [--context <json>] [--cwd] [--interactive]` | The questionary spec for the answers so far. `--interactive` collects every staged answer in the terminal TUI and returns them without starting a run. |
 | `compile-check <workflow>...` | Validate definitions; exit 1 on any error. Issues carry `path`, `level`, `message`, `hint`. |
 | `migrate <workflow.yaml> [--write] [--out <path>]` | Rewrite v1 as v2. Dry run by default; `--write` keeps `<file>.v1.bak`; exit 1 when the result still has errors. |
 | `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |

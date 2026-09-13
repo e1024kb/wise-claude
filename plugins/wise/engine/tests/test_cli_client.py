@@ -227,6 +227,20 @@ async def test_interactive_asks_every_open_question_and_eof(fake):
     assert not fake.method("run")
 
 
+async def test_interactive_preflight_tui_returns_answers_without_starting_run(fake):
+    result = await fake.run(["preflight", "wf", "--interactive"], "\n2\nREF\n\n")
+    assert result.code == 0, result.err + result.out
+    payload = json.loads(result.out)
+    assert payload["questions"] == []
+    assert payload["answers"] == {
+        "permissions.claude": "auto",
+        "model.plan": "sonnet",
+        "input.ticket": "REF",
+        "input.notes": "",
+    }
+    assert not fake.method("run")
+
+
 async def test_answers_inputs_defaults_and_staged_preflight(fake):
     result = await fake.run(
         [

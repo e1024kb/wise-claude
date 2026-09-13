@@ -181,7 +181,8 @@ under your existing logins, schedules the step DAG (steps whose
 dependencies are all done run together), and persists every run under
 `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` (`state.json` +
 `events.jsonl`, honours `XDG_DATA_HOME`). The Claude Code conversation
-is a thin conductor: it renders the pre-flight questions, hands the run
+is a thin conductor: it renders every pre-flight question through MCP forms or
+a native GUI picker, with a terminal TUI fallback and no ordinary-chat fallback. It hands the run
 what it already knows (ticket bodies, guidance, decisions), prints one
 line per engine event and answers gates. It never sees step output.
 Interrupted runs resume from the ledger via
@@ -194,7 +195,8 @@ answer as an output), and `units` (the ticket -> PR and plan -> PR
 pipelines as engine code: claim, worktree, plan, implement, review /
 fix, push, PR, request review, watch, merge, cleanup).
 
-Every `agent` step and every `units` phase binds to a **tuning group**
+Every fresh pre-flight first asks whether changes belong in the current checkout
+or a separate worktree. Every `agent` step and every `units` phase binds to a **tuning group**
 (`{harness, model, effort}` plus optional presets) that the pre-flight
 questionary offers; **budget profiles** (`low` / `medium` / `max`, the
 `/wise-profile` vocabulary) override groups and set the caps the

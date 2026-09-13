@@ -3122,7 +3122,7 @@ VALIDATION_CASES = [
                     "level": "error",
                     "path": "preflight.worktree",
                     "message": 'v1 worktree "prompt"',
-                    "hint": "pick `current` or `new`; v2 does not ask the worktree",
+                    "hint": "pick `current` or `new` as the suggested default; v2 always asks the worktree",
                 },
             ]
         },

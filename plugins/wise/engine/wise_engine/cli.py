@@ -16,9 +16,9 @@ from .version import runtime_version, source_build_id
 USAGE = """wise-engine <command> [options]
 
 Commands:
-  preflight <workflow> [--answers <json>] [--context <json>]
-                              questionary spec: {workflow, version, questions, defaults}; --answers
-                              gives the answers so far and returns the next stage
+  preflight <workflow> [--answers <json>] [--context <json>] [--cwd <dir>] [--interactive]
+                              questionary spec; --interactive collects every staged answer in
+                              the terminal TUI without starting a run
   compile-check <workflow>...  validate definitions; exit 1 on any error
   migrate <workflow.yaml> [--write] [--out <path>]
                                rewrite a v1 workflow as v2; dry run unless --write (in place,
@@ -340,7 +340,16 @@ async def main(argv: Sequence[str], io: Io | None = None) -> int:
                 if command == "mcp"
                 else unit_mcp_command(list(argv[1:]), io)
             )
-        if command in ("run", "status", "answer", "cancel", "resume", "report", "wait", "nudge"):
+        if command in (
+            "run",
+            "status",
+            "answer",
+            "cancel",
+            "resume",
+            "report",
+            "wait",
+            "nudge",
+        ) or (command == "preflight" and parsed["flags"].get("interactive") is True):
             from .cli_client import client_command
 
             return await client_command(list(argv), io)

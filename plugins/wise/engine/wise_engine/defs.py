@@ -1350,7 +1350,7 @@ def _preflight(iss: _Issues, raw: Any) -> dict[str, Any] | None:
             iss.error(
                 "preflight.worktree",
                 'v1 worktree "prompt"',
-                "pick `current` or `new`; v2 does not ask the worktree",
+                "pick `current` or `new` as the suggested default; v2 always asks the worktree",
             )
         else:
             iss.error("preflight.worktree", "worktree must be current | new")

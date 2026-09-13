@@ -1,6 +1,24 @@
 {
   "questions": [
     {
+      "id": "worktree",
+      "kind": "choice",
+      "label": "Where should this workflow make changes?",
+      "options": [
+        {
+          "value": "current",
+          "label": "Current checkout",
+          "description": "make changes in the checkout where the workflow starts"
+        },
+        {
+          "value": "new",
+          "label": "Separate worktree",
+          "description": "make changes on a new branch in a separate Git worktree"
+        }
+      ],
+      "default": "current"
+    },
+    {
       "id": "step-select",
       "kind": "multi",
       "label": "Which research stages should run?",
@@ -59,16 +77,6 @@
       "default": "auto"
     },
     {
-      "id": "input.worktree_mode",
-      "kind": "choice",
-      "label": "Where should setup and implementation work? (current: current tree | new: new worktree)",
-      "options": [
-        { "value": "current", "label": "current" },
-        { "value": "new", "label": "new" }
-      ],
-      "default": "current"
-    },
-    {
       "id": "input.branch_mode",
       "kind": "choice",
       "label": "Branch handling at setup? (auto: ticket branch off the default branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)",
@@ -92,6 +100,7 @@
     }
   ],
   "defaults": {
+    "worktree": "current",
     "step-select": [
       "analyze-design",
       "analyze-related",
@@ -100,7 +109,6 @@
     ],
     "input.gap_mode": "defaults",
     "input.review_mode": "auto",
-    "input.worktree_mode": "current",
     "input.branch_mode": "auto",
     "input.implement_mode": "plan-only"
   }

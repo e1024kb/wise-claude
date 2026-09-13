@@ -221,6 +221,115 @@ def test_basic_execution(tmp_path, workflow, status):
     asyncio.run(scenario())
 
 
+def test_separate_worktree_runs_ordinary_workflow_on_new_branch(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        subprocess.run(["git", "init", "-q", "-b", "main", rig.cwd], check=True)
+        source = Path(rig.cwd)
+        (source / "tracked.txt").write_text("tracked\n")
+        (source / ".worktreeinclude").write_text(".env\n")
+        (source / ".env").write_text("LOCAL=1\n")
+        subprocess.run(["git", "add", "tracked.txt", ".worktreeinclude"], cwd=source, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "initial",
+            ],
+            cwd=source,
+            check=True,
+        )
+        try:
+            run = await rig.conduct(answers={"worktree": "new"})
+            state = await rig.status(run["run_id"], "completed")
+            selected = Path(state["cwd"])
+            assert state["source_cwd"] == str(source)
+            assert state["worktree"]["path"] == str(selected)
+            assert state["worktree"]["branch"].startswith("wise/single-agent-")
+            assert selected != source and (selected / "tracked.txt").is_file()
+            assert (selected / ".env").read_text() == "LOCAL=1\n"
+            assert rig.adapter.calls[0]["cwd"] == str(selected)
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_separate_worktree_requires_a_git_checkout(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.conduct(answers={"worktree": "new"})
+            assert domain_code(error.value) == "WORKTREE_CREATE_FAILED"
+            assert rig.rt.list_run_dirs() == []
+            assert not rig.adapter.calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("answers", [{"worktree": "elsewhere"}, {"input.worktree_mode": "x"}])
+def test_invalid_worktree_answer_never_falls_back_to_default(tmp_path, answers):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "single-agent",
+                        "cwd": rig.cwd,
+                        "answers": {"permissions.claude": "auto", **answers},
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["missing"] == ["worktree"]
+            assert [question["id"] for question in error.value.data["questions"]] == ["worktree"]
+            assert rig.rt.list_run_dirs() == []
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_shared_worktree_answer_reaches_workflow_managed_input(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "managed-definitions"
+        definitions.mkdir()
+        (definitions / "managed.yaml").write_text(
+            "version: 2\n"
+            "name: managed\n"
+            "inputs:\n"
+            "  - name: worktree_mode\n"
+            "    prompt: Tree?\n"
+            "    default: current\n"
+            "    validate: '^(current|new)$'\n"
+            "steps:\n"
+            "  - id: verify\n"
+            "    type: bash\n"
+            "    run: test '{{worktree_mode}}' = new\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            run = await rig.conduct("managed", answers={"worktree": "new"})
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["worktree_mode"] == "new"
+            assert state["cwd"] == rig.cwd
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("answer,status", [("approve", "completed"), ("reject", "failed")])
 def test_approval_gate(tmp_path, answer, status):
     async def scenario():
@@ -591,14 +700,14 @@ def test_context_choice_gates_match_runtime_staging(
             staged = build_questionary(
                 defn,
                 {"context": context},
-                {"permissions.claude": "auto", **answers},
+                {"worktree": "current", "permissions.claude": "auto", **answers},
             )
             assert ("model.gated" in [question["id"] for question in staged["questions"]]) is active
 
             params = {
                 "workflow": "gated-tuning",
                 "cwd": rig.cwd,
-                "answers": {"permissions.claude": "auto", **answers},
+                "answers": {"worktree": "current", "permissions.claude": "auto", **answers},
                 "context": context,
             }
             if active:
@@ -626,7 +735,11 @@ def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
                 {
                     "workflow": "channel",
                     "cwd": rig.cwd,
-                    "answers": {"permissions.claude": "auto", **answers},
+                    "answers": {
+                        "worktree": "current",
+                        "permissions.claude": "auto",
+                        **answers,
+                    },
                     "context": {"guidance": "engines"},
                 },
                 rig.ctx,
@@ -694,7 +807,7 @@ def test_inferred_choice_runtime_precedence(
                 {
                     "workflow": "enum-input",
                     "cwd": rig.cwd,
-                    "answers": answers,
+                    "answers": {"worktree": "current", **answers},
                     "context": context,
                     "inputs": inputs,
                 },
@@ -726,7 +839,7 @@ def test_run_rejects_invalid_inferred_choice_inputs(tmp_path, default, answers, 
                     {
                         "workflow": "enum-input",
                         "cwd": rig.cwd,
-                        "answers": answers,
+                        "answers": {"worktree": "current", **answers},
                         "context": context,
                         "inputs": inputs,
                     },

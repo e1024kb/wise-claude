@@ -72,12 +72,14 @@ question. On success it returns `questions: []` plus the collected
 - `PREFLIGHT_CANCELLED`: stop without starting a run.
 - `INTERACTIVE_UI_REQUIRED`: call `wise_preflight` with `interactive: false`
   and render each staged question through the host's native picker when available.
-  Otherwise use the explicit CLI interaction route in host control. Show each
-  engine-provided question, wait for the user's answer, and submit it unchanged.
-  Never turn a displayed default into an answer. Cancellation stops collection.
+  Otherwise run the preflight-only terminal TUI from host control and use the
+  returned `answers`. Never render the raw questionary as a chat prompt, turn a
+  displayed default into an answer, or start a run from the TUI. Cancellation
+  stops collection.
 
-The questionary is staged. The first form asks `step-select`
-(which optional steps run) and the `input.<name>` questions. Once
+The questionary is staged. The first form asks `worktree` (current checkout or
+separate worktree), then `step-select` (which optional steps run) and the
+`input.<name>` questions. Once
 `step-select` is answered the tuning stages follow, for every group a
 step that will run uses (selected, and not ruled out by a `when:` the
 inputs already settle, such as `implement_mode: plan-only`): which CLI
@@ -113,10 +115,8 @@ Render `choice` questions with options and `multi` questions with native
 multi-select or the shared clickable Include/Exclude sequence. Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
 In the explicit
-CLI fallback, preserve the same labels, descriptions and values. Ask one
-question at a time, preserve the defaults and option values, skip
-`locked: true` questions and `input.<name>` filled positionally, and
-call raw `wise_preflight` after each answer to unlock the next stage.
+CLI fallback, use `wise-engine preflight <workflow> --interactive`; it preserves
+the labels, descriptions, values and staged order without starting the run.
 Never answer one for the user or drop it to save a call.
 
 ## 3. Context and start

@@ -85,7 +85,7 @@ Inside `process`, per ticket and in this order:
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
-| `input.worktree_mode` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. Asked before ticket intake. |
+| `worktree` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. This shared question is asked first and stored as `worktree_mode`. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 

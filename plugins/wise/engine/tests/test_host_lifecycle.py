@@ -69,7 +69,9 @@ def profile():
         yield home, workflow, env
 
 
-async def cli(home: Path, host: str, env: dict[str, str], *args: str) -> object:
+async def cli(
+    home: Path, host: str, env: dict[str, str], *args: str, stdin: str | None = None
+) -> object:
     process = await asyncio.create_subprocess_exec(
         str(location(home) / "bin/wise-engine"),
         "--wise-host",
@@ -77,10 +79,13 @@ async def cli(home: Path, host: str, env: dict[str, str], *args: str) -> object:
         *args,
         cwd=home,
         env=env,
+        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    out, err = await asyncio.wait_for(process.communicate(), 20)
+    out, err = await asyncio.wait_for(
+        process.communicate(None if stdin is None else stdin.encode()), 20
+    )
     assert process.returncode == 0, (args, out.decode(), err.decode())
     if args[0] == "daemon":
         return None
@@ -93,7 +98,11 @@ async def lifecycle(call, workflow: Path, home: Path, restart) -> None:
         {"workflow": str(workflow), "cwd": str(home), "answers": {}, "interactive": False},
     )
     assert "input.fixture" in [question["id"] for question in pending["questions"]]
-    answers = {"control-mode": "interactive", "input.fixture": "explicit-test-answer"}
+    answers = {
+        "control-mode": "interactive",
+        "worktree": "current",
+        "input.fixture": "explicit-test-answer",
+    }
     pre = await call(
         "preflight",
         {"workflow": str(workflow), "cwd": str(home), "answers": answers, "interactive": False},
@@ -190,6 +199,36 @@ def test_real_engine_cli_fallback_for_each_host_binding(profile, host):
                 await cli(home, host, env, "daemon", "start")
 
             await lifecycle(call, workflow, home, restart)
+        finally:
+            await cli(home, host, env, "daemon", "stop")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("host", ["claude", "codex", "cursor", "grok"])
+def test_preflight_tui_collects_without_starting_for_each_host(profile, host):
+    home, workflow, env = profile
+    apply_plan(plan_setup(plugin_root=ENGINE.parent, host=host, home=home, python=sys.executable))
+
+    async def scenario():
+        try:
+            result = await cli(
+                home,
+                host,
+                env,
+                "preflight",
+                str(workflow),
+                "--cwd",
+                str(home),
+                "--interactive",
+                stdin="1\nfixture\n",
+            )
+            assert result["questions"] == []
+            assert result["answers"] == {
+                "worktree": "current",
+                "input.fixture": "fixture",
+            }
+            assert await cli(home, host, env, "status") == []
         finally:
             await cli(home, host, env, "daemon", "stop")
 

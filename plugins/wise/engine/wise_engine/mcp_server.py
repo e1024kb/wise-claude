@@ -309,8 +309,9 @@ async def _preflight(
             "the user's answer, keeping asynchronous prompts open, or use the terminal TUI. "
             "Populate picker options for choices; for multi-select without native support, "
             "collect clickable Include/Exclude answers for each option. "
-            "If no persistent picker is available, show each raw preflight question in text "
-            "and wait for an explicit reply; never submit defaults as answers.",
+            "Ordinary chat is not a preflight UI. If no persistent native picker is available, "
+            "run `wise-engine preflight <workflow> --interactive` in a terminal; never render "
+            "the raw questionary as a chat reply or submit defaults as answers.",
         )
     if refresh is not None:
         refresh()

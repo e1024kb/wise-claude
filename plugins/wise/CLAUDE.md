@@ -63,7 +63,7 @@ Current actions (all standalone):
   per session; profile-sensitive skills (`wise-pr-watch-auto`)
   read it via `references/profile-read.md` and
   degrade silently to `medium`. Workflows never read it: the engine's
-  pre-flight asks harness, per-provider permission floor, model and effort instead.
+  pre-flight asks worktree, harness, per-provider permission floor, model and effort instead.
   Budget only — model tiers, optional-step scope, panel size, retry
   caps; NEVER correctness rules.
 - `/wise-fork` — reorient a forked session. Inherited context becomes

@@ -119,11 +119,19 @@ or restart the host and verify that only the managed Wise server remains.
 
 Prefer supported MCP form elicitation. Otherwise render the engine's current
 questionary with the host's native structured picker. If that host cannot provide
-one, run an explicit interactive CLI flow: show each engine-provided question,
-wait for the user's answer, and submit only those answers with `--answers` or
-`answer`. Preserve stage ordering and report pending questions; never submit UI
-defaults, synthesize approval, or invent harness/model choices. On cancellation,
-stop collecting answers and preserve the engine's resumable state. Provider
+one, use the terminal TUI:
+
+```bash
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" \
+  preflight <workflow> --cwd <absolute-cwd> --interactive
+```
+
+The command collects every staged answer and returns them without starting the
+run. Ordinary chat is not a preflight UI: never print the raw questionary and ask
+the user to type its choice values. Preserve stage ordering and report pending
+questions; never submit UI defaults, synthesize approval, or invent harness/model
+choices. On cancellation, stop collecting answers and preserve the engine's
+resumable state. Provider
 installation and login are checked only for providers required by the selected
 workflow steps.
 
@@ -281,7 +289,8 @@ and do not merely report that the vanished question is still awaiting a selectio
 If the host cannot keep an asynchronous question alive and offers no blocking
 picker, use a plain-text question and wait for the user's next message. Missing
 native multi-select alone is not a reason to fall back to text. Apply this
-same lifecycle to preflight selections and workflow approval/ask gates.
+same lifecycle to non-preflight questions and workflow approval/ask gates.
+Workflow preflight never falls back to chat; use its terminal TUI instead.
 
 Pass this section's instructions to delegated interactive wizards. A headless
 workflow child must use the engine's blocking `wise_ask` channel when its workflow

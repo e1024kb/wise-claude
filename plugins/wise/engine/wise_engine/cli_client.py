@@ -21,10 +21,22 @@ from .rpc import RpcError, domain_code
 from .scheduler import JS_WHITESPACE, UNDEFINED, js_string
 
 Json = dict[str, Any]
-CLIENT_COMMANDS = ("run", "status", "answer", "cancel", "resume", "report", "wait", "nudge")
+CLIENT_COMMANDS = (
+    "preflight",
+    "run",
+    "status",
+    "answer",
+    "cancel",
+    "resume",
+    "report",
+    "wait",
+    "nudge",
+)
 CLIENT_USAGE = """wise-engine <command> [options]
 
 Commands:
+  preflight <workflow> [--cwd <dir>] [--answers <json>] --interactive
+                              collect every staged answer in the terminal TUI without starting a run
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input name=value ...]
                  [--interactive] [--follow] [--timeout-ms <n>]
                               preflight, start a run; --interactive asks every question in the TUI,
@@ -607,6 +619,31 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
         client.close()
 
 
+async def cmd_preflight(parsed: Json, io: Any, out: Out) -> int:
+    if not bool_flag(parsed, "interactive"):
+        raise UsageError("preflight: the daemon route requires --interactive")
+    workflow = require_arg(parsed, 0, "workflow")
+    cwd = str_flag(parsed, "cwd") or os.getcwd()
+    given = json_flag(parsed, "answers") or {}
+    client = await open_client(parsed, io)
+    stdin = LineSource(getattr(io, "stdin", None) or sys.stdin)
+    try:
+        collected = await collect_interactive_answers(client, workflow, cwd, given, stdin, io)
+        if collected is None:
+            out.error(
+                {"code": "PREFLIGHT_UNANSWERED", "workflow": workflow},
+                lambda: "stdin closed before interactive preflight was complete; no run started",
+            )
+            return 64
+        pre, answers = collected["pre"], collected["answers"]
+        result = {**pre, "questions": [], "answers": answers}
+        out.emit(result, lambda: f"preflight complete ({pre['workflow']})")
+        return 0
+    finally:
+        stdin.close()
+        client.close()
+
+
 async def cmd_wait(parsed: Json, io: Any, out: Out) -> int:
     run_id = require_arg(parsed, 0, "run_id")
     after = int_flag(parsed, "after")
@@ -720,6 +757,8 @@ async def client_command(argv: list[str], io: Any) -> int:
         io.out(CLIENT_USAGE)
         return 0
     try:
+        if parsed["cmd"] == "preflight":
+            return await cmd_preflight(parsed, io, out)
         if parsed["cmd"] == "run":
             return await cmd_run(parsed, io, out)
         if parsed["cmd"] == "wait":

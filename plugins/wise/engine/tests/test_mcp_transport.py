@@ -402,7 +402,10 @@ async def test_preflight_without_form_capability_starts_nothing() -> None:
     daemon = FakeDaemon()
     async with Client(parent(daemon), mode="legacy") as client:
         result = await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
-    assert body(result)["error"]["code"] == "INTERACTIVE_UI_REQUIRED"
+    error = body(result)["error"]
+    assert error["code"] == "INTERACTIVE_UI_REQUIRED"
+    assert "Ordinary chat is not a preflight UI" in error["message"]
+    assert "preflight <workflow> --interactive" in error["message"]
     assert daemon.calls == []
     assert daemon.refreshed == 0
 

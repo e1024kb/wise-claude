@@ -336,8 +336,11 @@ def known_inputs(definition: Json, answers: Json, context: Json | None = None) -
     known = {}
     for item in definition.get("inputs", []):
         answer_id = f"input.{item['name']}"
-        value = _answer_string(answers.get(answer_id))
-        if answer_id not in answers:
+        worktree_value = (
+            worktree_answer(definition, answers) if item["name"] == "worktree_mode" else None
+        )
+        value = worktree_value or _answer_string(answers.get(answer_id))
+        if answer_id not in answers and worktree_value is None:
             if input_choice_values(item) is not None:
                 value = choice_input_preset(item, context)
             else:
@@ -395,6 +398,53 @@ def _step_select_question(definition: Json, optional: list[str]) -> Json:
     )
 
 
+def worktree_default(definition: Json) -> str:
+    declared = next(
+        (
+            item.get("default")
+            for item in definition.get("inputs", [])
+            if item.get("name") == "worktree_mode"
+        ),
+        None,
+    )
+    return (
+        declared
+        if declared in ("current", "new")
+        else definition.get("preflight", {}).get("worktree", "current")
+    )
+
+
+def worktree_answer(definition: Json, answers: Json) -> str | None:
+    value = answers.get("worktree", answers.get("input.worktree_mode"))
+    return value if value in ("current", "new") else None
+
+
+def invalid_worktree_answers(answers: Json) -> list[str]:
+    key = "worktree" if "worktree" in answers else "input.worktree_mode"
+    return [key] if key in answers and answers[key] not in ("current", "new") else []
+
+
+def _worktree_question(definition: Json) -> Json:
+    return dict(
+        id="worktree",
+        kind="choice",
+        label="Where should this workflow make changes?",
+        options=[
+            dict(
+                value="current",
+                label="Current checkout",
+                description="make changes in the checkout where the workflow starts",
+            ),
+            dict(
+                value="new",
+                label="Separate worktree",
+                description="make changes on a new branch in a separate Git worktree",
+            ),
+        ],
+        default=worktree_default(definition),
+    )
+
+
 def build_questionary(
     definition: Json, ctx: Json | None = None, answers: Json | None = None
 ) -> Json:
@@ -411,10 +461,14 @@ def build_questionary(
         if "default" in q:
             defaults[q["id"]] = q["default"]
 
+    if worktree_answer(definition, answers) is None:
+        push(_worktree_question(definition))
     optional = optional_step_ids(definition)
     if optional:
         push(_step_select_question(definition, optional))
     for item in list_inputs(definition):
+        if item["name"] == "worktree_mode":
+            continue
         options = None if item.get("extract") else _input_options(item.get("validate"))
         q = dict(
             id=f"input.{item['name']}",
@@ -491,13 +545,18 @@ def apply_answers(definition: Json, answers: Json) -> Json:
         tuning[group["id"]] = value
     inputs = {}
     for item in definition.get("inputs", []):
+        if item["name"] == "worktree_mode":
+            continue
         input_value = _answer_string(answers.get(f"input.{item['name']}"))
         if input_value is None:
             input_value = item.get("default")
         if input_value is not None:
             inputs[item["name"]] = input_value
+    worktree = worktree_answer(definition, answers) or worktree_default(definition)
+    inputs["worktree_mode"] = worktree
     return dict(
         profile=PROFILE_DEFAULT,
+        worktree=worktree,
         tuning=tuning,
         provider_permissions=provider_permissions(answers),
         enabled_steps=enabled_step_ids(definition, _answer_list(answers.get("step-select"))),
