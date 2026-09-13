@@ -135,6 +135,13 @@ class PhaseFixture:
                 shutil.rmtree(args[-1], ignore_errors=True)
             if args[0] == "rev-list":
                 return command_result(str(self.commits))
+            if args == [
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "wise-current-tree.lock",
+            ]:
+                return command_result(str(self.repo / "wise-current-tree.lock"))
             if args[0] == "rev-parse":
                 return command_result(self.head)
             if args[0] == "log":

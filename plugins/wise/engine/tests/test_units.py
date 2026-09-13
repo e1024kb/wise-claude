@@ -1,5 +1,9 @@
 import asyncio
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from test_model_phases import ModelFixture
 from test_phases import PhaseFixture
@@ -329,5 +333,46 @@ def test_current_tree_units_run_serially_and_use_selected_checkout(tmp_path):
             cmd == "git" and call[:2] == ["worktree", "add"] for cmd, call, _ in fixture.calls
         )
         assert fixture.repo.exists()
+
+    asyncio.run(scenario())
+
+
+def test_current_tree_lock_rejects_other_runs_and_releases_on_cancel(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        started = asyncio.Event()
+
+        async def plan(ctx):
+            started.set()
+            await asyncio.Event().wait()
+
+        args = minimal_input(fixture, runners={"plan": plan})
+        args["state"]["inputs"] = {"worktree_mode": "current"}
+        first = asyncio.create_task(run_units_step(args))
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            with pytest.raises(RuntimeError, match="another workflow is using this checkout"):
+                await run_units_step({**args, "step_run_id": "other-run"})
+            probe = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import fcntl, sys; f = open(sys.argv[1], 'a'); "
+                    "fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+                    str(fixture.repo / "wise-current-tree.lock"),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert probe.returncode != 0 and "BlockingIOError" in probe.stderr
+        finally:
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+        retry = minimal_input(fixture, items=["PROJ-2"])
+        retry["state"]["inputs"] = {"worktree_mode": "current"}
+        result = await run_units_step(retry)
+        assert len(result["outputs"]["units"]) == 1
 
     asyncio.run(scenario())

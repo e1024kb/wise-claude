@@ -713,8 +713,9 @@ steps:
       rename at setup.
 
       Resolve each piece from its mode. Any branch switch or creation
-      FIRST refuses a dirty tree (`git diff --quiet && git diff
-      --cached --quiet` in `{{project.path}}`; if dirty, tell the user
+      FIRST refuses a dirty tree (require a successful
+      `git status --porcelain` with empty output in `{{project.path}}`,
+      including untracked files; if dirty, tell the user
       to stash/commit and `/wise-workflow-resume <run-ulid>`, then
       stop without the structured result so the step fails and can be
       resumed). Carrying uncommitted changes across a checkout is never
@@ -734,6 +735,15 @@ steps:
         --no-track -b <target_branch> <work_path> origin/<base>`.
         Do not delete or overwrite an existing path. Resolve ask-mode
         branch/base choices below before creating the worktree.
+        Only after successfully creating a fresh worktree in this setup
+        attempt, copy `.worktreeinclude` entries with the existing safe
+        helper before implementation. Use Python 3.11+ with
+        `${CLAUDE_PLUGIN_ROOT}/engine` on sys.path, import
+        `apply_worktree_include` from `wise_engine.ledger`, and call
+        `apply_worktree_include(project_path, work_path)` using the
+        resolved paths as quoted command arguments. Report its notices.
+        Never copy again when reusing an existing worktree on resume,
+        because its included files may have edits.
         Run all subsequent implementation git commands in work_path.
       - Branch (current tree checkout rules; new uses worktree add above):
         `auto`: if the current branch already equals target_branch, nothing to do; else if target_branch exists,

@@ -85,6 +85,7 @@ Inside `process`, per ticket and in this order:
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `input.worktree_mode` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. Asked before ticket intake. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
@@ -125,13 +126,13 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 ```
 /wise-workflow-run ticket-auto
-# Pre-flight asks harness, provider permissions, model and effort per group, and the tickets.
+# Pre-flight asks harness, provider permissions, model and effort per group, working tree, and tickets.
 
-/wise-workflow-run ticket-auto PROJ-1,PROJ-2
+/wise-workflow-run ticket-auto new PROJ-1,PROJ-2
 # Two tickets, no spaces. Sequential units, one PR each.
 
-/wise-workflow-run ticket-auto PROJ-1 prefer the design-system lib; never touch infra/*
-# Everything after the first token is the guidance input.
+/wise-workflow-run ticket-auto current PROJ-1 prefer the design-system lib; never touch infra/*
+# Working tree and tickets are the first two inputs; the remaining text is guidance.
 ```
 
 ## Related

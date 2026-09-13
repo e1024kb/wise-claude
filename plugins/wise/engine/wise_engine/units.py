@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ from .pricing import price_usage
 from .spawn import clean_env
 from .phases.claim import claim_phase
 from .phases.cleanup import cleanup_phase
-from .phases.common import Json, fail, make_unit, parse_items, pass_, spawn_runner
+from .phases.common import Json, err_text, fail, make_unit, ok, parse_items, pass_, spawn_runner
 from .phases.model import (
     NO_AGENT_RUNTIME,
     findings_path,
@@ -322,6 +323,30 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
 
 
 async def run_units_step(input: Json) -> Json:
+    if config_for(input["step"], input["state"])["worktree_mode"] != "current":
+        return await _run_units_step(input)
+    execute = input.get("exec", spawn_runner)
+    result = await execute(
+        "git",
+        ["rev-parse", "--path-format=absolute", "--git-path", "wise-current-tree.lock"],
+        {"cwd": input["cwd"], "env": clean_env(parent=input.get("parent_env"))},
+    )
+    if not ok(result) or not result["stdout"].strip():
+        raise RuntimeError(f"current-tree lock: cannot locate Git directory: {err_text(result)}")
+    with Path(result["stdout"].strip()).open("a") as checkout_lock:
+        try:
+            fcntl.flock(checkout_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError(
+                "current-tree lock: another workflow is using this checkout"
+            ) from error
+        try:
+            return await _run_units_step(input)
+        finally:
+            fcntl.flock(checkout_lock, fcntl.LOCK_UN)
+
+
+async def _run_units_step(input: Json) -> Json:
     run_dir, cwd, step, state = (input[key] for key in ("run_dir", "cwd", "step", "state"))
     config = config_for(step, state)
     resolved = resolved_phases(step, state)

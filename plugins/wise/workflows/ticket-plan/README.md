@@ -23,9 +23,9 @@ consolidates the findings and makes every scope / approach / component
 directory, presents it, sets up the branch, and (optionally)
 implements it. **Every decision is collected up front**,
 ticket-auto-style: pre-flight asks harness, provider permissions, model and effort per
-tuning group, the research stages, and four flow modes (gap
-handling / plan review / branch / implement) - with the default modes
-the run is **fully autonomous after launch**, and each mode keeps an
+tuning group, the research stages, and five flow modes (gap
+handling / plan review / working tree / branch / implement) - with the default modes
+the run is **fully autonomous after launch**, and each mode except working tree keeps an
 `ask` value that restores the mid-run question for exactly that
 decision. The definition is a `version: 2` workflow run by the TS
 engine: every step is an isolated harness child that sees only its
@@ -172,7 +172,7 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   own pre-flight, so there is no review question here.
 - **Flow modes** (choice inputs inferred from strict literal `validate:`
   regexes, defaults pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
-  (**auto** / ask), `branch_mode` (**auto** / current / ask), and
+  (**auto** / ask), `worktree_mode` (**current** / new), `branch_mode` (**auto** / current / ask), and
   `implement_mode` (**plan-only** / now / ask). The bolded defaults
   make the run autonomous after launch; any mode set to `ask`
   restores exactly that mid-run question.
@@ -230,10 +230,10 @@ answers override the group defaults at dispatch. See
 | `branch_mode` | yes | `auto` (default - create/switch the ticket branch off the repo's default branch, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
 | `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
 
-The four mode inputs are choice inputs inferred from a strict literal
+The five mode inputs are choice inputs inferred from a strict literal
 `validate:` regex over the allowed values; each also accepts its
 value positionally, e.g. `/wise-workflow-run ticket-plan PROJ-1
-defaults auto auto now`.
+defaults auto current auto now`.
 
 ## Outputs
 
