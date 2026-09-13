@@ -1,7 +1,7 @@
 # watch-pipelines-auto — autonomous CI watch + bulk-fix loop
 
 Autonomous analogue of `references/pr/watch-pipelines.md`. Drives one
-PR from "pushed" to "merged" without prompts, in **rounds**:
+PR from "pushed" to "merged" with mandatory GUI/TUI consent before substitute review, in **rounds**:
 
 ```
 settle  →  gather  →  bulk-fix  →  push  →  re-review window  →  (settle …)  →  merge
@@ -455,6 +455,12 @@ supplied. Read its final line:
 - `REVIEW-FALLBACK: ran … committed=yes …` → same bookkeeping; the
   fallback pushed, so this counts as the round's push: `ROUNDS+=1`,
   `TOTAL_ROUNDS+=1`, `save_state`, go to §5 (re-review window).
+- `REVIEW-FALLBACK: failed reason=review-consent-declined|review-consent-unavailable|pr-changed`
+  → clear `FALLBACK_SHA` so a resumed run can ask again, set
+  `FALLBACK_STATE=failed`, undo this invocation's `FALLBACK_RUNS` increment
+  because no review ran, `save_state`, and stop immediately with
+  `WATCH-AUTO: partial url=<pr_url> rounds=<n> reason=<same reason>`.
+  Never gather, fix, review inline, or merge after this outcome.
 - `REVIEW-FALLBACK: failed reason=<r>` → `FALLBACK_STATE=failed`; carry
   any `unpushed=<sha>` onto the verdict. §7 will not merge.
 

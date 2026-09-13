@@ -101,8 +101,9 @@ Current actions (all standalone):
 - `/wise-pr-create-auto`, `/wise-pr-request-review-auto`,
   `/wise-pr-watch-auto`, `/wise-implement-plan-auto`,
   `/wise-simplify-auto` — the autonomous (`-auto`) building blocks:
-  decision-free, `AskUserQuestion`-free variants of the PR / implement /
+  autonomous variants of the PR / implement /
   quality steps, each a thin reader of a shared fragment or reference.
+  `/wise-pr-watch-auto` MUST obtain GUI/TUI consent before substitute review.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent) and the `code-review` workflow (the
   heavyweight branch gate — three reviewer children, a curator, an

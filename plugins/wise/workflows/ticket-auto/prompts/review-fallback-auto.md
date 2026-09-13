@@ -2,16 +2,16 @@
 
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
-credits / stayed rate-limited / never answered. Instead of parking the
-PR for a human, run **wise's own reviewer panel** (the same discipline
+credits / stayed rate-limited / never answered. After explicit GUI/TUI consent,
+run **wise's own reviewer panel** (the same discipline
 the `code-review` workflow runs) over the PR's branch diff, commit what
 it finds, push, and let the caller keep driving the PR to green and
 merge it.
 
 The premise: in the normal case a stuck Copilot / CodeRabbit is an
 availability problem on their side, not a signal about the code. The
-branch still deserves a review before it merges — so wise performs one
-itself rather than blocking.
+branch still deserves a review before it merges, so wise offers one and waits
+for the user to approve it.
 
 Called by `watch-pipelines-auto.md` §4c. It never merges, never decides
 the verdict — it reviews, commits, pushes, and reports.
@@ -48,6 +48,32 @@ the verdict — it reviews, commits, pushes, and reports.
 ## Procedure
 
 Run all `git` / `gh` commands with `cd <project.path>` first.
+
+### 0. Mandatory GUI/TUI consent before review
+
+Before starting any substitute, adversarial, panel, or inline code review, MUST
+present a GUI/TUI picker with populated `options`. Read and follow
+`${CLAUDE_PLUGIN_ROOT}/references/workflow-host-control.md` for picker dispatch
+and asynchronous question handling. Show the PR URL, current head SHA, stuck
+bots and reasons, and explain that the pass may apply fixes, commit, and push.
+Offer `Run substitute review` and `Stop without review`. Only the user's explicit
+`Run substitute review` selection authorizes this invocation. Keep an asynchronous
+picker open until answered. Display acknowledgements, defaults, silence,
+watch/merge authorization, `--on`, and an earlier review's approval are not consent.
+
+Decline or cancellation: emit `REVIEW-FALLBACK: failed
+reason=review-consent-declined for=<stuck_bots>` and stop. No permitted GUI/TUI
+picker (including a headless child unable to relay through the conductor): emit
+`REVIEW-FALLBACK: failed reason=review-consent-unavailable for=<stuck_bots>` and
+stop. Never substitute a chat-only question, assumed answer, or inline review.
+A child may relay via a supported blocking question channel only if its conductor
+presents these options through GUI/TUI and returns the actual user selection.
+
+Approval covers one invocation for the displayed head only. Recheck the PR is
+open and the head is unchanged before §1. If it changed or the PR closed, emit
+`REVIEW-FALLBACK: failed reason=pr-changed for=<stuck_bots>` and stop.
+Never persist consent as blanket approval for
+later invocations or resumed runs.
 
 ### 1. Run the review pass
 
@@ -156,7 +182,7 @@ Emit, as the FINAL line — alone, no markdown, no backticks — one of:
 
 ```
 REVIEW-FALLBACK: ran depth=<panel|inline> applied=<n> skipped=<m> committed=<yes|no> for=<stuck_bots> note=<comment-url|->
-REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<stuck_bots> [unpushed=<sha>]
+REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved|review-consent-declined|review-consent-unavailable|pr-changed> for=<stuck_bots> [unpushed=<sha>]
 ```
 
 - `ran` — the branch was reviewed. `depth=panel` means the one
@@ -172,7 +198,7 @@ REVIEW-FALLBACK: failed reason=<panel-aborted|push-failed|base-unresolved> for=<
 
 ## Guardrails
 
-- Fully autonomous — never call `AskUserQuestion`.
+- Consent in §0 is mandatory. After approval, execute this one pass autonomously.
 - Never merge, never close the PR, never change its base — the caller
   owns the merge gate.
 - Never force-push, never `--no-verify`.

@@ -2,7 +2,8 @@
 name: wise-pr-watch-auto
 description: >-
   Autonomous variant of `/wise-pr-watch` — drive the current branch's PR
-  to merge in bulk rounds with NO prompts. Each round: one linear
+  to merge in bulk rounds, with mandatory GUI/TUI consent before
+  substitute review. Each round: one linear
   2-minute poll until CI is terminal and every review bot that is going
   to review the head (Copilot, CodeRabbit) has done so; gather every
   failing check, every unresolved bot thread (outdated ones included),
@@ -15,8 +16,8 @@ description: >-
   push), or at the round cap. Reads the base branch's rules up front
   (thread-resolution rule, required approvals), re-reads the PR state at
   every tick so a PR merged or closed from outside ends the run, and
-  keeps its state under the PR so a re-invocation resumes. A stuck bot
-  gets wise's own substitute review instead of blocking; a human comment
+  keeps its state under the PR so a re-invocation resumes. When a bot is stuck,
+  offers wise's own substitute review through a GUI/TUI picker; a human comment
   stands the run down. Merges (squash → merge-commit fallback, branch
   protection respected). Invoked as `/wise-pr-watch-auto` (bare alias)
   or `/wise:wise-pr-watch-auto` (canonical). Use when the user says
@@ -32,12 +33,12 @@ allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*)
 Before asking any user question, read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
-questions in autonomous or otherwise prompt-free procedures.
+other questions in autonomous procedures. Substitute review consent below is mandatory.
 
 ## Why this skill exists
 
 `/wise-pr-watch` is a long interactive loop that walks review queues
-with the user. An unattended pipeline cannot stop to ask.
+with the user. Routine watch and fix rounds run unattended.
 `/wise-pr-watch-auto` runs the same job as a **round loop** the Lead
 Architect persona drives alone:
 
@@ -51,8 +52,10 @@ human-comment gate. It ends when a settled head has nothing actionable,
 never at "the bot posted another nit".
 
 Copilot and CodeRabbit are review *inputs*, not merge gates. When one is
-down the loop substitutes wise's own review
-(`review-fallback-auto.md`), records it, and keeps going.
+down the loop MUST ask through a GUI/TUI picker before starting wise's own
+substitute review (`review-fallback-auto.md`). Only an explicit selection to run
+the review permits it. Declining or an unavailable picker stops the watch without
+reviewing or merging.
 
 ## Arguments
 
@@ -105,8 +108,11 @@ the `--on` tokens (everything left is `SKILL_ARGS`), then read
   run that was about to finish.
 
 `--on ask` (or a bare `--on`) picks harness, model and effort through
-one composite `AskUserQuestion` before any child spawns — the ONE
-sanctioned prompt in this skill. While the child runs, tail its
+one composite `AskUserQuestion` before any child spawns. Substitute review
+consent is also mandatory, including in a dispatched run. A headless child
+without a permitted GUI/TUI route must stop with `review-consent-unavailable`;
+`--on` authorization does not authorize substitute review. While the child runs,
+tail its
 heartbeat instead of waiting blind:
 
 ```bash
@@ -150,7 +156,7 @@ run or by someone else), how many rounds it took, what was fixed,
 accepted or left, and — for `all-green` / `blocked` / `partial` /
 `exhausted` / `human-intervention` — that the PR needs a human, with the
 `reason=` spelled out (`approval-required`, `behind`, `dirty`, a branch
-rule, `sonar-unchecked`, `review-fallback-failed`, `wall-clock`,
+rule, `sonar-unchecked`, `review-fallback-failed`, `review-consent-declined`, `review-consent-unavailable`, `wall-clock`,
 `rounds`, `stuck-loop`). For `blocked` list the `items=` `file:line`
 references. Name any bot that could not review (`copilot=stuck`,
 `coderabbit=<bypassed|gave-up>`) or skipped a docs-only head
@@ -161,8 +167,10 @@ accepted as-is and resolved rather than fixed — say so.
 
 ## Guardrails
 
-- Never call `AskUserQuestion` mid-run — the one exception is the
-  `--on ask` pick before the loop starts.
+- MUST ask through a GUI/TUI picker before every new substitute review,
+  including an inline or adversarial review. Follow the fallback fragment's
+  consent gate. Routine fixes remain autonomous; `--on ask` also permits its
+  pre-loop harness picker.
 - Never force-push, never `--no-verify`.
 - Every wait is a linear 2-minute poll through the fragment's `tick`:
   PR state, human gate and wall-clock deadline at every tick. No
