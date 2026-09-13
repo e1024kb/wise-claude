@@ -1188,11 +1188,24 @@ def test_resumed_ticket_plan_refuses_detached_implementation(tmp_path, mode):
     async def scenario():
         rig, run_id = await legacy_ticket_run(tmp_path, inputs={"worktree_mode": mode})
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=rig.cwd, text=True).strip()
-        subprocess.run(["git", "checkout", "-q", "--detach"], cwd=rig.cwd, check=True)
+        path = Path(rig.cwd)
+        if mode == "new":
+            path = Path(rig.rt.require_run_dir(run_id)) / "worktrees/PROJ-1"
+            path.parent.mkdir()
+            subprocess.run(
+                ["git", "worktree", "add", "-q", "--detach", str(path)], cwd=rig.cwd, check=True
+            )
+        else:
+            subprocess.run(["git", "checkout", "-q", "--detach"], cwd=rig.cwd, check=True)
         update_run(
             rig.rt.require_run_dir(run_id),
             {
-                "outputs": {"work_branch": "HEAD", "work_path": rig.cwd, "work_head": head},
+                "outputs": {
+                    "work_branch": "HEAD",
+                    "work_path": str(path),
+                    "work_head": head,
+                    "ticket_ref": "PROJ-1",
+                },
             },
         )
         try:
@@ -1244,6 +1257,98 @@ def test_detached_current_resume_checks_setup_commit(tmp_path, saved_head):
             await rig.executor.resume(dict(run_id=run_id))
             state = await rig.status(run_id, "failed")
             assert "detached setup commit changed or is missing" in state["error"]
+            assert not rig.adapter.calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "mode,ref,selected_branch",
+    [
+        ("current", "PROJ-1", "main"),
+        ("new", "PROJ-1", "PROJ-1"),
+        ("new", "#678", "abstract-task-678"),
+    ],
+)
+def test_ticket_plan_dispatches_in_validated_selected_checkout(
+    tmp_path, mode, ref, selected_branch
+):
+    from wise_engine.ledger import update_run
+
+    async def scenario():
+        rig, run_id = await legacy_ticket_run(tmp_path, inputs={"worktree_mode": mode})
+        path, branch = Path(rig.cwd), selected_branch
+        if mode == "new":
+            path = Path(rig.rt.require_run_dir(run_id)) / "worktrees" / branch
+            path.parent.mkdir()
+            subprocess.run(
+                ["git", "worktree", "add", "-q", "-b", branch, str(path)], cwd=rig.cwd, check=True
+            )
+        update_run(
+            rig.rt.require_run_dir(run_id),
+            {
+                "outputs": {"work_branch": branch, "work_path": str(path), "ticket_ref": ref},
+            },
+        )
+        try:
+            await rig.executor.resume(dict(run_id=run_id))
+            await rig.status(run_id, "completed")
+            assert rig.adapter.calls[0]["cwd"] == str(path)
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "destination", ["other-repo", "other-worktree", "unregistered", "wrong-branch"]
+)
+def test_ticket_plan_rejects_checkout_outside_selection_contract(tmp_path, destination):
+    from wise_engine.ledger import update_run
+
+    async def scenario():
+        mode = "current" if destination == "other-repo" else "new"
+        rig, run_id = await legacy_ticket_run(tmp_path, inputs={"worktree_mode": mode})
+        expected = Path(rig.rt.require_run_dir(run_id)) / "worktrees/PROJ-1"
+        path = tmp_path / "other" if destination.startswith("other-") else expected
+        path.parent.mkdir(parents=True, exist_ok=True)
+        branch = "main" if mode == "current" else "PROJ-1"
+        if destination in ("other-repo", "unregistered"):
+            subprocess.run(["git", "init", "-q", "-b", branch, str(path)], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    "unrelated",
+                ],
+                cwd=path,
+                check=True,
+            )
+        else:
+            if destination == "wrong-branch":
+                branch = "other-branch"
+            subprocess.run(
+                ["git", "worktree", "add", "-q", "-b", branch, str(path)], cwd=rig.cwd, check=True
+            )
+        update_run(
+            rig.rt.require_run_dir(run_id),
+            {
+                "outputs": {"work_branch": branch, "work_path": str(path), "ticket_ref": "PROJ-1"},
+            },
+        )
+        try:
+            await rig.executor.resume(dict(run_id=run_id))
+            state = await rig.status(run_id, "failed")
+            assert "selected tree" in state["error"] or "not registered" in state["error"]
             assert not rig.adapter.calls
         finally:
             await rig.close()

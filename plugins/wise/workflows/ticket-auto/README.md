@@ -43,8 +43,8 @@ the intake and the report. The prompt fragments still under `prompts/`
 
 - `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
 - Run from inside the project's git repository (`project-selection:
-  current`); the base working tree must be clean and have an `origin`
-  remote (`preflight-checks` refuses otherwise).
+  current`) with an `origin` remote. Current-tree mode also requires
+  a clean source checkout; new-worktree mode preserves local changes.
 - Pre-flight asks for a permission floor once per selected provider.
   `Auto` is recommended; `Bypass permissions` is available when the
   provider must run fully unsandboxed. A phase's stronger mode still wins.
@@ -57,7 +57,7 @@ the intake and the report. The prompt fragments still under `prompts/`
 
 ```mermaid
 flowchart TD
-    A[preflight-checks<br/>bash - clean tree, gh auth, origin] --> B[split-tickets<br/>bash - comma list -> JSON array ticket_list]
+    A[preflight-checks<br/>bash - current-tree cleanliness, gh auth, origin] --> B[split-tickets<br/>bash - comma list -> JSON array ticket_list]
     B --> C[ensure-access<br/>agent sonnet - context first, probe each tracker -> access, detail]
     C -->|access = ok| D[process<br/>units pipeline ticket - one unit per ticket -> units rows]
     C -->|access = blocked| E
@@ -99,7 +99,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 | Step | Type | Purpose |
 |---|---|---|
-| `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
+| `preflight-checks` | `bash` | Clean source tree in current mode, `gh auth status`, `origin` remote. |
 | `split-tickets` | `bash` | Splits the `tickets` input on commas and semicolons, trims, dedupes, validates the charset, emits a JSON array as `ticket_list`. Fails on an empty list. |
 | `ensure-access` | `agent` (sonnet) | Reads `wise_context("ticket")` first; probes a granted CLI (`gh`, `glab`, `linear`, or `jira`) or public URL for tickets whose tracker identity is established. Custom or private tracker content must be preloaded into run context. Ambiguous bare IDs fail closed. Emits `access` (`ok` / `blocked`) and `detail`. |
 | `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |

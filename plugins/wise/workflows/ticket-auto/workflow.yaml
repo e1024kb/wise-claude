@@ -87,8 +87,8 @@ steps:
     type: bash
     run: |
       set -eu
-      # Ticket branches start from a clean base.
-      if ! git diff --quiet || ! git diff --cached --quiet; then
+      # Current-tree runs need a clean source checkout.
+      if [ "{{worktree_mode}}" = current ] && { ! git diff --quiet || ! git diff --cached --quiet; }; then
         echo "ERROR: base repo at $(pwd) has uncommitted changes; stash or commit them, then re-run." >&2
         exit 1
       fi

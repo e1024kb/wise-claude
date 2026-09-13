@@ -855,6 +855,12 @@ steps:
         Tree:    {{work_path}}
         Plan:    {{plan_path}}
 
+      Before every implementation, review or PR command below, tell the
+      user to open their terminal/agent session in `{{work_path}}` first.
+      Show `cd "{{work_path}}"` as a separate shell command, then show
+      the slash command to run in that checkout's session. Never combine
+      a slash command with `cd` as though it were a shell executable.
+
       Then branch on the implement decision (`{{implement_choice}}`,
       resolved by `setup` from the pre-flight `implement_mode`, or from
       the user's answer when that mode was `ask`):
@@ -873,7 +879,13 @@ steps:
           commits before reviewing.
 
         - Otherwise (the user skipped): tell the user their options:
-            - Implement now:  /wise-implement-plan-auto {{plan_path}}
+            - If work_branch is named: implement from the selected
+              checkout with /wise-implement-plan-auto "{{plan_path}}".
+            - If work_branch is HEAD: this is a detached plan-only
+              checkout. Explain that implementation requires a named
+              branch; start a new ticket-plan run with branch_mode=auto
+              or select a named branch in ask mode. Do not suggest the
+              standalone implementation command in a detached checkout.
             - Save for later: the plan file persists in the run
               directory; resume this session from /resume's picker.
           For 3+ parallel tasks in a single wave, mention that

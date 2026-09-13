@@ -745,10 +745,31 @@ class Executor:
                 update_step(live.run_dir, step_id, {"resolved": resolved})
             fresh = read_state(live.run_dir)
             step = render_step(definition, fresh, live.workflow_dir, live.run_dir)
+            step_cwd = state["cwd"]
             if live.definition["name"] == "ticket-plan" and step_id == "implement":
+                from .phases.common import ticket_branch, ticket_ref
+                from .phases.worktree import parse_worktrees
+
                 path = fresh["outputs"].get("work_path")
-                if not path:
-                    raise RuntimeError("ticket-plan: setup checkout is missing; rerun setup")
+                if not isinstance(path, str) or not path or not Path(path).is_absolute():
+                    raise RuntimeError(
+                        "ticket-plan: setup checkout is missing or invalid; rerun setup"
+                    )
+                source = Path(fresh["project"]["path"]).resolve()
+                selected = Path(path).resolve()
+                mode = fresh["inputs"]["worktree_mode"]
+                expected = source
+                if mode == "new":
+                    ref = fresh["outputs"].get("ticket_ref")
+                    if not isinstance(ref, str) or not ref:
+                        raise RuntimeError("ticket-plan: setup ticket reference is missing")
+                    expected = (
+                        Path(live.run_dir).resolve() / "worktrees" / ticket_branch(ticket_ref(ref))
+                    )
+                if selected != expected:
+                    raise RuntimeError(
+                        "ticket-plan: setup checkout does not match the selected tree"
+                    )
                 branch = subprocess.run(
                     ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
                     cwd=path,
@@ -763,6 +784,37 @@ class Executor:
                         "ticket-plan: implementation requires the named branch selected at setup; "
                         "start a new run with branch_mode=auto or choose a named branch in ask mode"
                     )
+                root = Path(
+                    subprocess.check_output(
+                        ["git", "rev-parse", "--show-toplevel"],
+                        cwd=selected,
+                        text=True,
+                        stderr=subprocess.PIPE,
+                        timeout=10,
+                    ).strip()
+                ).resolve()
+                registered = parse_worktrees(
+                    subprocess.check_output(
+                        ["git", "worktree", "list", "--porcelain"],
+                        cwd=source,
+                        text=True,
+                        stderr=subprocess.PIPE,
+                        timeout=10,
+                    )
+                )
+                if (
+                    (mode == "new" and root != selected)
+                    or not any(
+                        Path(row["path"]).resolve() == root
+                        and row.get("branch") == branch.stdout.strip()
+                        for row in registered
+                    )
+                    or (mode == "new" and branch.stdout.strip() != expected.name)
+                ):
+                    raise RuntimeError(
+                        "ticket-plan: selected checkout is not registered on its expected branch"
+                    )
+                step_cwd = str(selected)
             event = dict(type="step.started", step=step_id)
             if definition.get("description"):
                 event["message"] = headline(definition["description"])
@@ -835,7 +887,7 @@ class Executor:
                     step_run_id=step_run_id,
                     step=step,
                     resolved=resolved,
-                    cwd=state["cwd"],
+                    cwd=step_cwd,
                     step_token=token,
                     starter=self.starter,
                     on_event=on_event,
