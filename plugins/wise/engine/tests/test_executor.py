@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -906,6 +907,203 @@ def test_cancelled_slot_waiter_returns_transferred_capacity(tmp_path):
             next_release = await asyncio.wait_for(rig.executor.acquire_slot("claude"), 1)
             next_release()
             assert not rig.executor.is_busy()
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_current_checkout_lock_spans_gates_and_rejects_another_run(tmp_path):
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        rig = Rig(tmp_path)
+        subprocess.run(["git", "init", "-q", rig.cwd], check=True)
+        path = Path(rig.cwd) / ".git/wise-current-tree.lock"
+        try:
+            first = await rig.conduct("approval", inputs={"worktree_mode": "current"})
+            state = await rig.status(first["run_id"], "gated")
+            with pytest.raises(RuntimeError, match="another workflow"):
+                acquire_checkout_lock(path)
+            second = await rig.conduct(inputs={"worktree_mode": "current"})
+            failed = await rig.status(second["run_id"], "failed")
+            assert "another workflow" in failed["error"]
+            assert not rig.adapter.calls
+            rig.executor.answer(
+                dict(run_id=first["run_id"], gate_id=state["gate"]["gate_id"], value="approve")
+            )
+            await rig.status(first["run_id"], "completed")
+            third = await rig.conduct(inputs={"worktree_mode": "current"})
+            await rig.status(third["run_id"], "completed")
+            with acquire_checkout_lock(path):
+                pass
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("ending", ["cancel", "fail", "stop", "task-cancel"])
+def test_current_checkout_lock_waits_for_child_exit(tmp_path, ending):
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        held = Held()
+
+        async def slow_exit(*args):
+            handle = await held.start(*args)
+            handle.kill = held.kills.append
+            return handle
+
+        rig = Rig(tmp_path, start_agent=slow_exit)
+        subprocess.run(["git", "init", "-q", rig.cwd], check=True)
+        path = Path(rig.cwd) / ".git/wise-current-tree.lock"
+        try:
+            run = await rig.conduct(inputs={"worktree_mode": "current"})
+            live = rig.executor.lives[run["run_id"]]
+            await rig.until(lambda: bool(live.children))
+            if ending == "fail":
+                rig.executor.fail_run(live, "test failure")
+            elif ending == "stop":
+                rig.executor.stop()
+            else:
+                rig.executor.cancel(dict(run_id=run["run_id"]))
+                if ending == "task-cancel":
+                    for task in list(rig.executor.tasks):
+                        task.cancel()
+            await asyncio.sleep(0)
+            assert held.kills
+            with pytest.raises(RuntimeError, match="another workflow"):
+                acquire_checkout_lock(path)
+            held.finish()
+            await rig.until(lambda: not rig.executor.tasks)
+            assert live.dispatches == 0
+            with acquire_checkout_lock(path):
+                pass
+        finally:
+            held.finish()
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_current_checkout_lock_released_after_cancel_before_dispatch_starts(tmp_path):
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        rig = Rig(tmp_path)
+        subprocess.run(["git", "init", "-q", rig.cwd], check=True)
+        start_task = rig.executor.task
+
+        def cancel_before_start(coroutine):
+            task = start_task(coroutine)
+            task.cancel()
+            return task
+
+        rig.executor.task = cancel_before_start
+        try:
+            run = await rig.conduct(inputs={"worktree_mode": "current"})
+            live = rig.executor.lives[run["run_id"]]
+            await rig.until(lambda: live.checkout_lock is not None)
+            await rig.until(lambda: not rig.executor.tasks)
+            assert live.dispatches == 0 and not rig.adapter.calls
+            rig.executor.cancel(dict(run_id=run["run_id"]))
+            with acquire_checkout_lock(Path(rig.cwd) / ".git/wise-current-tree.lock"):
+                pass
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_direct_units_lock_blocks_current_tree_agent_workflow(tmp_path):
+    from test_phases import PhaseFixture, command_result
+    from test_units import minimal_input
+    from wise_engine.phases.common import fail
+    from wise_engine.units import run_units_step
+
+    async def scenario():
+        rig = Rig(tmp_path)
+        subprocess.run(["git", "init", "-q", rig.cwd], check=True)
+        fixture_root = tmp_path / "units"
+        fixture_root.mkdir()
+        fixture = PhaseFixture(fixture_root)
+        fixture.repo = Path(rig.cwd)
+        started, finish = asyncio.Event(), asyncio.Event()
+
+        async def execute(cmd, args, opts):
+            if args[-1] == "wise-current-tree.lock":
+                return command_result(str(fixture.repo / ".git/wise-current-tree.lock"))
+            return await fixture.execute(cmd, args, opts)
+
+        async def plan(ctx):
+            started.set()
+            await finish.wait()
+            return fail("test finished")
+
+        params = minimal_input(fixture, exec=execute, runners={"plan": plan})
+        params["state"]["inputs"] = {"worktree_mode": "current"}
+        units = asyncio.create_task(run_units_step(params))
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            run = await rig.conduct(inputs={"worktree_mode": "current"})
+            state = await rig.status(run["run_id"], "failed")
+            assert "another workflow" in state["error"] and not rig.adapter.calls
+            finish.set()
+            await units
+            resumed = await rig.executor.resume(dict(run_id=run["run_id"]))
+            await rig.status(resumed["run_id"], "completed")
+            assert len(rig.adapter.calls) == 1
+        finally:
+            finish.set()
+            await units
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_current_tree_resume_refuses_branch_changed_since_setup(tmp_path):
+    from wise_engine.ledger import update_run, update_step
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        rig = Rig(tmp_path)
+        subprocess.run(["git", "init", "-q", "-b", "main", rig.cwd], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+            cwd=rig.cwd,
+            check=True,
+        )
+        try:
+            run = await rig.conduct(inputs={"worktree_mode": "current"})
+            await rig.status(run["run_id"], "completed")
+            directory = rig.rt.require_run_dir(run["run_id"])
+            update_run(
+                directory,
+                {
+                    "status": "paused",
+                    "outputs": {"work_path": rig.cwd, "work_branch": "main"},
+                },
+            )
+            update_step(directory, "answer", {"status": "running"})
+            subprocess.run(["git", "checkout", "-q", "-b", "other"], cwd=rig.cwd, check=True)
+            await rig.executor.resume(dict(run_id=run["run_id"]))
+            state = await rig.status(run["run_id"], "failed")
+            assert "branch changed since setup" in state["error"]
+            assert len(rig.adapter.calls) == 1
+            with acquire_checkout_lock(Path(rig.cwd) / ".git/wise-current-tree.lock"):
+                pass
         finally:
             await rig.close()
 

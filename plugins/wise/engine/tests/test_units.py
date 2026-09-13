@@ -376,3 +376,22 @@ def test_current_tree_lock_rejects_other_runs_and_releases_on_cancel(tmp_path):
         assert len(result["outputs"]["units"]) == 1
 
     asyncio.run(scenario())
+
+
+def test_current_tree_units_borrow_live_run_lock_without_releasing_it(tmp_path):
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        args = minimal_input(fixture)
+        args["state"]["inputs"] = {"worktree_mode": "current"}
+        path = fixture.repo / "wise-current-tree.lock"
+        with acquire_checkout_lock(path) as lease:
+            result = await run_units_step({**args, "checkout_lock": lease})
+            assert len(result["outputs"]["units"]) == 1
+            assert not lease.closed
+            with pytest.raises(RuntimeError, match="another workflow"):
+                await run_units_step(args)
+        await run_units_step(args)
+
+    asyncio.run(scenario())

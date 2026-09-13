@@ -688,6 +688,8 @@ steps:
     # Branch creation / checkout needs unattended git access.
     mode: full-access
     prompt: |
+      In current-tree mode, the engine holds the checkout's exclusive lock
+      through this run, including setup, implementation and open questions.
       The plan is settled. Act on the pre-flight SETUP choices; ask the
       user (through the `wise_ask` tool) ONLY about the pieces they
       left on `ask`. The modes:
@@ -726,10 +728,13 @@ steps:
         `{{run.dir}}/worktrees/<target_branch>`. Never switch the source
         checkout. For branch_mode=current (or Stay in ask mode), create
         a detached worktree with `git worktree add --detach <work_path>
-        HEAD` and report work_branch=HEAD.
-        Otherwise reuse a worktree at work_path only if it is registered
-        on target_branch. If target_branch is checked out elsewhere,
-        stop with its path. For an existing unoccupied branch, use
+        HEAD` and report work_branch=HEAD. On resume, reuse an existing
+        work_path only if `git worktree list --porcelain` registers it
+        as detached. Preserve its HEAD and contents without another add,
+        checkout, reset, or include copy. Refuse a branch-attached path.
+        For the other branch modes, reuse a worktree at work_path only
+        if it is registered on target_branch. If target_branch is checked
+        out elsewhere, stop with its path. For an existing unoccupied branch, use
         `git worktree add <work_path> <target_branch>`. For a new branch,
         fetch the selected/default base and use `git worktree add
         --no-track -b <target_branch> <work_path> origin/<base>`.

@@ -883,10 +883,12 @@ New worktree: `<run dir>/worktrees/<branch>`. The ticket workflows ask for
 `worktree_mode: current | new` during pre-flight. `ticket-plan` asks immediately
 before branch handling and returns the selected `work_path` from setup.
 `ticket-auto` asks before ticket intake, which determines branch names. Its
-`current` mode runs units sequentially in `cwd`, rejects another current-tree
-units execution in that checkout, refuses dirty branch switches,
+`current` mode runs units sequentially in `cwd`, refuses dirty branch switches,
 and retains the checkout and branches even after merge. The default remains
-`current` for ticket-plan and `new` for ticket-auto.
+`current` for ticket-plan and `new` for ticket-auto. Current-tree workflows
+hold one checkout lock across all steps and open questions. Another current-tree
+run cannot use that checkout until the run ends and its children have exited.
+Resuming a run reacquires the lock before scheduling work.
 
 ### Model phases
 

@@ -6,6 +6,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 
 from .constants import PHASES
 from .ledger import add_usage, empty_usage, read_unit, utc_now, write_log, write_unit
@@ -333,17 +334,26 @@ async def run_units_step(input: Json) -> Json:
     )
     if not ok(result) or not result["stdout"].strip():
         raise RuntimeError(f"current-tree lock: cannot locate Git directory: {err_text(result)}")
-    with Path(result["stdout"].strip()).open("a") as checkout_lock:
-        try:
-            fcntl.flock(checkout_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
+    path = Path(result["stdout"].strip()).resolve()
+    owned = input.get("checkout_lock")
+    if owned is not None and not owned.closed and Path(owned.name).resolve() == path:
+        return await _run_units_step(input)
+    with acquire_checkout_lock(path):
+        return await _run_units_step(input)
+
+
+def acquire_checkout_lock(path: Path) -> TextIO:
+    handle = path.open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BaseException as error:
+        handle.close()
+        if isinstance(error, BlockingIOError):
             raise RuntimeError(
                 "current-tree lock: another workflow is using this checkout"
             ) from error
-        try:
-            return await _run_units_step(input)
-        finally:
-            fcntl.flock(checkout_lock, fcntl.LOCK_UN)
+        raise
+    return handle
 
 
 async def _run_units_step(input: Json) -> Json:
