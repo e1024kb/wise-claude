@@ -156,7 +156,7 @@ run or by someone else), how many rounds it took, what was fixed,
 accepted or left, and — for `all-green` / `blocked` / `partial` /
 `exhausted` / `human-intervention` — that the PR needs a human, with the
 `reason=` spelled out (`approval-required`, `behind`, `dirty`, a branch
-rule, `sonar-unchecked`, `review-fallback-failed`, `review-consent-declined`, `review-consent-unavailable`, `wall-clock`,
+rule, `sonar-unchecked`, `review-fallback-failed`, `review-consent-declined`, `review-consent-unavailable`, `pr-changed`, `wall-clock`,
 `rounds`, `stuck-loop`). For `blocked` list the `items=` `file:line`
 references. Name any bot that could not review (`copilot=stuck`,
 `coderabbit=<bypassed|gave-up>`) or skipped a docs-only head

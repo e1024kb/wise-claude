@@ -262,7 +262,7 @@ plugins/wise/
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
     ├── wise-pr-create-auto/SKILL.md       # autonomous PR create (no prompts)
     ├── wise-pr-request-review-auto/SKILL.md  # autonomous Copilot attach (no prompts)
-    ├── wise-pr-watch-auto/SKILL.md        # autonomous CI watch + fix loop (no prompts)
+    ├── wise-pr-watch-auto/SKILL.md        # CI watch + fix loop (GUI/TUI consent before substitute review)
     ├── wise-implement-plan-auto/          # autonomously implement a PLAN-*.md
     │   ├── SKILL.md
     │   └── agents/executor.md            # fresh-context per-task executor persona

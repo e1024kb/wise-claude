@@ -61,8 +61,9 @@ Offer `Run substitute review` and `Stop without review`. Only the user's explici
 picker open until answered. Display acknowledgements, defaults, silence,
 watch/merge authorization, `--on`, and an earlier review's approval are not consent.
 
-Decline or cancellation: emit `REVIEW-FALLBACK: failed
-reason=review-consent-declined for=<stuck_bots>` and stop. No permitted GUI/TUI
+Decline or cancellation: emit
+`REVIEW-FALLBACK: failed reason=review-consent-declined for=<stuck_bots>`
+and stop. No permitted GUI/TUI
 picker (including a headless child unable to relay through the conductor): emit
 `REVIEW-FALLBACK: failed reason=review-consent-unavailable for=<stuck_bots>` and
 stop. Never substitute a chat-only question, assumed answer, or inline review.
