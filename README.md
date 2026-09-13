@@ -37,8 +37,8 @@ codex plugin add wise@wise-claude
 Then run the `wise-init` skill to prepare Python and register the workflow
 engine for the current host, and `/wise` to print the command catalog.
 
-For Cursor or Grok, load Wise's skills through that host's supported skill
-installation mechanism, then run `wise-init` from the loaded installation.
+For Cursor, Grok, or T3 Code, load Wise's skills through that host's supported
+skill installation mechanism, then run `wise-init` from the loaded installation.
 The [host setup guide](plugins/wise/references/workflow-host-control.md) covers
 registration and workflow control. The conductor host does not determine which
 provider CLI runs workflow steps.
@@ -92,7 +92,8 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 
 ## Requirements
 
-- **Claude Code, Codex, Cursor or Grok** as the workflow conductor.
+- **Claude Code, Claude Desktop, Codex, Cursor, Grok, or T3 Code** as the
+  workflow conductor.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
 - **Python 3.11+** for the workflow engine. The launcher manages pinned
   dependencies outside the plugin installation; no Bun, Node or npm is required

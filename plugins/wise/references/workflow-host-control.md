@@ -1,9 +1,11 @@
 # Workflow host control
 
-Use the installed Wise launcher for engine shell commands on Claude Code, Codex,
-Cursor and Grok. MCP child environment variables do not define variables in the
-conductor's shell. Never send a literal `${CLAUDE_PLUGIN_ROOT}` as a generic host
-command or infer an installation by choosing the newest cached version.
+Use the installed Wise launcher for engine shell commands from Claude Code,
+Claude Desktop, Codex, Cursor, Grok, and T3 Code. T3 Code uses the underlying
+provider harness's Wise host identity. MCP child environment variables do not
+define variables in the conductor's shell. Never send a literal
+`${CLAUDE_PLUGIN_ROOT}` as a generic host command or infer an installation by
+choosing the newest cached version.
 
 ## Resolve the loaded installation
 
@@ -20,9 +22,10 @@ bash "/absolute/loaded/plugin/engine/engine.sh" setup-host \
   --host codex --plugin-root "/absolute/loaded/plugin"
 ```
 
-Replace `codex` with the actual conductor host: `claude`, `codex`, `cursor`, or
-`grok`. Review the returned Wise entry and changed file paths, then run the same
-command with `--apply` when setup is authorized. The preview never prints other
+Replace `codex` with the underlying provider harness: `claude`, `codex`,
+`cursor`, or `grok`. In T3 Code, use the provider selected for the main
+conversation. Review the returned Wise entry and changed file paths, then run
+the same command with `--apply` when setup is authorized. The preview never prints other
 servers, credentials or settings. `--config /absolute/config` selects a custom
 profile; pass it when the host's custom location is not already selected by
 `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. Retain it for init registry checks.

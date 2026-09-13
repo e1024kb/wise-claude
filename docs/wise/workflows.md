@@ -9,8 +9,9 @@ launcher selects Python 3.11+ and installs pinned dependencies into a managed
 versioned environment outside the plugin. It runs as a per-user daemon
 (`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
 `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`) and exposes MCP tools to the
-Claude Code, Codex, Cursor or Grok conversation through the managed
-`wise-engine` registration created by `/wise-init`. The conversation is a thin conductor: it renders
+Claude Code, Claude Desktop, Codex, Cursor, Grok, or T3 Code conversation through
+the managed `wise-engine` registration created by `/wise-init`. The conversation
+is a thin conductor: it renders
 questions, forwards context, prints one line per event and answers
 gates. It never sees step output.
 

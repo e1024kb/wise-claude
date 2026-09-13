@@ -22,7 +22,8 @@ not an answer.
 ## Why this skill exists
 
 Exercise the installed engine and the current conversation's actual input UI
-on Claude Code, Claude Desktop, Codex, Cursor, Grok, or another compatible host.
+on Claude Code, Claude Desktop, Codex, Cursor, Grok, T3 Code, or another
+compatible host.
 The main harness running this skill owns every prompt. Never delegate prompt
 collection to a provider child or nested agent; such children may only request
 that this conductor ask on their behalf.
