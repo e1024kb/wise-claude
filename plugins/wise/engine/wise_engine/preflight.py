@@ -462,7 +462,9 @@ def build_questionary(
             defaults[q["id"]] = q["default"]
 
     if worktree_answer(definition, answers) is None:
-        push(_worktree_question(definition))
+        question = _worktree_question(definition)
+        questions.append(question)
+        defaults[question["id"]] = question["default"]
     optional = optional_step_ids(definition)
     if optional:
         push(_step_select_question(definition, optional))

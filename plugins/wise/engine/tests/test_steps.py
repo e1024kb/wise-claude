@@ -124,6 +124,21 @@ def test_project_system_prompt_loads_both_instruction_formats_and_requires_inher
     assert "same recursively" in prompt
 
 
+def test_project_system_prompt_skips_symlinked_instruction_files(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    secret = tmp_path / "secret"
+    secret.write_text("sensitive value")
+    (project / "CLAUDE.md").symlink_to(secret)
+    (project / "AGENTS.md").write_text("project rules")
+
+    prompt = project_system_prompt(str(project), str(home))
+
+    assert "project rules" in prompt
+    assert "sensitive value" not in prompt
+
+
 def test_child_channel_uses_python_runtime(tmp_path: Path) -> None:
     params = agent_params(tmp_path)
     params["channel"] = dict(socket_path="/socket", data_root="/data", engine_root="/engine")

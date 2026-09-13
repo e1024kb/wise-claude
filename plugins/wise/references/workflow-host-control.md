@@ -307,9 +307,9 @@ Official host references: [Claude MCP](https://code.claude.com/docs/en/mcp),
 ## CLI control when session tools are unavailable
 
 Use the same host-selected launcher above. For preflight, call
-`preflight <workflow> --answers '<answers-so-far JSON>'`; present the returned
-questions one at a time and call again after each explicit answer. Continue until
-`questions` is empty. Only then run
+`preflight <workflow> --cwd <project> --context '<context JSON>' --interactive`.
+The blocking terminal TUI collects every staged answer and returns them with an
+empty `questions` list. Only then run
 `run <workflow> --cwd <project> --answers '<collected JSON>' --context '<context JSON>'`.
 Passing a JSON argument requires proper shell quoting; use a shell argument array
 when available. Never interpolate user text as shell code.
@@ -317,7 +317,7 @@ when available. Never interpolate user text as shell code.
 | MCP operation | CLI command after the launcher and host arguments |
 |---|---|
 | `wise_status` | `status [run_id]` |
-| `wise_preflight` | `preflight <workflow> --answers <JSON>` |
+| `wise_preflight` | `preflight <workflow> --cwd <project> --context <JSON> --interactive` |
 | `wise_run` | `run <workflow> --cwd <project> --answers <JSON> --context <JSON>` |
 | `wise_wait` | `wait <run_id> --after <seq> --timeout-ms <milliseconds>` |
 | `wise_answer` | `answer <run_id> <gate_id> <value>` |

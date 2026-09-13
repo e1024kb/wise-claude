@@ -13,7 +13,13 @@ import pytest
 from wise_engine.adapter_types import AgentHandle
 from wise_engine.daemon import DaemonRuntime, daemon_paths
 from wise_engine.defs import load_and_validate
-from wise_engine.executor import create_executor, load_caps, default_backoff_ms, detect_project
+from wise_engine.executor import (
+    create_executor,
+    default_backoff_ms,
+    detect_project,
+    load_caps,
+    workflow_branch_component,
+)
 from wise_engine.ledger import read_state, read_events, utc_now, usage_total
 from wise_engine.preflight import build_questionary, fill_answers
 from wise_engine.rpc import RpcError, domain_code, CallContext
@@ -165,6 +171,12 @@ def test_caps_backoff_project(tmp_path):
     assert detect_project(str(tmp_path))["kind"] == "python"
 
 
+def test_workflow_branch_component_is_git_ref_safe_and_bounded():
+    assert workflow_branch_component("team plan: review") == "team-plan-review"
+    assert workflow_branch_component(":::") == "workflow"
+    assert len(workflow_branch_component("a" * 200)) == 80
+
+
 def test_preflight_strict_answers_and_errors(tmp_path):
     async def scenario():
         rig = Rig(tmp_path)
@@ -189,6 +201,40 @@ def test_preflight_strict_answers_and_errors(tmp_path):
                     )
                 )
             assert domain_code(error.value) == "MISSING_ANSWERS"
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_preflight_uses_request_context_for_input_defaults(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "context-definitions"
+        definitions.mkdir()
+        (definitions / "context.yaml").write_text(
+            "version: 2\n"
+            "name: context\n"
+            "inputs:\n"
+            "  - name: guidance\n"
+            "    prompt: Guidance?\n"
+            "    from-context: guidance\n"
+            "steps:\n"
+            "  - id: answer\n"
+            "    type: agent\n"
+            "    prompt: Answer.\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            result = await rig.executor.preflight(
+                {
+                    "workflow": "context",
+                    "cwd": rig.cwd,
+                    "answers": {},
+                    "context": {"guidance": "keep it small"},
+                }
+            )
+            assert result["defaults"]["input.guidance"] == "keep it small"
         finally:
             await rig.close()
 
@@ -1054,6 +1100,18 @@ def test_current_checkout_lock_spans_gates_and_rejects_another_run(tmp_path):
             await rig.close()
 
     asyncio.run(scenario())
+
+
+def test_current_checkout_lock_propagates_operational_git_errors(tmp_path, monkeypatch):
+    rig = Rig(tmp_path)
+    live = type("Live", (), {"checkout_lock": None})()
+
+    def fail(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 10)
+
+    monkeypatch.setattr("wise_engine.executor.subprocess.check_output", fail)
+    with pytest.raises(subprocess.TimeoutExpired):
+        rig.executor.lock_checkout(live, {"cwd": rig.cwd, "inputs": {"worktree_mode": "current"}})
 
 
 @pytest.mark.parametrize("ending", ["cancel", "fail", "stop", "task-cancel"])

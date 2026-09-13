@@ -228,7 +228,10 @@ async def test_interactive_asks_every_open_question_and_eof(fake):
 
 
 async def test_interactive_preflight_tui_returns_answers_without_starting_run(fake):
-    result = await fake.run(["preflight", "wf", "--interactive"], "\n2\nREF\n\n")
+    context = '{"guidance":"brief"}'
+    result = await fake.run(
+        ["preflight", "wf", "--interactive", "--context", context], "\n2\nREF\n\n"
+    )
     assert result.code == 0, result.err + result.out
     payload = json.loads(result.out)
     assert payload["questions"] == []
@@ -238,6 +241,7 @@ async def test_interactive_preflight_tui_returns_answers_without_starting_run(fa
         "input.ticket": "REF",
         "input.notes": "",
     }
+    assert all(call["context"] == {"guidance": "brief"} for call in fake.method("preflight"))
     assert not fake.method("run")
 
 
@@ -266,6 +270,7 @@ async def test_answers_inputs_defaults_and_staged_preflight(fake):
         "context": {"guidance": "brief"},
     }
     assert len(fake.method("preflight")) == 2
+    assert all(call["context"] == {"guidance": "brief"} for call in fake.method("preflight"))
     assert "permissions.claude" not in fake.method("preflight")[0]["answers"]
     assert json.loads(result.out)["run_id"] == "01RUN"
     fake.calls.clear()

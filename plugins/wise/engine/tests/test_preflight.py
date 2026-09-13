@@ -551,6 +551,13 @@ def test_legacy_worktree_input_answer_remains_accepted():
     assert p.known_inputs(defn, {"worktree": "new"})["worktree_mode"] == "new"
 
 
+@pytest.mark.parametrize("key", ["worktree", "input.worktree_mode"])
+def test_invalid_worktree_answer_is_replaced_with_question(key):
+    result = p.build_questionary(definition(), answers={key: "invalid"})
+    assert result["questions"][0]["id"] == "worktree"
+    assert result["defaults"]["worktree"] == "current"
+
+
 @pytest.mark.parametrize("mode,expected", [("current", 1), ("new", 0)])
 @pytest.mark.parametrize("dirty_kind", ["staged", "untracked"])
 def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(

@@ -36,7 +36,12 @@ def project_system_prompt(cwd: str, home: str | None = None) -> str:
     blocks = []
     seen = set()
     for path in paths:
+        if path.is_symlink():
+            continue
+        expected_directory = path.parent.resolve()
         resolved = path.resolve()
+        if not resolved.is_relative_to(expected_directory):
+            continue
         if resolved in seen:
             continue
         seen.add(resolved)

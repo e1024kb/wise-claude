@@ -5,6 +5,7 @@ import inspect
 import json
 import math
 import os
+import re
 import secrets
 import subprocess
 from dataclasses import dataclass, field
@@ -83,6 +84,7 @@ DEFAULT_CAPS: Json = {
     "global": 4,
     "harness": {"claude": 2, "codex": 1, "cursor": 1, "gemini": 1, "grok": 1},
 }
+WORKFLOW_BRANCH_COMPONENT_MAX = 80
 
 
 def workflow_manages_worktrees(definition: Json) -> bool:
@@ -91,11 +93,18 @@ def workflow_manages_worktrees(definition: Json) -> bool:
     )
 
 
+def workflow_branch_component(workflow: str) -> str:
+    component = re.sub(r"\.{2,}", "-", re.sub(r"[^A-Za-z0-9._-]+", "-", workflow))
+    component = component.strip("-.")[:WORKFLOW_BRANCH_COMPONENT_MAX].rstrip("-.")
+    component = component.removesuffix(".lock")
+    return component or "workflow"
+
+
 async def create_run_worktree(cwd: str, workflow: str, run_id: str, env: dict[str, str]) -> Json:
     source = Path(cwd).resolve()
     suffix = run_id.lower()
     path = source.with_name(f"{source.name}.wise-{suffix}")
-    branch = f"wise/{workflow}-{suffix}"
+    branch = f"wise/{workflow_branch_component(workflow)}-{suffix}"
     try:
         process = await asyncio.to_thread(
             subprocess.run,
@@ -548,8 +557,11 @@ class Executor:
                 stderr=subprocess.PIPE,
                 timeout=10,
             ).strip()
-        except (OSError, subprocess.SubprocessError):
-            return
+        except subprocess.CalledProcessError as error:
+            stderr = (error.stderr or "").lower()
+            if "not a git repository" in stderr:
+                return
+            raise
         live.checkout_lock = acquire_checkout_lock(Path(path))
         outputs = state.get("outputs", {})
         if (
@@ -1442,12 +1454,16 @@ class Executor:
         workflow = require_string(rec, "workflow", "preflight")
         require_string(rec, "cwd", "preflight")
         answers = dict(optional_record(rec, "answers", "preflight"))
+        context = optional_record(rec, "context", "preflight")
         self.assert_permissions(answers)
         located = self.locate(workflow)
         definition = validated(located)
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         questionary = await build_questionary_with_auth(
-            definition, {"harnesses": harnesses}, answers, self.get_adapter
+            definition,
+            {"harnesses": harnesses, "context": context},
+            answers,
+            self.get_adapter,
         )
         return dict(
             workflow=located["name"],

@@ -422,11 +422,20 @@ async def read_question(question: Json, stdin: LineSource, io: Any) -> Any:
 
 
 async def collect_interactive_answers(
-    client: Client, workflow: str, cwd: str, given: Json, stdin: LineSource, io: Any
+    client: Client,
+    workflow: str,
+    cwd: str,
+    given: Json,
+    context: Json,
+    stdin: LineSource,
+    io: Any,
 ) -> Json | None:
     answers = dict(given)
     for _ in range(256):
-        pre = await client.call("preflight", {"workflow": workflow, "cwd": cwd, "answers": answers})
+        pre = await client.call(
+            "preflight",
+            {"workflow": workflow, "cwd": cwd, "answers": answers, "context": context},
+        )
         question = next(
             (
                 item
@@ -544,7 +553,9 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
     stdin = LineSource(getattr(io, "stdin", None) or sys.stdin)
     try:
         if bool_flag(parsed, "interactive"):
-            collected = await collect_interactive_answers(client, workflow, cwd, given, stdin, io)
+            collected = await collect_interactive_answers(
+                client, workflow, cwd, given, context, stdin, io
+            )
             if collected is None:
                 out.error(
                     {"code": "PREFLIGHT_UNANSWERED", "workflow": workflow},
@@ -559,7 +570,8 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
             }
         else:
             pre = await client.call(
-                "preflight", {"workflow": workflow, "cwd": cwd, "answers": given}
+                "preflight",
+                {"workflow": workflow, "cwd": cwd, "answers": given, "context": context},
             )
             filled = fill_answers(pre["questions"], given)
             known = len(given)
@@ -568,7 +580,13 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
                     break
                 known = len(filled["answers"])
                 pre = await client.call(
-                    "preflight", {"workflow": workflow, "cwd": cwd, "answers": filled["answers"]}
+                    "preflight",
+                    {
+                        "workflow": workflow,
+                        "cwd": cwd,
+                        "answers": filled["answers"],
+                        "context": context,
+                    },
                 )
                 filled = fill_answers(pre["questions"], filled["answers"])
             if filled["missing"]:
@@ -625,10 +643,13 @@ async def cmd_preflight(parsed: Json, io: Any, out: Out) -> int:
     workflow = require_arg(parsed, 0, "workflow")
     cwd = str_flag(parsed, "cwd") or os.getcwd()
     given = json_flag(parsed, "answers") or {}
+    context = json_flag(parsed, "context") or {}
     client = await open_client(parsed, io)
     stdin = LineSource(getattr(io, "stdin", None) or sys.stdin)
     try:
-        collected = await collect_interactive_answers(client, workflow, cwd, given, stdin, io)
+        collected = await collect_interactive_answers(
+            client, workflow, cwd, given, context, stdin, io
+        )
         if collected is None:
             out.error(
                 {"code": "PREFLIGHT_UNANSWERED", "workflow": workflow},
