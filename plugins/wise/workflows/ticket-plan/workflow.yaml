@@ -714,14 +714,16 @@ steps:
       clear message; the fix is a fresh run from ticket fetch, not a
       rename at setup.
 
-      Resolve each piece from its mode. Any branch switch or creation
-      FIRST refuses a dirty tree (require a successful
+      Resolve each piece from its mode. In worktree_mode=current, a
+      branch switch or creation in the source checkout FIRST refuses a
+      dirty tree (require a successful
       `git status --porcelain` with empty output in `{{project.path}}`,
       including untracked files; if dirty, tell the user
       to stash/commit and `/wise-workflow-resume <run-ulid>`, then
       stop without the structured result so the step fails and can be
       resumed). Carrying uncommitted changes across a checkout is never
-      acceptable, existing branch or new.
+      acceptable, existing branch or new. In worktree_mode=new, do not
+      require a clean source checkout: worktree add leaves it unchanged.
 
       - Tree: `current`: work_path is `{{project.path}}`; apply the
         branch rules below in that checkout. `new`: work_path is
@@ -772,23 +774,31 @@ steps:
       - Implement: `now`: implement_choice=yes. `plan-only`:
         implement_choice=no. `ask`: ask the user with `wise_ask`
         ("Implement the plan now?", options `Yes, implement now` /
-        `No, plan only`).
+        `No, plan only`). If implement_choice=yes, require a named branch
+        in work_path (`git symbolic-ref --quiet --short HEAD`). Detached
+        worktrees remain valid for plan-only runs, including resumed ones.
+        If detached, stop before implementation with a clear error: start
+        a new run with branch_mode=auto, or choose a named branch in ask
+        mode. Do not attach a branch or change the source checkout to
+        override the user's Stay/current choice.
 
       Do not rename the session here; the harness owns session naming.
 
       Return the fields directly as the structured result (no wrapping,
       no JSON-in-a-string): `work_branch` = the branch now checked out,
       `work_path` = the absolute selected checkout path,
+      `work_head` = `git -C <work_path> rev-parse HEAD` (the setup commit),
       `implement_choice` = `yes` or `no`.
     schema:
       type: object
       properties:
         work_branch: { type: string }
         work_path: { type: string }
+        work_head: { type: string }
         implement_choice: { type: string, enum: ["yes", "no"] }
-      required: [work_branch, work_path, implement_choice]
+      required: [work_branch, work_path, work_head, implement_choice]
       additionalProperties: false
-    outputs: [work_branch, work_path, implement_choice]
+    outputs: [work_branch, work_path, work_head, implement_choice]
     depends_on: [review-comments, refine-plan]
     trigger-rule: all-done
 

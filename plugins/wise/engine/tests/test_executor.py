@@ -1108,3 +1108,144 @@ def test_current_tree_resume_refuses_branch_changed_since_setup(tmp_path):
             await rig.close()
 
     asyncio.run(scenario())
+
+
+async def legacy_ticket_run(tmp_path, workflow="ticket-plan", inputs=None, outputs=None):
+    from wise_engine.ledger import write_state
+
+    rig = Rig(tmp_path)
+    subprocess.run(["git", "init", "-q", "-b", "main", rig.cwd], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ],
+        cwd=rig.cwd,
+        check=True,
+    )
+    run = await rig.conduct()
+    state = await rig.status(run["run_id"], "completed")
+    definitions = tmp_path / "legacy-definitions"
+    definitions.mkdir()
+    (definitions / f"{workflow}.yaml").write_text(
+        f"version: 2\nname: {workflow}\n"
+        "inputs:\n  - name: worktree_mode\n    prompt: Tree?\n"
+        "    validate: '^(current|new)$'\n"
+        "steps:\n  - id: setup\n    type: bash\n    run: echo setup\n"
+        "  - id: implement\n    type: agent\n    model: haiku\n"
+        "    prompt: '{{worktree_mode}} {{work_path}}'\n"
+        "    depends_on: [setup]\n"
+    )
+    rig.executor.roots["user_root"] = str(definitions)
+    state.update(
+        status="paused",
+        workflow={"name": workflow, "version": 2, "dir": str(definitions)},
+        inputs=dict(inputs or {}),
+        outputs=dict(outputs or {"work_branch": "main", "implement_choice": "yes"}),
+    )
+    saved = state["steps"]["answer"]
+    state["steps"] = {
+        "setup": {**saved, "outputs": dict(state["outputs"])},
+        "implement": {"status": "pending"},
+    }
+    write_state(rig.rt.require_run_dir(run["run_id"]), state)
+    rig.adapter.calls.clear()
+    return rig, run["run_id"]
+
+
+@pytest.mark.parametrize("workflow,mode", [("ticket-plan", "current"), ("ticket-auto", "new")])
+def test_legacy_ticket_resume_restores_tree_mode_and_setup_path(tmp_path, workflow, mode):
+    async def scenario():
+        rig, run_id = await legacy_ticket_run(tmp_path, workflow)
+        try:
+            await rig.executor.resume(dict(run_id=run_id))
+            state = await rig.status(run_id, "completed")
+            assert state["inputs"]["worktree_mode"] == mode
+            if workflow == "ticket-plan":
+                assert state["outputs"]["work_path"] == rig.cwd
+                assert state["steps"]["setup"]["outputs"]["work_path"] == rig.cwd
+                assert rig.adapter.calls[0]["prompt"].startswith(f"current {rig.cwd}")
+            else:
+                assert rig.adapter.calls[0]["prompt"].startswith("new ")
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("mode", ["current", "new"])
+def test_resumed_ticket_plan_refuses_detached_implementation(tmp_path, mode):
+    from wise_engine.ledger import update_run
+
+    async def scenario():
+        rig, run_id = await legacy_ticket_run(tmp_path, inputs={"worktree_mode": mode})
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=rig.cwd, text=True).strip()
+        subprocess.run(["git", "checkout", "-q", "--detach"], cwd=rig.cwd, check=True)
+        update_run(
+            rig.rt.require_run_dir(run_id),
+            {
+                "outputs": {"work_branch": "HEAD", "work_path": rig.cwd, "work_head": head},
+            },
+        )
+        try:
+            await rig.executor.resume(dict(run_id=run_id))
+            state = await rig.status(run_id, "failed")
+            assert "implementation requires the named branch" in state["error"]
+            assert not rig.adapter.calls
+            assert (
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=rig.cwd, text=True
+                ).strip()
+                == head
+            )
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("saved_head", ["changed", "missing"])
+def test_detached_current_resume_checks_setup_commit(tmp_path, saved_head):
+    from wise_engine.ledger import update_run
+
+    async def scenario():
+        rig, run_id = await legacy_ticket_run(tmp_path, inputs={"worktree_mode": "current"})
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=rig.cwd, text=True).strip()
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "next",
+            ],
+            cwd=rig.cwd,
+            check=True,
+        )
+        subprocess.run(["git", "checkout", "-q", "--detach"], cwd=rig.cwd, check=True)
+        outputs = {"work_branch": "HEAD", "work_path": rig.cwd}
+        if saved_head == "changed":
+            outputs["work_head"] = head
+        update_run(rig.rt.require_run_dir(run_id), {"outputs": outputs})
+        try:
+            await rig.executor.resume(dict(run_id=run_id))
+            state = await rig.status(run_id, "failed")
+            assert "detached setup commit changed or is missing" in state["error"]
+            assert not rig.adapter.calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())

@@ -335,6 +335,24 @@ class Executor:
                 {"workflow": wf["name"]},
             )
         definition = validated(located)
+        if wf["name"] in ("ticket-plan", "ticket-auto"):
+            changed = False
+            inputs = state.setdefault("inputs", {})
+            if "worktree_mode" not in inputs:
+                inputs["worktree_mode"] = "current" if wf["name"] == "ticket-plan" else "new"
+                changed = True
+            setup = state["steps"].get("setup", {})
+            if (
+                wf["name"] == "ticket-plan"
+                and inputs["worktree_mode"] == "current"
+                and setup.get("status") == "completed"
+                and "work_path" not in state["outputs"]
+            ):
+                path = setup.setdefault("outputs", {}).setdefault("work_path", state["cwd"])
+                state["outputs"]["work_path"] = path
+                changed = True
+            if changed:
+                write_state(directory, state)
         live = LiveRun(
             state["run_id"],
             directory,
@@ -497,6 +515,18 @@ class Executor:
             ).strip()
             if branch != outputs["work_branch"]:
                 raise RuntimeError("current-tree lock: checkout branch changed since setup")
+            if branch == "HEAD":
+                head = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=state["cwd"],
+                    text=True,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                ).strip()
+                if head != outputs.get("work_head"):
+                    raise RuntimeError(
+                        "current-tree lock: detached setup commit changed or is missing; rerun setup"
+                    )
 
     def release_checkout(self, live: LiveRun) -> None:
         if live.stopped and live.dispatches == 0 and live.checkout_lock is not None:
@@ -715,6 +745,24 @@ class Executor:
                 update_step(live.run_dir, step_id, {"resolved": resolved})
             fresh = read_state(live.run_dir)
             step = render_step(definition, fresh, live.workflow_dir, live.run_dir)
+            if live.definition["name"] == "ticket-plan" and step_id == "implement":
+                path = fresh["outputs"].get("work_path")
+                if not path:
+                    raise RuntimeError("ticket-plan: setup checkout is missing; rerun setup")
+                branch = subprocess.run(
+                    ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+                    cwd=path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if branch.returncode or branch.stdout.strip() != fresh["outputs"].get(
+                    "work_branch"
+                ):
+                    raise RuntimeError(
+                        "ticket-plan: implementation requires the named branch selected at setup; "
+                        "start a new run with branch_mode=auto or choose a named branch in ask mode"
+                    )
             event = dict(type="step.started", step=step_id)
             if definition.get("description"):
                 event["message"] = headline(definition["description"])
