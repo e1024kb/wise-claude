@@ -27,9 +27,9 @@ project-selection: current
 #
 # ALL user decisions are front-loaded to pre-flight, ticket-auto-style:
 # the tuning / step-select questionary the engine builds from
-# the blocks below, plus four flow-mode inputs (gap_mode / review_mode /
-# branch_mode / implement_mode). With the default modes the run is fully
-# autonomous after launch: gap questions proceed on their stated
+# the blocks below, plus the tree choice and four flow-mode inputs
+# (gap_mode / review_mode / branch_mode / implement_mode). With default
+# modes the run is fully autonomous after launch: gap questions proceed on their stated
 # defaults, the plan is accepted as presented, the ticket branch is
 # created automatically, and the run stops after setup
 # (implement_mode: plan-only). Each mode keeps an `ask` value that
@@ -109,6 +109,10 @@ inputs:
     prompt: "Review the plan before setup? (auto: accept the plan as presented | ask: pause for my comments, one refine pass)"
     default: auto
     validate: "^(auto|ask)$"
+  - name: worktree_mode
+    prompt: "Where should setup and implementation work? (current: current tree | new: new worktree)"
+    default: current
+    validate: "^(current|new)$"
   - name: branch_mode
     prompt: "Branch handling at setup? (auto: ticket branch off the default branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)"
     default: auto
@@ -688,6 +692,7 @@ steps:
       user (through the `wise_ask` tool) ONLY about the pieces they
       left on `ask`. The modes:
 
+        worktree_mode:  {{worktree_mode}}   (current | new)
         branch_mode:    {{branch_mode}}     (auto | current | ask)
         implement_mode: {{implement_mode}}  (plan-only | now | ask)
 
@@ -715,8 +720,23 @@ steps:
       resumed). Carrying uncommitted changes across a checkout is never
       acceptable, existing branch or new.
 
-      - Branch: `auto`: if the current branch already equals
-        target_branch, nothing to do; else if target_branch exists,
+      - Tree: `current`: work_path is `{{project.path}}`; apply the
+        branch rules below in that checkout. `new`: work_path is
+        `{{run.dir}}/worktrees/<target_branch>`. Never switch the source
+        checkout. For branch_mode=current (or Stay in ask mode), create
+        a detached worktree with `git worktree add --detach <work_path>
+        HEAD` and report work_branch=HEAD.
+        Otherwise reuse a worktree at work_path only if it is registered
+        on target_branch. If target_branch is checked out elsewhere,
+        stop with its path. For an existing unoccupied branch, use
+        `git worktree add <work_path> <target_branch>`. For a new branch,
+        fetch the selected/default base and use `git worktree add
+        --no-track -b <target_branch> <work_path> origin/<base>`.
+        Do not delete or overwrite an existing path. Resolve ask-mode
+        branch/base choices below before creating the worktree.
+        Run all subsequent implementation git commands in work_path.
+      - Branch (current tree checkout rules; new uses worktree add above):
+        `auto`: if the current branch already equals target_branch, nothing to do; else if target_branch exists,
         dirty-check then `git checkout <target_branch>`; else
         dirty-check, resolve the repo's default branch
         (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling
@@ -743,15 +763,17 @@ steps:
 
       Return the fields directly as the structured result (no wrapping,
       no JSON-in-a-string): `work_branch` = the branch now checked out,
+      `work_path` = the absolute selected checkout path,
       `implement_choice` = `yes` or `no`.
     schema:
       type: object
       properties:
         work_branch: { type: string }
+        work_path: { type: string }
         implement_choice: { type: string, enum: ["yes", "no"] }
-      required: [work_branch, implement_choice]
+      required: [work_branch, work_path, implement_choice]
       additionalProperties: false
-    outputs: [work_branch, implement_choice]
+    outputs: [work_branch, work_path, implement_choice]
     depends_on: [review-comments, refine-plan]
     trigger-rule: all-done
 
@@ -767,10 +789,12 @@ steps:
     prompt: |
       The user chose to implement the plan now. Read
       ${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md
-      and follow it end to end on the current branch {{work_branch}},
+      and follow it end to end in `{{work_path}}` on branch {{work_branch}}.
+      Change directory to `{{work_path}}` before editing, testing or git
+      commands, and pass that path to every executor,
       with:
         plan_path:    {{plan_path}}
-        worktree:     {{project.path}}
+        worktree:     {{work_path}}
         project.kind: {{project.kind}}
       The plan's task waves are phase gates: dispatch each wave's tasks
       to parallel fresh-context executor `Task` subagents, then simplify
@@ -803,6 +827,7 @@ steps:
 
         Ticket:  {{tracker_slug}}:{{ticket_ref}}
         Branch:  {{work_branch}}
+        Tree:    {{work_path}}
         Plan:    {{plan_path}}
 
       Then branch on the implement decision (`{{implement_choice}}`,

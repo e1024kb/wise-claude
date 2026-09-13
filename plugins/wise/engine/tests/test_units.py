@@ -300,3 +300,34 @@ def test_cancel_during_resume_recheck_preserves_completed_boundary(tmp_path):
         assert read_unit(fixture.run_dir, "PROJ-1")["last_phase"] == "implement"
 
     asyncio.run(scenario())
+
+
+def test_current_tree_units_run_serially_and_use_selected_checkout(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        active = 0
+        observed = []
+
+        async def plan(ctx):
+            nonlocal active
+            active += 1
+            assert active == 1
+            assert ctx["unit"]["worktree"] == str(fixture.repo)
+            observed.append(ctx["unit"]["ref"])
+            await asyncio.sleep(0.01)
+            active -= 1
+            from wise_engine.phases.common import fail
+
+            return fail("stop after checking checkout")
+
+        args = minimal_input(fixture, items=["PROJ-1", "PROJ-2"], runners={"plan": plan})
+        args["state"]["inputs"] = {"worktree_mode": "current"}
+        args["step"]["parallel"] = 2
+        await run_units_step(args)
+        assert observed == ["PROJ-1", "PROJ-2"]
+        assert not any(
+            cmd == "git" and call[:2] == ["worktree", "add"] for cmd, call, _ in fixture.calls
+        )
+        assert fixture.repo.exists()
+
+    asyncio.run(scenario())

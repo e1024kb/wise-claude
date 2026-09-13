@@ -15,6 +15,7 @@ INPUTS = [
     "input.ticket_id",
     "input.gap_mode",
     "input.review_mode",
+    "input.worktree_mode",
     "input.branch_mode",
     "input.implement_mode",
 ]
@@ -130,7 +131,11 @@ def test_known_inputs_filter_groups():
     defn = definition()
     base = {"step-select": OPTIONAL, **AUTO}
     assert p.known_inputs(defn, {}, None) == dict(
-        gap_mode="defaults", review_mode="auto", branch_mode="auto", implement_mode="plan-only"
+        gap_mode="defaults",
+        review_mode="auto",
+        worktree_mode="current",
+        branch_mode="auto",
+        implement_mode="plan-only",
     )
     assert p.known_inputs(defn, {}, {"ticket": [{"ref": "TEST-1"}]})["ticket_id"] == "TEST-1"
     for mode, active in [("ask", True), ("auto", False)]:
@@ -333,6 +338,7 @@ def test_all_bundled_enum_inputs_are_choices():
     assert set(choices) == {
         "input.gap_mode",
         "input.review_mode",
+        "input.worktree_mode",
         "input.branch_mode",
         "input.implement_mode",
         "input.mode",
@@ -415,6 +421,7 @@ def test_complete_answers_and_selection():
         ticket_id="TEST-1",
         gap_mode="ask",
         review_mode="auto",
+        worktree_mode="current",
         branch_mode="auto",
         implement_mode="plan-only",
     )
@@ -505,3 +512,20 @@ def test_context_empty_values_and_javascript_whitespace():
         "inputs": [{"name": "link", "from-context": "links[]", "default": "fallback"}],
     }
     assert p.known_inputs(defn, {}, {"links": [""]}) == {"link": ""}
+
+
+@pytest.mark.parametrize(
+    "workflow,next_input", [("ticket-plan", "branch_mode"), ("ticket-auto", "tickets")]
+)
+def test_ticket_worktree_choice_order_and_answers(workflow, next_input):
+    result = load_and_validate({"path": str(ROOT / f"workflows/{workflow}/workflow.yaml")})
+    defn = result["def"]
+    questions = p.build_questionary(defn)["questions"]
+    index = next(i for i, q in enumerate(questions) if q["id"] == "input.worktree_mode")
+    assert questions[index + 1]["id"] == f"input.{next_input}"
+    assert questions[index]["kind"] == "choice"
+    assert {o["value"] for o in questions[index]["options"]} == {"current", "new"}
+    for mode in ("current", "new"):
+        answers = {"input.worktree_mode": mode}
+        assert "input.worktree_mode" not in ids(p.build_questionary(defn, answers=answers))
+        assert p.apply_answers(defn, answers)["inputs"]["worktree_mode"] == mode

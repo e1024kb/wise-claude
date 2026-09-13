@@ -448,3 +448,29 @@ def test_real_local_worktree_include_push_and_cleanup(tmp_path):
         assert "refs/heads/PROJ-1" not in local_git("show-ref", "--heads")
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("dirty", [False, True])
+def test_current_tree_checkout_and_cleanup(tmp_path, dirty):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        fixture.ctx["unit"].update(worktree=str(fixture.repo), base="main")
+        if dirty:
+            fixture.failures[("git", "status")] = command_result("?? local-file\n")
+        result = await worktree_phase(fixture.ctx)
+        checkouts = [
+            args for cmd, args, _ in fixture.calls if cmd == "git" and args[0] == "checkout"
+        ]
+        assert result["ok"] is not dirty
+        assert bool(checkouts) is not dirty
+        if not dirty:
+            assert checkouts == [["checkout", "--no-track", "-b", "PROJ-1", "origin/main"]]
+        fixture.ctx["unit"]["pr"] = {"number": 1, "url": "https://github.invalid/pr/1"}
+        fixture.ctx["ledger"]["verdict"] = "merged"
+        fixture.calls.clear()
+        result = await cleanup_phase(fixture.ctx)
+        assert result["patch"]["cleaned"] is False
+        assert fixture.repo.exists()
+        assert not fixture.calls
+
+    asyncio.run(scenario())

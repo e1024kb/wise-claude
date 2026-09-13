@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .constants import PHASES
 from .ledger import add_usage, empty_usage, read_unit, utc_now, write_log, write_unit
@@ -85,6 +86,7 @@ def is_done(ledger: Json) -> bool:
 def config_for(step: Json, state: Json) -> Json:
     config = {
         "pipeline": step["pipeline"],
+        "worktree_mode": state.get("inputs", {}).get("worktree_mode", "new"),
         "reviewers": step.get("reviewers", DEFAULT_REVIEWERS),
         "tickets": state["context"].get("ticket", []),
         "caps": {
@@ -352,6 +354,8 @@ async def run_units_step(input: Json) -> Json:
 
     async def process_unit(item: str) -> Json:
         unit = make_unit(config["pipeline"], item, cwd, run_dir, config.get("base", ""))
+        if config["worktree_mode"] == "current":
+            unit["worktree"] = str(Path(cwd).resolve())
 
         def log(line: str) -> None:
             lines.append(f"[{unit['ref']}] {line}")
@@ -511,7 +515,11 @@ async def run_units_step(input: Json) -> Json:
                 return
             rows.append(await process_unit(queue.popleft()))
 
-    workers = max(1, min(step.get("parallel", 1), len(queue)))
+    workers = (
+        1
+        if config["worktree_mode"] == "current"
+        else max(1, min(step.get("parallel", 1), len(queue)))
+    )
     await asyncio.gather(*(worker() for _ in range(workers)))
     order = {
         make_unit(config["pipeline"], item, cwd, run_dir)["branch"]: i

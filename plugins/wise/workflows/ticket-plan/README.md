@@ -91,7 +91,7 @@ flowchart TD
     P -->|review_mode=auto| S
     RC -->|comments| RF[refine-plan<br/>agent - fold comments, rewrite plan]
     RC -->|accept| S
-    RF --> S[setup<br/>agent - act on branch_mode / implement_mode; wise_ask ONLY the pieces left on 'ask' → implement_choice]
+    RF --> S[setup<br/>agent - act on worktree_mode / branch_mode / implement_mode; wise_ask ONLY the pieces left on 'ask' → implement_choice]
     S -->|implement=yes| IM[implement<br/>agent - run implement-plan.md: parallel executors, one commit/task]
     S -->|implement=no| FN
     IM --> FN[finalize<br/>agent - summary + next-step, branched on implement_choice]
@@ -199,7 +199,7 @@ until `setup`).
 | `present-plan` | `agent` | Informational - surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
 | `review-comments` | `ask` | `when: review_mode == 'ask'` — free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. With `review_mode=auto` the plan is accepted as presented. |
 | `refine-plan` | `agent` | `when: review_mode == 'ask' && user_comments != '' && user_comments != 'Accept the plan as-is'` - folds the comments in and overwrites the plan once. Acts as `architect`; `authoring` tuning group. |
-| `setup` | `agent` | Acts on the pre-flight `branch_mode` / `implement_mode`: creates the ticket branch off the repo's default branch or switches to it automatically (`auto`, dirty-tree refused before any checkout), stays put (`current`), or asks through `wise_ask` (branch, then base branch) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `sonnet`, `mode: full-access` for the git operations. Emits `work_branch` + `implement_choice`. |
+| `setup` | `agent` | Acts on the pre-flight `worktree_mode` / `branch_mode` / `implement_mode`: creates the ticket branch off the repo's default branch or switches to it automatically (`auto`, dirty-tree refused before any checkout), stays put (`current`), or asks through `wise_ask` (branch, then base branch) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `sonnet`, `mode: full-access` for the git operations. Emits `work_path` + `work_branch` + `implement_choice`. |
 | `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. `authoring` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
 | `finalize` | `agent` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-workflow-run code-review` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
 
@@ -226,6 +226,7 @@ answers override the group defaults at dispatch. See
 | `ticket_id` | yes | A ticket URL (`https://acme.atlassian.net/browse/PROJ-1`, `https://linear.app/acme/issue/ENG-45`, …) or a bare id (`PROJ-123`, `ENG-45`, `#678`). Pre-filled from the run context (`ticket[].ref`) when the conductor already knows the ticket. `detect-context` resolves the tracker and the bare ref from it. |
 | `gap_mode` | yes | `defaults` (default - open gap questions proceed on their stated defaults, recorded as assumptions) / `ask` (pause at `resolve-gaps`). |
 | `review_mode` | yes | `auto` (default - accept the plan as presented) / `ask` (pause at `review-comments` for one refine pass). |
+| `worktree_mode` | yes | Asked immediately before branch handling: `current` (default) uses the current tree; `new` creates a separate worktree at `<run-dir>/worktrees/<ticket-branch>`. Staying on the current branch with a new worktree uses a detached checkout at the source HEAD. |
 | `branch_mode` | yes | `auto` (default - create/switch the ticket branch off the repo's default branch, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
 | `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
 
@@ -248,6 +249,7 @@ defaults auto auto now`.
 | `gap_answers` | `resolve-gaps` | The user's inline answers (may be empty); folded into `build-plan` as CLEAR evidence, with unanswered questions proceeding on their defaults. |
 | `plan_path` | `build-plan` | Absolute path to `PLAN-<ref>.md` in the run directory; surfaced in `present-plan` / `finalize` and consumable by `/wise-implement-plan-auto`. |
 | `user_comments` | `review-comments` | Drives `refine-plan` when non-empty (only when `review_mode=ask`). |
+| `work_path` | `setup` | Absolute checkout path selected for implementation and shown in the final summary. |
 | `work_branch` | `setup` | The branch the run ended on. |
 | `implement_choice` | `setup` | `yes` / `no`, resolved from `implement_mode` (or the setup questionnaire when that mode was `ask`); gates the `implement` step and branches `finalize`. |
 | `impl_waves` / `impl_tasks` / `impl_done` / `impl_failed` | `implement` | Implementation tallies (set only when `implement` ran). |

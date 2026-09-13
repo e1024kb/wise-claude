@@ -2,14 +2,14 @@ version: 2
 name: ticket-auto
 description: >-
   Autonomous ticket -> PR pipeline. For each ticket the engine claims a
-  branch and worktree, plans it, implements the plan, converges it
+  branch in the selected tree, plans it, implements the plan, converges it
   through a review / fix loop, pushes, opens a PR, requests the bot
   reviews, watches CI and the bots, fixes what they raise, and merges
   once the PR is green and quiet. No prompts after launch: pre-flight
   asks the per-phase harness, model and effort, and the inputs. One
-  worktree + branch + PR per ticket; a merged PR loses its worktree and
-  local branch, anything else stays open for a human with the worktree
-  kept for inspection.
+  branch + PR per ticket; a merged PR loses its separate worktree and
+  local branch, current-tree runs retain both. Other outcomes keep the tree
+  for inspection.
 author: e1024kb
 
 project-selection: current
@@ -24,7 +24,7 @@ project-selection: current
 # reviewers, the intake and the report.
 #
 # control-mode: synchronous, no gates. worktree: current, the units step
-# creates one worktree per ticket under the run directory itself.
+# uses worktree_mode to select the current tree or a worktree per ticket.
 preflight:
   control-mode: synchronous
   worktree: current
@@ -70,6 +70,10 @@ profiles:
 # phase as binding configuration (libraries to prefer, files to avoid,
 # guardrails). It never turns the run into a Q&A.
 inputs:
+  - name: worktree_mode
+    prompt: "Where should ticket branches run? (current: current tree, tickets run sequentially | new: new worktree per ticket)"
+    default: new
+    validate: "^(current|new)$"
   - name: tickets
     prompt: "Which tickets? Comma-separated URLs or ids (PROJ-1, PROJ-2, https://linear.app/acme/issue/ENG-9). No spaces when passed positionally."
     from-context: ticket[].ref
@@ -83,7 +87,7 @@ steps:
     type: bash
     run: |
       set -eu
-      # An autonomous multi-worktree run starts from a clean base.
+      # Ticket branches start from a clean base.
       if ! git diff --quiet || ! git diff --cached --quiet; then
         echo "ERROR: base repo at $(pwd) has uncommitted changes; stash or commit them, then re-run." >&2
         exit 1
@@ -238,7 +242,8 @@ steps:
       verdict, reason); for each unit not merged, why and the next step
       (the BLUEPRINT path for `plan-insufficient-context`, the PR for a
       human to finish, the ledger for a failure); the
-      `git worktree remove <path>` command for each unit whose
+      `git worktree remove <path>` command only for a separate worktree,
+      never for `{{project.path}}`, for each unit whose
       `cleaned` is false; the run's usage totals from the JSON above and
       the token usage per unit from the ledgers.
       Print the same table and the counts in your reply. State facts

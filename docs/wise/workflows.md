@@ -879,7 +879,13 @@ Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
 file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
-Worktree: `<run dir>/worktrees/<branch>`.
+Worktree: `<run dir>/worktrees/<branch>`. The ticket workflows ask for
+`worktree_mode: current | new` during pre-flight. `ticket-plan` asks immediately
+before branch handling and returns the selected `work_path` from setup.
+`ticket-auto` asks before ticket intake, which determines branch names. Its
+`current` mode runs units sequentially in `cwd`, refuses dirty branch switches,
+and retains the checkout and branches even after merge. The default remains
+`current` for ticket-plan and `new` for ticket-auto.
 
 ### Model phases
 
