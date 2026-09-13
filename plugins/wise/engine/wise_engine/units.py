@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import time
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import TextIO
 
 from .constants import PHASES
 from .ledger import add_usage, empty_usage, read_unit, utc_now, write_log, write_unit
@@ -11,7 +14,7 @@ from .pricing import price_usage
 from .spawn import clean_env
 from .phases.claim import claim_phase
 from .phases.cleanup import cleanup_phase
-from .phases.common import Json, fail, make_unit, parse_items, pass_, spawn_runner
+from .phases.common import Json, err_text, fail, make_unit, ok, parse_items, pass_, spawn_runner
 from .phases.model import (
     NO_AGENT_RUNTIME,
     findings_path,
@@ -85,6 +88,7 @@ def is_done(ledger: Json) -> bool:
 def config_for(step: Json, state: Json) -> Json:
     config = {
         "pipeline": step["pipeline"],
+        "worktree_mode": state.get("inputs", {}).get("worktree_mode", "new"),
         "reviewers": step.get("reviewers", DEFAULT_REVIEWERS),
         "tickets": state["context"].get("ticket", []),
         "caps": {
@@ -320,6 +324,39 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
 
 
 async def run_units_step(input: Json) -> Json:
+    if config_for(input["step"], input["state"])["worktree_mode"] != "current":
+        return await _run_units_step(input)
+    execute = input.get("exec", spawn_runner)
+    result = await execute(
+        "git",
+        ["rev-parse", "--path-format=absolute", "--git-path", "wise-current-tree.lock"],
+        {"cwd": input["cwd"], "env": clean_env(parent=input.get("parent_env"))},
+    )
+    if not ok(result) or not result["stdout"].strip():
+        raise RuntimeError(f"current-tree lock: cannot locate Git directory: {err_text(result)}")
+    path = Path(result["stdout"].strip()).resolve()
+    owned = input.get("checkout_lock")
+    if owned is not None and not owned.closed and Path(owned.name).resolve() == path:
+        return await _run_units_step(input)
+    with acquire_checkout_lock(path):
+        return await _run_units_step(input)
+
+
+def acquire_checkout_lock(path: Path) -> TextIO:
+    handle = path.open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BaseException as error:
+        handle.close()
+        if isinstance(error, BlockingIOError):
+            raise RuntimeError(
+                "current-tree lock: another workflow is using this checkout"
+            ) from error
+        raise
+    return handle
+
+
+async def _run_units_step(input: Json) -> Json:
     run_dir, cwd, step, state = (input[key] for key in ("run_dir", "cwd", "step", "state"))
     config = config_for(step, state)
     resolved = resolved_phases(step, state)
@@ -352,6 +389,8 @@ async def run_units_step(input: Json) -> Json:
 
     async def process_unit(item: str) -> Json:
         unit = make_unit(config["pipeline"], item, cwd, run_dir, config.get("base", ""))
+        if config["worktree_mode"] == "current":
+            unit["worktree"] = str(Path(cwd).resolve())
 
         def log(line: str) -> None:
             lines.append(f"[{unit['ref']}] {line}")
@@ -511,7 +550,11 @@ async def run_units_step(input: Json) -> Json:
                 return
             rows.append(await process_unit(queue.popleft()))
 
-    workers = max(1, min(step.get("parallel", 1), len(queue)))
+    workers = (
+        1
+        if config["worktree_mode"] == "current"
+        else max(1, min(step.get("parallel", 1), len(queue)))
+    )
     await asyncio.gather(*(worker() for _ in range(workers)))
     order = {
         make_unit(config["pipeline"], item, cwd, run_dir)["branch"]: i

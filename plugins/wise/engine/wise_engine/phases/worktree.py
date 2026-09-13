@@ -50,6 +50,21 @@ async def worktree_phase(ctx: Json) -> Json:
         if not ok(await git(ctx, ["rev-parse", "--verify", "--quiet", f"origin/{base}"])):
             return fail(f"worktree: fetch origin/{base} failed and no local copy")
         ctx["log"](f"worktree: fetch failed, using the local origin/{base}")
+    if path.resolve() == Path(ctx["cwd"]).resolve():
+        head = await git(ctx, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+        if not ok(head) or head["stdout"].strip() != unit["branch"]:
+            status = await git(ctx, ["status", "--porcelain"])
+            if not ok(status) or status["stdout"].strip():
+                return fail("worktree: current tree has uncommitted or untracked changes")
+            args = (
+                ["checkout", unit["branch"]]
+                if await local_branch_exists(ctx, unit["branch"])
+                else ["checkout", "--no-track", "-b", unit["branch"], f"origin/{base}"]
+            )
+            switched = await git(ctx, args)
+            if not ok(switched):
+                return fail(f"worktree: checkout failed: {err_text(switched)}")
+        return pass_({"unit": {**unit, "worktree": str(path), "base": base}})
     reg = await _registered(ctx, str(path))
     if reg is None and path.exists():
         await git(ctx, ["worktree", "prune"])

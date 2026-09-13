@@ -6,9 +6,11 @@ import json
 import math
 import os
 import secrets
+import subprocess
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from .adapter_types import AgentHandle
 from .channel import (
@@ -69,6 +71,7 @@ from .render import render_step, _json
 from .resolve import resolve_model_dict
 from .rpc import RpcError, domain_error
 from .scheduler import next_wave, JS_WHITESPACE
+from .spawn import clean_env
 from .steps.agent import headline, start_agent_step
 from .steps.bash import start_bash_step
 from .steps.gate import APPROVAL_OPTIONS, build_gate, decide_gate, is_gate_step
@@ -195,6 +198,8 @@ class LiveRun:
     workflow_dir: str
     control_mode: str
     stopped: bool = False
+    checkout_lock: TextIO | None = None
+    dispatches: int = 0
     children: dict[str, Any] = field(default_factory=dict)
     tokens: dict[str, str] = field(default_factory=dict)
     fallback_auth: dict[str, str] = field(default_factory=dict)
@@ -331,6 +336,24 @@ class Executor:
                 {"workflow": wf["name"]},
             )
         definition = validated(located)
+        if wf["name"] in ("ticket-plan", "ticket-auto"):
+            changed = False
+            inputs = state.setdefault("inputs", {})
+            if "worktree_mode" not in inputs:
+                inputs["worktree_mode"] = "current" if wf["name"] == "ticket-plan" else "new"
+                changed = True
+            setup = state["steps"].get("setup", {})
+            if (
+                wf["name"] == "ticket-plan"
+                and inputs["worktree_mode"] == "current"
+                and setup.get("status") == "completed"
+                and "work_path" not in state["outputs"]
+            ):
+                path = setup.setdefault("outputs", {}).setdefault("work_path", state["cwd"])
+                state["outputs"]["work_path"] = path
+                changed = True
+            if changed:
+                write_state(directory, state)
         live = LiveRun(
             state["run_id"],
             directory,
@@ -425,6 +448,7 @@ class Executor:
             state = read_state(live.run_dir)
             if state["status"] != "running":
                 return
+            self.lock_checkout(live, state)
             wave = next_wave(live.definition, state)
             for warning in wave["warnings"]:
                 live.emit(dict(type="warn", message=warning))
@@ -455,12 +479,67 @@ class Executor:
                 cursor_harness = state["steps"][step["id"]].get("resolved", {}).get("harness")
                 step_run_id = start_step(live.run_dir, step["id"])
                 release = self.take_slot(resolved["harness"]) if resolved else None
-                self.task(
+                live.dispatches += 1
+                dispatched = self.task(
                     self.dispatch(live, state, step, step_run_id, resolved, cursor_harness, release)
                 )
+                dispatched.add_done_callback(partial(self.dispatch_drained, live))
             if gate and not self.open_gate(live, gate):
                 continue
             return
+
+    def lock_checkout(self, live: LiveRun, state: Json) -> None:
+        if state.get("inputs", {}).get("worktree_mode") != "current" or live.checkout_lock:
+            return
+        from .units import acquire_checkout_lock
+
+        path = subprocess.check_output(
+            ["git", "rev-parse", "--path-format=absolute", "--git-path", "wise-current-tree.lock"],
+            cwd=state["cwd"],
+            env=clean_env(parent=self.env),
+            text=True,
+            stderr=subprocess.PIPE,
+            timeout=10,
+        ).strip()
+        live.checkout_lock = acquire_checkout_lock(Path(path))
+        outputs = state.get("outputs", {})
+        if (
+            outputs.get("work_branch")
+            and outputs.get("work_path")
+            and Path(outputs["work_path"]).resolve() == Path(state["cwd"]).resolve()
+        ):
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=state["cwd"],
+                env=clean_env(parent=self.env),
+                text=True,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            ).strip()
+            if branch != outputs["work_branch"]:
+                raise RuntimeError("current-tree lock: checkout branch changed since setup")
+            if branch == "HEAD":
+                head = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=state["cwd"],
+                    env=clean_env(parent=self.env),
+                    text=True,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                ).strip()
+                if head != outputs.get("work_head"):
+                    raise RuntimeError(
+                        "current-tree lock: detached setup commit changed or is missing; rerun setup"
+                    )
+
+    def release_checkout(self, live: LiveRun) -> None:
+        if live.stopped and live.dispatches == 0 and live.checkout_lock is not None:
+            live.checkout_lock.close()
+            live.checkout_lock = None
+
+    def dispatch_drained(self, live: LiveRun, task: asyncio.Task[Any]) -> None:
+        live.dispatches -= 1
+        self.release_checkout(live)
 
     def drop_live(self, live: LiveRun) -> None:
         live.stopped = True
@@ -477,6 +556,7 @@ class Executor:
         ):
             collection.clear()
         self.lives.pop(live.run_id, None)
+        self.release_checkout(live)
 
     def finish(self, live: LiveRun, failed: bool) -> None:
         state = read_state(live.run_dir)
@@ -661,6 +741,7 @@ class Executor:
     ) -> None:
         step_id = definition["id"]
         handle: Any = None
+        draining: asyncio.Future[Any] | None = None
         try:
             if live.stopped:
                 return
@@ -668,6 +749,89 @@ class Executor:
                 update_step(live.run_dir, step_id, {"resolved": resolved})
             fresh = read_state(live.run_dir)
             step = render_step(definition, fresh, live.workflow_dir, live.run_dir)
+            step_cwd = state["cwd"]
+            if live.definition["name"] == "ticket-plan" and step_id == "implement":
+                from .phases.common import ticket_branch, ticket_ref
+                from .phases.worktree import parse_worktrees
+
+                path = fresh["outputs"].get("work_path")
+                if not isinstance(path, str) or not path or not Path(path).is_absolute():
+                    raise RuntimeError(
+                        "ticket-plan: setup checkout is missing or invalid; rerun setup"
+                    )
+                source = Path(fresh["project"]["path"]).resolve()
+                selected = Path(path).resolve()
+                mode = fresh["inputs"]["worktree_mode"]
+                expected = source
+                if mode == "new":
+                    ref = fresh["outputs"].get("ticket_ref")
+                    if not isinstance(ref, str) or not ref:
+                        raise RuntimeError("ticket-plan: setup ticket reference is missing")
+                    expected = (
+                        Path(live.run_dir).resolve() / "worktrees" / ticket_branch(ticket_ref(ref))
+                    )
+                if selected != expected:
+                    raise RuntimeError(
+                        "ticket-plan: setup checkout does not match the selected tree"
+                    )
+                draining = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        subprocess.run,
+                        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+                        cwd=path,
+                        env=clean_env(parent=self.env),
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                )
+                branch = await asyncio.shield(draining)
+                if branch.returncode or branch.stdout.strip() != fresh["outputs"].get(
+                    "work_branch"
+                ):
+                    raise RuntimeError(
+                        "ticket-plan: implementation requires the named branch selected at setup; "
+                        "start a new run with branch_mode=auto or choose a named branch in ask mode"
+                    )
+                draining = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        subprocess.check_output,
+                        ["git", "rev-parse", "--show-toplevel"],
+                        cwd=selected,
+                        env=clean_env(parent=self.env),
+                        text=True,
+                        stderr=subprocess.PIPE,
+                        timeout=10,
+                    )
+                )
+                root = Path((await asyncio.shield(draining)).strip()).resolve()
+                draining = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        subprocess.check_output,
+                        ["git", "worktree", "list", "--porcelain"],
+                        cwd=source,
+                        env=clean_env(parent=self.env),
+                        text=True,
+                        stderr=subprocess.PIPE,
+                        timeout=10,
+                    )
+                )
+                registered = parse_worktrees(await asyncio.shield(draining))
+                if (
+                    (mode == "new" and root != selected)
+                    or not any(
+                        Path(row["path"]).resolve() == root
+                        and row.get("branch") == branch.stdout.strip()
+                        for row in registered
+                    )
+                    or (mode == "new" and branch.stdout.strip() != expected.name)
+                ):
+                    raise RuntimeError(
+                        "ticket-plan: selected checkout is not registered on its expected branch"
+                    )
+                step_cwd = str(selected)
+                if not self.current(live, step_id, step_run_id):
+                    return
             event = dict(type="step.started", step=step_id)
             if definition.get("description"):
                 event["message"] = headline(definition["description"])
@@ -695,7 +859,8 @@ class Executor:
                 live.children[step_id] = handle
                 if live.stopped and handle.kill:
                     handle.kill("SIGTERM")
-                result = await handle.result
+                draining = asyncio.ensure_future(handle.result)
+                result = await asyncio.shield(draining)
                 if self.current(live, step_id, step_run_id):
                     if result["ok"]:
                         self.complete_step(live, step_id, result["verdict"], result["outputs"])
@@ -704,7 +869,10 @@ class Executor:
                             live, step_id, result.get("error", "failed"), result["verdict"]
                         )
             elif step["type"] == "units":
-                await self.dispatch_units(live, fresh, step, step_run_id)
+                draining = asyncio.ensure_future(
+                    self.dispatch_units(live, fresh, step, step_run_id)
+                )
+                await asyncio.shield(draining)
             else:
                 assert resolved is not None
                 tracker = create_child_tracker(
@@ -736,7 +904,7 @@ class Executor:
                     step_run_id=step_run_id,
                     step=step,
                     resolved=resolved,
-                    cwd=state["cwd"],
+                    cwd=step_cwd,
                     step_token=token,
                     starter=self.starter,
                     on_event=on_event,
@@ -757,7 +925,8 @@ class Executor:
                 else:
                     self.watch_child(live, step, tracker, handle)
                 try:
-                    outcome = await started.outcome
+                    draining = asyncio.ensure_future(started.outcome)
+                    outcome = await asyncio.shield(draining)
                 except Exception as exc:
                     outcome = dict(
                         exit="error",
@@ -778,8 +947,11 @@ class Executor:
                     self.close_child_asks(live, step_id)
                     self.settle_agent(live, step, resolved, outcome)
         except asyncio.CancelledError:
-            if handle and handle.kill:
-                handle.kill("SIGTERM")
+            child = handle or live.children.get(step_id)
+            if child and child.kill:
+                child.kill("SIGTERM")
+            if draining is not None:
+                await asyncio.gather(asyncio.shield(draining), return_exceptions=True)
             raise
         except Exception as exc:
             if self.current(live, step_id, step_run_id):
@@ -815,6 +987,8 @@ class Executor:
     ) -> None:
         from .units import run_units_step, parse_items
 
+        if live.stopped:
+            return
         step_id = step["id"]
         if "{{" in step["items"]:
             raise ValueError(f"items template unresolved: {headline(step['items'], 80)}")
@@ -862,6 +1036,7 @@ class Executor:
             parent_env=self.env,
             agent=agent,
             signal=signal,
+            checkout_lock=live.checkout_lock,
             on_usage=lambda phase, harness, usage, model: None
             if live.stopped
             else self.fold_usage(live, step_id, harness, usage, model),

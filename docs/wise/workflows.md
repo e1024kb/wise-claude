@@ -864,7 +864,7 @@ v1 prose orchestrators used to describe. Phases in order:
 | Phase | Kind | Does |
 |---|---|---|
 | `claim` | code | Ownership gate: our ledger = ours (resume); merged PR = shipped; foreign branch or worktree = skip. Resolves `base`. |
-| `worktree` | code | `git worktree add` under `<run dir>/worktrees/`, applies `.worktreeinclude` once (`includes-done`). |
+| `worktree` | code | `new`: `git worktree add` under `<run dir>/worktrees/`, applies `.worktreeinclude` once (`includes-done`). `current`: uses `cwd`, refusing dirty branch switches. |
 | `plan` | model | Writes `<run dir>/plans/PLAN-<ref>.md` (plan pipeline: re-plans the seed at HEAD). |
 | `implement` | model | Task waves, one commit per task, in the worktree. |
 | `review` | model | Three-lens panel (correctness, security, tests) writing `units/<branch>.findings.md`. |
@@ -873,13 +873,22 @@ v1 prose orchestrators used to describe. Phases in order:
 | `pr` | code | `gh pr create` with the repo template filled, or reuse. |
 | `request-review` | code | `gh pr edit --add-reviewer` per `reviewers`. |
 | `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. |
-| `cleanup` | code | On `merged`: remove worktree, delete local branch, `cleaned: true`. Runs after a failure too. |
+| `cleanup` | code | On `merged` in `new` mode: remove worktree, delete local branch, `cleaned: true`. `current` retains the checkout and branch. Runs after a failure too. |
 
 Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
 file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
-Worktree: `<run dir>/worktrees/<branch>`.
+New worktree: `<run dir>/worktrees/<branch>`. The ticket workflows ask for
+`worktree_mode: current | new` during pre-flight. `ticket-plan` asks immediately
+before branch handling and returns the selected `work_path` from setup.
+`ticket-auto` asks before ticket intake, which determines branch names. Its
+`current` mode runs units sequentially in `cwd`, refuses dirty branch switches,
+and retains the checkout and branches even after merge. The default remains
+`current` for ticket-plan and `new` for ticket-auto. Current-tree workflows
+hold one checkout lock across all steps and open questions. Another current-tree
+run cannot use that checkout until the run ends and its children have exited.
+Resuming a run reacquires the lock before scheduling work.
 
 ### Model phases
 

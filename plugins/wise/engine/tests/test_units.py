@@ -1,5 +1,9 @@
 import asyncio
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from test_model_phases import ModelFixture
 from test_phases import PhaseFixture
@@ -298,5 +302,96 @@ def test_cancel_during_resume_recheck_preserves_completed_boundary(tmp_path):
 
         await run_units_step(minimal_input(fixture, signal=signal, runners={"claim": claim}))
         assert read_unit(fixture.run_dir, "PROJ-1")["last_phase"] == "implement"
+
+    asyncio.run(scenario())
+
+
+def test_current_tree_units_run_serially_and_use_selected_checkout(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        active = 0
+        observed = []
+
+        async def plan(ctx):
+            nonlocal active
+            active += 1
+            assert active == 1
+            assert ctx["unit"]["worktree"] == str(fixture.repo)
+            observed.append(ctx["unit"]["ref"])
+            await asyncio.sleep(0.01)
+            active -= 1
+            from wise_engine.phases.common import fail
+
+            return fail("stop after checking checkout")
+
+        args = minimal_input(fixture, items=["PROJ-1", "PROJ-2"], runners={"plan": plan})
+        args["state"]["inputs"] = {"worktree_mode": "current"}
+        args["step"]["parallel"] = 2
+        await run_units_step(args)
+        assert observed == ["PROJ-1", "PROJ-2"]
+        assert not any(
+            cmd == "git" and call[:2] == ["worktree", "add"] for cmd, call, _ in fixture.calls
+        )
+        assert fixture.repo.exists()
+
+    asyncio.run(scenario())
+
+
+def test_current_tree_lock_rejects_other_runs_and_releases_on_cancel(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        started = asyncio.Event()
+
+        async def plan(ctx):
+            started.set()
+            await asyncio.Event().wait()
+
+        args = minimal_input(fixture, runners={"plan": plan})
+        args["state"]["inputs"] = {"worktree_mode": "current"}
+        first = asyncio.create_task(run_units_step(args))
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            with pytest.raises(RuntimeError, match="another workflow is using this checkout"):
+                await run_units_step({**args, "step_run_id": "other-run"})
+            probe = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import fcntl, sys; f = open(sys.argv[1], 'a'); "
+                    "fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+                    str(fixture.repo / "wise-current-tree.lock"),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert probe.returncode != 0 and "BlockingIOError" in probe.stderr
+        finally:
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+        retry = minimal_input(fixture, items=["PROJ-2"])
+        retry["state"]["inputs"] = {"worktree_mode": "current"}
+        result = await run_units_step(retry)
+        assert len(result["outputs"]["units"]) == 1
+
+    asyncio.run(scenario())
+
+
+def test_current_tree_units_borrow_live_run_lock_without_releasing_it(tmp_path):
+    from wise_engine.units import acquire_checkout_lock
+
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        args = minimal_input(fixture)
+        args["state"]["inputs"] = {"worktree_mode": "current"}
+        path = fixture.repo / "wise-current-tree.lock"
+        with acquire_checkout_lock(path) as lease:
+            result = await run_units_step({**args, "checkout_lock": lease})
+            assert len(result["outputs"]["units"]) == 1
+            assert not lease.closed
+            with pytest.raises(RuntimeError, match="another workflow"):
+                await run_units_step(args)
+        await run_units_step(args)
 
     asyncio.run(scenario())

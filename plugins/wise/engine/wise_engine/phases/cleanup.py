@@ -5,6 +5,9 @@ from .common import Json, err_text, git, ok, pass_
 
 async def cleanup_phase(ctx: Json) -> Json:
     unit, ledger = ctx["unit"], ctx["ledger"]
+    if Path(unit["worktree"]).resolve() == Path(ctx["cwd"]).resolve():
+        ctx["log"]("cleanup: kept current tree and branch")
+        return pass_({"cleaned": False})
     if ledger.get("verdict") != "merged" or "pr" not in unit:
         if Path(unit["worktree"]).exists():
             ctx["log"](f"cleanup: kept worktree {unit['worktree']}")

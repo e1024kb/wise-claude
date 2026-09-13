@@ -1,5 +1,6 @@
 import copy
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ INPUTS = [
     "input.ticket_id",
     "input.gap_mode",
     "input.review_mode",
+    "input.worktree_mode",
     "input.branch_mode",
     "input.implement_mode",
 ]
@@ -130,7 +132,11 @@ def test_known_inputs_filter_groups():
     defn = definition()
     base = {"step-select": OPTIONAL, **AUTO}
     assert p.known_inputs(defn, {}, None) == dict(
-        gap_mode="defaults", review_mode="auto", branch_mode="auto", implement_mode="plan-only"
+        gap_mode="defaults",
+        review_mode="auto",
+        worktree_mode="current",
+        branch_mode="auto",
+        implement_mode="plan-only",
     )
     assert p.known_inputs(defn, {}, {"ticket": [{"ref": "TEST-1"}]})["ticket_id"] == "TEST-1"
     for mode, active in [("ask", True), ("auto", False)]:
@@ -333,6 +339,7 @@ def test_all_bundled_enum_inputs_are_choices():
     assert set(choices) == {
         "input.gap_mode",
         "input.review_mode",
+        "input.worktree_mode",
         "input.branch_mode",
         "input.implement_mode",
         "input.mode",
@@ -415,6 +422,7 @@ def test_complete_answers_and_selection():
         ticket_id="TEST-1",
         gap_mode="ask",
         review_mode="auto",
+        worktree_mode="current",
         branch_mode="auto",
         implement_mode="plan-only",
     )
@@ -505,3 +513,64 @@ def test_context_empty_values_and_javascript_whitespace():
         "inputs": [{"name": "link", "from-context": "links[]", "default": "fallback"}],
     }
     assert p.known_inputs(defn, {}, {"links": [""]}) == {"link": ""}
+
+
+@pytest.mark.parametrize(
+    "workflow,next_input", [("ticket-plan", "branch_mode"), ("ticket-auto", "tickets")]
+)
+def test_ticket_worktree_choice_order_and_answers(workflow, next_input):
+    result = load_and_validate({"path": str(ROOT / f"workflows/{workflow}/workflow.yaml")})
+    defn = result["def"]
+    questions = p.build_questionary(defn)["questions"]
+    index = next(i for i, q in enumerate(questions) if q["id"] == "input.worktree_mode")
+    assert questions[index + 1]["id"] == f"input.{next_input}"
+    assert questions[index]["kind"] == "choice"
+    assert {o["value"] for o in questions[index]["options"]} == {"current", "new"}
+    for mode in ("current", "new"):
+        answers = {"input.worktree_mode": mode}
+        assert "input.worktree_mode" not in ids(p.build_questionary(defn, answers=answers))
+        assert p.apply_answers(defn, answers)["inputs"]["worktree_mode"] == mode
+
+
+@pytest.mark.parametrize("mode,expected", [("current", 1), ("new", 0)])
+@pytest.mark.parametrize("dirty_kind", ["staged", "untracked"])
+def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(
+    tmp_path, mode, expected, dirty_kind
+):
+    definition = load_and_validate({"path": str(ROOT / "workflows/ticket-auto/workflow.yaml")})[
+        "def"
+    ]
+    script = next(step["run"] for step in definition["steps"] if step["id"] == "preflight-checks")
+    script = script.replace("{{worktree_mode}}", mode)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "tracked").write_text("change")
+    if dirty_kind == "staged":
+        subprocess.run(["git", "add", "tracked"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "/unused"], cwd=tmp_path, check=True)
+    result = subprocess.run(
+        ["bash", "-c", "gh() { return 0; }\n" + script],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == expected
+    if mode == "new":
+        assert "PREFLIGHT: ok" in result.stdout
+        assert subprocess.check_output(["git", "status", "--porcelain"], cwd=tmp_path)
+        unauthenticated = subprocess.run(
+            ["bash", "-c", "gh() { return 1; }\n" + script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert unauthenticated.returncode == 1 and "not authenticated" in unauthenticated.stderr
+        subprocess.run(["git", "remote", "remove", "origin"], cwd=tmp_path, check=True)
+        no_origin = subprocess.run(
+            ["bash", "-c", "gh() { return 0; }\n" + script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert no_origin.returncode == 1 and "no 'origin'" in no_origin.stderr
+    else:
+        assert "uncommitted or untracked changes" in result.stderr

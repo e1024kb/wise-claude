@@ -9,9 +9,11 @@ For each ticket the engine's `units` step claims a branch and worktree,
 plans the ticket, implements the plan, converges the branch through a
 review / fix loop, pushes, opens a PR, requests the bot reviews,
 watches CI and the bots, fixes what they raise, and merges once the PR
-is green and quiet. One worktree + branch + PR per ticket. A merged PR
-loses its worktree and local branch; anything else stays open for a
-human with the worktree kept for inspection. No prompts after launch:
+is green and quiet. Pre-flight asks current tree or new worktree before
+the ticket input that determines branch names. New worktrees are the default:
+a merged PR loses its separate worktree and local branch. Current-tree mode
+runs tickets sequentially and always retains the checkout and its branches.
+Other outcomes keep the worktree for inspection. No prompts after launch:
 pre-flight asks harness, provider permissions, model and effort per phase group, and the
 inputs.
 
@@ -41,8 +43,8 @@ the intake and the report. The prompt fragments still under `prompts/`
 
 - `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
 - Run from inside the project's git repository (`project-selection:
-  current`); the base working tree must be clean and have an `origin`
-  remote (`preflight-checks` refuses otherwise).
+  current`) with an `origin` remote. Current-tree mode also requires
+  a clean source checkout; new-worktree mode preserves local changes.
 - Pre-flight asks for a permission floor once per selected provider.
   `Auto` is recommended; `Bypass permissions` is available when the
   provider must run fully unsandboxed. A phase's stronger mode still wins.
@@ -55,7 +57,7 @@ the intake and the report. The prompt fragments still under `prompts/`
 
 ```mermaid
 flowchart TD
-    A[preflight-checks<br/>bash - clean tree, gh auth, origin] --> B[split-tickets<br/>bash - comma list -> JSON array ticket_list]
+    A[preflight-checks<br/>bash - current-tree cleanliness, gh auth, origin] --> B[split-tickets<br/>bash - comma list -> JSON array ticket_list]
     B --> C[ensure-access<br/>agent sonnet - context first, probe each tracker -> access, detail]
     C -->|access = ok| D[process<br/>units pipeline ticket - one unit per ticket -> units rows]
     C -->|access = blocked| E
@@ -67,13 +69,13 @@ Inside `process`, per ticket and in this order:
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
 | `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a foreign worktree or branch is skipped. |
-| `worktree` | code | - | `<run-dir>/worktrees/<branch>` on branch `<ticket-ref>` off the fetched base. |
+| `worktree` | code | - | Selected current tree or `<run-dir>/worktrees/<branch>` on branch `<ticket-ref>` off the fetched base. |
 | `plan` | model | `plan` | Reads the ticket (context body first, else the tracker), audits the worktree, writes `<run-dir>/plans/PLAN-<ref>.md`. `no-access` or `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `implement` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
 | `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body, `gh pr edit --add-reviewer` for each login in `reviewers`. |
 | `watch` (+ `fix`, `push`) | model | `watch` / `implement` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
-| `cleanup` | code | - | Only on `merged`: remove the worktree and the local branch. |
+| `cleanup` | code | - | Only on `merged`: remove a separate worktree and its local branch. Always retain the current tree and its branches. |
 
 ## Pre-flight questions
 
@@ -83,6 +85,7 @@ Inside `process`, per ticket and in this order:
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `input.worktree_mode` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. Asked before ticket intake. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
@@ -96,16 +99,17 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 | Step | Type | Purpose |
 |---|---|---|
-| `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
+| `preflight-checks` | `bash` | Clean source tree in current mode, `gh auth status`, `origin` remote. |
 | `split-tickets` | `bash` | Splits the `tickets` input on commas and semicolons, trims, dedupes, validates the charset, emits a JSON array as `ticket_list`. Fails on an empty list. |
 | `ensure-access` | `agent` (sonnet) | Reads `wise_context("ticket")` first; probes a granted CLI (`gh`, `glab`, `linear`, or `jira`) or public URL for tickets whose tracker identity is established. Custom or private tracker content must be preloaded into run context. Ambiguous bare IDs fail closed. Emits `access` (`ok` / `blocked`) and `detail`. |
 | `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |
-| `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
+| `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands for separate worktrees only, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
 
 ## Inputs
 
 | Name | Required | Description |
 |---|---|---|
+| `worktree_mode` | yes | `new` (default) creates a worktree per ticket; `current` uses the current tree, runs tickets sequentially, and refuses to switch with uncommitted or untracked changes. Cleanup never removes the current tree or its branches. |
 | `tickets` | yes | Comma-separated ticket URLs or ids. Pre-filled from the run context when the conductor already knows them. A URL is normalised to its key by the engine (`branch-naming.md`). |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
@@ -122,13 +126,13 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 ```
 /wise-workflow-run ticket-auto
-# Pre-flight asks harness, provider permissions, model and effort per group, and the tickets.
+# Pre-flight asks harness, provider permissions, model and effort per group, working tree, and tickets.
 
-/wise-workflow-run ticket-auto PROJ-1,PROJ-2
+/wise-workflow-run ticket-auto new PROJ-1,PROJ-2
 # Two tickets, no spaces. Sequential units, one PR each.
 
-/wise-workflow-run ticket-auto PROJ-1 prefer the design-system lib; never touch infra/*
-# Everything after the first token is the guidance input.
+/wise-workflow-run ticket-auto current PROJ-1 prefer the design-system lib; never touch infra/*
+# Working tree and tickets are the first two inputs; the remaining text is guidance.
 ```
 
 ## Related
