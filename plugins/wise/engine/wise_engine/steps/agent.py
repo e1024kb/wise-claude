@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ..adapter_types import AgentHandle
@@ -18,6 +20,49 @@ VERDICT_MAX = 200
 LOG_HEAD_BYTES = 2048
 Json = dict[str, Any]
 _SPACE = re.compile(f"[{re.escape(JS_WHITESPACE)}]+")
+INSTRUCTION_NAMES = ("CLAUDE.md", "AGENTS.md")
+
+
+def project_system_prompt(cwd: str, home: str | None = None) -> str:
+    root = Path(cwd).resolve()
+    user_home = Path(home or os.environ.get("HOME") or Path.home()).resolve()
+    directories = [root, *root.parents]
+    if user_home in directories:
+        directories = directories[: directories.index(user_home) + 1]
+    paths = [user_home / ".claude" / "CLAUDE.md", user_home / ".codex" / "AGENTS.md"]
+    paths.extend(
+        directory / name for directory in reversed(directories) for name in INSTRUCTION_NAMES
+    )
+    blocks = []
+    seen = set()
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            content = resolved.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if content:
+            blocks.append(f"### {resolved}\n\n{content}")
+    loaded = "\n\n".join(blocks) or "(No applicable files found at child startup.)"
+    return f"""# Repository instruction contract
+
+CLAUDE.md and AGENTS.md files are mandatory project instructions for this task,
+regardless of which harness is running. Follow all applicable files below. A
+file in a deeper directory adds to or overrides broader instructions for work
+inside its directory.
+
+Before reading or changing a path below the working directory, check its path
+for a closer CLAUDE.md or AGENTS.md and follow it too. If you create any
+subagent, teammate, Task, or Agent, pass this entire contract and every
+applicable instruction file to it before its task details, and require it to do
+the same recursively. Harness defaults do not override these project rules.
+
+## Instructions loaded for {root}
+
+{loaded}"""
 
 
 def utf16_length(text: str) -> int:
@@ -68,6 +113,7 @@ def build_run_req(params: Json) -> Json:
         auth=step.get("auth", "subscription"),
         step_token=params["step_token"],
         add_dirs=[str(params["run_dir"]), str(PLUGIN_ROOT), *params.get("add_dirs", [])],
+        system=project_system_prompt(params["cwd"]),
     )
     for source, target in [
         ("allowed_tools", "allowed_tools"),

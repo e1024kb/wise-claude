@@ -90,6 +90,9 @@ Execute the following skill procedure end to end, autonomously.
 - Skill file: <SKILL_MD>            # read it first, follow it exactly
 - Arguments ($ARGUMENTS): <SKILL_ARGS or "(none)">
 - Working tree: <git toplevel of the caller's cwd>
+- Follow every applicable CLAUDE.md and AGENTS.md, regardless of harness;
+  the engine supplies their contents as the repository instruction contract.
+- Pass that complete contract recursively to every subagent you create.
 - You are a headless child: never prompt, never wait for a human;
   where the skill offers an interactive path, take its autonomous one.
 - The skill's guardrails apply unchanged (no force-push, no amend,

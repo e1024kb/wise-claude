@@ -61,6 +61,12 @@ tasks' transcripts. Every executor is dispatched with `model: <opus_model>`
 reason at **high** effort — implementation runs on Opus, whichever dispatch
 mode below is used.
 
+Prepend the current repository instruction contract, including every applicable
+CLAUDE.md and AGENTS.md file, to each executor prompt. Require each executor to
+check for closer instruction files before touching a path and to pass the same
+contract recursively if it delegates again. Native Task or Agent inheritance is
+not a substitute for including the contract explicitly.
+
 How they're dispatched depends on `SUPERVISE`:
 
 - **`SUPERVISE=no` (default).** Dispatch one `Task` subagent per task in a single

@@ -323,6 +323,13 @@ Common fields (`StepBase` and `StepOverrides`):
 | `outputs` | Names copied from the structured result into run outputs. Each must be a schema property. A missing name fails the step: `schema result lacks <name>`. |
 | `until` | Deprecated. Accepted on `agent` for one release with a warning; an error on other types. `wise-engine migrate` turns a plain enum regex into `schema` plus `outputs`. |
 
+Every agent receives a harness-independent system contract containing the
+applicable user-level and ancestor CLAUDE.md and AGENTS.md files. The contract
+requires the child to discover closer files before touching nested paths and to
+pass the same instructions recursively to any subagent it creates. This keeps
+project rules consistent across Claude, Codex, Cursor, Gemini and Grok instead
+of relying on each CLI's native filename support.
+
 Verdict: first non-empty line of the child's text (200 chars), else the
 JSON headline, else `ok`. Exit classes: `ok`, `error`, `rate_limited`,
 `auth`, `timeout`, `max_turns`, plus `missing_output`. `rate_limited`
