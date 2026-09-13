@@ -88,9 +88,12 @@ steps:
     run: |
       set -eu
       # Current-tree runs need a clean source checkout.
-      if [ "{{worktree_mode}}" = current ] && { ! git diff --quiet || ! git diff --cached --quiet; }; then
-        echo "ERROR: base repo at $(pwd) has uncommitted changes; stash or commit them, then re-run." >&2
-        exit 1
+      if [ "{{worktree_mode}}" = current ]; then
+        tree_status=$(git status --porcelain)
+        if [ -n "$tree_status" ]; then
+          echo "ERROR: base repo at $(pwd) has uncommitted or untracked changes; stash or commit them, then re-run." >&2
+          exit 1
+        fi
       fi
       gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
       git remote get-url origin >/dev/null 2>&1 || { echo "ERROR: no 'origin' remote." >&2; exit 1; }

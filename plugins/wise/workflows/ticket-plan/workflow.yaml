@@ -725,8 +725,10 @@ steps:
       acceptable, existing branch or new. In worktree_mode=new, do not
       require a clean source checkout: worktree add leaves it unchanged.
 
-      - Tree: `current`: work_path is `{{project.path}}`; apply the
-        branch rules below in that checkout. `new`: work_path is
+      - Tree `current`: work_path is `{{project.path}}`; apply the
+        branch rules below in that checkout. Never add a worktree.
+        Staying reports its actual branch, or HEAD if already detached.
+      - Tree `new` only: work_path is
         `{{run.dir}}/worktrees/<target_branch>`. Never switch the source
         checkout. For branch_mode=current (or Stay in ask mode), create
         a detached worktree with `git worktree add --detach <work_path>

@@ -533,7 +533,10 @@ def test_ticket_worktree_choice_order_and_answers(workflow, next_input):
 
 
 @pytest.mark.parametrize("mode,expected", [("current", 1), ("new", 0)])
-def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(tmp_path, mode, expected):
+@pytest.mark.parametrize("dirty_kind", ["staged", "untracked"])
+def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(
+    tmp_path, mode, expected, dirty_kind
+):
     definition = load_and_validate({"path": str(ROOT / "workflows/ticket-auto/workflow.yaml")})[
         "def"
     ]
@@ -541,7 +544,8 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(tmp_path, m
     script = script.replace("{{worktree_mode}}", mode)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / "tracked").write_text("change")
-    subprocess.run(["git", "add", "tracked"], cwd=tmp_path, check=True)
+    if dirty_kind == "staged":
+        subprocess.run(["git", "add", "tracked"], cwd=tmp_path, check=True)
     subprocess.run(["git", "remote", "add", "origin", "/unused"], cwd=tmp_path, check=True)
     result = subprocess.run(
         ["bash", "-c", "gh() { return 0; }\n" + script],
@@ -552,7 +556,7 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(tmp_path, m
     assert result.returncode == expected
     if mode == "new":
         assert "PREFLIGHT: ok" in result.stdout
-        assert subprocess.check_output(["git", "diff", "--cached"], cwd=tmp_path)
+        assert subprocess.check_output(["git", "status", "--porcelain"], cwd=tmp_path)
         unauthenticated = subprocess.run(
             ["bash", "-c", "gh() { return 1; }\n" + script],
             cwd=tmp_path,
@@ -569,4 +573,4 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(tmp_path, m
         )
         assert no_origin.returncode == 1 and "no 'origin'" in no_origin.stderr
     else:
-        assert "uncommitted changes" in result.stderr
+        assert "uncommitted or untracked changes" in result.stderr
