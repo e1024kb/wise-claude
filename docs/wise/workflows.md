@@ -39,6 +39,16 @@ Follow [host setup and control](../../plugins/wise/references/workflow-host-cont
 for registration, upgrade refresh, diagnostics and explicit interactive choices.
 A host reload cannot fix an unresolved path or failed daemon startup.
 
+Standalone skills and their shared handlers use the
+[model-fallback contract](../../plugins/wise/references/workflow-host-control.md#model-fallback)
+when a preferred model or native agent route is unavailable. The main client
+offers its current model and other verified executable models through GUI/TUI,
+then waits for an actual selection. Children relay the question to that client.
+No model choice is inferred from defaults or plain text, and selecting a model
+does not replace review consent or authorize additional actions. Native child
+catalogs and engine-provider catalogs are checked separately. Engine workflow
+steps remain engine-owned and retain their existing preflight/recovery contract.
+
 ## Where things live
 
 | Thing | Path |

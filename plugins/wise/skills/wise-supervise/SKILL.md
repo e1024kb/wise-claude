@@ -18,6 +18,9 @@ allowed-tools: Read, Bash(python3:*), SendMessage, Monitor, TaskList, TaskGet, T
 
 # /wise-supervise — keep a running team of agents on task
 
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).

@@ -13,11 +13,15 @@ description: >-
   "clean up auto-created skills", "dedupe my skills", or types
   `/wise-insights-refine`.
 argument-hint: "[--dry-run] [--min-jaccard <X>] [--include-external]"
-model: opus
 allowed-tools: Read, Write, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-insights-refine — consolidate learned skills
+
+Preferred model: `opus`. Resolve availability before work; do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the

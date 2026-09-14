@@ -17,6 +17,9 @@ allowed-tools: Read, Bash(git status:*), Bash(git branch:*), Bash(git log:*), Ba
 
 # /wise-fork - reorient a forked session
 
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).

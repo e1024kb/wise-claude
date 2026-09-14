@@ -12,11 +12,15 @@ description: >-
   "mine my sessions", "find recurring patterns", "suggest skills", "what should
   I turn into a skill", "self-improve", or types `/wise-insights-mine`.
 argument-hint: "[--here] [--since <N>d] [--min-count <N>] [--include-automated]"
-model: opus
 allowed-tools: Read, Write, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-insights-mine — turn recurring sessions into skills
+
+Preferred model: `opus`. Resolve availability before work; do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the

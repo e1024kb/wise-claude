@@ -1,5 +1,9 @@
 # supervise-loop — keep background workers on task (the watchdog)
 
+Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Shared supervisor routine. Read by the `type: supervised-prompt` dispatch in
 `wise-workflow-run` and by the standalone `/wise-supervise` skill. It is the
 automation of the manual "ping all your subagents, are you still on track?"

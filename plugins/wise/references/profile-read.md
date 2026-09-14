@@ -1,5 +1,9 @@
 # profile-read — resolve the session token-budget profile
 
+Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Shared preamble for every profile-sensitive wise skill. Resolves the
 level `/wise-profile` stored for THIS session — `low`, `medium`, or
 `max` — with silent degradation: any failure at any stage (no store,
@@ -37,11 +41,16 @@ falls through to `medium` like everything else.
 
 ## Interpretation rules
 
+These mappings select the preferred model, not an implicit cross-harness
+substitution. If unavailable, use the shared model-fallback picker. Preserve
+the low-profile exclusion of Opus 5 when constructing options; an approved
+current-harness model is recorded separately from `PROFILE_OPUS_MODEL`.
+
 - `PROFILE_LEVEL` scales **token budget only**: model tiers, optional
   research scope, reviewer effort, team size, and retry caps.
   Each consuming skill owns its concrete mapping table — this fragment
   never prescribes one, with ONE exception, the low-profile Opus rule:
-- **MUST — `PROFILE_OPUS_MODEL` is the only Opus model id a consumer
+- **When executing on Opus, `PROFILE_OPUS_MODEL` is the only Opus model id a consumer
   may dispatch.** It is `opus` (the alias — the latest Opus, Opus 5) at
   `medium` / `max` and `claude-opus-4-8` at `low`: under the `low`
   profile wise NEVER dispatches Opus 5. Wherever a consumer's mapping
@@ -50,6 +59,8 @@ falls through to `medium` like everything else.
   literal alias. Sonnet / haiku tiers are unaffected. Workflow runs
   carry the same value as the `opus_model` run output, and the engine
   applies the same rule to every model resolved with `--profile low`.
+  An approved non-Opus fallback uses the separately recorded selected model,
+  not this provider-specific variable.
 - The invariant every mapping honors: **profiles never change
   correctness rules** — commit conventions, dirty-tree refusals, the
   existence of review gates, push refusals are identical at every

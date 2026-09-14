@@ -1,5 +1,9 @@
 # watch-pipelines — strategy-driven CI watch loop
 
+Before model-backed work, follow [model fallback](../workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
 A display acknowledgement is not an answer; keep asynchronous prompts open.
 This does not add prompts to autonomous paths.

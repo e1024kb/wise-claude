@@ -30,6 +30,9 @@ allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*)
 
 # /wise-pr-watch-auto — autonomous CI watch + bulk-fix loop
 
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
@@ -143,8 +146,11 @@ Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/watch-pipelines-auto.m
 and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
 `project.path` (the toplevel), `max_fix_attempts`, `watch_minutes`,
 `profile`, `opus_model` (the table's last column), and
-`dispatch_mode=task` — the bot-thread and Sonar handlers run as fresh
-`Task` subagents that return only their verdict lines.
+`dispatch_mode=task` - prefer fresh native children for the bot-thread and
+Sonar handlers, returning only their verdict lines. If the prescribed model,
+role or `Task` tool is unavailable, use the shared GUI/TUI model-fallback gate
+to select a supported current-harness model and route before the handler runs.
+Do not stop merely because this client names its native spawn tool differently.
 
 Print the fragment's progress-log path on the first line of output, and
 — when the base branch requires approvals — say up front that this run

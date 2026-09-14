@@ -396,14 +396,12 @@ one-liners below are the rule, not the argument for it.
   and no skill that writes one.
 - **`allowed-tools` in each skill is narrowly scoped.** Expanding it
   should be a deliberate decision, not an incidental fix-up.
-- **`model` / `effort` frontmatter follows the work, not the skill.**
-  Lightweight, mechanical, or read-only skills (the commit-drafting
-  trio, `wise-workflow-list` / `-status` / `-remove`, `wise-feedback`)
-  pin `model: opus` + `effort: low` for snappy turnaround. Skills that
-  do real reasoning or orchestration (`wise-pr-watch`, the workflow
-  conductor / resume, the wizards, the PRD/TRD architects) omit both
-  and inherit the session model — `effort: low` would hurt them. Set
-  the knobs to match the skill's cognitive load.
+- **Portable skills load before selecting a model.** Keep preferred model
+  and effort in the body, not provider-specific frontmatter pins. Every skill
+  reads the shared model-fallback contract before work. Unavailable models or
+  delegation routes require an explicit main-harness GUI/TUI choice from live
+  executable options, including the current model when supported. No silent
+  substitution or text fallback for this gate. Preserve other task permissions.
 - **The agent roster is plugin-level; the engine has no roster field.**
   The `agents/*.md` roster files are real Claude Code plugin subagents -
   frontmatter is limited to `name` / `description` / `tools` / `model` /

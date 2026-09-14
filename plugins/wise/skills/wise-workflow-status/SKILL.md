@@ -10,12 +10,16 @@ description: >-
   "which runs are paused", "inspect run <ulid>", or types
   `/wise-workflow-status`.
 argument-hint: "[<run-ulid>]"
-model: opus
-effort: low
 allowed-tools: Read, AskUserQuestion, Bash(bash:*), Bash(python3:*), Bash(test:*)
 ---
 
 # /wise-workflow-status
+
+Preferred model: `opus`; preferred effort: `low`. Resolve availability before work;
+do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the

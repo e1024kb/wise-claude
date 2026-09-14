@@ -1,5 +1,9 @@
 # code-review-pass — the canonical multi-agent branch review
 
+Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Single source of truth for **how** the plugin runs its heavyweight
 branch gate. Read by:
 
@@ -39,8 +43,8 @@ The panel is **always the 3-lens set** — (a) correctness & logic bugs,
 catch shipping-blockers. The caller passes a `profile` level (the
 session token-budget profile from `references/profile-read.md`, or a
 pinned value); it maps to the reasoning-effort directive each reviewer
-subagent gets. The reviewer **tier is never downgraded** (always
-Opus) — effort is the budget knob:
+subagent gets. Opus is the preferred reviewer tier; only an explicit selection
+through model fallback changes it. Effort is the normal budget knob:
 
 | profile | lenses | per-reviewer effort directive | extra |
 |---|---|---|---|
@@ -48,9 +52,11 @@ Opus) — effort is the budget knob:
 | **`medium`** (default) | 3 | `high` | — |
 | `max` | 3 | `high` | **verification pass** (below) |
 
-**Reviewer model — the low-profile Opus rule (MUST).** Every reviewer
+**Preferred reviewer model - the low-profile Opus rule.** Every reviewer
 `Task` (lens panel, universal panel, and the `max` verification pass)
-is dispatched with `model: <opus_model>`, where `opus_model` is the
+requests `model: <opus_model>` unless model fallback selected a replacement.
+The actual dispatch uses that approved replacement and its supported effort.
+For Opus, `opus_model` is the
 caller's context value, defaulting to `opus`. Under the **`low`**
 session / run budget profile `opus_model` MUST be `claude-opus-4-8` —
 **`low` never dispatches Opus 5**. The rule is keyed by the budget
@@ -132,7 +138,10 @@ that deliberately.)
 
 ## On failure
 
-If dispatching the panel errors, or applying fixes leaves the tree in a
+Unavailable models or native agent routes enter model fallback before launch.
+Preserve fresh reviewers and the lens count. Only the substitute-review caller
+may offer its documented reduced-depth inline route, with explicit approval.
+If a launched panel errors, or applying fixes leaves the tree in a
 state `git status` (or a syntax check) reports as broken, treat it as a
 **hard failure**: do **not** retry or invent a recovery. Surface
 `code-review errored: <summary>` and let the **caller** map it to its

@@ -191,6 +191,11 @@ def check_skill_frontmatter(errors: list[str], parse_frontmatter) -> None:
         if not isinstance(description, str) or not description.strip():
             errors.append(f"{rel}: frontmatter 'description' missing or empty")
 
+        if frontmatter.get("model") not in (None, "inherit") or "effort" in frontmatter:
+            errors.append(
+                f"{rel}: move model/effort preferences into the body so model fallback can run"
+            )
+
         # The plugin contract (CLAUDE.md invariants): exactly one skill
         # sets `disable-model-invocation: true` — the /wise helper.
         dmi = frontmatter.get("disable-model-invocation")
@@ -465,6 +470,9 @@ def check_question_lifecycle(errors: list[str]) -> None:
             )
         if "At every skill start, identify your main/child role" not in text:
             errors.append(f"{rel}: missing interaction startup contract")
+        fallback = "../../references/workflow-host-control.md#model-fallback"
+        if f"]({fallback})" not in text:
+            errors.append(f"{rel}: missing shared model fallback reference")
 
 
 def main() -> int:

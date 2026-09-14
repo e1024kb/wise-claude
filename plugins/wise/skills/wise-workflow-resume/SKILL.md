@@ -13,6 +13,9 @@ allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, Team
 
 # /wise-workflow-resume
 
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).

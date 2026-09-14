@@ -144,6 +144,100 @@ resumable state. Provider
 installation and login are checked only for providers required by the selected
 workflow steps.
 
+## Model fallback
+
+Read this contract at every skill start and before dispatching a model-backed
+task, including shared procedures and children. It governs unavailable model,
+effort, named-agent and native delegation routes. Model names in skill bodies
+are preferences, not proof that a client can run them. Keep portable skill
+frontmatter free of provider-specific model pins so the body can load and ask.
+This contract takes precedence over a routine's automatic inline/skip/abort
+behavior for capability unavailability and its routine no-prompt policy. It
+does not override higher-priority host restrictions or authorize other prompts.
+
+### Establish executable choices
+
+1. Identify the main client, underlying provider, current model (or an opaque
+   `Current session model` when its ID is not exposed), and the intended route:
+   current conversation, native child, or engine provider child. These are
+   separate capabilities. T3 Code's provider catalog is not its GUI identity.
+2. Inspect live session metadata and the actual tool schemas/model listing for
+   that route. Native child options must be accepted by the native spawn tool;
+   include inherited/current-model execution only when that route supports it.
+   For engine children use the selected provider's `models <harness>` catalog
+   and readiness check. An installed CLI or engine catalog does not establish
+   which models the main client or its native children can select. Never invent
+   IDs, cross-map vendor aliases, or claim to switch the current conversation
+   merely by mentioning a model in a prompt.
+3. Use the requested route when it is supported. A clear unavailable-model or
+   unavailable-agent result before execution enters the picker below. Do not
+   treat malformed arguments, policy denial, failed tests, timeouts or failures
+   after work began as permission to try another model. Inspect completed side
+   effects and preserve the caller's failure/recovery contract in those cases.
+
+### Ask in the main harness
+
+Before substituting, the main harness presents a native GUI/TUI single-choice
+picker with populated options, or a permitted MCP form actually rendered in
+that same client. Follow [the question lifecycle](#keep-asynchronous-questions-open),
+including asynchronous waits, pagination and real-answer validation. For this
+model-change gate, do not use plain-text fallback, a system dialog or a new
+terminal. No usable GUI/TUI channel means `model-fallback-ui-unavailable` and
+the affected operation remains unstarted. Cancellation means
+`model-fallback-declined`; never select the highlighted default automatically.
+
+Show the unavailable requested model/role, reason, task scope, and execution
+mode. Offer `Use current session model` first when executable, other verified
+models available through the current harness's intended route, and `Stop`.
+Label each option with the actual model ID when known and whether it runs as a
+fresh child or inline. Paginate large catalogs without hiding models. If only
+inheritance is supported, offer current-model inheritance and Stop, not guessed
+alternatives. Collect supported effort separately if the requested effort is
+unavailable; never silently clamp a user-selected effort or budget constraint.
+
+Children send the same question, verified choices, route and scope through
+`wise_ask` or their parent. Only the main harness renders it and returns the
+actual answer. If the child's relay cannot reach the main GUI/TUI, stop with
+`model-fallback-ui-unavailable`. Pass this contract and the accepted selection
+recursively. A display acknowledgement is not approval.
+
+### Execute only the approved substitution
+
+- Record requested and selected model/effort, execution mode and covered task
+  set in the invocation context, not global host settings or installed files.
+  A picker may explicitly cover equivalent remaining handlers in this invocation;
+  reuse that selection only for the displayed scope and unchanged capabilities.
+  A new invocation or a different role requirement needs a new choice.
+  A skill with no model preference inherits normally without a fallback prompt.
+  If the preferred model cannot be selected for the current conversation but
+  is available only for children, do not silently turn the whole skill into a
+  child task; offer the current conversation model or a clearly labelled child
+  route whose permissions and guarantees match the skill.
+- Prefer a fresh native child on the selected model. When a named role is not
+  registered, read its available role card and pass its full task contract to a
+  generic native child with matching tools and permissions. Preserve all
+  applicable CLAUDE.md/AGENTS.md, read-only restrictions, output format, context
+  isolation, review lenses, timeout and supervision requirements. A model choice
+  cannot supply missing tools, credentials or a missing specialist procedure.
+- If no child route exists, offer inline current-model execution only for a
+  procedure whose guarantees can be preserved inline, or one explicitly allowing
+  reduced-depth inline review. Disclose that reduction in the option. Never
+  simulate an independent panel or supervised workers in one context. Otherwise
+  report `model-fallback-capability-unavailable` without doing that task.
+- Resume only the unstarted task using the selected route. A rejected alternate
+  does not authorize cycling through the remaining models. Report the failure
+  and obtain another explicit selection if a different valid option remains.
+  Keep commit/push retry limits and all action permissions unchanged.
+- Substitute-review consent remains a separate, per-head gate. Selecting a model
+  does not approve a review, edits, push or merge. When both gates are required,
+  collect both actual answers and recheck the PR head before execution. Report
+  the model and `child`/`inline` route actually used, never the preferred model.
+- Engine workflows still execute through the engine. This skill fallback does
+  not move their DAG into the main conversation or rewrite a running definition.
+  For an unavailable engine model, collect replacement tuning through preflight
+  before starting. For a failed run, preserve state and use only supported
+  recovery operations after inspecting side effects; do not blindly rerun it.
+
 ### Keep asynchronous questions open
 
 At every skill or workflow start, establish the interaction context before any

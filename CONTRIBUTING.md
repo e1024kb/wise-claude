@@ -123,9 +123,12 @@ unambiguous. The directory name on disk equals the slash command:
   directory name matches the frontmatter `name:` field verbatim
   and doubles as the slash command.
 - Frontmatter keys: `name:`, `description:`, `argument-hint:`,
-  `allowed-tools:`, plus optional `model:` / `effort:` (see the
-  "model / effort follows the work" invariant in
-  `plugins/wise/CLAUDE.md`). `user-invocable:` must not be set at
+  `allowed-tools:`. Put preferred model/effort in the body, not startup
+  frontmatter pins, so an unavailable provider cannot prevent the fallback
+  picker from loading. Every skill links to
+  `references/workflow-host-control.md#model-fallback`; it requires a real
+  main-harness GUI/TUI selection from that route's executable models before
+  substitution, including in autonomous procedures. `user-invocable:` must not be set at
   all — the default (`true`) is the only supported value. No
   `command:` / `subcommand:` / `subcommand-aliases:` /
   `arguments:` — those were v1 dispatcher-routing fields and have

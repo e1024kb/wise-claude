@@ -80,6 +80,12 @@ registration for `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
 
 ## Commands
 
+Every skill follows [model fallback](references/workflow-host-control.md#model-fallback)
+when its preferred model or delegation route is unavailable. The main harness
+offers the current model and verified alternatives through its GUI/TUI; children
+relay that decision. This required selection is an exception to routine no-prompt
+behavior, not permission to bypass review, commit or merge gates.
+
 Every action is its own flat slash command. Typing `/wise-` and
 hitting Tab in Claude Code's slash menu fans out to every command
 below.

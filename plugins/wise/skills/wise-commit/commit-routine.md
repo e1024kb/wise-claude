@@ -1,5 +1,9 @@
 # commit-routine — shared draft + commit (+ optional push) procedure
 
+Before model-backed work, follow [model fallback](../../references/workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Single source of truth for the plugin's automated-commit routine.
 Read by:
 
@@ -69,12 +73,10 @@ Otherwise, before staging, run the per-commit cleanup per
 swept into this commit by §3's `git add -A`. Surface its summary
 verbatim and continue; the summary is mid-flight diagnostics, not a stop point.
 
-If the `code-simplifier` agent is **unavailable in this session**
-(the `Task` dispatch is rejected — agent type unknown), follow that
-reference's dispatch-failure policy: surface the one-line
-`simplify skipped: …` note and **continue to §3 as if `SIMPLIFY=no`**.
-The working tree is untouched; a missing cleanup pass never blocks a
-commit.
+If the model or `code-simplifier` route is unavailable, follow the reference's
+model-fallback picker before continuing. Do not silently skip cleanup or change
+models. Declined/unavailable selection stops before staging, using the failure
+line below. A clean working tree needs no simplify dispatch.
 
 On a simplify **pass** failure (the agent ran and errored, or left the
 tree broken), follow that reference's failure policy and stop with:
@@ -321,9 +323,8 @@ COMMIT: failed reason="git push rejected (non-fast-forward)"
 - Simplify **pass** failure aborts the commit (§2). Same no-retry /
   no-bypass policy as the `git commit` and `git push` steps; callers
   that want to skip the simplify pass entirely pass `SIMPLIFY=no` at
-  the routine boundary. An **unavailable** `code-simplifier` agent is
-  not a pass failure — §2 degrades to `SIMPLIFY=no` and the commit
-  proceeds.
+  the routine boundary. An unavailable model or agent enters the GUI/TUI
+  model-fallback gate; it is not permission to skip cleanup.
 - Simplify never re-validates inside the routine. The pre-commit hook
   in §7 is the final guard for whatever the simplify pass edits; a
   longer validation chain (typecheck / lint / format) is an orchestrator

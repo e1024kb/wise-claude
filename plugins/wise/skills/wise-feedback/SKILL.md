@@ -14,12 +14,16 @@ description: >-
   "I have a suggestion", "improvement idea", "open an issue against the
   marketplace", or types `/wise-feedback`.
 argument-hint: "[<feedback-text>]"
-model: opus
-effort: low
 allowed-tools: Read, Bash(gh:*), Bash(git:*), Bash(uname:*), Bash(sw_vers:*), Bash(claude:*), Bash(command:*), Bash(mktemp:*), Bash(printf:*), Bash(rm:*), AskUserQuestion
 ---
 
 # /wise-feedback — file a feedback issue against the marketplace
+
+Preferred model: `opus`; preferred effort: `low`. Resolve availability before work;
+do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the

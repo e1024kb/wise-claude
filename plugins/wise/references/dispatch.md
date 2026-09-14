@@ -1,5 +1,9 @@
 # dispatch — run a skill's procedure on any harness, as a subagent
 
+Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Before collecting user input, follow the [question lifecycle](workflow-host-control.md#keep-asynchronous-questions-open).
 A display acknowledgement is not an answer; keep asynchronous prompts open.
 This does not add prompts to autonomous paths.
@@ -60,8 +64,11 @@ runs its own procedure locally as always.
 bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh auth <harness> --json
 ```
 
-`installed` false or `login` not `ok`: stop and print the row's
-`login_cmd` — never fall back to a different harness silently.
+`installed` false or `login` not `ok`: show the readiness failure and its
+`login_cmd`. Before starting any child, offer the shared model-fallback picker
+for an executable current-harness route. Do not change harnesses silently or
+start the unavailable provider. Permission denials still stop rather than
+being routed around.
 
 ## 3. Resolve model and effort
 
@@ -73,7 +80,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh models <harness>
 
 - Spec gave model / effort: validate against the catalog rows
   (`dispatch` re-validates and errors on an effort the model does not
-  list; surface that error as is).
+  list). Malformed input stops. A valid but unavailable requested model/effort
+  enters model fallback, with actual alternatives from the intended route.
 - `--on ask` (any caller, `-auto` skills included): one composite
   `AskUserQuestion` — harness (the `auth --json` rows with
   `login: ok`, `claude` first), then model (that harness's catalog,
@@ -81,6 +89,12 @@ bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh models <harness>
   model's `efforts`, or skip the question when the list is empty).
 
 ## 4. Compose the child prompt
+
+If model fallback selected a native child in the current harness, use its real
+spawn schema with the prompt below and the approved model, not the unavailable
+engine CLI route in §5. If an inline route was explicitly approved and preserves
+the task's guarantees, execute the same procedure here with the stripped
+arguments. Do not recursively invoke the skill or select another provider.
 
 Write one file to the scratchpad (or `/tmp` when no scratchpad):
 

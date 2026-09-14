@@ -11,12 +11,16 @@ description: >-
   "remove workflow <name>", "delete workflow <name>", "drop my
   custom workflow", or types `/wise-workflow-remove`.
 argument-hint: "<name>"
-model: opus
-effort: low
 allowed-tools: Read, Bash(rm:*), Bash(test:*), Bash(bash:*), AskUserQuestion
 ---
 
 # /wise-workflow-remove - remove a user definition
+
+Preferred model: `opus`; preferred effort: `low`. Resolve availability before work;
+do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the

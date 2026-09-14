@@ -1,5 +1,9 @@
 # watch-pipelines-auto — autonomous CI watch + bulk-fix loop
 
+Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Autonomous analogue of `references/pr/watch-pipelines.md`. Drives one
 PR from "pushed" to "merged" with mandatory main-harness consent before substitute review, in **rounds**:
 
@@ -466,6 +470,13 @@ supplied. Read its final line:
 - `REVIEW-FALLBACK: failed reason=<r>` → `FALLBACK_STATE=failed`; carry
   any `unpushed=<sha>` onto the verdict. §7 will not merge.
 
+For `model-fallback-declined`, `model-fallback-ui-unavailable` or
+`model-fallback-capability-unavailable` before a reviewer starts, clear
+`FALLBACK_SHA`, undo this invocation's `FALLBACK_RUNS` increment and stop with
+`partial reason=<same reason>`. Never count an unanswered model choice as a
+review or let it consume a review attempt. Handler model-fallback stops likewise
+leave the work pending and never enable merge.
+
 `save_state` after every change here.
 
 ### 2. Gather — everything open on this head, at once
@@ -543,7 +554,14 @@ Order inside a round. The round makes exactly ONE push — the handler's
      `model: sonnet`) with a self-sufficient prompt: "Read <handler
      path> and follow it end to end with: <context lines, values filled
      in>. Your final message must END with the `BOT-REVIEWS-AUTO:`
-     verdict line." Capture only that line. A dispatch that dies without
+     verdict line." Resolve unavailable `Task`, role or `sonnet` through the
+     shared model-fallback picker before dispatch. A user-selected native child
+     runs the same handler with the `wise:software-engineer` role card supplied
+     as instructions. If no native child exists, offer the existing `inline`
+     handler mode on the current model with explicit GUI/TUI approval. The
+     same selection may cover Sonar only when the picker explicitly said so.
+     Selection never relaxes human-comment, review-consent or merge gates.
+     Capture only the handler verdict. A launched dispatch that dies without
      a verdict → treat as `aborted reason=dispatch-failed` (terminal for
      this run; a fresh invocation retries naturally since handlers
      re-fetch open threads).
@@ -807,5 +825,6 @@ verdict leaves the PR open for a human.
   own comments (`own-comment-urls`, matched by exact url).
 - State lives under `$STATE` keyed on repo + PR; it is removed only when
   the PR is merged or closed, so a killed or re-invoked run resumes.
-- All work runs inside this Claude Code session with native tools.
+- All work runs inside the current harness with its permitted native tools
+  and user-approved model substitutions.
   Never shell out to `claude -p`, another agent CLI, or an external LLM.

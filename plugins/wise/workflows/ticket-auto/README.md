@@ -27,6 +27,14 @@ the intake and the report. The prompt fragments still under `prompts/`
 ...) are shared routines the standalone `/wise-*-auto` skills and
 `ticket-plan` read; the pipeline itself no longer loads them.
 
+Those shared skill procedures follow
+[model fallback](../../references/workflow-host-control.md#model-fallback) when
+a requested model or native agent route is unavailable. The main harness asks
+through GUI/TUI using its verified model options before substitution; children
+relay the question. Review consent, fresh-reviewer guarantees and merge gates
+remain separate. This does not change the engine pipeline's selected models or
+automatically restart failed units.
+
 ## When to use
 
 - One or more well-specified tickets that should each become a

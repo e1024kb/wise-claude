@@ -18,12 +18,16 @@ description: >-
   local-only commits use `/wise-commit` instead; for read-only
   subject drafting use `/wise-commit-message`.
 argument-hint: ""
-model: opus
-effort: low
-allowed-tools: Bash(git:*), Read, Edit, Write, Task
+allowed-tools: Bash(git:*), Read, Edit, Write, Task, AskUserQuestion
 ---
 
 # /wise-commit-push — draft, commit, and push
+
+Preferred model: `opus`; preferred effort: `low`. Resolve availability before work;
+do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the

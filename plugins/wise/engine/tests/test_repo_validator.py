@@ -54,18 +54,49 @@ def test_new_skill_requires_shared_question_lifecycle(validator, tmp_path):
     )
     errors: list[str] = []
     validator.check_question_lifecycle(errors)
-    assert len(errors) == 2 and all("wise-new/SKILL.md" in error for error in errors)
+    assert len(errors) == 3 and all("wise-new/SKILL.md" in error for error in errors)
     path.write_text(
         path.read_text() + "Follow the [question lifecycle]"
         "(../../references/workflow-host-control.md#keep-asynchronous-questions-open).\n"
     )
     errors = []
     validator.check_question_lifecycle(errors)
-    assert len(errors) == 1 and "interaction startup contract" in errors[0]
+    assert len(errors) == 2 and "interaction startup contract" in errors[0]
     path.write_text(path.read_text() + "At every skill start, identify your main/child role\n")
     errors = []
     validator.check_question_lifecycle(errors)
+    assert len(errors) == 1 and "model fallback reference" in errors[0]
+    path.write_text(
+        path.read_text() + "Follow [model fallback]"
+        "(../../references/workflow-host-control.md#model-fallback).\n"
+    )
+    errors = []
+    validator.check_question_lifecycle(errors)
     assert errors == []
+
+
+@pytest.mark.parametrize(
+    "preference,blocked",
+    [
+        ("model: opus\n", True),
+        ("model: sonnet\n", True),
+        ("model: provider-model\n", True),
+        ("effort: low\n", True),
+        ("model: inherit\n", False),
+        ("", False),
+    ],
+)
+def test_skill_load_cannot_bypass_model_fallback(validator, tmp_path, preference, blocked):
+    write(
+        tmp_path,
+        "plugins/wise/skills/wise-test/SKILL.md",
+        "---\nname: wise-test\ndescription: Test\n"
+        + preference
+        + "---\nPreferred model: opus; preferred effort: low.\n",
+    )
+    errors: list[str] = []
+    validator.check_skill_frontmatter(errors, resolve.parse_frontmatter)
+    assert any("so model fallback can run" in error for error in errors) is blocked
 
 
 def test_unreadable_skill_reports_question_lifecycle_error(validator, tmp_path):

@@ -1,5 +1,9 @@
 # simplify-pass — the canonical per-commit simplify pass
 
+Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Single source of truth for **how** the plugin runs its lightweight
 per-commit cleanup. Read by:
 
@@ -62,7 +66,7 @@ whether the agent ever ran: a dispatch that never launched cannot have
 touched the working tree, so degrading is safe; a pass that ran and
 broke may have left half-applied edits, so nothing gets salvaged.
 
-### Agent unavailable (dispatch failure) — degrade, don't abort
+### Agent unavailable before execution - ask for a replacement
 
 The `code-simplifier` agent ships with a separate, optional plugin
 (`code-simplifier@claude-plugins-official`) that users install
@@ -75,24 +79,19 @@ unknown / not available (try the plugin-qualified
 `code-simplifier:code-simplifier` once before concluding this), the
 agent never ran and the working tree is untouched.
 
-Do **not** treat this as a pass failure. Surface one line —
-`simplify skipped: code-simplifier agent unavailable (enable the
-code-simplifier plugin to restore the per-commit cleanup)` — and let
-the **caller** apply its own mapping:
+Do not silently skip cleanup or fail merely because the named agent is absent.
+Use the shared model-fallback picker. Offer a generic native child using the
+current model or another verified model supported by that route. Its prompt
+contains this procedure's behavior-preserving cleanup scope and the applicable
+project instructions. If no child route exists, this lightweight pass may run
+inline on the current model only after that mode is explicitly selected.
+Report the actual replacement, not a `code-simplifier` dispatch that never ran.
 
-- **The commit routine** continues as if the caller had passed
-  `SIMPLIFY=no`: proceed to staging and commit the raw change. A
-  missing cleanup pass must never block a commit.
-- **The implement phase** skips the pass for that task (and, having
-  learned the agent is absent, for the rest of the run — don't
-  re-probe per task) and continues to the task's commit. The task is
-  **not** marked failed.
-- **`/wise-simplify-auto`** stops — the pass *is* the skill, so there
-  is nothing to degrade to. It emits
-  `SIMPLIFY: failed reason="code-simplifier agent unavailable — enable the code-simplifier plugin"`.
-
-Never substitute another mechanism (no `Skill({ skill: "simplify" })`,
-no inline self-simplify) — the name-resolution distrust above stands.
+All callers, including the commit routine, implement phase and standalone
+simplify skill, wait for that selection. Declined/unavailable consent stops
+before staging or committing with `simplify errored: <model-fallback reason>`.
+Do not resolve an ambiguous slash-command name as a replacement, and do not
+auto-install the optional plugin. A clean tree has no cleanup work to dispatch.
 
 ### Pass failure (the agent ran and errored) — hard failure
 

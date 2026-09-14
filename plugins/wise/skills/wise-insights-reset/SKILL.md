@@ -10,11 +10,15 @@ description: >-
   "reset insights", "clean up auto-created skills", "wipe learned skills", "remove
   the skills mine made", "roll back insights", "restore insights", "undo mine".
 argument-hint: "[--skills] [--index] [--dry-run] [--restore <ts>]"
-model: opus
 allowed-tools: Read, AskUserQuestion, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/init-registry.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/insights.py:*), Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-insights-reset — reversible cleanup + rollback
+
+Preferred model: `opus`. Resolve availability before work; do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
