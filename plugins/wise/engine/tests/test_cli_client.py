@@ -186,15 +186,27 @@ async def fake(monkeypatch):
             await daemon.close()
 
 
-async def test_dispatch_relay_returns_without_prompting_or_waiting(fake):
+async def test_dispatch_relay_returns_without_prompting_or_waiting(fake, tmp_path):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("ask the main harness")
     result = await fake.run(
-        ["dispatch", "--relay", "--harness", "claude", "--prompt", "ask the main harness"]
+        ["dispatch", "--relay", "--harness", "claude", "--prompt-file", str(prompt)]
     )
     assert result.code == 0, result.err
     assert json.loads(result.out)["run_id"] == "01RUN"
-    assert len(fake.method("dispatch_start")) == 1
+    calls = fake.method("dispatch_start")
+    assert len(calls) == 1
+    assert calls[0]["prompt-file"] == str(prompt.resolve())
     assert not fake.method("wait") and not fake.method("answer") and not fake.method("run")
     assert not result.err
+
+
+async def test_dispatch_relay_accepts_inline_prompt(fake):
+    result = await fake.run(
+        ["dispatch", "--relay", "--harness", "claude", "--prompt", "inline prompt"]
+    )
+    assert result.code == 0, result.err
+    assert fake.method("dispatch_start")[0]["prompt"] == "inline prompt"
 
 
 async def test_usage_help_missing_and_bad_arguments(fake):

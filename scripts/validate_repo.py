@@ -468,7 +468,12 @@ def check_question_lifecycle(errors: list[str]) -> None:
             errors.append(
                 f"{rel}: missing shared question lifecycle reference"
             )
-        if "At every skill start, identify your main/child role" not in text:
+        startup_contract = (
+            "At every skill start, identify your main/child role",
+            "and the current client",
+            "and GUI/TUI question tools",
+        )
+        if any(fragment not in text for fragment in startup_contract):
             errors.append(f"{rel}: missing interaction startup contract")
         fallback = "../../references/workflow-host-control.md#model-fallback"
         if f"]({fallback})" not in text:

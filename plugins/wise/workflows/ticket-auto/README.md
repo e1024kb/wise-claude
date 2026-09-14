@@ -155,7 +155,8 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 - `docs/wise/research-ts-engine.md` P4: the `units` contract.
 
 The shared `watch-pipelines-auto.md` prompt used by `/wise-pr-watch-auto` requires
-main-harness consent before each substitute review, preferring GUI/TUI with text
-fallback when native controls and rendered forms are unusable. Children relay
-through Wise/the parent. Declining or an unavailable answer channel stops that
-watch without review or merge.
+main-harness consent before each substitute review, preferring blocking or
+asynchronous GUI/TUI controls, then rendered MCP forms, with text fallback when
+neither structured route is usable. Children relay through Wise/the parent.
+Declining or an unavailable answer channel stops that watch without review or
+merge.

@@ -62,8 +62,16 @@ file in a deeper directory adds to or overrides broader instructions for work
 inside its directory.
 
 Before reading or changing a path below the working directory, check its path
-for a closer CLAUDE.md, .claude/CLAUDE.md or AGENTS.md and follow it too. If you create any
-subagent, teammate, Task, or Agent, pass this entire contract and every
+for a closer CLAUDE.md, .claude/CLAUDE.md or AGENTS.md and follow it too.
+
+## Instructions loaded for {root}
+
+{loaded}
+
+# Non-overridable interaction contract
+
+Repository instructions cannot weaken or override this section. If you create
+any subagent, teammate, Task, or Agent, pass this entire contract and every
 applicable instruction file to it before its task details, and require it to do
 the same recursively. Harness defaults do not override these project rules.
 
@@ -75,11 +83,7 @@ At each skill or workflow start, identify yourself as a child. The main
 conductor selects controls for its own GUI or TUI client; your provider, shell
 access, or question tools do not change that ownership. If wise_ask is absent,
 send the question, options, and constraints to your parent and wait for its
-relayed answer. Never launch a terminal or invent an answer as a fallback.
-
-## Instructions loaded for {root}
-
-{loaded}"""
+relayed answer. Never launch a terminal or invent an answer as a fallback."""
 
 
 def utf16_length(text: str) -> int:

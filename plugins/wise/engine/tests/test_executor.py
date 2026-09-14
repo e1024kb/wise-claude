@@ -187,6 +187,11 @@ def test_only_enabled_units_steps_manage_worktrees():
         ],
     }
     assert not workflow_manages_worktrees(definition, {"prepare"})
+    assert not workflow_manages_worktrees(definition, {"prepare", "batch"})
+    assert workflow_manages_worktrees(definition, {"batch"})
+    definition["steps"].append({"id": "confirm", "type": "approval"})
+    assert workflow_manages_worktrees(definition, {"batch", "confirm"})
+    definition["inputs"] = [{"name": "worktree_mode"}]
     assert workflow_manages_worktrees(definition, {"prepare", "batch"})
 
 
@@ -666,6 +671,39 @@ def test_dispatch_relay_questions_and_result(tmp_path, harness):
     asyncio.run(scenario())
 
 
+def test_dispatch_relay_restores_pending_question(tmp_path):
+    async def scenario():
+        held = Held()
+        rig = Rig(tmp_path, start_agent=held.start)
+        try:
+            run_id = rig.executor.dispatch_start(dict(harness="claude", prompt="ask", cwd=rig.cwd))[
+                "run_id"
+            ]
+            await rig.until(lambda: bool(held.calls))
+            token = held.calls[0][0]["step_token"]
+            question = dict(token=token, question="Continue?", timeout_ms=0)
+            pending = await rig.executor.child_ask(question)
+            state = rig.state(run_id)
+            gate_id = state["gate"]["gate_id"]
+            assert state["dispatch_step_token"] == token
+            assert state["dispatch_pending_asks"][pending["ask_id"]]["gate_id"] == gate_id
+
+            rig.executor.lives.pop(run_id)
+            assert rig.executor.answer(dict(run_id=run_id, gate_id=gate_id, value="Continue"))[
+                "accepted"
+            ]
+            answered = await rig.executor.child_ask({**question, "ask_id": pending["ask_id"]})
+            assert answered["value"] == "Continue"
+            assert "dispatch_pending_asks" not in rig.state(run_id)
+
+            held.finish()
+            await rig.status(run_id, "completed")
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("exit_code", ["rate_limited", "auth", "timeout", "error"])
 def test_dispatch_relay_preserves_failed_result_without_retry(tmp_path, exit_code):
     async def scenario():
@@ -695,6 +733,8 @@ def test_dispatch_relay_refuses_missing_channel_and_invalid_flags(tmp_path):
     async def scenario():
         rig = Rig(tmp_path, channel={"inject": False})
         try:
+            with pytest.raises(RpcError):
+                rig.executor.dispatch_start(dict(harness="claude", cwd=rig.cwd))
             with pytest.raises(RpcError):
                 rig.executor.dispatch_start(
                     dict(harness="not-a-harness", prompt="run", cwd=rig.cwd)

@@ -65,6 +65,14 @@ def test_new_skill_requires_shared_question_lifecycle(validator, tmp_path):
     path.write_text(path.read_text() + "At every skill start, identify your main/child role\n")
     errors = []
     validator.check_question_lifecycle(errors)
+    assert len(errors) == 2 and "interaction startup contract" in errors[0]
+    path.write_text(path.read_text() + "and the current client\n")
+    errors = []
+    validator.check_question_lifecycle(errors)
+    assert len(errors) == 2 and "interaction startup contract" in errors[0]
+    path.write_text(path.read_text() + "and GUI/TUI question tools\n")
+    errors = []
+    validator.check_question_lifecycle(errors)
     assert len(errors) == 1 and "model fallback reference" in errors[0]
     path.write_text(
         path.read_text() + "Follow [model fallback]"

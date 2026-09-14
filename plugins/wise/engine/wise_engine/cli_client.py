@@ -36,9 +36,10 @@ CLIENT_COMMANDS = (
 CLIENT_USAGE = """wise-engine <command> [options]
 
 Commands:
-  dispatch --relay --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]
+  dispatch --relay --harness <h> (--prompt-file <path> | --prompt <text>)
+                              [--model <id>] [--effort <e>]
                               start a child with main-harness question relay; returns run_id
-  preflight <workflow> [--cwd <dir>] [--answers <json>] --interactive
+  preflight <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] --interactive
                               collect every staged answer in the terminal TUI without starting a run
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input name=value ...]
                  [--interactive] [--follow] [--timeout-ms <n>]

@@ -144,7 +144,8 @@ Use `AskUserQuestion`:
 When the main harness supports direct custom text, accept extra logins there.
 Otherwise offer `Add other reviewers` as an action, then ask a separate native
 text question for the extra logins while retaining selected reviewers.
-Use the shared text fallback only when no permitted native UI is usable.
+Store custom text from any route in `EXTRA_REVIEWERS`. Use the shared text
+fallback only when no permitted native UI or rendered MCP form is usable.
 Do not treat the action label as a login. The user can enter one login or a
 comma-separated list. Explicit cancellation stops before requesting reviewers.
 
@@ -152,7 +153,7 @@ comma-separated list. Explicit cancellation stops before requesting reviewers.
 
 Collect the user's selections into a final list `PICKED`:
 - Selected options (one or more logins from §4).
-- Any freetext from `Other`: split on commas, trim whitespace per
+- `EXTRA_REVIEWERS`: split on commas, trim whitespace per
   entry, keep only entries matching `^[A-Za-z0-9][A-Za-z0-9-]*$`.
   Warn on invalid entries in the step prose (don't fail).
 - De-duplicate.

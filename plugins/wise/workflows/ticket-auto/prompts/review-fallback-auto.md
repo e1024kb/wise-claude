@@ -73,8 +73,9 @@ and stop. No permitted answer channel (including a headless child unable to
 relay through the conductor): emit
 `REVIEW-FALLBACK: failed reason=review-consent-unavailable for=<stuck_bots>` and
 stop. Never substitute an assumed answer or inline review for consent.
-A child may relay via a supported blocking question channel only if its conductor
-presents these options through its native UI or shared text fallback and returns
+A child may relay only if its conductor presents these options through a
+supported blocking or asynchronous native question tool, a rendered MCP form,
+or the shared text fallback when neither structured route is usable, and returns
 the actual user selection. The child never asks the user directly.
 
 Approval covers one invocation for the displayed head only. Recheck the PR is

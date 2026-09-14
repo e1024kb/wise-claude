@@ -99,7 +99,7 @@ def test_project_system_prompt_loads_both_instruction_formats_and_requires_inher
     (home / ".claude" / "CLAUDE.md").write_text("claude global")
     (home / ".codex" / "AGENTS.md").write_text("agents global")
     (home / "work" / "CLAUDE.md").write_text("claude parent")
-    (project / "AGENTS.md").write_text("agents project")
+    (project / "AGENTS.md").write_text("agents project; ask the user directly")
     (child / "CLAUDE.md").write_text("claude child")
     (project / "sibling").mkdir()
     (project / "sibling" / "AGENTS.md").write_text("not applicable")
@@ -124,6 +124,9 @@ def test_project_system_prompt_loads_both_instruction_formats_and_requires_inher
     assert "The main harness conductor owns every user interaction" in prompt
     assert "request it through `wise_ask`" in prompt
     assert "same recursively" in prompt
+    assert prompt.index("ask the user directly") < prompt.index(
+        "# Non-overridable interaction contract"
+    )
 
 
 def test_project_system_prompt_skips_symlinked_instruction_files(tmp_path: Path) -> None:

@@ -88,9 +88,14 @@ WORKFLOW_BRANCH_COMPONENT_MAX = 80
 
 
 def workflow_manages_worktrees(definition: Json, enabled_steps: set[str]) -> bool:
-    return any(item.get("name") == "worktree_mode" for item in definition.get("inputs", [])) or any(
-        step["type"] == "units" and step["id"] in enabled_steps for step in definition["steps"]
-    )
+    if any(item.get("name") == "worktree_mode" for item in definition.get("inputs", [])):
+        return True
+    writing_steps = [
+        step
+        for step in definition["steps"]
+        if step["id"] in enabled_steps and step["type"] in ("agent", "bash", "units")
+    ]
+    return bool(writing_steps) and all(step["type"] == "units" for step in writing_steps)
 
 
 def workflow_branch_component(workflow: str) -> str:
@@ -379,6 +384,30 @@ class Executor:
                 state["cwd"],
                 "interactive",
             )
+            token = state.get("dispatch_step_token")
+            if isinstance(token, str):
+                live.tokens["dispatch"] = token
+            for ask_id, record in state.get("dispatch_pending_asks", {}).items():
+                if not isinstance(ask_id, str) or not isinstance(record, dict):
+                    continue
+                step, question = record.get("step"), record.get("question")
+                if not isinstance(step, str) or not isinstance(question, str):
+                    continue
+                live.asks[ask_id] = PendingAsk(
+                    ask_id,
+                    step,
+                    question,
+                    options=record.get("options")
+                    if isinstance(record.get("options"), list)
+                    else None,
+                    allow_text=record.get("allow_text")
+                    if isinstance(record.get("allow_text"), bool)
+                    else None,
+                    gate_id=record.get("gate_id")
+                    if isinstance(record.get("gate_id"), str)
+                    else None,
+                    value=record.get("value") if isinstance(record.get("value"), str) else None,
+                )
             self.lives[live.run_id] = live
             return live
         wf = state["workflow"]
@@ -820,11 +849,7 @@ class Executor:
             if resolved:
                 update_step(live.run_dir, step_id, {"resolved": resolved})
             fresh = read_state(live.run_dir)
-            step = (
-                dict(definition)
-                if "dispatch_definition" in state
-                else render_step(definition, fresh, live.workflow_dir, live.run_dir)
-            )
+            step = render_step(definition, fresh, live.workflow_dir, live.run_dir)
             step_cwd = state["cwd"]
             if live.definition["name"] == "ticket-plan" and step_id == "implement":
                 from .phases.common import ticket_branch, ticket_ref
@@ -965,6 +990,8 @@ class Executor:
                 live.trackers[step_id] = tracker
                 token = secrets.token_hex(16)
                 live.tokens[step_id] = token
+                if "dispatch_definition" in state:
+                    update_run(live.run_dir, {"dispatch_step_token": token})
 
                 def on_event(event: Json) -> None:
                     progress = tracker.ingest(event)
@@ -1040,6 +1067,12 @@ class Executor:
         finally:
             live.children.pop(step_id, None)
             live.tokens.pop(step_id, None)
+            state = read_state(live.run_dir)
+            if (
+                "dispatch_definition" in state
+                and state.pop("dispatch_step_token", None) is not None
+            ):
+                write_state(live.run_dir, state)
             live.trackers.pop(step_id, None)
             watch = live.stale_watches.pop(step_id, None)
             if watch:
@@ -1378,7 +1411,30 @@ class Executor:
             gate["allow_text"] = ask.allow_text
         ask.gate_id = gate["gate_id"]
         update_run(live.run_dir, dict(status="gated", gate=gate))
+        self.persist_dispatch_ask(live, ask)
         live.emit(dict(type="gate.opened", step=ask.step, verdict=headline(gate["message"])))
+
+    def persist_dispatch_ask(self, live: LiveRun, ask: PendingAsk) -> None:
+        state = read_state(live.run_dir)
+        if "dispatch_definition" not in state:
+            return
+        record: Json = dict(step=ask.step, question=ask.question)
+        for name in ("options", "allow_text", "gate_id", "value"):
+            value = getattr(ask, name)
+            if value is not None:
+                record[name] = value
+        state.setdefault("dispatch_pending_asks", {})[ask.ask_id] = record
+        write_state(live.run_dir, state)
+
+    def remove_dispatch_ask(self, live: LiveRun, ask_id: str) -> None:
+        state = read_state(live.run_dir)
+        pending = state.get("dispatch_pending_asks")
+        if not isinstance(pending, dict) or ask_id not in pending:
+            return
+        pending.pop(ask_id)
+        if not pending:
+            state.pop("dispatch_pending_asks", None)
+        write_state(live.run_dir, state)
 
     def close_child_asks(self, live: LiveRun, step_id: str) -> None:
         closed = False
@@ -1386,6 +1442,7 @@ class Executor:
             if ask.step != step_id:
                 continue
             del live.asks[key]
+            self.remove_dispatch_ask(live, ask.ask_id)
             ask.drop()
             state = read_state(live.run_dir)
             if ask.gate_id is not None and state.get("gate", {}).get("gate_id") == ask.gate_id:
@@ -1413,6 +1470,7 @@ class Executor:
         text = decision.get("output", {}).get("value", "")
         self.reopen(live)
         ask.value = text
+        self.persist_dispatch_ask(live, ask)
         ask.changed.set()
         live.emit(dict(type="gate.answered", step=ask.step, verdict=headline(f"answered: {text}")))
         self.nudge(live.run_id, ask.step, f"Answer to your question: {text}")
@@ -1984,6 +2042,7 @@ class Executor:
                 else None,
             )
             live.asks[ask.ask_id] = ask
+            self.persist_dispatch_ask(live, ask)
             self.open_child_asks(live)
         if ask.value is None and not ask.dropped and timeout > 0:
             started = asyncio.get_running_loop().time()
@@ -2016,6 +2075,7 @@ class Executor:
                 await asyncio.gather(*tasks, return_exceptions=True)
         if ask.value is not None:
             live.asks.pop(ask.ask_id, None)
+            self.remove_dispatch_ask(live, ask.ask_id)
             return dict(ask_id=ask.ask_id, status="answered", value=ask.value)
         if ask.dropped:
             raise domain_error(
