@@ -1,40 +1,61 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in the **wise-claude** marketplace. This
-is the repo's [AGENTS.md](https://agents.md) — a free-form project-instructions
-file, not a loadable agent registry.
+Shared contributor guidance for every coding harness working in `wise-claude`.
+This file contains project instructions, not a loadable agent registry.
+Keep harness-specific instructions in that harness's configuration file.
 
-## Working in this repo
+## Repository and runtime
 
-- This is a Claude Code plugin marketplace; the plugin lives in
-  `plugins/wise/`. Contributor procedures, conventions, and the workflow-engine
-  reference are in [`CONTRIBUTING.md`](./CONTRIBUTING.md) and
-  [`docs/wise/`](./docs/wise/). Read those before changing the plugin.
-- The plugin is hand-edited directly — there is no build step and nothing in
-  the repo is generated.
-- Validate before committing: `just check` (runs
-  repository validation, pytest, Ruff and mypy in the pinned Python development
-  environment); Python compilation, `python3 -m json.tool` on JSON manifests,
-  and `bash -n` the shell scripts also catch syntax slips.
+- `plugins/wise/` is the canonical, hand-edited Wise plugin. The marketplace
+  index at `.claude-plugin/marketplace.json` points to it. There is no build
+  or generation step.
+- The workflow engine is Python 3.11+ and executes YAML v2 workflows. Its
+  provider adapters support Claude, Codex, Cursor, Gemini and Grok. The main
+  conversation's client and the provider running a child are separate choices.
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) and the relevant
+  [workflow documentation](docs/wise/) before changing the plugin. Consult
+  the instructions within the affected subtree as well.
 
-## The wise SDLC agent roster
+## Code map
 
-`wise` ships 13 SDLC role agents under
-[`plugins/wise/agents/`](./plugins/wise/agents/), one markdown file per role,
-catalogued in [`plugins/wise/AGENTS.md`](./plugins/wise/AGENTS.md). They are
-real Claude Code plugin subagents — auto-discovered when the plugin is
-installed; invoke a role as `subagent_type: wise:<name>` (e.g.
-`wise:architect`). Frontmatter: `name`, `description`, `tools`, `model: inherit`,
-`effort`, `color`. Plugin subagents ignore `hooks` / `mcpServers` /
-`permissionMode`.
+- `plugins/wise/skills/`: skill entrypoints and skill-local resources.
+- `plugins/wise/references/`: shared procedures. Change shared behavior here
+  rather than duplicating instructions across skills.
+- `plugins/wise/agents/`: SDLC role cards, catalogued in
+  [the plugin agent index](plugins/wise/AGENTS.md).
+- `plugins/wise/workflows/`: bundled workflow definitions, prompts and READMEs.
+- `plugins/wise/engine/wise_engine/`: schema (`defs.py`), scheduling,
+  execution, persisted state, preflight and provider adapters.
+- `plugins/wise/engine/tests/` and `plugins/wise/tests/`: automated tests.
+- `plugins/wise/scripts/` and `plugins/wise/hooks/`: helpers and plugin hooks.
+- `scripts/validate_repo.py`: repository structure and documentation checks.
+- `docs/wise/`: user and contributor reference documentation.
 
-V2 workflows run `agent` steps through headless provider CLIs. Claude children
-can adopt or delegate to these role cards. Model and effort resolution belongs
-to the canonical Python engine; see [the workflow reference](docs/wise/workflows.md).
+## Workflow and interaction contracts
 
-## Adding or editing a role
+- The engine owns workflow scheduling, model/effort resolution and persisted
+  state. The main harness calls its MCP tools or CLI, not workflow steps itself.
+- Follow [workflow host control](plugins/wise/references/workflow-host-control.md)
+  for installation discovery, initialization, question routing and gates.
+  Identify the active main client, its GUI/TUI surface and available question
+  tools rather than inferring capabilities from the provider name.
+- The main harness owns user interaction: prefer its permitted native control,
+  then a usable rendered MCP form, then the documented main-harness text
+  fallback. Never launch a separate terminal or system dialog as a fallback.
+  Defaults and asynchronous display acknowledgements are not user answers.
+- Children relay questions through Wise or their parent. Pass applicable
+  project instructions and task constraints to delegated children; do not
+  assume they inherit the main conversation. Preserve autonomous no-prompt
+  rules and explicit consent gates defined by the invoked skill.
 
-Edit the card at `plugins/wise/agents/<name>.md` directly (frontmatter +
-persona prose), then update the table in
-[`plugins/wise/AGENTS.md`](./plugins/wise/AGENTS.md). Full
-procedure: [`CONTRIBUTING.md` §9.10](./CONTRIBUTING.md#910-the-agent-roster).
+## Editing and validation
+
+- Keep `plugins/wise/.claude-plugin/plugin.json` as the plugin version source.
+  Follow CONTRIBUTING's versioning rules when changing shipped plugin files.
+- Keep workflow READMEs synchronized with their YAML and prompts. When editing
+  `plugins/wise/agents/<name>.md`, update the plugin agent index in the same
+  change. Role cards, not a duplicated roster, are the source of truth.
+- Pin external marketplace sources to commit SHAs. Retain the plugin license.
+- Run `just install` when the pinned development environment is missing.
+  Run `just check` before committing: repository validation, pytest, mypy,
+  Ruff, formatting checks, Python compilation, JSON and shell syntax checks.
