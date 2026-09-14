@@ -101,18 +101,20 @@ summary; under `SUPERVISE=yes` it also `TaskUpdate`s its task to `completed`/
 subagents all return, the orchestrator processes each `done` task
 **one at a time**, in wave order:
 
-1. **Simplify the task's files.** Run the simplify pass (the
-   `code-simplifier` agent) per
+1. **Simplify the task's files.** Run the simplify pass per
    `${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md`, scoped to that
    task's `files` (pass them as the explicit scope), so the cleanup
    lands in this task's commit and does not bleed into a sibling
-   task's. On a simplify error, mark the task `failed`, do **not**
+   task's. The reference picks the route: the `code-simplifier` agent
+   when this Claude Code session lists it, otherwise the same cleanup
+   inline on the current model per
+   `${CLAUDE_PLUGIN_ROOT}/references/simplify-instructions.md` (Codex,
+   Cursor, Gemini, Grok, or Claude without the plugin). A missing agent
+   never blocks the wave and never opens a picker. On a simplify error
+   (the pass ran and broke the tree), mark the task `failed`, do **not**
    stage, validate, or commit that task's files (the pass-failure
    policy forbids staging after a broken run), and continue with the
-   next task — do not abort the wave. If the `code-simplifier` agent is
-   **unavailable**, follow the reference's model-fallback choice before
-   continuing. Reuse an approved replacement for later equivalent tasks only
-   if the picker explicitly covered them. Do not silently skip the pass.
+   next task — do not abort the wave.
 2. **Commit.** Stage only that task's `files` (now including any
    simplify edits), draft a Conventional-Commits subject (scoped with any
    verified ticket reference suitable for a commit scope), `git commit`. One
@@ -147,8 +149,8 @@ IMPLEMENT: waves=<w> tasks=<t> done=<d> failed=<f>
 - One atomic commit per task — never bundle tasks, never one giant
   commit.
 - Executors never run `git` and never simplify — they only edit. The
-  orchestrator runs the per-task simplify (the `code-simplifier` agent,
-  scoped to the task's files) and commits, serially.
+  orchestrator runs the per-task simplify (the `code-simplifier` agent
+  or the inline pass, scoped to the task's files) and commits, serially.
 - Never `git push` here — the caller's push step owns that.
 - A failed task does not abort the run — finish the wave, flag it,
   carry on; the plan's wave ordering encodes the real dependencies.

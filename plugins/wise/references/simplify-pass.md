@@ -1,108 +1,91 @@
-# simplify-pass — the canonical per-commit simplify pass
-
-Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
-Unavailable models or delegation routes require a main-harness GUI/TUI selection,
-including in autonomous paths. Preserve the procedure's other gates and limits.
+# simplify-pass - the canonical per-commit simplify pass
 
 Single source of truth for **how** the plugin runs its lightweight
 per-commit cleanup. Read by:
 
-- `skills/wise-commit/commit-routine.md` §2 — the per-commit pass every
+- `skills/wise-commit/commit-routine.md` §2 - the per-commit pass every
   `/wise-commit` / `/wise-commit-push` and autofix commit runs.
-- `workflows/ticket-auto/prompts/implement-plan.md` — once per task,
+- `workflows/ticket-auto/prompts/implement-plan.md` - once per task,
   scoped to that task's files, before its atomic commit.
-- `skills/wise-simplify-auto/SKILL.md` — the standalone building block.
+- `skills/wise-simplify-auto/SKILL.md` - the standalone building block.
 
 This is the **lightweight tier** of the plugin's two-tier quality model:
 it runs as the last step before *every* commit. The heavier code-review
-branch gate is the other tier — see [`code-review-pass.md`](./code-review-pass.md).
+branch gate is the other tier - see [`code-review-pass.md`](./code-review-pass.md).
 
-## The mechanism — the `code-simplifier` agent (NOT a slash command)
+The pass has **no model preference and no required tool**: it runs on
+whatever model the current session or child already has, so the
+[model fallback](workflow-host-control.md#model-fallback) contract never
+opens a picker for it. It must never block a workflow. The only thing
+that stops a caller is a pass that ran and broke the tree (below).
 
-Cleanup is done by Anthropic's **`code-simplifier` agent**, dispatched as
-a `Task` subagent. It refines recently-modified code in place — clarity,
-consistency, dead-code/redundancy removal — while **preserving
-behaviour**, then returns.
+## What the pass does
 
-> Why an agent and not `Skill({ skill: "simplify" })`: `/simplify` is a
-> slash command, and an autonomous workflow / skill cannot type a slash
-> command (there is no SlashCommand tool). `code-simplifier` ships as a
-> registered **agent**, which IS invocable from a workflow via `Task`.
-> A bare `Skill({ skill: "simplify" })` is unreliable — in this
-> marketplace `Skill({ skill: "code-review" })` resolves to CodeRabbit's
-> skill, so name-based skill resolution is not trusted here.
+Behaviour-preserving cleanup of recently modified code: clarity,
+consistency, dead-code and redundancy removal, no scope widening. The
+full contract is [`simplify-instructions.md`](./simplify-instructions.md).
+Every route below applies exactly that contract.
 
-Dispatch one `Task` subagent:
+## Pick the route
 
-- `subagent_type`: `code-simplifier` (plugin-qualified
-  `code-simplifier:code-simplifier` if the bare name is ambiguous).
-- `prompt`: tell it to simplify the recently-modified working-tree code
-  and edit in place, preserving behaviour. **Scope it** when the caller
-  needs it confined (below).
+Decide once per pass, in this order. A route is available only when the
+session actually exposes it; do not probe by trial dispatch more than once.
 
-The agent edits files directly and returns a short summary. Surface that
-summary to the user; it is mid-flight diagnostics, not a stopping
-point — continue to the caller's stage step. Do not wait for input.
+1. **`code-simplifier` agent (Claude Code only).** When the session lists
+   the `code-simplifier` agent (bare or plugin-qualified
+   `code-simplifier:code-simplifier`) and can dispatch a `Task` / `Agent`
+   subagent, dispatch one subagent with that type. Its prompt: simplify
+   the recently modified working-tree code in place, preserving
+   behaviour, plus the scope line below when the caller scopes the pass.
+   The agent ships with the optional `code-simplifier@claude-plugins-official`
+   plugin, which wise does not declare as a dependency (CONTRIBUTING §2.3);
+   a session without it is a normal environment.
+2. **Inline on the current model (every other case).** Codex, Cursor,
+   Gemini and Grok children, Claude sessions or children without the
+   agent, and any context whose delegation tool rejects the agent type:
+   read `simplify-instructions.md` and apply it yourself in the current
+   context, on the current model. Do not open the model-fallback picker,
+   do not ask the user which route to use, do not try to install the
+   plugin, and do not resolve a slash command (`/simplify`) as a
+   substitute. A rejected dispatch in route 1 falls through here at once;
+   the working tree is untouched because the agent never ran.
+
+Report which route ran (`simplify: code-simplifier agent` or
+`simplify: inline on <model>`) together with the pass summary. Surface
+the summary to the user; it is mid-flight diagnostics, not a stopping
+point - continue to the caller's stage step. Do not wait for input.
+
+A clean working tree has no cleanup work: report `simplify: nothing to
+do` and continue.
 
 ## Scoping the pass
 
-By default the agent focuses on all recently-modified code. When a
-caller needs the pass confined to a specific file set — e.g. one task's
-files in a parallel implement wave, so its cleanup does not bleed into a
-sibling task's commit — say so explicitly in the prompt:
+By default the pass covers all recently modified code. When a caller
+needs it confined to a specific file set - one task's files in a
+parallel implement wave, so its cleanup does not bleed into a sibling
+task's commit - say so explicitly (route 1: in the agent prompt; route 2:
+as the file list in step 1 of the instructions):
 
 > "Only refine these files, nothing else: `<space-separated paths>`."
 
-The agent honours an explicit scope ("Focuses on recently modified code
-*unless instructed otherwise*"). Scoping is an optimisation, not a
-correctness requirement — a caller that stages per-file
-(`git add -- <paths>`) still commits only its own files even if the pass
-touched more.
+Scoping is an optimisation, not a correctness requirement - a caller
+that stages per-file (`git add -- <paths>`) still commits only its own
+files even if the pass touched more.
 
 ## On failure
 
-Two failure classes, with opposite policies. What separates them is
-whether the agent ever ran: a dispatch that never launched cannot have
-touched the working tree, so degrading is safe; a pass that ran and
-broke may have left half-applied edits, so nothing gets salvaged.
+Only one failure class exists: **the pass ran and broke the tree**. A
+route that never started cannot have touched the working tree, and the
+route selection above never fails (route 2 is always available).
 
-### Agent unavailable before execution - ask for a replacement
-
-The `code-simplifier` agent ships with a separate, optional plugin
-(`code-simplifier@claude-plugins-official`) that users install
-manually — wise deliberately does not declare it as a `plugin.json`
-dependency (that broke desktop-app loading; CONTRIBUTING §2.3), so
-any session can lack it. That is a normal environment, not a
-corrupted one. If
-the `Task` dispatch itself is rejected because the agent type is
-unknown / not available (try the plugin-qualified
-`code-simplifier:code-simplifier` once before concluding this), the
-agent never ran and the working tree is untouched.
-
-Do not silently skip cleanup or fail merely because the named agent is absent.
-Use the shared model-fallback picker. Offer a generic native child using the
-current model or another verified model supported by that route. Its prompt
-contains this procedure's behavior-preserving cleanup scope and the applicable
-project instructions. If no child route exists, this lightweight pass may run
-inline on the current model only after that mode is explicitly selected.
-Report the actual replacement, not a `code-simplifier` dispatch that never ran.
-
-All callers, including the commit routine, implement phase and standalone
-simplify skill, wait for that selection. Declined/unavailable consent stops
-before staging or committing with `simplify errored: <model-fallback reason>`.
-Do not resolve an ambiguous slash-command name as a replacement, and do not
-auto-install the optional plugin. A clean tree has no cleanup work to dispatch.
-
-### Pass failure (the agent ran and errored) — hard failure
-
-If the dispatched agent errors mid-flight, or the pass leaves the
-working tree in a state `git status` (or a syntax check) reports as
-broken (e.g. an invalid JS/TS source file), treat it as a **hard
-failure**: do **not** retry, do **not** stage what was already changed,
-do **not** invent a recovery.
+If the dispatched agent errors mid-flight, or the inline pass or the
+agent leaves the working tree in a state `git status` (or a syntax
+check) reports as broken (for example an invalid source file), treat it
+as a **hard failure**: do **not** retry, do **not** stage what was
+already changed, do **not** invent a recovery.
 
 Surface a one-line `simplify errored: <summary>` and let the **caller**
-map it to its own abort contract — the commit routine stops with
-`COMMIT: failed reason="simplify errored: …"`; a standalone caller emits
-its own final line. One pass — never re-dispatch the agent to
-iterate-to-clean; the project's pre-commit hook / CI is the final guard.
+map it to its own abort contract - the commit routine stops with
+`COMMIT: failed reason="simplify errored: ..."`; a standalone caller emits
+its own final line. One pass - never re-run it to iterate-to-clean; the
+project's pre-commit hook / CI is the final guard.

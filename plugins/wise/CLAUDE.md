@@ -113,7 +113,8 @@ Current actions (all standalone):
   quality steps, each a thin reader of a shared fragment or reference.
   `/wise-pr-watch-auto` MUST obtain main-harness consent before substitute review.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
-  `code-simplifier` agent) and the `code-review` workflow (the
+  `code-simplifier` agent on Claude Code, else the same cleanup inline
+  per `references/simplify-instructions.md`) and the `code-review` workflow (the
   heavyweight branch gate — three reviewer children, a curator, an
   optional verifier and a fixer, each with its own tuning group) are
   the two quality passes; the `ticket-auto` workflow's engine-side
@@ -228,7 +229,8 @@ plugins/wise/
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── profile-read.md             # session token-budget profile read (silent degrade to medium); read by profile-sensitive skills
 │   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by wise-pr-watch(-auto), the pr/simplify/implement -auto skills
-│   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent)
+│   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent or inline)
+│   ├── simplify-instructions.md    # harness-neutral cleanup contract the pass applies
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
 │   ├── report-pass.md              # canonical verified status report (recall → verify → emit; read by /wise-report + the ticket-auto / impl-plan-auto report steps)
 │   ├── supervise-loop.md           # the watchdog routine (idle/hung detection → nudge → escalate); read by the -auto implement phase + /wise-supervise
@@ -533,7 +535,7 @@ one-liners below are the rule, not the argument for it.
     Claude desktop app (CONTRIBUTING §2.3). Optional plugins (the
     `code-simplifier` agent the per-commit simplify pass dispatches)
     are documented in the README's Bundled-tooling table instead, and
-    the consuming skill degrades gracefully when they are absent.
+    the consuming skill runs the same work inline when they are absent.
   - Additional MCP server deps go in `.mcp.json`; `wise-engine` uses managed host registration. MCP tool
     ids are derived from the plugin name, so moving an MCP between
     plugins is a breaking rename.

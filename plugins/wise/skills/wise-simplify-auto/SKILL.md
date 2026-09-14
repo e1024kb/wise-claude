@@ -1,10 +1,12 @@
 ---
 name: wise-simplify-auto
 description: >-
-  Autonomously simplify recently-modified code and commit it — dispatches
-  the `code-simplifier` agent over the working tree (cleanup only,
-  behaviour preserved: clarity, consistency, dead-code/redundancy
-  removal), then drafts a Conventional-Commits subject and commits. The
+  Autonomously simplify recently-modified code and commit it — runs the
+  simplify pass over the working tree (the `code-simplifier` agent on
+  Claude Code when installed, otherwise the same cleanup inline on the
+  current model; behaviour preserved: clarity, consistency,
+  dead-code/redundancy removal), then drafts a Conventional-Commits
+  subject and commits. Works on every harness. The
   lightweight per-commit tier of the plugin's two-tier quality model, as a
   standalone building block. No routine prompts, never pushes.
   Invoked as `/wise-simplify-auto` (bare alias) or
@@ -17,8 +19,9 @@ allowed-tools: Task, Read, Bash(git:*), Bash(bash:*), AskUserQuestion
 
 # /wise-simplify-auto — simplify recently-modified code and commit
 
-Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
-for unavailable models or delegation routes, including in autonomous procedures.
+This skill has no model preference: the simplify pass runs on the current
+model, and the [model fallback](../../references/workflow-host-control.md#model-fallback)
+picker only applies to an explicit `--on` selection.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
@@ -28,8 +31,12 @@ questions in autonomous or otherwise prompt-free procedures.
 
 ## Why this skill exists
 
-The simplify pass (the `code-simplifier` agent) is the plugin's
-lightweight per-commit cleanup; it is wired into the commit routine
+The simplify pass is the plugin's lightweight per-commit cleanup: the
+`code-simplifier` agent on Claude Code when the optional plugin is
+installed, otherwise the same instructions
+(`references/simplify-instructions.md`) applied inline on the current
+model, so Codex, Cursor, Gemini and Grok children run it too. It is
+wired into the commit routine
 (`/wise-commit` runs it before staging) and into the implement phase
 (per task). This skill exposes it as a **standalone, decision-free
 building block**: run the pass, then commit the result — no prompts. The
@@ -67,9 +74,8 @@ tokens (everything left is `SKILL_ARGS`), then read
 - `SKILL_ARGS` = the remaining tokens
 
 `--on ask` (or a bare `--on`) picks harness, model and effort through
-one composite `AskUserQuestion` before any child spawns. Unavailable execution
-models additionally require the shared model-fallback picker; routine work
-remains decision-free.
+one composite `AskUserQuestion` before any child spawns; routine work
+remains decision-free. The child runs the pass inline on its own model.
 The reference probes the harness login, validates model and effort
 against the engine catalog, and runs the procedure as a headless child
 via `engine.sh dispatch --relay`. Follow its run, handle any required gates
@@ -82,12 +88,15 @@ Without `--on`, this section does not apply.
 ### 1. Simplify recently-modified code
 
 Run the simplify pass per
-`${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md` — dispatch the
-`code-simplifier` agent (a `Task` subagent) over the working tree's
-recently-modified code. Surface its summary verbatim. On a simplify
-failure, follow that reference's failure policy and stop with
-`SIMPLIFY: failed reason="<one-line>"`. An unavailable model or named agent
-uses the reference's GUI/TUI model-fallback gate before any replacement runs.
+`${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md` over the working
+tree's recently-modified code. The reference picks the route: the
+`code-simplifier` agent (a `Task` subagent) when this Claude Code session
+lists it, otherwise the cleanup inline on the current model per
+`${CLAUDE_PLUGIN_ROOT}/references/simplify-instructions.md`. A missing
+agent is not an error and opens no picker. Surface the summary and the
+route verbatim. On a simplify failure (the pass ran and broke the tree),
+follow that reference's failure policy and stop with
+`SIMPLIFY: failed reason="<one-line>"`.
 
 ### 2. Commit the result
 
@@ -108,9 +117,11 @@ COMMIT: failed reason="<verbatim error>"
 
 ## Guardrails
 
-- No routine mid-run questions. The `--on ask` picker and required model-fallback
-  gate are explicit exceptions, rendered only by the main harness.
-- One simplify pass — never re-dispatch the agent to iterate-to-clean.
+- No routine mid-run questions. The `--on ask` picker is the one
+  exception, rendered only by the main harness.
+- One simplify pass — never re-run it to iterate-to-clean.
+- Never fail or stop because the `code-simplifier` agent is absent; run
+  the pass inline instead.
 - Never `git push` — use `/wise-commit-push` for that.
 - All of `commit-routine.md`'s guardrails apply (no `--amend` /
   `--no-verify` / `--force`, no AI-attribution trailer, no retry on
