@@ -52,8 +52,10 @@ shell commands. Conductor host and child harness are independent.
    `dispatch --relay` call that returned a `run_id` and a `wise_status`
    read of its `dispatch_result`. Never emit `EXEC: ok … run=-`; a call
    that never dispatched ends `cancelled` or `failed`.
-4. **The first tool call is the inventory** (§2 `auth --json`), before any
-   picker and before any answer text.
+4. **The inventory is the first engine command.** After the host-control
+   setup above and a successful §1 parse (a §1 rejection stops before any
+   probe), run §2 `auth --json` before any picker and before any other
+   output about the prompt.
 
 ## Why this skill exists
 
@@ -309,8 +311,9 @@ rejections are usage-only and carry no `EXEC:` line.
 ## Guardrails
 
 - One child per invocation; the child never re-invokes this skill.
-- The host inventory (§2) always runs first; a harness is used only when it
-  is supported, installed and logged in on this host.
+- The host inventory (§2) is the first engine command after host setup and a
+  successful parse; a harness is used only when it is supported, installed
+  and logged in on this host.
 - Harness, model and effort come from `auth` and `models`; never hardcode.
 - The prompt goes to the child verbatim; this conversation never executes or
   answers it, and never reports `EXEC: ok` without a `run_id` (Hard rules
