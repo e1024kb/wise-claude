@@ -661,7 +661,7 @@ empty. An answered question is never repeated.
 | `input.<name>` | `choice` for strict literal enums without extraction; otherwise `text` | enum values, plus `Leave unset` for optional enums; none for text | context value, else `default`, else empty when optional |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
-| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/wise_engine/models.py`) | the group's pinned model when the catalog has it, else the catalog's first entry |
+| `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, sorted by id, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
 `worktree` is always the first question. `step-select` and `input.<name>` follow
@@ -683,12 +683,24 @@ one effort. A stage with one possible value is settled silently; every
 other stage MUST be answered. A locked group asks nothing and runs its
 default.
 
-The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
-`claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
-`claude-haiku-4-5` (medium); codex `gpt-6-astra`, `gpt-5.6-sol`,
-`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); cursor `cursor-grok-4.6-high`,
-`composer-2.5` (no effort flag); grok `grok-4.6`; gemini
-`gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
+The predefined catalog (2026-09-15): claude `claude-fable-5-1`,
+`claude-fable-5`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
+`claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium); codex
+`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low, medium, high);
+cursor `cursor-grok-4.6-high`, `composer-2.5` (no effort flag); grok
+`grok-4.6`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
+
+The predefined entries are always offered. On top of them, once the model
+stage is reached, the engine asks the harness chosen for each tuning group for
+its live model list when that harness has a listing command
+(`cursor-agent models`, `grok models`; Claude Code, Codex and Gemini expose
+none) and appends every id the catalog does not already contain, sorted by id
+with `source: harness`, so the same host always produces the same option list.
+A failed or timed-out listing adds nothing. A harness-reported id is a valid
+`model.<group>` answer; it runs without an effort flag. The conductor renders
+every option: a host with an option cap pages the list rather than dropping
+entries, since pickers without a free-text box (T3 Code, for example) leave
+the user no other way to reach an omitted model.
 
 The conductor uses its native structured picker when available, or requests
 `interactive: true` so the MCP server renders one question at a time through the
@@ -1054,7 +1066,7 @@ Python runtime. Standalone session/profile/history/supervision commands use
 | `mcp [--no-start]` | The stdio MCP server used by managed host registration. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
-| `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
+| `models [harness...] [--text] [--catalog-only]` | The models per harness: `id`, `label`, `description`, `efforts`, `source`. The predefined catalog rows come first, then the models an installed harness reports (`cursor-agent models`, `grok models`), sorted by id; `--catalog-only` skips the harness probes. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
 | `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text] [--relay]` | `--relay` is mandatory for skill `--on` dispatch: returns a daemon run ID immediately and gives the child the normal Wise question channel. The main harness follows `wait`, collects gate answers through native UI or permitted text fallback, and uses `answer` or `cancel`. On completion, `status.dispatch_result` contains the provider result. No automatic provider retry or fallback. Without `--relay`, the legacy noninteractive command prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`) without a daemon or question channel. Unsupported effort is a usage error. |
 | `version`, `help` | |
 

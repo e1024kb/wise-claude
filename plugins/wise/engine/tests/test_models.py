@@ -1,7 +1,17 @@
+import asyncio
+
 import pytest
 
 from wise_engine.constants import EFFORTS, HARNESSES
-from wise_engine.models import catalog_for, catalog_model, default_effort, default_model
+from wise_engine.models import (
+    catalog_for,
+    catalog_model,
+    default_effort,
+    default_model,
+    discover_models,
+    merged_catalog,
+    parse_model_listing,
+)
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
@@ -35,3 +45,96 @@ def test_alias_and_effort_boundaries():
     ]
     assert catalog_model("cursor", "grok-4.6") is None
     assert catalog_model("grok", "grok-4.6")["id"] == "grok-4.6"
+    assert [entry["id"] for entry in catalog_for("claude")] == [
+        "claude-fable-5-1",
+        "claude-fable-5",
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5",
+    ]
+
+
+CURSOR_LISTING = """Available models
+
+auto - Auto (default)
+gpt-5.3-codex-low - Codex 5.3 Low
+composer-2.5 - Composer 2.5
+claude-opus-5-thinking-high - Claude Opus 5 1M Thinking
+not a model line
+bad id! - Broken
+"""
+
+GROK_LISTING = """You are logged in with grok.com.
+
+Default model: grok-4.6
+
+Available models:
+  * grok-4.6 (default)
+  - grok-4.5
+  - bad id!
+"""
+
+
+def test_parse_model_listings():
+    cursor = parse_model_listing("cursor", CURSOR_LISTING)
+    assert [(m["id"], m["label"]) for m in cursor] == [
+        ("auto", "Auto (default)"),
+        ("gpt-5.3-codex-low", "Codex 5.3 Low"),
+        ("composer-2.5", "Composer 2.5"),
+        ("claude-opus-5-thinking-high", "Claude Opus 5 1M Thinking"),
+    ]
+    assert all(m["efforts"] == [] and "cursor" in m["description"] for m in cursor)
+    grok = parse_model_listing("grok", GROK_LISTING)
+    assert [(m["id"], m["label"]) for m in grok] == [
+        ("grok-4.6", "grok-4.6"),
+        ("grok-4.5", "grok-4.5"),
+    ]
+    assert parse_model_listing("grok", "Default model: grok-4.6\n") == []
+    assert parse_model_listing("claude", CURSOR_LISTING) == []
+    assert parse_model_listing("codex", GROK_LISTING) == []
+
+
+def test_merged_catalog_keeps_catalog_first_then_sorted_unique_additions():
+    discovered = parse_model_listing("cursor", CURSOR_LISTING)
+    merged = merged_catalog("cursor", discovered)
+    assert [(m["id"], m["source"]) for m in merged] == [
+        ("cursor-grok-4.6-high", "catalog"),
+        ("composer-2.5", "catalog"),
+        ("auto", "harness"),
+        ("claude-opus-5-thinking-high", "harness"),
+        ("gpt-5.3-codex-low", "harness"),
+    ]
+    assert merged == merged_catalog("cursor", list(reversed(discovered)) + discovered)
+    assert [m["source"] for m in merged_catalog("cursor")] == ["catalog", "catalog"]
+    assert catalog_model("cursor", "auto") is None
+    assert catalog_model("cursor", " AUTO ", discovered)["source"] == "harness"
+    assert catalog_model("cursor", "composer-2.5", discovered)["source"] == "catalog"
+    assert default_model("cursor", "auto", discovered)["id"] == "auto"
+    assert default_model("cursor", "missing", discovered)["id"] == "cursor-grok-4.6-high"
+
+
+def test_discover_models_skips_missing_adapters_and_failures():
+    class Adapter:
+        def __init__(self, rows=None, error=None):
+            self.rows, self.error = rows, error
+
+        async def list_models(self):
+            if self.error:
+                raise self.error
+            return self.rows
+
+    class Bare:
+        pass
+
+    adapters = {
+        "cursor": Adapter([dict(id="auto", label="Auto", description="", efforts=[])]),
+        "grok": Adapter([]),
+        "codex": Adapter(error=OSError("no binary")),
+        "claude": Bare(),
+    }
+
+    result = asyncio.run(
+        discover_models(["cursor", "cursor", "grok", "codex", "claude", "gemini"], adapters.get)
+    )
+    assert result == {"cursor": adapters["cursor"].rows}

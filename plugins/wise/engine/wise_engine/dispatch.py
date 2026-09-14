@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,7 +11,7 @@ from .adapter_types import Adapter, Json
 from .adapters import adapter_for, has_adapter
 from .adapters._common import dumps
 from .constants import EFFORTS, HARNESSES, RUN_MODES
-from .models import catalog_for, catalog_model, default_model
+from .models import catalog_model, default_model, discover_models, merged_catalog
 from .steps.agent import headline, project_system_prompt
 
 
@@ -25,17 +25,41 @@ def _string(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def cmd_models(positional: list[str], flags: Json, io: DispatchIo) -> int:
-    rows = []
-    for name in positional or HARNESSES:
+async def cmd_models(
+    positional: list[str],
+    flags: Json,
+    io: DispatchIo,
+    env: Mapping[str, str] | None = None,
+    lookup: Callable[[str], Any] | None = None,
+) -> int:
+    from .auth import bin_on_path
+
+    names = list(positional or HARNESSES)
+    for name in names:
         if name not in HARNESSES:
             io.err(f"models: unknown harness {name} (one of {', '.join(HARNESSES)})\n")
             return 2
-        rows += [dict(harness=name, **model) for model in catalog_for(name)]
+    discovered: Json = {}
+    if flags.get("catalog-only") is not True:
+        lookup = lookup or (lambda name: adapter_for(name) if has_adapter(name) else None)
+        installed = []
+        for name in names:
+            adapter = lookup(name)
+            if adapter is None:
+                continue
+            binary = getattr(adapter, "bin", None)
+            if not isinstance(binary, str) or bin_on_path(binary, env):
+                installed.append(name)
+        discovered = await discover_models(installed, lookup)
+    rows = []
+    for name in names:
+        rows += [
+            dict(harness=name, **model) for model in merged_catalog(name, discovered.get(name))
+        ]
     if flags.get("text") is True:
         for row in rows:
             io.out(
-                f"{row['harness']}\t{row['id']}\t{row['label']}\t{','.join(row['efforts']) or '-'}\t{row['description']}\n"
+                f"{row['harness']}\t{row['id']}\t{row['label']}\t{','.join(row['efforts']) or '-'}\t{row['source']}\t{row['description']}\n"
             )
     else:
         io.out(dumps(rows) + "\n")

@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import subprocess
@@ -116,6 +117,108 @@ def test_stage_order_and_explicit_answers():
     assert eq["default"] == "high" and eq["label"] == "Effort for GPT-5.6 Luna: Design spec?"
     answer["effort.analyze-design"] = "medium"
     assert ids(p.build_questionary(defn, ready, answer)) == [i for i in INPUTS if i not in MODES]
+
+
+def test_model_options_carry_source_and_accept_harness_reported_models():
+    defn = definition()
+    base = {"worktree": "current", "step-select": OPTIONAL, **MODES, **AUTO}
+    reported = [
+        dict(id="grok-4.5", label="grok-4.5", description="reported", efforts=[]),
+        dict(id="grok-4.6", label="dup", description="reported", efforts=[]),
+    ]
+    ctx = {"harnesses": ["grok"], "models": {"grok": reported}}
+    answer = {**base, **{f"harness.{g}": "grok" for g in groups(defn)}, "permissions.grok": "auto"}
+    stage = p.build_questionary(defn, ctx, answer)
+    question = next(q for q in stage["questions"] if q["id"] == "model.analyze-design")
+    assert [(o["value"], o["source"]) for o in question["options"]] == [
+        ("grok-4.6", "catalog"),
+        ("grok-4.5", "harness"),
+    ]
+    assert question["default"] == "grok-4.6"
+    # without the discovery the single-entry grok catalog asks nothing
+    silent = p.build_questionary(defn, {"harnesses": ["grok"]}, answer)
+    assert not any(q["id"].startswith("model.") for q in silent["questions"])
+    answer.update({f"model.{g}": "grok-4.5" for g in groups(defn)})
+    assert not any(
+        q["id"].startswith(("model.", "effort."))
+        for q in p.build_questionary(defn, ctx, answer)["questions"]
+    )
+    applied = p.apply_answers(defn, answer, ctx)
+    assert applied["tuning"]["analyze-design"] == dict(harness="grok", model="grok-4.5")
+    # the same answer without the discovery context is not a known model
+    assert p.apply_answers(defn, answer)["tuning"]["analyze-design"] == dict(
+        harness="grok", model="grok-4.6"
+    )
+    claude = p.build_questionary(
+        defn, {"harnesses": ["grok"]}, {**base, **{f"harness.{g}": "claude" for g in groups(defn)}}
+    )
+    question = next(q for q in claude["questions"] if q["id"] == "model.analyze-design")
+    assert [o["value"] for o in question["options"]] == [
+        "claude-fable-5-1",
+        "claude-fable-5",
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5",
+    ]
+    assert all(o["source"] == "catalog" for o in question["options"])
+
+
+def test_questionary_with_auth_discovers_models_once():
+    class Adapter:
+        def __init__(self, identifier, rows=None):
+            self.id = identifier
+            self.rows = rows
+            self.listed = 0
+
+        async def probe_auth(self, auth):
+            return {"ok": True}
+
+        async def list_models(self):
+            self.listed += 1
+            return self.rows or []
+
+    defn = definition()
+    adapters = {
+        "claude": Adapter("claude"),
+        "grok": Adapter(
+            "grok", [dict(id="grok-4.5", label="grok-4.5", description="", efforts=[])]
+        ),
+    }
+    answer = {
+        "worktree": "current",
+        "step-select": OPTIONAL,
+        **MODES,
+        **AUTO,
+        **{f"harness.{g}": "grok" for g in groups(defn)},
+        "permissions.grok": "auto",
+    }
+
+    async def run():
+        asked = await p.build_questionary_with_auth(
+            defn, {"harnesses": ["grok"]}, answer, adapters.get
+        )
+        question = next(q for q in asked["questions"] if q["id"] == "model.analyze-design")
+        assert [o["value"] for o in question["options"]] == ["grok-4.6", "grok-4.5"]
+        assert (adapters["grok"].listed, adapters["claude"].listed) == (1, 0)
+        ctx = await p.with_discovered_models(defn, {"harnesses": ["grok"]}, answer, adapters.get)
+        assert ctx["models"] == {"grok": adapters["grok"].rows}
+        assert await p.with_discovered_models(defn, ctx, answer, adapters.get) is ctx
+        assert adapters["grok"].listed == 2
+        # earlier stages never probe; a model answer under validation always does
+        early = {"worktree": "current"}
+        assert "models" not in await p.with_discovered_models(
+            defn, {"harnesses": ["grok"]}, early, adapters.get
+        )
+        assert adapters["grok"].listed == 2
+        validating = {"model.analyze-design": "grok-4.5", "harness.analyze-design": "grok"}
+        ctx = await p.with_discovered_models(
+            defn, {"harnesses": ["grok"]}, validating, adapters.get
+        )
+        assert ctx["models"] == {"grok": adapters["grok"].rows}
+        assert (adapters["grok"].listed, adapters["claude"].listed) == (3, 1)
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("ctx", [{}, {"harnesses": ["claude"]}, {"harnesses": []}])

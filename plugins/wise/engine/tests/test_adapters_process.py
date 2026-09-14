@@ -444,3 +444,50 @@ def test_grok_pretty_json_reassembles_unicode_bytes():
     assert result["exit"] == "ok"
     assert result["text"] == "🙂é"
     assert result["json"] == {"value": "🙂é"}
+
+
+@pytest.mark.parametrize(
+    "harness,output,code,expected",
+    [
+        (
+            "cursor",
+            "Available models\n\nauto - Auto (default)\ncomposer-2.5 - Composer 2.5\n",
+            0,
+            ["auto", "composer-2.5"],
+        ),
+        ("cursor", "auto - Auto (default)\n", 1, []),
+        (
+            "grok",
+            "Available models:\n  * grok-4.6 (default)\n  - grok-4.5\n",
+            0,
+            ["grok-4.6", "grok-4.5"],
+        ),
+        ("grok", "Not logged in\n", 0, []),
+        ("grok", "Available models:\n  - grok-4.5\n", 1, []),
+    ],
+)
+def test_model_listing_probes(tmp_path, harness, output, code, expected):
+    async def run():
+        module, _ = provider(harness)
+        binary = fake_binary(
+            tmp_path,
+            f"import sys\nassert sys.argv[1:] == ['models']\nprint({output!r})\nsys.exit({code})\n",
+        )
+        rows = await module.list_models(bin=binary, parent_env={})
+        assert [row["id"] for row in rows] == expected
+        assert all(row["efforts"] == [] for row in rows)
+        adapter = adapter_for(harness)
+        assert adapter.models is module.list_models
+        assert await module.list_models(bin=binary + ".missing", parent_env={}) == []
+
+    asyncio.run(run())
+
+
+def test_adapters_without_a_listing_command_report_no_models():
+    async def run():
+        for harness in ("claude", "codex", "gemini"):
+            adapter = adapter_for(harness)
+            assert adapter.models is None
+            assert await adapter.list_models() == []
+
+    asyncio.run(run())

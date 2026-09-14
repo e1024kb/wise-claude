@@ -207,9 +207,13 @@ class ProviderAdapter:
     start: Callable[..., Awaitable[AgentHandle]]
     probe: Callable[..., Awaitable[Json]]
     effort: Callable[[str], str | None]
+    models: Callable[..., Awaitable[list[Json]]] | None = None
 
     async def probe_auth(self, auth: str) -> Json:
         return await self.probe(auth)
+
+    async def list_models(self) -> list[Json]:
+        return await self.models() if self.models else []
 
     async def run(self, req: Json, on_event: EventCallback) -> Json:
         return await (await self.start(req, on_event)).done

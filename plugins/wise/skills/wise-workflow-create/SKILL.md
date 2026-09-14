@@ -116,7 +116,9 @@ every question:
 
 1. Ask which harness to use, using catalog harnesses.
 2. After that answer arrives, ask which model from that harness's catalog to use.
-   Show model labels and descriptions, and retain the exact model ID.
+   Offer every row (predefined `source: catalog` entries first, then the models
+   the installed harness reported), paged when the picker caps options. Show
+   model labels and descriptions, and retain the exact model ID.
 3. After that answer arrives, ask which of that model's supported efforts to use.
    If there are no supported efforts, show "Effort: not supported by this model"
    and omit `effort`; do not invent an effort option. If only one value exists,

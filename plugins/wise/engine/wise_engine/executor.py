@@ -67,6 +67,7 @@ from .preflight import (
     invalid_provider_permission_answers,
     invalid_worktree_answers,
     resolve_from_context,
+    with_discovered_models,
 )
 from .pricing import price_usage
 from .protocol import RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS
@@ -1639,9 +1640,10 @@ class Executor:
         definition = validated(located)
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         seeded = {**given, **{f"input.{key}": value for key, value in explicit.items()}}
-        completed = complete_answers(
-            definition, {"harnesses": harnesses, "context": context}, seeded
+        ctx = await with_discovered_models(
+            definition, {"harnesses": harnesses, "context": context}, seeded, self.get_adapter
         )
+        completed = complete_answers(definition, ctx, seeded)
         answers = completed["answers"]
         unanswered = [
             question
@@ -1650,7 +1652,7 @@ class Executor:
             and not question["id"].startswith("input.")
             and question["id"] not in given
         ]
-        applied = apply_answers(definition, answers)
+        applied = apply_answers(definition, answers, ctx)
         resolved = {}
         for step in definition["steps"]:
             if step["id"] not in applied["enabled_steps"]:

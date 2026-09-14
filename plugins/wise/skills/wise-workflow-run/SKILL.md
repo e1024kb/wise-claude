@@ -101,8 +101,10 @@ is installed; a logged-out one is offered with its login command in the
 option). Once all harness choices are settled, it asks
 `permissions.<harness>` once per selected or fallback provider
 (`Auto` recommended, `Approval required`, or `Bypass permissions`), then
-which model that harness offers (`model.<group>`, the engine's catalog),
-then the effort that model takes (`effort.<group>`). Each accepted form unlocks the next stage.
+which model that harness offers (`model.<group>`: every predefined catalog
+entry first, then every extra model the installed harness reported, each
+option tagged `source: catalog|harness`), then the effort that model takes
+(`effort.<group>`). Each accepted form unlocks the next stage.
 An answered question is never returned twice.
 
 The main harness conductor owns all user interaction. Provider children and
@@ -133,7 +135,11 @@ Render every unanswered provider permission question with all its options. Never
 replace the next provider's picker with "Use Auto too?" or reuse another provider's
 answer unless the user explicitly selected that mode for both providers.
 Render `choice` questions with options and `multi` questions with native
-multi-select or the shared clickable Include/Exclude sequence. Never turn a
+multi-select or the shared clickable Include/Exclude sequence. A
+`model.<group>` question is rendered with every option the engine returned,
+in the engine's order; when the host caps options, page the list
+(`More models…` / `Back`) instead of dropping entries, following the
+[model list rule](../../references/workflow-host-control.md#native-controls-and-answer-mapping). Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
 Codex Desktop currently advertises MCP elicitation but can immediately decline
 standard forms without rendering them, so use its native inline picker when that

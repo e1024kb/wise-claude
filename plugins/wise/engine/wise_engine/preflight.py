@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from .constants import HARNESSES, RUN_MODES
-from .models import catalog_for, catalog_model, default_effort, default_model
+from .models import catalog_model, default_effort, default_model, merged_catalog
 from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 
 Json = dict[str, Any]
@@ -136,6 +136,7 @@ def _stage_group(
     answers: Json,
     installed: list[str] | None = None,
     logged_out: list[str] | None = None,
+    models: Json | None = None,
 ) -> Json:
     first = _stage_harness(definition, group, answers, installed, logged_out)
     base = first["base"]
@@ -146,8 +147,9 @@ def _stage_group(
     harness = first.get("harness", base.get("harness", "claude"))
     stage["harness"] = harness
     pinned = base.get("model") if harness == base.get("harness", "claude") else None
-    model = catalog_model(harness, _answer_string(answers.get(f"model.{group['id']}")))
-    catalog = catalog_for(harness)
+    discovered = (models or {}).get(harness)
+    model = catalog_model(harness, _answer_string(answers.get(f"model.{group['id']}")), discovered)
+    catalog = merged_catalog(harness, discovered)
     label = group.get("label", group["id"])
     if model is None and len(catalog) > 1:
         stage["questions"].append(
@@ -156,14 +158,14 @@ def _stage_group(
                 kind="choice",
                 label=f"Which {harness} model: {label}?",
                 options=[
-                    {k: m[k] for k in ("label", "description")} | {"value": m["id"]}
+                    {k: m[k] for k in ("label", "description", "source")} | {"value": m["id"]}
                     for m in catalog
                 ],
-                default=default_model(harness, pinned)["id"],
+                default=default_model(harness, pinned, discovered)["id"],
             )
         )
         return stage
-    model = model or default_model(harness, pinned)
+    model = model or default_model(harness, pinned, discovered)
     stage["model"] = model
     effort = _answer_string(answers.get(f"effort.{group['id']}"))
     if effort in model["efforts"]:
@@ -520,23 +522,31 @@ def build_questionary(
         if group.get("locked") or group["id"] not in active:
             continue
         for q in _stage_group(
-            definition, group, answers, ctx.get("harnesses"), ctx.get("logged_out")
+            definition,
+            group,
+            answers,
+            ctx.get("harnesses"),
+            ctx.get("logged_out"),
+            ctx.get("models"),
         )["questions"]:
             push(q)
     return result
 
 
-def apply_answers(definition: Json, answers: Json) -> Json:
+def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> Json:
     tuning = {}
+    models = (ctx or {}).get("models")
     for group in _groups(definition):
         if group.get("locked"):
             tuning[group["id"]] = _group_base(definition, group)
             continue
-        stage = _stage_group(definition, group, answers)
+        stage = _stage_group(definition, group, answers, models=models)
         base = stage["base"]
         harness = stage.get("harness", base.get("harness", "claude"))
         model = stage.get("model") or default_model(
-            harness, base.get("model") if harness == base.get("harness", "claude") else None
+            harness,
+            base.get("model") if harness == base.get("harness", "claude") else None,
+            (models or {}).get(harness),
         )
         effort = stage.get("effort", default_effort(model, base.get("effort")))
         value = {**base, "harness": harness, "model": model["id"]}
@@ -602,11 +612,45 @@ def complete_answers(definition: Json, ctx: Json, given: Json) -> Json:
     return {**filled, "questions": list(seen.values())}
 
 
+EARLIER_STAGES = ("worktree", "step-select", "harness.", "permissions.")
+
+
+def chosen_harnesses(definition: Json, answers: Json) -> list[str]:
+    chosen = []
+    for group in _groups(definition):
+        if group.get("locked"):
+            continue
+        answer = _answer_string(answers.get(f"harness.{group['id']}"))
+        chosen.append(
+            answer
+            if answer in HARNESSES
+            else _group_base(definition, group).get("harness", "claude")
+        )
+    return list(dict.fromkeys(chosen))
+
+
+def model_stage_reached(definition: Json, ctx: Json, answers: Json) -> bool:
+    if any(key.startswith("model.") for key in answers):
+        return True
+    questions = build_questionary(definition, ctx, answers)["questions"]
+    return not any(question["id"].startswith(EARLIER_STAGES) for question in questions)
+
+
+async def with_discovered_models(definition: Json, ctx: Json, answers: Json, lookup: Any) -> Json:
+    if "models" in ctx or not model_stage_reached(definition, ctx, answers):
+        return ctx
+    from .models import discover_models
+
+    harnesses = chosen_harnesses(definition, answers)
+    return {**ctx, "models": await discover_models(harnesses, lookup)}
+
+
 async def build_questionary_with_auth(
     definition: Json, ctx: Json, answers: Json, lookup: Any
 ) -> Json:
     from .auth import logged_out_harnesses
 
+    ctx = await with_discovered_models(definition, ctx, answers, lookup)
     questionary = build_questionary(definition, ctx, answers)
     group_ids = [
         question["id"][len("harness.") :]

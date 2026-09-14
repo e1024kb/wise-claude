@@ -187,6 +187,13 @@ def test_captured_cli_help_unknown_and_missing_preflight():
                 "wait|status|answer|cancel|resume|report",
             ),
             ("used by managed host registration", "used by .mcp.json"),
+            (
+                "  models [harness...] [--text] [--catalog-only]\n"
+                "                               models per harness: the predefined catalog first, then models the\n"
+                "                               installed harness reports (`cursor-agent models`, `grok models`),\n"
+                "                               each row with source catalog|harness (JSON by default)\n",
+                "  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)\n",
+            ),
         ]:
             out, err = out.replace(before, after), err.replace(before, after)
         for line in additions:

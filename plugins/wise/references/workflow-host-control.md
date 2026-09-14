@@ -416,6 +416,18 @@ For multi-select on a host with only single-choice pickers:
 
 For a long single-choice list, use pages with clickable navigation within the
 host's option-count limit. Navigation does not answer the underlying question.
+
+Model questions (`model.<group>`, the `models` command, any model picker) are
+the usual long list. The engine returns every option: the predefined catalog
+first (`source: catalog`), then the models the installed harness reported
+(`source: harness`). Render them all, in the engine's order, with the engine's
+labels. Never trim the list to fit the picker, never pick a "representative"
+subset, and never rely on an Other/free-text box to reach an omitted model:
+several hosts (T3 Code among them) render no such box. With a four-option cap
+and a six-model catalog, show three models plus `More models…`, then the next
+three plus `Back`; the highlighted default stays on its own page. Mention the
+source in the description when the host shows one (`reported by the cursor
+harness`), not in the value.
 When a skill asks a bounded contextual question without an engine questionary,
 provide concise choices for the known alternatives; use free text only for content
 that cannot reasonably be enumerated. Do not invent an exhaustive option set for
