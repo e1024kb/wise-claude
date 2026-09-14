@@ -157,12 +157,12 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   `review_mode` on `auto` and the refine-plan group is skipped; leave
   `implement_mode` on `plan-only` and the implement group is skipped
   (the engine settles those `when:` gates on the inputs at
-  pre-flight). Per group: which CLI
-  runs it (asked whenever another CLI is installed, logged in or not).
+  pre-flight). Per group: which harness runs it (asked whenever another
+  one is installed, logged in or not).
   After all harnesses are settled, pre-flight asks once per selected or
   fallback provider for a permission floor (`Auto` recommended, with
-  `Bypass permissions` available), then asks which model from the engine's catalog for that CLI, then the
-  effort that model takes. Every one of these questions goes to the
+  `Bypass permissions` available), then asks which model from the
+  engine's catalog for that harness, then the effort that model takes. Every one of these questions goes to the
   user; the run refuses to start on a skipped one. Defaults:
   `claude-opus-5 / high` for all seven (the authoring four declare
   `xhigh`, which Opus 5's ceiling resolves to `high`). The sonnet

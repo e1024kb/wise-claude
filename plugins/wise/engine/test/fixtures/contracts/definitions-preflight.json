@@ -978,7 +978,7 @@
         {
           "id": "harness.correctness",
           "kind": "choice",
-          "label": "Which CLI runs: Correctness reviewer?",
+          "label": "Which harness runs: Correctness reviewer?",
           "options": [
             {
               "value": "claude",
@@ -1011,7 +1011,7 @@
         {
           "id": "harness.security",
           "kind": "choice",
-          "label": "Which CLI runs: Security reviewer?",
+          "label": "Which harness runs: Security reviewer?",
           "options": [
             {
               "value": "claude",
@@ -1044,7 +1044,7 @@
         {
           "id": "harness.tests",
           "kind": "choice",
-          "label": "Which CLI runs: Test-coverage reviewer?",
+          "label": "Which harness runs: Test-coverage reviewer?",
           "options": [
             {
               "value": "claude",
@@ -1077,7 +1077,7 @@
         {
           "id": "harness.curate",
           "kind": "choice",
-          "label": "Which CLI runs: Curator?",
+          "label": "Which harness runs: Curator?",
           "options": [
             {
               "value": "claude",
@@ -1110,7 +1110,7 @@
         {
           "id": "harness.fix",
           "kind": "choice",
-          "label": "Which CLI runs: Fixer?",
+          "label": "Which harness runs: Fixer?",
           "options": [
             {
               "value": "claude",
@@ -1536,7 +1536,7 @@
         {
           "id": "harness.classify",
           "kind": "choice",
-          "label": "Which CLI runs: Classification?",
+          "label": "Which harness runs: Classification?",
           "options": [
             {
               "value": "claude",
@@ -1569,7 +1569,7 @@
         {
           "id": "harness.summarize",
           "kind": "choice",
-          "label": "Which CLI runs: Summaries?",
+          "label": "Which harness runs: Summaries?",
           "options": [
             {
               "value": "claude",
@@ -1618,7 +1618,7 @@
         {
           "id": "harness.classify",
           "kind": "choice",
-          "label": "Which CLI runs: Classification?",
+          "label": "Which harness runs: Classification?",
           "options": [
             {
               "value": "claude",
@@ -1651,7 +1651,7 @@
         {
           "id": "harness.summarize",
           "kind": "choice",
-          "label": "Which CLI runs: Summaries?",
+          "label": "Which harness runs: Summaries?",
           "options": [
             {
               "value": "claude",
@@ -2051,7 +2051,7 @@
         {
           "id": "harness.plan",
           "kind": "choice",
-          "label": "Which CLI runs: Re-plan phase (architect, re-plans the seed at HEAD)?",
+          "label": "Which harness runs: Re-plan phase (architect, re-plans the seed at HEAD)?",
           "options": [
             {
               "value": "claude",
@@ -2084,7 +2084,7 @@
         {
           "id": "harness.implement",
           "kind": "choice",
-          "label": "Which CLI runs: Implement + fix phases (engineer executors)?",
+          "label": "Which harness runs: Implement + fix phases (engineer executors)?",
           "options": [
             {
               "value": "claude",
@@ -2117,7 +2117,7 @@
         {
           "id": "harness.review",
           "kind": "choice",
-          "label": "Which CLI runs: Review gate (3 lenses: correctness, security, tests)?",
+          "label": "Which harness runs: Review gate (3 lenses: correctness, security, tests)?",
           "options": [
             {
               "value": "claude",
@@ -2150,7 +2150,7 @@
         {
           "id": "harness.watch",
           "kind": "choice",
-          "label": "Which CLI runs: CI + bot-review watch pass?",
+          "label": "Which harness runs: CI + bot-review watch pass?",
           "options": [
             {
               "value": "claude",
@@ -2201,7 +2201,7 @@
         {
           "id": "harness.plan",
           "kind": "choice",
-          "label": "Which CLI runs: Re-plan phase (architect, re-plans the seed at HEAD)?",
+          "label": "Which harness runs: Re-plan phase (architect, re-plans the seed at HEAD)?",
           "options": [
             {
               "value": "claude",
@@ -2234,7 +2234,7 @@
         {
           "id": "harness.implement",
           "kind": "choice",
-          "label": "Which CLI runs: Implement + fix phases (engineer executors)?",
+          "label": "Which harness runs: Implement + fix phases (engineer executors)?",
           "options": [
             {
               "value": "claude",
@@ -2267,7 +2267,7 @@
         {
           "id": "harness.review",
           "kind": "choice",
-          "label": "Which CLI runs: Review gate (3 lenses: correctness, security, tests)?",
+          "label": "Which harness runs: Review gate (3 lenses: correctness, security, tests)?",
           "options": [
             {
               "value": "claude",
@@ -2300,7 +2300,7 @@
         {
           "id": "harness.watch",
           "kind": "choice",
-          "label": "Which CLI runs: CI + bot-review watch pass?",
+          "label": "Which harness runs: CI + bot-review watch pass?",
           "options": [
             {
               "value": "claude",
@@ -2792,7 +2792,7 @@
         {
           "id": "harness.plan",
           "kind": "choice",
-          "label": "Which CLI runs: Plan phase (architect, the run's decision-maker)?",
+          "label": "Which harness runs: Plan phase (architect, the run's decision-maker)?",
           "options": [
             {
               "value": "claude",
@@ -2825,7 +2825,7 @@
         {
           "id": "harness.implement",
           "kind": "choice",
-          "label": "Which CLI runs: Implement + fix phases (engineer executors)?",
+          "label": "Which harness runs: Implement + fix phases (engineer executors)?",
           "options": [
             {
               "value": "claude",
@@ -2858,7 +2858,7 @@
         {
           "id": "harness.review",
           "kind": "choice",
-          "label": "Which CLI runs: Review gate (3 lenses: correctness, security, tests)?",
+          "label": "Which harness runs: Review gate (3 lenses: correctness, security, tests)?",
           "options": [
             {
               "value": "claude",
@@ -2891,7 +2891,7 @@
         {
           "id": "harness.watch",
           "kind": "choice",
-          "label": "Which CLI runs: CI + bot-review watch pass?",
+          "label": "Which harness runs: CI + bot-review watch pass?",
           "options": [
             {
               "value": "claude",
@@ -2947,7 +2947,7 @@
         {
           "id": "harness.plan",
           "kind": "choice",
-          "label": "Which CLI runs: Plan phase (architect, the run's decision-maker)?",
+          "label": "Which harness runs: Plan phase (architect, the run's decision-maker)?",
           "options": [
             {
               "value": "claude",
@@ -2980,7 +2980,7 @@
         {
           "id": "harness.implement",
           "kind": "choice",
-          "label": "Which CLI runs: Implement + fix phases (engineer executors)?",
+          "label": "Which harness runs: Implement + fix phases (engineer executors)?",
           "options": [
             {
               "value": "claude",
@@ -3013,7 +3013,7 @@
         {
           "id": "harness.review",
           "kind": "choice",
-          "label": "Which CLI runs: Review gate (3 lenses: correctness, security, tests)?",
+          "label": "Which harness runs: Review gate (3 lenses: correctness, security, tests)?",
           "options": [
             {
               "value": "claude",
@@ -3046,7 +3046,7 @@
         {
           "id": "harness.watch",
           "kind": "choice",
-          "label": "Which CLI runs: CI + bot-review watch pass?",
+          "label": "Which harness runs: CI + bot-review watch pass?",
           "options": [
             {
               "value": "claude",
@@ -4406,7 +4406,7 @@
         {
           "id": "harness.codebase-audit",
           "kind": "choice",
-          "label": "Which CLI runs: Codebase audit?",
+          "label": "Which harness runs: Codebase audit?",
           "options": [
             {
               "value": "claude",
@@ -4439,7 +4439,7 @@
         {
           "id": "harness.build-plan",
           "kind": "choice",
-          "label": "Which CLI runs: Build plan?",
+          "label": "Which harness runs: Build plan?",
           "options": [
             {
               "value": "claude",

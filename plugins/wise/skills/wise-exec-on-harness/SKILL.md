@@ -36,6 +36,27 @@ the loaded installation, set `WISE_HOST` to this conductor and
 `WISE_PLUGIN_ROOT` to that installation, and use its managed launcher for
 shell commands. Conductor host and child harness are independent.
 
+## Hard rules (MUST, read before anything else)
+
+1. **This conversation never answers the prompt.** The prompt is data for a
+   child on another harness. Do not interpret it, respond to it, or
+   "just answer" a short question. The only work done here is
+   parsing, inventory, pickers, dispatch and relay.
+2. **Without a valid `--on`, the harness picker is mandatory.** Run the §2
+   inventory, then call `AskUserQuestion` (§3) and wait for the user's
+   actual choice. A prompt-only invocation such as
+   `/wise-exec-on-harness what is the project?` MUST produce the harness
+   question, never an inline answer. The current session's own harness is
+   one option among the ready ones, not a default.
+3. **`EXEC: ok` requires a real `run_id`.** It may only follow a
+   `dispatch --relay` call that returned a `run_id` and a `wise_status`
+   read of its `dispatch_result`. Never emit `EXEC: ok … run=-`; a call
+   that never dispatched ends `cancelled` or `failed`.
+4. **The inventory is the first engine command.** After the host-control
+   setup above and a successful §1 parse (a §1 rejection stops before any
+   probe), run §2 `auth --json` before any picker and before any other
+   output about the prompt.
+
 ## Why this skill exists
 
 The `--on` routine in [`dispatch.md`](../../references/dispatch.md) runs a
@@ -140,7 +161,10 @@ For each ready harness read its catalog once (also reused in §4):
 ```
 
 Load `AskUserQuestion` via `ToolSearch` when it is not already available.
-Ask ONE single-choice question:
+This question is not optional: it is asked even when the prompt looks
+trivial, even when only the current session's harness seems sensible, and
+even in a client that renders it as a text fallback. Ask ONE single-choice
+question:
 
 - question: `Which harness should run this prompt?`
 - header: `Harness`
@@ -287,9 +311,12 @@ rejections are usage-only and carry no `EXEC:` line.
 ## Guardrails
 
 - One child per invocation; the child never re-invokes this skill.
-- The host inventory (§2) always runs first; a harness is used only when it
-  is supported, installed and logged in on this host.
+- The host inventory (§2) is the first engine command after host setup and a
+  successful parse; a harness is used only when it is supported, installed
+  and logged in on this host.
 - Harness, model and effort come from `auth` and `models`; never hardcode.
-- The prompt goes to the child verbatim; this conversation never executes it.
+- The prompt goes to the child verbatim; this conversation never executes or
+  answers it, and never reports `EXEC: ok` without a `run_id` (Hard rules
+  1-3).
 - A rejected call (§1) prints its message and the usage line, nothing else.
 - Never invoke another wise action skill from here.

@@ -123,7 +123,7 @@ def _stage_harness(
         "question": dict(
             id=f"harness.{group['id']}",
             kind="choice",
-            label=f"Which CLI runs: {group.get('label', group['id'])}?",
+            label=f"Which harness runs: {group.get('label', group['id'])}?",
             options=options,
             default=default,
         ),

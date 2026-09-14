@@ -95,14 +95,14 @@ separate worktree), then `step-select` (which optional steps run) and the
 `input.<name>` questions. Once
 `step-select` is answered the tuning stages follow, for every group a
 step that will run uses (selected, and not ruled out by a `when:` the
-inputs already settle, such as `implement_mode: plan-only`): which CLI
-runs the group (`harness.<group>`, asked
-whenever more than one CLI is installed; a logged-out one is offered
-with its login command in the option). Once all harness choices are settled,
-it asks `permissions.<harness>` once per selected or fallback provider
-(`Auto` recommended, `Approval required`, or `Bypass permissions`), then which model of that CLI
-(`model.<group>`, the engine's catalog), then the effort that model
-takes (`effort.<group>`). Each accepted form unlocks the next stage.
+inputs already settle, such as `implement_mode: plan-only`): which
+harness runs the group (`harness.<group>`, asked whenever more than one
+is installed; a logged-out one is offered with its login command in the
+option). Once all harness choices are settled, it asks
+`permissions.<harness>` once per selected or fallback provider
+(`Auto` recommended, `Approval required`, or `Bypass permissions`), then
+which model that harness offers (`model.<group>`, the engine's catalog),
+then the effort that model takes (`effort.<group>`). Each accepted form unlocks the next stage.
 An answered question is never returned twice.
 
 The main harness conductor owns all user interaction. Provider children and
@@ -117,7 +117,7 @@ returns is put to the user. Never
 answer one yourself, including a permission question; never take its default to save a call, never
 start the run with a stage still open. The only time a harness or
 model question is not asked is when the engine did not return it
-(one CLI installed, a one-model catalog, a one-effort model). `wise_run`
+(one harness installed, a one-model catalog, a one-effort model). `wise_run`
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
 Prefer the main harness's available native structured picker, then MCP form
