@@ -148,7 +148,10 @@ workflow steps.
 
 Read this contract at every skill start and before dispatching a model-backed
 task, including shared procedures and children. It governs unavailable model,
-effort, named-agent and native delegation routes. Model names in skill bodies
+effort, named-agent and native delegation routes. A procedure that declares no
+model preference and its own inline route (the simplify pass in
+`simplify-pass.md`) runs inline on the current model when its named agent is
+absent; it never enters this picker. Model names in skill bodies
 are preferences, not proof that a client can run them. Keep portable skill
 frontmatter free of provider-specific model pins so the body can load and ask.
 This contract takes precedence over a routine's automatic inline/skip/abort
