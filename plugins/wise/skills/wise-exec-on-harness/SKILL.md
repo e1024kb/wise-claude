@@ -3,17 +3,21 @@ name: wise-exec-on-harness
 description: >-
   Execute one free-form prompt as a headless child on any supported
   harness (`claude`, `codex`, `cursor`, `gemini`, `grok`) at a model,
-  effort and permission mode you choose. Every option omitted from the
-  invocation is asked through the main harness's GUI/TUI picker
-  (`--on`, `--model`, `--effort`, `--mode`); the prompt itself is the
-  trailing free text or the value of `--p` / `--prompt`. The child runs
-  through the engine's `dispatch --relay` route under your own CLI
-  login, so permissions, gates and usage accounting behave exactly like
-  a workflow child. Invoked as `/wise-exec-on-harness` (bare alias) or
-  `/wise:wise-exec-on-harness` (canonical). Use when the user says "run
-  this on codex", "ask grok to …", "execute this prompt on another
-  harness", "exec on gemini", or types `/wise-exec-on-harness`.
-argument-hint: "[--on <harness>|ask] [--model <id>|ask] [--effort <e>|ask] [--mode ask|auto|full] [--p|--prompt] <prompt>"
+  effort and permission mode you choose. The first action is always a
+  host inventory: which supported harnesses are installed and logged
+  in. A `--on` value is validated against it; without `--on` the ready
+  harnesses are offered as a picker. Every other omitted option
+  (`--model`, `--effort`, `--mode`) is asked through the main harness's
+  GUI/TUI picker, and a missing prompt is asked last as free text. The
+  prompt otherwise is the trailing text or the value of `--p` /
+  `--prompt`. The child runs through the engine's `dispatch --relay`
+  route under your own CLI login, so permissions, gates and usage
+  accounting behave exactly like a workflow child. Invoked as
+  `/wise-exec-on-harness` (bare alias) or `/wise:wise-exec-on-harness`
+  (canonical). Use when the user says "run this on codex", "ask grok to
+  …", "execute this prompt on another harness", "exec on gemini", or
+  types `/wise-exec-on-harness`.
+argument-hint: "[--on <harness>|ask] [--model <id>|ask] [--effort <e>|ask] [--mode ask|auto|full] [--p|--prompt] [<prompt>]"
 allowed-tools: Read, Write, ToolSearch, AskUserQuestion, Bash(bash:*), Bash(git:*), Bash(mktemp:*), Bash(cat:*)
 ---
 
@@ -45,8 +49,9 @@ child. Nothing about the prompt is interpreted here; the child does the work.
 ```
 /wise-exec-on-harness --on codex --model gpt-6-astra --effort high --mode auto summarize the failing tests
 /wise-exec-on-harness --on grok --p explain the retry policy in src/net
-/wise-exec-on-harness explain the retry policy in src/net       # every option asked
+/wise-exec-on-harness explain the retry policy in src/net       # harness, model, effort, mode asked
 /wise-exec-on-harness --on ask --mode full --prompt refactor the parser and run the tests
+/wise-exec-on-harness                                           # everything asked, prompt last
 ```
 
 ## Procedure
@@ -65,45 +70,74 @@ Tokenize on whitespace. Read leading option pairs left to right:
 
 Also accept the `--key=value` spelling. `--mode ask` selects the
 approval-required permission mode, it does not mean "ask me" - only omitting
-`--mode` opens the picker.
+`--mode` opens the picker. `--on ask`, `--model ask` and `--effort ask` are
+the explicit picker sentinels, equivalent to omitting the option.
 
 The prompt is:
 
-- everything after `--p` / `--prompt`, when present, or
+- everything after `--p` / `--prompt`, verbatim to the end of the line (option
+  names inside it are prompt text, never options), or
 - everything from the first token that is not one of the options above (or
-  its value) to the end of the line.
+  its value) to the end of the line, or
+- empty, when the line is empty or ends on an option or its value. An empty
+  prompt is not an error: it is asked last, in §6.
 
-Reject these calls before any probe or picker - print the message and stop:
+Reject these calls before any probe or picker - print the message and the
+usage line, nothing else, and stop:
 
 | condition | message |
 |---|---|
-| `$ARGUMENTS` empty or whitespace-only | `Usage: /wise-exec-on-harness [--on <harness>\|ask] [--model <id>\|ask] [--effort <e>\|ask] [--mode ask\|auto\|full] [--p\|--prompt] <prompt>` |
-| no prompt text remains (line ends on an option or its value, `--p` with nothing after it) | `Rejected: the last argument must be the prompt.` + usage |
-| an option name (`--on`, `--model`, `--effort`, `--mode`, `--p`, `--prompt`) appears inside the prompt text | `Rejected: options must precede the prompt; put free text last or after --p.` + usage |
-| unknown `--on` harness | `Unknown --on value: <value>` + usage |
-| effort outside the five words | `Unknown --effort value: <value>` + usage |
-| mode outside `ask\|auto\|full` | `Unknown --mode value: <value>` + usage |
-| any other `--option` before the prompt | `Unknown option: <token>` + usage |
+| an option name (`--on`, `--model`, `--effort`, `--mode`, `--p`, `--prompt`) appears inside a prompt that was NOT introduced by `--p` / `--prompt` | `Rejected: options must precede the prompt; put free text last or after --p.` |
+| `--on` value outside the five supported harnesses (and not `ask`) | `Unknown --on value: <value>` |
+| `--effort` outside the five words (and not `ask`) | `Unknown --effort value: <value>` |
+| `--mode` outside `ask\|auto\|full` | `Unknown --mode value: <value>` |
+| any other `--option` before the prompt | `Unknown option: <token>` |
+
+Usage line:
+
+```
+Usage: /wise-exec-on-harness [--on <harness>|ask] [--model <id>|ask] [--effort <e>|ask] [--mode ask|auto|full] [--p|--prompt] [<prompt>]
+```
 
 Never guess a prompt from the conversation and never trim, rewrite or
-"improve" it: the child receives the text exactly as typed.
+"improve" it: the child receives the text exactly as typed or entered.
 
-### 2. Probe readiness
+### 2. Host inventory - the first action after parsing
+
+Before any picker, always run:
 
 ```bash
 "$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" auth --json
 ```
 
-One row per harness: `installed`, `login`, `login_cmd`. A harness is
-*ready* when `installed` is true and `login` is `ok`.
+One row per supported harness: `harness`, `installed`, `login`, `login_cmd`.
+A harness is *ready* when `installed` is true and `login` is `ok`. Print the
+inventory as one line per harness:
+`<harness>: ready | installed, not logged in (<login_cmd>) | not installed`.
+Then:
 
-- `--on <harness>` given and not ready: print the row's readiness failure and
-  its `login_cmd`, then enter the shared model-fallback picker for an
-  executable route (another ready harness, or `Stop`). Never start the
-  unavailable provider and never switch harness silently.
-- No harness ready at all: print every `login_cmd` and stop.
+- `--on <harness>` given: validate it against this inventory.
+  - ready → use it.
+  - installed but not logged in → print `Harness <harness> is installed but
+    not logged in: run <login_cmd>.` and open the shared model-fallback picker
+    with the *ready* harnesses as executable routes plus `Stop`. Never start
+    the unavailable provider and never switch harness silently.
+  - not installed → print `Harness <harness> is supported but not installed on
+    this host.` and open the same picker (ready harnesses plus `Stop`).
+- `--on` omitted or `ask` → §3 with the ready harnesses.
+- No harness ready at all: print every `login_cmd` and stop with
+  `EXEC: failed harness=- model=- mode=- run=-`.
+
+`Stop` from the fallback picker ends the skill with
+`EXEC: cancelled harness=<requested> model=- mode=- run=-`.
 
 ### 3. Harness picker (`--on` omitted or `ask`)
+
+For each ready harness read its catalog once (also reused in §4):
+
+```bash
+"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" models <harness>
+```
 
 Load `AskUserQuestion` via `ToolSearch` when it is not already available.
 Ask ONE single-choice question:
@@ -111,20 +145,20 @@ Ask ONE single-choice question:
 - question: `Which harness should run this prompt?`
 - header: `Harness`
 - options: every *ready* harness from §2, `claude` first, each labelled with
-  the harness name and described by its default catalog model. Harnesses
-  that are installed but logged out are listed in the question text with
-  their `login_cmd`, not as options. When only one harness is ready, offer
+  the harness name and described by the first catalog entry's label (its
+  default model). Harnesses that are installed but logged out, or not
+  installed, are listed in the question text with their state and
+  `login_cmd`, not as options. When only one harness is ready, offer
   `Use <harness>` and `Cancel`.
 
-Cancellation stops the skill with nothing dispatched.
+Cancellation stops the skill with nothing dispatched:
+`EXEC: cancelled harness=- model=- mode=- run=-`.
 
 ### 4. Model and effort
 
-```bash
-"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" models <harness>
-```
-
-Rows: `id`, `label`, `efforts`, `description`. Never hardcode a model list.
+Use the chosen harness's catalog from §3 (or read it now when `--on` was
+given). Rows: `id`, `label`, `efforts`, `description`. Never hardcode a model
+list.
 
 - `--model` given: match it against the catalog rows (`dispatch` accepts an
   uncatalogued id and warns; keep that warning for the final report). A
@@ -142,6 +176,8 @@ Rows: `id`, `label`, `efforts`, `description`. Never hardcode a model list.
 
 Ask model and effort as two questions in one `AskUserQuestion` call when both
 are open and the host renders multi-question forms; otherwise sequentially.
+Cancellation at either question stops the skill with
+`EXEC: cancelled harness=<harness> model=<id or -> mode=- run=-`.
 
 ### 5. Permission mode (`--mode` omitted)
 
@@ -154,7 +190,29 @@ Single-choice picker `Permission mode for the child?`, header `Mode`:
 3. `full` — "No permission gates. Use for trusted, self-contained tasks." →
    `full-access`
 
-### 6. Write the prompt file and dispatch
+Cancellation stops the skill with
+`EXEC: cancelled harness=<harness> model=<id> mode=- run=-`.
+
+### 6. Prompt (asked last, only when §1 found none)
+
+Ask through the main client's GUI/TUI question tool, after every other
+option is settled, so the user knows what the prompt will run on:
+
+- question: `What should <harness> <model> do? Enter the prompt.`
+- header: `Prompt`
+- A host whose native tool accepts free text: take the entered text as the
+  prompt. A host with option-only pickers: offer `Enter prompt` (the host's
+  free-text / Other box) and `Cancel`; the typed text is the prompt.
+- No usable GUI/TUI channel: use the shared main-harness text fallback from
+  host control - end the turn asking for the prompt, and continue only with
+  the user's explicit reply.
+
+An empty or whitespace-only answer re-asks once, then stops. Cancellation or
+a second empty answer stops the skill with
+`EXEC: cancelled harness=<harness> model=<id> mode=<mode> run=-`. Never fill
+the prompt from the conversation, a default, or a display acknowledgement.
+
+### 7. Write the prompt file and dispatch
 
 Write one file (scratchpad when available, else `mktemp`) containing:
 
@@ -170,23 +228,28 @@ You are a headless child started by /wise-exec-on-harness.
 
 ## Task
 
-<the prompt from §1, verbatim>
+<the prompt from §1 or §6, verbatim>
 ```
 
-Then:
+Then dispatch. Every substituted value is passed as one quoted shell word so a
+model id, path or file name containing spaces or metacharacters cannot alter
+the command:
 
 ```bash
 "$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" dispatch --relay \
-  --harness <harness> --model <id> [--effort <e>] \
-  --mode <approval-required|auto|full-access> --cwd <working tree> \
-  --timeout-s 3600 --prompt-file <the file>
+  --harness "$HARNESS" --model "$MODEL" ${EFFORT:+--effort "$EFFORT"} \
+  --mode "$MODE" --cwd "$WORKING_TREE" \
+  --timeout-s 3600 --prompt-file "$PROMPT_FILE"
 ```
 
-Print `Dispatched on <harness> <model>[ <effort>] (<mode>) — run <run_id>.`
-When the relay capability is missing, report the setup error and stop. Never
-retry with bare `dispatch`, never `--follow`, never a terminal.
+`MODE` is one of `approval-required`, `auto`, `full-access`.
 
-### 7. Relay
+Print `Dispatched on <harness> <model>[ <effort>] (<mode>) — run <run_id>.`
+When the relay capability is missing, report the setup error and stop with
+`EXEC: failed harness=<harness> model=<id> mode=<mode> run=-`. Never retry
+with bare `dispatch`, never `--follow`, never a terminal.
+
+### 8. Relay
 
 Follow the run with `wise_wait {run_id, after}` (or the launcher's
 non-interactive `wait` when MCP is unavailable), `after` = last `seq` seen.
@@ -200,7 +263,7 @@ When `done`, read `wise_status {run_id}` → `dispatch_result` (`exit`, `text`,
 `usage`, optional `error` / `warnings`). Run status is authoritative: a
 cancelled or failed run is never a success, even with partial `text`.
 
-### 8. Report
+### 9. Report
 
 - Completed run, `exit: ok`: print the child's `text` in full (that is the
   deliverable), then one line
@@ -216,11 +279,16 @@ Your response's FINAL line MUST be exactly, on its own line:
 EXEC: <ok|failed|cancelled> harness=<harness> model=<id> mode=<mode> run=<run_id>
 ```
 
-Use `run=-` when the call was rejected before dispatch.
+Every path that ends after §1 emits it: `failed` for a readiness or setup
+failure, `cancelled` for a picker cancellation, `-` for any field not yet
+resolved and for `run` when nothing was dispatched. Only the §1 parser
+rejections are usage-only and carry no `EXEC:` line.
 
 ## Guardrails
 
 - One child per invocation; the child never re-invokes this skill.
+- The host inventory (§2) always runs first; a harness is used only when it
+  is supported, installed and logged in on this host.
 - Harness, model and effort come from `auth` and `models`; never hardcode.
 - The prompt goes to the child verbatim; this conversation never executes it.
 - A rejected call (§1) prints its message and the usage line, nothing else.
