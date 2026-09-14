@@ -89,7 +89,7 @@ Inside `process`, per ticket and in this order:
 
 | Id | Kind | Default | Notes |
 |---|---|---|---|
-| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked whenever another CLI is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
+| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked whenever another harness is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |

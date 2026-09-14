@@ -76,7 +76,7 @@ def test_stage_order_and_explicit_answers():
     assert stage["defaults"]["harness.analyze-design"] == "claude"
     assert (
         next(q for q in stage["questions"] if q["id"] == "harness.analyze-design")["label"]
-        == "Which CLI runs: Design spec?"
+        == "Which harness runs: Design spec?"
     )
     # Defaults describe recommendations; building the next stage requires submitted answers.
     assert ids(p.build_questionary(defn, ready, answer)) == ids(stage)
