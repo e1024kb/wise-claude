@@ -463,6 +463,8 @@ def check_question_lifecycle(errors: list[str]) -> None:
             errors.append(
                 f"{rel}: missing shared question lifecycle reference"
             )
+        if "At every skill start, identify your main/child role" not in text:
+            errors.append(f"{rel}: missing interaction startup contract")
 
 
 def main() -> int:

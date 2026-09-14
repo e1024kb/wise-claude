@@ -69,6 +69,11 @@ The main harness conductor owns every user interaction. Never ask the user
 directly or open a GUI, TUI, terminal prompt, or chat questionnaire. When an
 answer is required, request it through `wise_ask`; nested agents must route
 their question back through you so it reaches the same conductor.
+At each skill or workflow start, identify yourself as a child. The main
+conductor selects controls for its own GUI or TUI client; your provider, shell
+access, or question tools do not change that ownership. If wise_ask is absent,
+send the question, options, and constraints to your parent and wait for its
+relayed answer. Never launch a terminal or invent an answer as a fallback.
 
 ## Instructions loaded for {root}
 

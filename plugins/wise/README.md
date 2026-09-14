@@ -198,8 +198,9 @@ dependencies are all done run together), and persists every run under
 `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` (`state.json` +
 `events.jsonl`, honours `XDG_DATA_HOME`). The main Claude, Codex, Cursor, Grok,
 or T3 Code harness is a thin conductor: it renders every pre-flight question
-through its native GUI/TUI picker or MCP forms, with the engine's terminal TUI
-as a fallback and no ordinary-chat fallback. It hands the run
+through its native GUI/TUI picker or rendered MCP forms. Every skill starts by
+identifying its main/child role and current client controls. Missing controls
+stop collection without a chat or terminal fallback. It hands the run
 what it already knows (ticket bodies, guidance, decisions), prints one
 line per engine event and answers gates. It never sees step output.
 Interrupted runs resume from the ledger via

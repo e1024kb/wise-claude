@@ -13,7 +13,8 @@ allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, Team
 
 # /wise-workflow-run - the conductor
 
-Before asking any user question, read and follow the
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.
@@ -52,12 +53,16 @@ instead.
 
 ## 2. Pre-flight
 
-`wise_preflight {workflow, cwd, answers, context, interactive: true}`; `cwd` is
+First resolve the main client's GUI/TUI controls using the shared startup
+contract. Prefer its native question tool with
+`wise_preflight {workflow, cwd, answers, context, interactive: false}`; `cwd` is
 the absolute git toplevel, else pwd; `answers` is `{}` on the first
 call. Pass the conversation context needed for input defaults on every staged call.
-The MCP server owns the interaction and opens one host form per
-question. On success it returns `questions: []` plus the collected
-`answers`; pass those answers to `wise_run`.
+Render and answer each stage through the main client's native control, then
+re-call preflight with cumulative answers. If no native control is permitted,
+use `interactive: true` only for MCP forms rendered in this same client.
+The main harness still owns the interaction. Pass the completed answers to
+`wise_run` only after `questions: []`.
 
 - `WORKFLOW_NOT_FOUND`: say so, stop.
 - `WORKFLOW_INVALID`: list `path: message (hint)` and stop. A v1
@@ -73,8 +78,8 @@ question. On success it returns `questions: []` plus the collected
 - `PREFLIGHT_CANCELLED`: stop without starting a run.
 - `INTERACTIVE_UI_REQUIRED`: call `wise_preflight` with `interactive: false`
   and render each staged question through the host's native picker when available.
-  Otherwise run the preflight-only terminal TUI from host control and use the
-  returned `answers`. Never render the raw questionary as a chat prompt, turn a
+  Otherwise report the missing client capability and stop collection. Never
+  launch a terminal fallback, render the raw questionary as a chat prompt, turn a
   displayed default into an answer, or start a run from the TUI. Cancellation
   stops collection.
 
@@ -128,9 +133,8 @@ standard forms without rendering them, so use its native inline picker when that
 control is available. An unrendered automatic decline is a failed transport
 route, not a user cancellation. Codex CLI does not render MCP array-enum fields;
 current Wise versions encode MCP multi-select as required boolean fields instead.
-In the explicit
-CLI fallback, use `wise-engine preflight <workflow> --interactive`; it preserves
-the labels, descriptions, values and staged order without starting the run.
+Standalone `wise-engine preflight <workflow> --interactive` is only for an
+explicitly requested standalone terminal session, never a skill fallback.
 Never answer one for the user or drop it to save a call.
 
 ## 3. Context and start

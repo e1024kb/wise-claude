@@ -455,7 +455,8 @@ async def test_preflight_without_form_capability_starts_nothing() -> None:
     error = body(result)["error"]
     assert error["code"] == "INTERACTIVE_UI_REQUIRED"
     assert "Ordinary chat is not a preflight UI" in error["message"]
-    assert "preflight <workflow> --interactive" in error["message"]
+    assert "never launch a terminal fallback" in error["message"]
+    assert "main client's GUI/TUI" in error["message"]
     assert daemon.calls == []
     assert daemon.refreshed == 0
 

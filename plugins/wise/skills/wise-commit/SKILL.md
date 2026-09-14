@@ -21,7 +21,8 @@ allowed-tools: Bash(git:*), Read, Edit, Write, Task
 
 # /wise-commit — draft a Conventional-Commits subject and commit
 
-Before asking any user question, read and follow the
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.

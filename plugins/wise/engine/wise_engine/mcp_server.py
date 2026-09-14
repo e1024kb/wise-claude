@@ -324,11 +324,11 @@ async def _preflight(
         return error_result(
             "INTERACTIVE_UI_REQUIRED",
             "This MCP host does not support form elicitation. Use a native picker and await "
-            "the user's answer, keeping asynchronous prompts open, or use the terminal TUI. "
+            "the user's answer, keeping asynchronous prompts open in the main client's GUI/TUI. "
             "Populate picker options for choices; for multi-select without native support, "
             "collect clickable Include/Exclude answers for each option. "
             "Ordinary chat is not a preflight UI. If no persistent native picker is available, "
-            "run `wise-engine preflight <workflow> --interactive` in a terminal; never render "
+            "report the missing client capability; never launch a terminal fallback or render "
             "the raw questionary as a chat reply or submit defaults as answers.",
         )
     if refresh is not None:

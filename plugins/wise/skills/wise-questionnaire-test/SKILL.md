@@ -14,7 +14,8 @@ allowed-tools: Read, AskUserQuestion, Bash(git rev-parse:*), Bash(pwd:*), Bash(t
 
 # /wise-questionnaire-test
 
-Before asking any user question, read and follow the
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered. A display acknowledgement is
 not an answer.
@@ -76,7 +77,9 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
 
 4. Collect real user answers through the first usable route. Prefer a structured
    input tool owned by the main harness when one is available in the current
-   client and mode, then use MCP forms, then a user-operable terminal TUI:
+   client and mode, then use MCP forms rendered by that same client. Follow the
+   shared startup contract: GUI uses inline GUI, CLI uses native TUI controls.
+   Never launch a terminal from this test as a fallback:
 
    - **Native picker:** render the current engine questions with
      the host's supported structured input tool. Populate its actual options
@@ -93,13 +96,12 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
      `interactive: true`. Let its forms own staged collection. Codex Desktop can
      advertise elicitation but immediately return `decline` without rendering a
      form. When live UI evidence shows no form appeared, record
-     `INTERACTIVE_UI_REQUIRED` and continue to a user-operable TUI. Do not report
+     `INTERACTIVE_UI_REQUIRED` and stop collection. Do not report
      that transport failure as a user cancellation. A visible decline or cancel
      remains terminal. Current Wise MCP forms represent multi-select options as
      required boolean fields because Codex CLI drops array-enum fields.
-   - **Terminal TUI:** when no permitted persistent native control covers the
-     next question, use the host-selected stable launcher in a terminal the
-     user can actually operate:
+   - **Standalone terminal test:** only when the user explicitly requested the
+     standalone engine CLI test, use its existing user-operated terminal:
 
      ```bash
      "$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" \
@@ -114,8 +116,8 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
      keystrokes. If the user runs the command externally, wait for its returned
      JSON before assessing it. Do not claim a TUI pass from a command suggestion.
 
-   The terminal TUI, when used, must run in a terminal owned by this same main
-   harness. Await actual selections and preserve prior answers across route changes.
+   The standalone terminal route is never an automatic GUI or CLI skill fallback.
+   Await actual selections and preserve prior answers across permitted route changes.
    User acceptance of a highlighted default is valid; auto-submitting defaults
    is not. Keep the turn active while a prompt is open. Explicit cancellation,
    closed stdin, or an invalid UI response ends the test with the returned
@@ -154,6 +156,7 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
    ```text
    QUESTIONNAIRE PASS|FAIL
    harness=<conductor> client=<client> workflow=<name>
+   role=main surface=<GUI|TUI|unknown> question_tool=<actual tool name or none>
    route=<MCP form|native picker|terminal TUI; list transitions if used>
    collected=<comma-separated question IDs, or none>
    coverage=<observed kinds/stages>; unexercised=<stages and short reasons, or none>
@@ -168,6 +171,10 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
    codes above for specific contract failures. Add at most one sentence naming
    the failed stage and practical next action. Do not print answer values,
    free-text contents, full payloads, or credentials in the report.
+   Do not infer an unrendered decline from response speed alone. If visibility
+   is unknown, report it as unknown and preserve the returned cancellation code.
+   Describe only stages actually answered as covered; inspecting the questionary
+   or reaching a prompt is not successful UI coverage.
 
 ## Guardrails
 

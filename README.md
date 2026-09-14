@@ -83,8 +83,8 @@ Workflows are YAML v2 definitions (`agent`, `bash`, `approval`, `ask`,
 `units` steps, tuning groups asked in stages). The engine under
 `plugins/wise/engine` runs them as a per-user daemon and talks to Claude
 Code through the plugin's `wise-engine` MCP server; the conversation
-only answers GUI pre-flight questions and gates, with the engine's TUI
-as the fallback when a host has no persistent picker.
+renders pre-flight questions and gates through the main client's native GUI/TUI
+or rendered MCP forms. Missing controls stop collection without launching a terminal.
 
 See the [plugin README](plugins/wise/README.md) for the full command
 reference and [`docs/wise/`](docs/wise/) for the workflow engine, the

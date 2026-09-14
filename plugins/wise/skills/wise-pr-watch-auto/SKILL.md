@@ -30,7 +30,8 @@ allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*)
 
 # /wise-pr-watch-auto — autonomous CI watch + bulk-fix loop
 
-Before asking any user question, read and follow the
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 other questions in autonomous procedures. Substitute review consent below is mandatory.

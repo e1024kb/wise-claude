@@ -54,11 +54,15 @@ def test_new_skill_requires_shared_question_lifecycle(validator, tmp_path):
     )
     errors: list[str] = []
     validator.check_question_lifecycle(errors)
-    assert len(errors) == 1 and "wise-new/SKILL.md" in errors[0]
+    assert len(errors) == 2 and all("wise-new/SKILL.md" in error for error in errors)
     path.write_text(
         path.read_text() + "Follow the [question lifecycle]"
         "(../../references/workflow-host-control.md#keep-asynchronous-questions-open).\n"
     )
+    errors = []
+    validator.check_question_lifecycle(errors)
+    assert len(errors) == 1 and "interaction startup contract" in errors[0]
+    path.write_text(path.read_text() + "At every skill start, identify your main/child role\n")
     errors = []
     validator.check_question_lifecycle(errors)
     assert errors == []

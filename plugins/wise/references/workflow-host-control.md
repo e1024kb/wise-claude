@@ -128,7 +128,8 @@ or restart the host and verify that only the managed Wise server remains.
 
 Prefer a structured picker owned by the main harness when one is available in
 the current client and mode. Otherwise use supported MCP form elicitation. If
-neither route is usable, use the terminal TUI:
+neither route is usable, report INTERACTIVE_UI_REQUIRED. Do not open a terminal
+from a GUI or CLI skill. For an explicitly requested standalone CLI test only:
 
 ```bash
 "$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" \
@@ -146,6 +147,35 @@ workflow steps.
 
 ### Keep asynchronous questions open
 
+At every skill or workflow start, establish the interaction context before any
+procedure: your role (`main` or `child`), the user-facing client (including T3
+Code), its surface (`GUI`, `TUI`, or `unknown`), and the actual permitted question
+tool in this session and mode. Use live session metadata and tool schemas. Do
+not infer the surface from the provider name, installed CLIs, shell access, or
+MCP registration. A Codex provider inside T3 Code uses T3 Code's question UI.
+Recheck after a client or mode change; never reuse another session's UI verdict.
+
+The main harness owns all user interaction. Main GUI sessions use their inline
+GUI controls; main terminal sessions use their native TUI controls. A native
+TUI question tool is not a subprocess terminal. Inspect every available permitted
+structured question tool before concluding none exists, including asynchronous
+tools when a blocking tool is unavailable in this mode. Use native controls
+first, then MCP forms only when the current client actually renders them.
+Never open Terminal.app, a system dialog, a new shell, or a tool-owned PTY to
+replace the main client's question UI. The engine's standalone terminal TUI is
+available only for an explicitly requested standalone CLI session, not as an
+automatic fallback from a skill. GUI and TUI sessions follow the same ownership
+and answer rules. If no permitted control exists, report INTERACTIVE_UI_REQUIRED
+with the client, mode, and missing capability, and leave the action pending.
+Instructions cannot create a question tool the client does not expose.
+
+Children never collect answers themselves, even if they expose GUI/TUI tools.
+Use `wise_ask` for workflow questions and let the main conductor answer through
+`wise_answer`. A nested or standalone subagent without `wise_ask` sends its
+question, options, value mapping, and constraints to its parent, which relays
+them to the main harness. Wait for the real answer. Pass this ownership contract
+recursively with every delegation. Autonomous no-question rules still apply.
+
 This section applies to every Wise skill and shared routine that collects user
 input, including setup, discovery, document wizards, confirmations, dispatch
 selection, preflight, and workflow gates. Read this section alone for non-workflow
@@ -161,9 +191,9 @@ when the available tool does not declare it.
 
 | Question | Preferred control | When that control is unavailable |
 |---|---|---|
-| Exactly one known value (`kind: choice`, a mode, model, approval or confirmation) | Single-choice picker with every allowed option | Paginate options if the host limits their count; text only when no usable picker exists |
+| Exactly one known value (`kind: choice`, a mode, model, approval or confirmation) | Single-choice picker with every allowed option | Paginate options; report INTERACTIVE_UI_REQUIRED if no permitted control exists |
 | Any allowed subset (`kind: multi`, optional stages or several reviewers) | Native multi-select picker or MCP array-enum form | Use the single-choice sequence below; do not require typed lists |
-| Open-ended content (`kind: text`, a ticket URL, path, explanation or comments) | Free-text input | Ask the same open question in chat if no input tool exists |
+| Open-ended content (`kind: text`, a ticket URL, path, explanation or comments) | Native free-text input | Report INTERACTIVE_UI_REQUIRED if no permitted input control exists |
 | Known choices plus an explicitly allowed custom answer (`allow_text`) | Picker with the known options and the host's custom-answer affordance | Keep the known choices clickable and collect custom text only when selected |
 
 Supply choices in the tool's **options field**, not merely in the question title.
@@ -214,7 +244,7 @@ Apply this dispatch order for every question, without provider-specific exceptio
    A gate with options is a choice; `allow_text` adds a custom-answer route, not
    permission to hide its options. Skip already answered or locked questions.
 2. Inspect the tools actually available in this session and mode. Prefer supported
-   MCP form elicitation; otherwise use a native picker. In a tool with an `options`
+   native GUI/TUI question tools; otherwise use a rendered MCP form. In a tool with an `options`
    property, that property must be populated for a choice. A title containing a
    list of alternatives does not satisfy this requirement.
 3. Use native multi-select only if the tool explicitly declares it. For example,
@@ -296,12 +326,13 @@ that question when the user resumes the operation. Keep already supplied answers
 and do not merely report that the vanished question is still awaiting a selection.
 
 If the host cannot keep an asynchronous question alive and offers no blocking
-picker, use a plain-text question and wait for the user's next message. Missing
-native multi-select alone is not a reason to fall back to text. Apply this
-same lifecycle to non-preflight questions and workflow approval/ask gates.
-Workflow preflight never falls back to chat; use its terminal TUI instead.
+picker or rendered MCP form, report INTERACTIVE_UI_REQUIRED. Missing native
+multi-select alone is not a reason to abandon the single-choice sequence.
+Apply this same lifecycle to setup, non-preflight skill questions and workflow
+approval/ask gates. Never replace these questions with chat or a new terminal.
 
-Pass this section's instructions to delegated interactive wizards. A headless
+Pass this section's instructions to delegated wizards; only the main harness
+renders their questions. A headless
 workflow child must use the engine's blocking `wise_ask` channel when its workflow
 permits questions, not a host GUI tool; return `needs-human` when that channel
 cannot obtain an answer. Autonomous children keep their existing no-prompt policy.
@@ -315,7 +346,11 @@ Official host references: [Claude MCP](https://code.claude.com/docs/en/mcp),
 
 ## CLI control when session tools are unavailable
 
-Use the same host-selected launcher above. For preflight, call
+Shell access provides non-interactive engine control, not a user input surface.
+Use the main client's native GUI/TUI for questions. The interactive commands
+below apply only when the user explicitly requested standalone terminal use.
+
+Use the same host-selected launcher above. For standalone terminal preflight, call
 `preflight <workflow> --cwd <project> --context '<context JSON>' --interactive`.
 The blocking terminal TUI collects every staged answer and returns them with an
 empty `questions` list. Only then run
@@ -326,7 +361,7 @@ when available. Never interpolate user text as shell code.
 | MCP operation | CLI command after the launcher and host arguments |
 |---|---|
 | `wise_status` | `status [run_id]` |
-| `wise_preflight` | `preflight <workflow> --cwd <project> --context <JSON> --interactive` |
+| `wise_preflight` | `preflight <workflow> --cwd <project> --context <JSON>`; render returned questions in the main client's native controls |
 | `wise_run` | `run <workflow> --cwd <project> --answers <JSON> --context <JSON>` |
 | `wise_wait` | `wait <run_id> --after <seq> --timeout-ms <milliseconds>` |
 | `wise_answer` | `answer <run_id> <gate_id> <value>` |

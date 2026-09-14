@@ -697,10 +697,11 @@ accepted booleans back to the engine's string array. This works in clients that
 do not render MCP array-enum fields.
 An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
-turn may dismiss the pending form. If no persistent picker is available, use
-`wise-engine preflight <workflow> --interactive` in a terminal owned by the main
-harness; the terminal TUI returns the
-collected answers without starting a run. Raw preflight questions are never
+turn may dismiss the pending form. At every skill start, identify the main/child
+role, current client and GUI/TUI question tools. If no permitted control is
+available, report INTERACTIVE_UI_REQUIRED without opening a terminal. The engine's
+standalone terminal TUI is only for explicitly requested standalone CLI use.
+Children relay questions through Wise to the main harness. Raw preflight questions are never
 rendered as ordinary chat prompts. See the
 [host question lifecycle](../../plugins/wise/references/workflow-host-control.md#keep-asynchronous-questions-open).
 The terminal client also provides an integrated start-and-follow TUI with
