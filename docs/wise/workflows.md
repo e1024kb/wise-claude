@@ -677,6 +677,19 @@ The conductor uses its native structured picker when available, or requests
 `interactive: true` so the MCP server renders one question at a time through the
 host's form UI. Every fresh preflight starts
 by asking whether changes belong in the current checkout or a separate worktree.
+
+Codex 0.154.0 exposes its native Default-mode question tool behind the
+`default_mode_request_user_input` feature, which may be disabled. A CLI session
+started with `codex --enable default_mode_request_user_input` was verified to
+render a native choice picker. To enable that feature for clients using the same
+Codex configuration, add `default_mode_request_user_input = true` under the
+existing `[features]` table in `~/.codex/config.toml`, then fully restart the
+client. This is an under-development Codex feature. Desktop rendering must still
+be tested independently; CLI success does not establish Desktop support. Wise
+5.2.1 already prefers the native tool when it is exposed, so this configuration
+test requires no plugin reinstall. A working MCP status call does not prove that
+either native questions or MCP forms are available in the current mode.
+
 The conductor in the main harness owns every prompt; child harnesses and agents
 can only request that it ask on their behalf.
 A host without MCP form support may use its native structured picker against the raw
