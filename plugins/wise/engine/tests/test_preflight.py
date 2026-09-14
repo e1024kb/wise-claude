@@ -18,6 +18,7 @@ INPUTS = [
     "input.gap_mode",
     "input.review_mode",
     "input.branch_mode",
+    "input.base_branch",
     "input.implement_mode",
 ]
 MODES = {"input.review_mode": "ask", "input.implement_mode": "now"}
@@ -536,7 +537,7 @@ def test_complete_answers_and_selection():
     defn = extended()
     ctx = {"harnesses": ["claude", "codex"]}
     done = p.complete_answers(defn, ctx, {})
-    assert done["missing"] == ["input.ticket_id"]
+    assert done["missing"] == ["input.ticket_id", "input.base_branch"]
     assert done["answers"]["step-select"] == OPTIONAL
     assert "effort.build-plan" in [q["id"] for q in done["questions"]]
     assert "model.implement" not in [q["id"] for q in done["questions"]]
@@ -739,3 +740,48 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(
         assert no_origin.returncode == 1 and "no 'origin'" in no_origin.stderr
     else:
         assert "uncommitted or untracked changes" in result.stderr
+
+
+def test_branch_input_is_a_choice_from_the_checkout_and_text_without_one():
+    defn = definition()
+    ready = {"harnesses": ["claude"]}
+    plain = next(
+        q for q in p.build_questionary(defn, ready)["questions"] if q["id"] == "input.base_branch"
+    )
+    assert plain["kind"] == "text" and "default" not in plain
+    branches = {
+        "current": "release-26-9-0",
+        "default": "release-26-9-0",
+        "options": [
+            {"value": "release-26-9-0", "label": "release-26-9-0", "description": "checked out"},
+            {"value": "main", "label": "main", "description": "default"},
+        ],
+    }
+    stage = p.build_questionary(defn, {**ready, "branches": branches})
+    question = next(q for q in stage["questions"] if q["id"] == "input.base_branch")
+    assert question["kind"] == "choice" and question["allow_text"] is True
+    assert [o["value"] for o in question["options"]] == ["release-26-9-0", "main"]
+    assert question["default"] == "release-26-9-0"
+    assert stage["defaults"]["input.base_branch"] == "release-26-9-0"
+    answered = p.build_questionary(
+        defn, {**ready, "branches": branches}, {"input.base_branch": "x"}
+    )
+    assert "input.base_branch" not in ids(answered)
+
+
+def test_branch_choice_accepts_free_text_in_forms_and_answers():
+    question = {
+        "id": "input.base_branch",
+        "kind": "choice",
+        "label": "Base?",
+        "options": [{"value": "main", "label": "main"}],
+        "allow_text": True,
+        "default": "main",
+    }
+    schema = question_form_schema(question)["properties"]["input.base_branch"]
+    assert "oneOf" not in schema and schema["examples"] == ["main"] and schema["minLength"] == 1
+    assert _accepted_answer(question, {"input.base_branch": "main"}) == "main"
+    assert _accepted_answer(question, {"input.base_branch": "release-26-9-0"}) == "release-26-9-0"
+    assert _accepted_answer(question, {"input.base_branch": "  "}) is None
+    strict = {**question, "allow_text": False}
+    assert _accepted_answer(strict, {"input.base_branch": "release-26-9-0"}) is None

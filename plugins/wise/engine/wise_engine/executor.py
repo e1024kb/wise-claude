@@ -333,6 +333,14 @@ class Executor:
         task.add_done_callback(done)
         return task
 
+    def branches(self, cwd: str) -> Json | None:
+        from .branches import branch_choices
+
+        if "branches" in self.opts:
+            chooser = self.opts["branches"]
+            return chooser(cwd) if callable(chooser) else chooser
+        return branch_choices(cwd, self.env)
+
     def get_adapter(self, harness: str) -> Any:
         from .adapters import adapter_for, has_adapter
 
@@ -1604,7 +1612,7 @@ class Executor:
 
         rec = as_record(params, "preflight")
         workflow = require_string(rec, "workflow", "preflight")
-        require_string(rec, "cwd", "preflight")
+        cwd = require_string(rec, "cwd", "preflight")
         answers = dict(optional_record(rec, "answers", "preflight"))
         context = optional_record(rec, "context", "preflight")
         self.assert_permissions(answers)
@@ -1613,7 +1621,7 @@ class Executor:
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         questionary = await build_questionary_with_auth(
             definition,
-            {"harnesses": harnesses, "context": context},
+            {"harnesses": harnesses, "context": context, "branches": self.branches(cwd)},
             answers,
             self.get_adapter,
         )
@@ -1641,7 +1649,10 @@ class Executor:
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         seeded = {**given, **{f"input.{key}": value for key, value in explicit.items()}}
         ctx = await with_discovered_models(
-            definition, {"harnesses": harnesses, "context": context}, seeded, self.get_adapter
+            definition,
+            {"harnesses": harnesses, "context": context, "branches": self.branches(cwd)},
+            seeded,
+            self.get_adapter,
         )
         completed = complete_answers(definition, ctx, seeded)
         answers = completed["answers"]

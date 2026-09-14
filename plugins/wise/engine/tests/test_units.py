@@ -57,6 +57,9 @@ def test_config_caps_reviewer_default_and_context():
     assert result["timeout"] == 5 and result["mcp"] == "engine-only"
     del step["reviewers"]
     assert config_for(step, state)["reviewers"] == ["copilot-pull-request-reviewer"]
+    assert config_for(step, state)["base"] == ""
+    state["inputs"] = {"base_branch": " release-26-9-0 "}
+    assert config_for(step, state)["base"] == "release-26-9-0"
 
 
 def test_deduplicated_ticket_spellings_and_done_resume(tmp_path):

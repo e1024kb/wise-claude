@@ -252,7 +252,21 @@ inputs:
     from-context: ticket[].ref       # pre-fill from the run context
     extract: "([A-Z]+-\\d+)"         # first capture group (else whole match) becomes the value
     validate: "^(defaults|ask)$"     # full match after extract
+  - name: base_branch
+    prompt: "Base branch?"
+    options-from: branches           # choice list computed from the checkout; free text allowed
 ```
+
+`options-from: branches` renders the question as a choice whose options
+the engine reads from the checkout it pre-flights in (`engine/wise_engine/branches.py`):
+the checked-out branch first when it is `main` / `master` / `release*`,
+then the repository default branch, then the five most recent `release*`
+branches (local and `origin/`), deduplicated. The default is the first
+option. The question carries `allow_text: true`, so the MCP form, the TUI and
+the conductor accept any other branch name as free text. Outside
+a git checkout the question falls back to plain text. The `units`
+pipelines read the `base_branch` input as the base every ticket branch
+is cut from and every PR targets.
 
 `from-context` grammar: `guidance` \| `ticket[].ref` \| `ticket[].title`
 \| `ticket[].body` \| `ticket[].url` \| `links[]` \| `decisions.<key>`.
@@ -658,7 +672,7 @@ empty. An answered question is never repeated.
 |---|---|---|---|
 | `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
-| `input.<name>` | `choice` for strict literal enums without extraction; otherwise `text` | enum values, plus `Leave unset` for optional enums; none for text | context value, else `default`, else empty when optional |
+| `input.<name>` | `choice` for strict literal enums without extraction and for `options-from: branches` (free text allowed); otherwise `text` | enum values, plus `Leave unset` for optional enums; the checkout's base-branch candidates for `options-from: branches`; none for text | context value, else `default`, else empty when optional; the checked-out base branch else the default branch for `options-from: branches` |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
 | `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, sorted by id, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |

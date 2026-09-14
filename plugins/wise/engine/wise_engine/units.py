@@ -89,6 +89,7 @@ def config_for(step: Json, state: Json) -> Json:
     config = {
         "pipeline": step["pipeline"],
         "worktree_mode": state.get("inputs", {}).get("worktree_mode", "new"),
+        "base": str(state.get("inputs", {}).get("base_branch", "") or "").strip(),
         "reviewers": step.get("reviewers", DEFAULT_REVIEWERS),
         "tickets": state["context"].get("ticket", []),
         "caps": {

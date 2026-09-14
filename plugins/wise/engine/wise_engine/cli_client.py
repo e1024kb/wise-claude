@@ -408,6 +408,8 @@ async def read_question(question: Json, stdin: LineSource, io: Any) -> Any:
             value = option_value(question, raw)
             if value is not None:
                 return value
+            if raw and question.get("allow_text") is True:
+                return raw
             io.err(f"Choose 1-{len(options)}, an option label, or an option value.\n")
         else:
             if raw.lower() == "none":

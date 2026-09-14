@@ -259,7 +259,13 @@ async def cmd_preflight(parsed: Json, io: Io) -> int:
             answers = decoded
         else:
             context = decoded
-    ctx: Json = {"harnesses": installed_harnesses(definition, adapter_lookup, io.env)}
+    from .branches import branch_choices
+
+    cwd = flag_string(parsed["flags"], "cwd") or os.getcwd()
+    ctx: Json = {
+        "harnesses": installed_harnesses(definition, adapter_lookup, io.env),
+        "branches": branch_choices(cwd, io.env),
+    }
     if context is not None:
         ctx["context"] = context
     questionary = await build_questionary_with_auth(definition, ctx, answers, adapter_lookup)

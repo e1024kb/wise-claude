@@ -561,6 +561,14 @@ async def test_question_parsing_optional_multiselect_defaults_and_invalids():
         )
         == "a"
     )
+    assert (
+        await cli.read_question(
+            {"id": "x", "kind": "choice", "label": "Pick", "options": options, "allow_text": True},
+            cli.LineSource(io.StringIO("release-1\n")),
+            terminal,
+        )
+        == "release-1"
+    )
 
 
 async def test_line_source_pipe_is_lazy_and_cancellable():

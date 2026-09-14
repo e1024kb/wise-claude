@@ -77,7 +77,7 @@ Inside `process`, per ticket and in this order:
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
 | `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a foreign worktree or branch is skipped. |
-| `worktree` | code | - | Selected current tree or `<run-dir>/worktrees/<branch>` on branch `<ticket-ref>` off the fetched base. |
+| `worktree` | code | - | Selected current tree or `<run-dir>/worktrees/<branch>` on branch `<ticket-ref>` off the fetched `base_branch`. |
 | `plan` | model | `plan` | Reads the ticket (context body first, else the tracker), audits the worktree, writes `<run-dir>/plans/PLAN-<ref>.md`. `no-access` or `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `implement` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
@@ -95,6 +95,7 @@ Inside `process`, per ticket and in this order:
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 | `worktree` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. This shared question is asked first and stored as `worktree_mode`. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
+| `input.base_branch` | choice (free text allowed) | the checked-out base branch, else the default branch | The branch every ticket branch starts from and every PR targets: the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
 Unit caps (`profiles.medium.caps`; only `medium` is applied):
@@ -119,6 +120,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 |---|---|---|
 | `worktree_mode` | yes | `new` (default) creates a worktree per ticket; `current` uses the current tree, runs tickets sequentially, and refuses to switch with uncommitted or untracked changes. Cleanup never removes the current tree or its branches. |
 | `tickets` | yes | Comma-separated ticket URLs or ids. Pre-filled from the run context when the conductor already knows them. A URL is normalised to its key by the engine (`branch-naming.md`). |
+| `base_branch` | yes | The branch ticket branches are cut from and PRs target (`origin/<base_branch>`). Options come from the checkout (`options-from: branches`); free text accepted. Defaults to the checked-out base branch, else the default branch. Replaces the earlier default-branch lookup. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
 ## Outputs
@@ -136,11 +138,11 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 /wise-workflow-run ticket-auto
 # Pre-flight asks harness, provider permissions, model and effort per group, working tree, and tickets.
 
-/wise-workflow-run ticket-auto new PROJ-1,PROJ-2
-# Two tickets, no spaces. Sequential units, one PR each.
+/wise-workflow-run ticket-auto new main PROJ-1,PROJ-2
+# Two tickets, no spaces. Sequential units, one PR each, all against main.
 
-/wise-workflow-run ticket-auto current PROJ-1 prefer the design-system lib; never touch infra/*
-# Working tree and tickets are the first two inputs; the remaining text is guidance.
+/wise-workflow-run ticket-auto current release-26-9-0 PROJ-1 prefer the design-system lib; never touch infra/*
+# Working tree, base branch and tickets are the first three inputs; the remaining text is guidance.
 ```
 
 ## Related

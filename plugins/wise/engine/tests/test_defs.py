@@ -5268,6 +5268,8 @@ def test_input_listing():
         },
     ]
     assert list_inputs({"inputs": inputs}) == [{"name": "a", "prompt": "Value for a?"}, inputs[1]]
+    sourced = [{"name": "base", "prompt": "Base?", "options-from": "branches"}]
+    assert list_inputs({"inputs": sourced}) == sourced
     assert list_inputs({}) == []
     assert list_inputs({"inputs": [{"name": "a", "prompt": ""}]}) == [{"name": "a", "prompt": ""}]
     for path in ("guidance", "ticket[].ref", "ticket[].url", "links[]", "decisions.db-choice"):

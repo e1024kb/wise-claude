@@ -840,6 +840,7 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 "validate",
                 "extract",
                 "options",
+                "options-from",
             ),
         )
         name = entry.get("name", MISSING)
@@ -902,6 +903,15 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 pattern = _regex_field(iss, entry[key], f"{p}.{key}")
                 if pattern is not None:
                     item[key] = pattern
+        if "options-from" in entry:
+            source = entry["options-from"]
+            if source in OPTIONS_SOURCES:
+                item["options-from"] = source
+            else:
+                iss.error(
+                    f"{p}.options-from",
+                    f"options-from {js_json(source)} must be one of {' | '.join(OPTIONS_SOURCES)}",
+                )
         out.append(item)
     return out
 
@@ -1649,6 +1659,9 @@ def probe_requires(
     checker = has_tool if has_tool is not None else options.get("has_tool", on_path)
     missing.extend(f"tool:{tool}" for tool in req.get("tools", []) if not checker(tool))
     return {"ok": len(missing) == 0, "missing": missing}
+
+
+OPTIONS_SOURCES = ("branches",)
 
 
 def list_inputs(definition: Mapping[str, Any]) -> list[dict[str, Any]]:

@@ -447,6 +447,20 @@ def _worktree_question(definition: Json) -> Json:
     )
 
 
+def _branch_input_question(item: Json, branches: Json | None) -> Json:
+    q: Json = dict(id=f"input.{item['name']}", kind="text", label=item["prompt"])
+    if item.get("optional"):
+        q["optional"] = True
+    if branches and branches.get("options"):
+        q.update(kind="choice", options=list(branches["options"]), allow_text=True)
+        q["default"] = branches["default"]
+    elif item.get("default") is not None:
+        q["default"] = item["default"]
+    elif item.get("optional"):
+        q["default"] = ""
+    return q
+
+
 def build_questionary(
     definition: Json, ctx: Json | None = None, answers: Json | None = None
 ) -> Json:
@@ -472,6 +486,9 @@ def build_questionary(
         push(_step_select_question(definition, optional))
     for item in list_inputs(definition):
         if item["name"] == "worktree_mode":
+            continue
+        if item.get("options-from") == "branches":
+            push(_branch_input_question(item, ctx.get("branches")))
             continue
         options = None if item.get("extract") else _input_options(item.get("validate"))
         q = dict(
