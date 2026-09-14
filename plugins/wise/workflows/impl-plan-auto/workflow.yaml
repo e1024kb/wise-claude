@@ -67,6 +67,9 @@ profiles:
 # `guidance` is the operator's standing instruction for the whole run;
 # the engine hands it to every model phase as binding configuration.
 inputs:
+  - name: base_branch
+    prompt: "Base branch for the plan branches and their PRs? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
+    options-from: branches
   - name: plans
     prompt: "Which plan file(s)? Comma-separated PLAN-*.md paths (docs/plans/PLAN-api-caching.md, docs/plans/PLAN-auth-debt.md). Relative paths resolve against the repo root. No spaces when passed positionally."
   - name: guidance

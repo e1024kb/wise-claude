@@ -63,7 +63,7 @@ name without `PLAN-` and `.md`, sanitised):
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
 | `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a foreign worktree or branch is skipped. |
-| `worktree` | code | - | `<run-dir>/worktrees/<branch>` on the plan branch off the fetched base. |
+| `worktree` | code | - | `<run-dir>/worktrees/<branch>` on the plan branch off the fetched `base_branch`. |
 | `plan` | model | `plan` | Reads the seed, checks drift against its `SOURCE_SHA`, re-audits the scope at HEAD, writes the refreshed plan to `<run-dir>/plans/PLAN-<ref>.md`. `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `implement` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
@@ -79,6 +79,7 @@ name without `PLAN-` and `.md`, sanitised):
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `input.base_branch` | choice (free text allowed) | the checked-out base branch, else the default branch | The branch every plan branch starts from and every PR targets: the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches. |
 | `input.plans` | text | - | Comma-separated `PLAN-*.md` paths; relative paths resolve against the repo root. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
@@ -101,6 +102,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 | Name | Required | Description |
 |---|---|---|
+| `base_branch` | yes | The branch plan branches are cut from and PRs target (`origin/<base_branch>`). Options come from the checkout (`options-from: branches`); free text accepted. Defaults to the checked-out base branch, else the default branch. |
 | `plans` | yes | Comma-separated `PLAN-*.md` paths, relative to the repo root or absolute. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
@@ -116,13 +118,13 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 ```
 /wise-workflow-run impl-plan-auto
-# Pre-flight asks harness, provider permissions, model and effort per group, and the plan files.
+# Pre-flight asks harness, provider permissions, model and effort per group, the base branch and the plan files.
 
-/wise-workflow-run impl-plan-auto docs/plans/PLAN-api-caching.md,docs/plans/PLAN-auth-debt.md
-# Two plans, no spaces. Sequential units, one PR each.
+/wise-workflow-run impl-plan-auto main docs/plans/PLAN-api-caching.md,docs/plans/PLAN-auth-debt.md
+# Base branch, then two plans, no spaces. Sequential units, one PR each, all against main.
 
-/wise-workflow-run impl-plan-auto docs/plans/PLAN-api-caching.md keep the public API unchanged
-# Everything after the first token is the guidance input.
+/wise-workflow-run impl-plan-auto release-26-9-0 docs/plans/PLAN-api-caching.md keep the public API unchanged
+# Everything after the second token is the guidance input.
 ```
 
 ## Related
