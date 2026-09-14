@@ -616,6 +616,121 @@ class Held:
             done.set_result(schema_answer(req))
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex", "cursor", "gemini", "grok"])
+def test_dispatch_relay_questions_and_result(tmp_path, harness):
+    async def scenario():
+        held = Held()
+        rig = Rig(tmp_path, start_agent=held.start)
+        try:
+            run = rig.executor.dispatch_start(
+                dict(
+                    harness=harness,
+                    prompt="literal {{inputs.keep}}",
+                    cwd=rig.cwd,
+                    mode="auto",
+                    **{"add-dir": str(tmp_path / "extra")},
+                )
+            )
+            run_id = run["run_id"]
+            await rig.until(lambda: bool(held.calls))
+            req = held.calls[0][0]
+            assert req["prompt"] == "literal {{inputs.keep}}"
+            assert str(tmp_path / "extra") in req["add_dirs"]
+            assert (
+                req["mcp_config"]["mcpServers"]["wise-engine"]["env"]["WISE_STEP_TOKEN"]
+                == req["step_token"]
+            )
+            for options, value in [(["Allow", "Decline"], "Decline"), (None, "custom decision")]:
+                question = dict(
+                    token=req["step_token"], question="Main harness decision?", timeout_ms=0
+                )
+                if options is not None:
+                    question["options"] = options
+                pending = await rig.executor.child_ask(question)
+                assert pending["status"] != "answered"
+                assert not held.calls[0][1].done()
+                gate = rig.state(run_id)["gate"]
+                assert rig.executor.answer(
+                    dict(run_id=run_id, gate_id=gate["gate_id"], value=value)
+                )["accepted"]
+                answered = await rig.executor.child_ask({**question, "ask_id": pending["ask_id"]})
+                assert answered["value"] == value
+            held.finish()
+            await rig.status(run_id, "completed")
+            status = await rig.executor.status(dict(run_id=run_id))
+            assert status["dispatch_result"]["exit"] == "ok"
+            assert len(held.calls) == 1
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("exit_code", ["rate_limited", "auth", "timeout", "error"])
+def test_dispatch_relay_preserves_failed_result_without_retry(tmp_path, exit_code):
+    async def scenario():
+        rig = Rig(tmp_path)
+        rig.adapter.script = lambda req, count: {
+            **schema_answer(req),
+            "exit": exit_code,
+            "error": "provider failure",
+            "text": "partial output",
+        }
+        try:
+            run_id = rig.executor.dispatch_start(dict(harness="claude", prompt="run", cwd=rig.cwd))[
+                "run_id"
+            ]
+            await rig.status(run_id, "failed")
+            status = await rig.executor.status(dict(run_id=run_id))
+            assert status["dispatch_result"]["text"] == "partial output"
+            assert status["dispatch_result"]["exit"] == exit_code
+            assert len(rig.adapter.calls) == 1
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_relay_refuses_missing_channel_and_invalid_flags(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path, channel={"inject": False})
+        try:
+            with pytest.raises(RpcError):
+                rig.executor.dispatch_start(
+                    dict(harness="not-a-harness", prompt="run", cwd=rig.cwd)
+                )
+            with pytest.raises(RpcError) as failure:
+                rig.executor.dispatch_start(dict(harness="claude", prompt="run", cwd=rig.cwd))
+            assert domain_code(failure.value) == "INTERACTION_RELAY_UNAVAILABLE"
+            assert not rig.executor.lives and not rig.adapter.calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_relay_cancel_stops_waiting_child(tmp_path):
+    async def scenario():
+        held = Held()
+        rig = Rig(tmp_path, start_agent=held.start)
+        try:
+            run_id = rig.executor.dispatch_start(dict(harness="claude", prompt="ask", cwd=rig.cwd))[
+                "run_id"
+            ]
+            await rig.until(lambda: bool(held.calls))
+            await rig.executor.child_ask(
+                dict(token=held.calls[0][0]["step_token"], question="Continue?", timeout_ms=0)
+            )
+            rig.executor.cancel(dict(run_id=run_id))
+            assert rig.state(run_id)["status"] == "cancelled"
+            assert held.kills
+            assert not rig.state(run_id).get("gate")
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 def test_child_channel_ask_report_context_checkpoint_and_token_end(tmp_path):
     async def scenario():
         held = Held()

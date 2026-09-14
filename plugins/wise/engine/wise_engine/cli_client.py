@@ -22,6 +22,7 @@ from .scheduler import JS_WHITESPACE, UNDEFINED, js_string
 
 Json = dict[str, Any]
 CLIENT_COMMANDS = (
+    "dispatch",
     "preflight",
     "run",
     "status",
@@ -35,6 +36,8 @@ CLIENT_COMMANDS = (
 CLIENT_USAGE = """wise-engine <command> [options]
 
 Commands:
+  dispatch --relay --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]
+                              start a child with main-harness question relay; returns run_id
   preflight <workflow> [--cwd <dir>] [--answers <json>] --interactive
                               collect every staged answer in the terminal TUI without starting a run
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input name=value ...]
@@ -54,7 +57,7 @@ Commands:
 Options: --json (default) | --text   --data-root <dir>   --socket <path>   --no-start
 Exit codes: 0 ok, 1 error or run failed/cancelled, 2 not found, 64 usage, 69 daemon unavailable
 """
-BOOLEAN_FLAGS = frozenset(("text", "json", "interactive", "follow", "no-start"))
+BOOLEAN_FLAGS = frozenset(("text", "json", "interactive", "follow", "no-start", "relay"))
 
 
 def parse_args(argv: list[str]) -> Json:
@@ -658,6 +661,23 @@ async def cmd_preflight(parsed: Json, io: Any, out: Out) -> int:
         client.close()
 
 
+async def cmd_dispatch(parsed: Json, io: Any, out: Out) -> int:
+    if not bool_flag(parsed, "relay"):
+        raise UsageError("dispatch: the daemon route requires --relay")
+    flags = {key: values[-1] for key, values in parsed["flags"].items()}
+    flags.setdefault("cwd", os.getcwd())
+    for key in ("cwd", "prompt-file", "add-dir"):
+        if isinstance(flags.get(key), str):
+            flags[key] = os.path.abspath(flags[key])
+    client = await open_client(parsed, io)
+    try:
+        started = await client.call("dispatch_start", flags)
+        out.emit(started, lambda: f"dispatch {started['run_id']} started; follow with wait")
+        return 0
+    finally:
+        client.close()
+
+
 async def cmd_wait(parsed: Json, io: Any, out: Out) -> int:
     run_id = require_arg(parsed, 0, "run_id")
     after = int_flag(parsed, "after")
@@ -771,6 +791,8 @@ async def client_command(argv: list[str], io: Any) -> int:
         io.out(CLIENT_USAGE)
         return 0
     try:
+        if parsed["cmd"] == "dispatch":
+            return await cmd_dispatch(parsed, io, out)
         if parsed["cmd"] == "preflight":
             return await cmd_preflight(parsed, io, out)
         if parsed["cmd"] == "run":

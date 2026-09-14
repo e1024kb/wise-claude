@@ -90,7 +90,6 @@ below.
 | `/wise-skills-create <skill-name>` | Scaffold a new action or reference skill via Claude Code's `skill-creator`. Marketplace-repo only. |
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |
-| `/wise-questionnaire-test [<workflow-name>]` | Test preflight without starting a workflow. Distinguishes native GUI/TUI success, text-fallback success, cancellation and failure. Defaults to the bundled code-review questionnaire. |
 | `/wise-workflow-create <prompt>` | Infer steps from a prompt, select harness/model/effort per step, then validate and save. |
 | `/wise-workflow-run [<workflow-name>]` | Start a workflow run on the wise engine. The main conversation is the conductor: pre-flight questions, run context, one line per event, gates. |
 | `/wise-workflow-resume [<run-ulid>]` | Resume a paused or failed engine run, or answer a gated one, then follow it. |

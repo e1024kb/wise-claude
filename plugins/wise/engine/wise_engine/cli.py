@@ -45,6 +45,8 @@ Commands:
                                one child run on any harness, no daemon or ledger; prints one
                                JSON result (or the child's text under --text); exit 1 on a
                                failed child
+           --relay             daemon-managed child; returns run_id immediately. Main harness
+                               uses wait/answer/cancel and status.dispatch_result, never stdin UI
   setup-host --host <host> --plugin-root <path> [--apply]  preview or repair registration
   refresh-host --host <host> --plugin-root <path>  refresh an existing registration
   host-doctor --host <host>    inspect launch registration (does not prove host connectivity)
@@ -217,6 +219,7 @@ def adapter_lookup(harness: str) -> Any:
 
 async def cmd_preflight(parsed: Json, io: Io) -> int:
     from .auth import installed_harnesses
+    from .defs import probe_requires
     from .preflight import build_questionary_with_auth
 
     if not parsed["positional"]:
@@ -267,6 +270,7 @@ async def cmd_preflight(parsed: Json, io: Io) -> int:
         "version": definition["version"],
         "questions": questionary["questions"],
         "defaults": questionary["defaults"],
+        "requires_missing": probe_requires(definition)["missing"],
         "warnings": [issue for issue in issues if issue["level"] == "warning"],
     }
 
@@ -340,16 +344,21 @@ async def main(argv: Sequence[str], io: Io | None = None) -> int:
                 if command == "mcp"
                 else unit_mcp_command(list(argv[1:]), io)
             )
-        if command in (
-            "run",
-            "status",
-            "answer",
-            "cancel",
-            "resume",
-            "report",
-            "wait",
-            "nudge",
-        ) or (command == "preflight" and parsed["flags"].get("interactive") is True):
+        if (
+            command
+            in (
+                "run",
+                "status",
+                "answer",
+                "cancel",
+                "resume",
+                "report",
+                "wait",
+                "nudge",
+            )
+            or (command == "preflight" and parsed["flags"].get("interactive") is True)
+            or (command == "dispatch" and parsed["flags"].get("relay") is True)
+        ):
             from .cli_client import client_command
 
             return await client_command(list(argv), io)

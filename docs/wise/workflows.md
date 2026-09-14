@@ -629,7 +629,8 @@ Children in flight are capped globally and per harness: global 4,
 ## Pre-flight questionary
 
 `wise_preflight {workflow, cwd, answers?, context?, interactive?}` returns
-`{workflow, version, questions, defaults, requires_missing}`. With
+`{workflow, version, questions, defaults, requires_missing}`. Noninteractive
+CLI preflight returns the same fields and uses the same dependency probe.
 UI mode is the default. With `interactive: true`, the MCP server presents every question through the
 host's form elicitation UI and returns `questions: []` plus `answers`.
 Without it, question ids double as answer keys and the raw questionary
@@ -1038,7 +1039,7 @@ Python runtime. Standalone session/profile/history/supervision commands use
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
 | `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
-| `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text]` | One child run on any harness through the adapters, no daemon or ledger: prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`); exit 1 on a failed child. An effort the model does not list is a usage error, never a silent clamp. How a skill runs its procedure on another harness (`--on`). |
+| `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text] [--relay]` | `--relay` is mandatory for skill `--on` dispatch: returns a daemon run ID immediately and gives the child the normal Wise question channel. The main harness follows `wait`, collects gate answers through native UI or permitted text fallback, and uses `answer` or `cancel`. On completion, `status.dispatch_result` contains the provider result. No automatic provider retry or fallback. Without `--relay`, the legacy noninteractive command prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`) without a daemon or question channel. Unsupported effort is a usage error. |
 | `version`, `help` | |
 
 Options: `--json` (default) \| `--text`, `--user-root <dir>`,

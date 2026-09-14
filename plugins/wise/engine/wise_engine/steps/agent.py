@@ -257,6 +257,8 @@ async def start_agent_step(params: Json) -> StartedAgent:
 
     async def finish() -> Json:
         result = await handle.done
+        if "on_result" in params:
+            params["on_result"](result)
         try:
             write_log(
                 params["run_dir"],

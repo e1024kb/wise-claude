@@ -300,6 +300,7 @@ class Executor:
             name: getattr(self, name)
             for name in (
                 "preflight",
+                "dispatch_start",
                 "run",
                 "answer",
                 "status",
@@ -370,6 +371,16 @@ class Executor:
     def ensure_live(self, directory: str, state: Json) -> LiveRun:
         if state["run_id"] in self.lives:
             return self.lives[state["run_id"]]
+        if "dispatch_definition" in state:
+            live = LiveRun(
+                state["run_id"],
+                directory,
+                state["dispatch_definition"],
+                state["cwd"],
+                "interactive",
+            )
+            self.lives[live.run_id] = live
+            return live
         wf = state["workflow"]
         located = locate_def(wf["name"], self.roots)
         if not located and wf.get("dir"):
@@ -809,7 +820,11 @@ class Executor:
             if resolved:
                 update_step(live.run_dir, step_id, {"resolved": resolved})
             fresh = read_state(live.run_dir)
-            step = render_step(definition, fresh, live.workflow_dir, live.run_dir)
+            step = (
+                dict(definition)
+                if "dispatch_definition" in state
+                else render_step(definition, fresh, live.workflow_dir, live.run_dir)
+            )
             step_cwd = state["cwd"]
             if live.definition["name"] == "ticket-plan" and step_id == "implement":
                 from .phases.common import ticket_branch, ticket_ref
@@ -973,6 +988,11 @@ class Executor:
                 )
                 if self.channel is not None:
                     params["channel"] = self.channel
+                if "dispatch_definition" in state:
+                    params["add_dirs"] = state.get("dispatch_add_dirs", [])
+                    params["on_result"] = lambda result: update_run(
+                        live.run_dir, {"dispatch_result": result}
+                    )
                 if cursor_harness == resolved["harness"] and "cursor" in fresh["steps"][step_id]:
                     params["cursor"] = fresh["steps"][step_id]["cursor"]
                 started = await start_agent_step(params)
@@ -1180,6 +1200,14 @@ class Executor:
         elif outcome["exit"] == "ok":
             self.complete_step(
                 live, step_id, outcome["verdict"], outcome["outputs"], {**patch, "usage": usage}
+            )
+        elif "dispatch_definition" in read_state(live.run_dir):
+            self.fail_step(
+                live,
+                step_id,
+                str(outcome.get("error") or outcome["exit"]),
+                outcome["verdict"],
+                patch,
             )
         elif outcome["exit"] == "rate_limited":
             self.rate_limited(live, step, harness, outcome.get("error", "rate limited"))
@@ -1445,6 +1473,71 @@ class Executor:
                 f"invalid provider permission answer(s): {', '.join(invalid)}",
                 dict(missing=invalid, invalid=invalid),
             )
+
+    def dispatch_start(self, params: Any, ctx: Any = None) -> Json:
+        from .dispatch import DispatchIo, prepare_dispatch
+
+        flags = as_record(params, "dispatch_start")
+        errors: list[str] = []
+        prepared = prepare_dispatch(flags, DispatchIo(lambda text: None, errors.append))
+        if isinstance(prepared, int):
+            raise RpcError(RPC_INVALID_PARAMS, "".join(errors).strip())
+        if self.channel is None:
+            raise domain_error(
+                "INTERACTION_RELAY_UNAVAILABLE", "dispatch requires the child channel"
+            )
+        harness, req, warnings = prepared
+        self.assert_permissions({f"permissions.{harness}": req["mode"]})
+        step = dict(
+            id="dispatch",
+            type="agent",
+            prompt=req["prompt"],
+            harness=harness,
+            model=req["model"],
+            mode=req["mode"],
+            auth=req["auth"],
+            timeout=req["timeout_ms"] / 1000,
+        )
+        for key in ("effort", "allowed_tools"):
+            if key in req:
+                step[key] = req[key]
+        definition = dict(version=2, name="dispatch", steps=[step])
+        run_id = new_ulid()
+        cwd = req["cwd"]
+        run_dir = str(Path(self.rt.paths.runs_root) / cwd_slug(cwd) / run_id)
+        state = init_state(
+            run_dir=run_dir,
+            run_id=run_id,
+            cwd=cwd,
+            step_ids=["dispatch"],
+            workflow=dict(name="dispatch", version=2, dir=cwd),
+        )
+        state.update(dispatch_definition=definition, dispatch_add_dirs=req.get("add_dirs", []))
+        write_state(run_dir, state)
+        start_run(
+            run_dir,
+            dict(
+                resolved={
+                    "dispatch": dict(
+                        harness=harness, model=req["model"], effort=req.get("effort", "")
+                    )
+                },
+                provider_permissions={harness: req["mode"]},
+            ),
+        )
+        live = LiveRun(run_id, run_dir, definition, cwd, "interactive")
+        self.lives[run_id] = live
+        live.emit(dict(type="run.started", verdict=f"dispatch on {harness}"))
+        self.defer(live)
+        return dict(
+            run_id=run_id,
+            status="running",
+            harness=harness,
+            model=req["model"],
+            effort=req.get("effort"),
+            mode=req["mode"],
+            warnings=warnings,
+        )
 
     async def preflight(self, params: Any, ctx: Any = None) -> Json:
         from .auth import installed_harnesses
@@ -1771,6 +1864,10 @@ class Executor:
         if isinstance(result, list):
             return [decorate(row) for row in result]
         directory = self.rt.find_run_dir(result["run_id"])
+        if directory:
+            state = read_state(directory)
+            if "dispatch_result" in state:
+                result["dispatch_result"] = state["dispatch_result"]
         return (
             {**decorate(result), "usage_total": usage_total(read_state(directory)["usage"])}
             if directory

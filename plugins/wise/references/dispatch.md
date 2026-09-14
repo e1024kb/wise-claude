@@ -93,8 +93,10 @@ Execute the following skill procedure end to end, autonomously.
 - Follow every applicable CLAUDE.md and AGENTS.md, regardless of harness;
   the engine supplies their contents as the repository instruction contract.
 - Pass that complete contract recursively to every subagent you create.
-- You are a headless child: never prompt, never wait for a human;
-  where the skill offers an interactive path, take its autonomous one.
+- You are a headless child: never open UI or prompt the user directly.
+  Use autonomous paths for routine choices. When the skill requires user
+  input or consent, call `wise_ask` and wait for the main harness's answer.
+  Pass this relay rule recursively to your own children. Never assume consent.
 - The skill's guardrails apply unchanged (no force-push, no amend,
   no AI attribution, refusal rules).
 
@@ -105,31 +107,40 @@ caller can parse the outcome.
 ## 5. Dispatch
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh dispatch \
+bash ${CLAUDE_PLUGIN_ROOT}/engine/engine.sh dispatch --relay \
   --harness <harness> [--model <id>] [--effort <e>] \
   --mode full-access --cwd <git toplevel> \
   --timeout-s <TIMEOUT_S, default 3600> --prompt-file <the file>
 ```
 
-Long procedures (a PR watch loop) go through the Bash tool in the
-background; relay `started on <harness> <model>[ <effort>]` and poll
-the task result. When the skill documents a heartbeat file (the watch
-loop's `progress.log`), tail it between polls and relay its last line
-— the dispatcher prints nothing until the child exits, and a killed
-child prints nothing at all. `--mode full-access` because the dispatched skills
+`--relay` starts one daemon-managed child and immediately returns its `run_id`.
+Follow that run with `wise_wait`, or the launcher's non-interactive `wait`
+command when MCP is unavailable. Relay progress and handle every returned
+gate in the main harness using the shared native-first question lifecycle.
+Submit only the actual user answer through `wise_answer` or `answer`.
+An unanswered gate remains pending, including across a text-fallback turn.
+Explicit cancellation calls `wise_cancel` or `cancel`; never answer on the
+user's behalf, launch a terminal, or use `--follow` stdin prompting here.
+Without the relay capability, stop before starting a child and report the
+setup error. Do not retry with bare `dispatch`.
+
+`--mode full-access` because the dispatched skills
 edit, commit and push; a read-only caller may pass `--mode auto`
 instead when its skill never writes.
 
 ## 6. Relay
 
-`dispatch` prints one JSON object: `{ok, exit, harness, model, effort,
-verdict, text, usage, error?, warnings}`.
+When `wise_wait` reports `done`, fetch `wise_status {run_id}` (or `status`).
+Its `dispatch_result` contains the original provider result: `exit`, `text`,
+`usage`, and optional `error` / `warnings`. Keep launch warnings too.
+Run status is authoritative: a cancelled or failed run never counts as success,
+even if the provider returned partial successful output during shutdown.
 
-- `ok: true` — print the skill's final line found in `text` (its
+- Completed run and `exit: ok` - print the skill's final line found in `text` (its
   documented `PR-CREATE:` / `COMMIT:` / verdict line), one line
   `on <harness> <model>[ <effort>] — <input+output tokens> tokens`,
   and any warnings.
-- `ok: false` — print `exit` and `error`, plus the tail of `text` when
+- Otherwise - print run status, `exit` and `error` when available, plus the tail of `text` when
   it helps; suggest rerunning locally (no `--on`) or on another
   harness. Never auto-retry on a different harness.
 

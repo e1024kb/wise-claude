@@ -138,7 +138,7 @@ async def fake(monkeypatch):
                         if question.get("locked") or question["id"] not in answers
                     ]
                     return result
-                if method == "run":
+                if method in ("run", "dispatch_start"):
                     return {"run_id": "01RUN", "status": "running"}
                 if method == "wait":
                     return state.waits.pop(0)
@@ -163,7 +163,10 @@ async def fake(monkeypatch):
             data_root=root,
             env={},
             version="test",
-            handlers={method: handler(method) for method in ("preflight", *cli.CLIENT_COMMANDS)},
+            handlers={
+                method: handler(method)
+                for method in ("dispatch_start", "preflight", *cli.CLIENT_COMMANDS)
+            },
         )
 
         async def connector(**options):
@@ -181,6 +184,17 @@ async def fake(monkeypatch):
             yield state
         finally:
             await daemon.close()
+
+
+async def test_dispatch_relay_returns_without_prompting_or_waiting(fake):
+    result = await fake.run(
+        ["dispatch", "--relay", "--harness", "claude", "--prompt", "ask the main harness"]
+    )
+    assert result.code == 0, result.err
+    assert json.loads(result.out)["run_id"] == "01RUN"
+    assert len(fake.method("dispatch_start")) == 1
+    assert not fake.method("wait") and not fake.method("answer") and not fake.method("run")
+    assert not result.err
 
 
 async def test_usage_help_missing_and_bad_arguments(fake):

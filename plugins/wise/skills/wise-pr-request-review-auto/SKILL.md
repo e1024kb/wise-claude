@@ -54,8 +54,10 @@ sanctioned prompt in this skill: it happens at invocation time, so the
 dispatched run itself stays decision-free.
 The reference probes the harness login, validates model and effort
 against the engine catalog, and runs the procedure as a headless child
-via `engine.sh dispatch`; you only relay its result. Without `--on`,
-this section does not apply.
+via `engine.sh dispatch --relay`. Follow its run, handle any required gates
+in the main harness, and relay the final result as specified by the shared
+dispatch reference. This does not add routine prompts to autonomous paths.
+Without `--on`, this section does not apply.
 
 ## Procedure
 

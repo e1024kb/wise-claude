@@ -139,6 +139,22 @@ async def test_parent_dispatch(
     assert daemon.closed == 1
 
 
+async def test_preflight_catalog_explains_main_harness_fallback() -> None:
+    async with Client(parent(FakeDaemon()), mode="legacy") as client:
+        tools = (await client.list_tools()).tools
+        preflight = next(tool for tool in tools if tool.name == "wise_preflight")
+        description = preflight.description
+        assert description is not None
+        assert "main-harness plain-text fallback" in description
+        assert "Explicit user cancellation stops" in description
+        assert "Ordinary chat is not a preflight UI" not in description
+        assert "never for chat rendering" not in description
+        assert (
+            "plain-text fallback"
+            in preflight.input_schema["properties"]["interactive"]["description"]
+        )
+
+
 async def test_nested_unknown_keys_are_stripped_but_records_survive() -> None:
     daemon = FakeDaemon()
     async with Client(parent(daemon), mode="legacy") as client:
