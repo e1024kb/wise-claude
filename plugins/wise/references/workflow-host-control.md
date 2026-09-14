@@ -128,7 +128,7 @@ or restart the host and verify that only the managed Wise server remains.
 
 Prefer a structured picker owned by the main harness when one is available in
 the current client and mode. Otherwise use supported MCP form elicitation. If
-neither route is usable, report INTERACTIVE_UI_REQUIRED. Do not open a terminal
+neither route is usable, use the main-harness text fallback below. Do not open a terminal
 from a GUI or CLI skill. For an explicitly requested standalone CLI test only:
 
 ```bash
@@ -137,8 +137,7 @@ from a GUI or CLI skill. For an explicitly requested standalone CLI test only:
 ```
 
 The command collects every staged answer and returns them without starting the
-run. Ordinary chat is not a preflight UI: never print the raw questionary and ask
-the user to type its choice values. Preserve stage ordering and report pending
+run. Do not dump the raw questionary into chat. Preserve stage ordering and report pending
 questions; never submit UI defaults, synthesize approval, or invent harness/model
 choices. On cancellation, stop collecting answers and preserve the engine's
 resumable state. Provider
@@ -165,8 +164,10 @@ Never open Terminal.app, a system dialog, a new shell, or a tool-owned PTY to
 replace the main client's question UI. The engine's standalone terminal TUI is
 available only for an explicitly requested standalone CLI session, not as an
 automatic fallback from a skill. GUI and TUI sessions follow the same ownership
-and answer rules. If no permitted control exists, report INTERACTIVE_UI_REQUIRED
-with the client, mode, and missing capability, and leave the action pending.
+and answer rules. If no permitted control exists, explain the missing capability
+and use the main-harness text fallback below, including when Codex's
+`default_mode_request_user_input` is disabled. Ordinary workflows never change
+global client settings; offer that optional repair during `wise-init` only.
 Instructions cannot create a question tool the client does not expose.
 
 Children never collect answers themselves, even if they expose GUI/TUI tools.
@@ -182,6 +183,37 @@ selection, preflight, and workflow gates. Read this section alone for non-workfl
 skills; it does not require engine setup. Existing no-prompt rules and prior user
 decisions still apply. Do not add a question merely to use this procedure.
 
+#### Main-harness text fallback
+
+Use this only when no permitted native question tool or rendered MCP form is
+usable for the question. This applies equally to Claude, Codex, Grok, Cursor,
+T3 Code and other clients. The underlying provider name does not prove UI support.
+An MCP decline with confirmed absent rendering is a transport failure, not a
+user cancellation. If visibility is unknown, ask in the main conversation whether
+the user cancelled or wants to continue in text; do not silently retry. A confirmed
+user cancellation always stops the operation, never triggers fallback.
+
+The main harness explains that it is using text fallback and asks one current
+question in readable prose, with all allowed labels and relevant descriptions.
+For choices, accept an unambiguous label or numbered option and map it to the
+declared value. For multi-select, accept an explicit set of labels/numbers, or
+explicit `None`/`Use defaults` only when valid, and produce the original array.
+For text, collect a string and preserve its content. Respect cardinality,
+validation and `allow_text: false`; text is a transport, not permission to add
+out-of-catalog choices. Ask for clarification on an ambiguous or invalid answer.
+Never print raw JSON, assume a default, infer consent from silence, or skip
+worktree, permission, harness, model or effort questions.
+
+End the turn with the text question and resume on the user's reply, retaining
+cumulative answers in the conversation. The keep-turn-open rule below applies
+to active asynchronous GUI prompts, not plain chat. Re-call non-interactive
+preflight with cumulative answers after each valid response. No workflow starts
+until all stages are answered and validated. Gates still use `wise_answer` only
+after an actual answer. Children continue to relay through Wise/the parent and
+never collect text answers themselves. Existing no-prompt policies remain intact.
+
+#### Native controls and answer mapping
+
 Treat `AskUserQuestion` in skill prose as the host's supported question mechanism,
 not a guarantee of a blocking tool. Use only tools available in the current mode.
 Choose the control from the question's meaning and the live tool schema, not from
@@ -191,9 +223,9 @@ when the available tool does not declare it.
 
 | Question | Preferred control | When that control is unavailable |
 |---|---|---|
-| Exactly one known value (`kind: choice`, a mode, model, approval or confirmation) | Single-choice picker with every allowed option | Paginate options; report INTERACTIVE_UI_REQUIRED if no permitted control exists |
+| Exactly one known value (`kind: choice`, a mode, model, approval or confirmation) | Single-choice picker with every allowed option | Paginate options; main-harness text fallback if no permitted control exists |
 | Any allowed subset (`kind: multi`, optional stages or several reviewers) | Native multi-select picker or MCP array-enum form | Use the single-choice sequence below; do not require typed lists |
-| Open-ended content (`kind: text`, a ticket URL, path, explanation or comments) | Native free-text input | Report INTERACTIVE_UI_REQUIRED if no permitted input control exists |
+| Open-ended content (`kind: text`, a ticket URL, path, explanation or comments) | Native free-text input | Main-harness text fallback if no permitted input control exists |
 | Known choices plus an explicitly allowed custom answer (`allow_text`) | Picker with the known options and the host's custom-answer affordance | Keep the known choices clickable and collect custom text only when selected |
 
 Supply choices in the tool's **options field**, not merely in the question title.
@@ -244,7 +276,8 @@ Apply this dispatch order for every question, without provider-specific exceptio
    A gate with options is a choice; `allow_text` adds a custom-answer route, not
    permission to hide its options. Skip already answered or locked questions.
 2. Inspect the tools actually available in this session and mode. Prefer supported
-   native GUI/TUI question tools; otherwise use a rendered MCP form. In a tool with an `options`
+   native GUI/TUI question tools; otherwise use a rendered MCP form, then the
+   main-harness text fallback if neither is usable. In a tool with an `options`
    property, that property must be populated for a choice. A title containing a
    list of alternatives does not satisfy this requirement.
 3. Use native multi-select only if the tool explicitly declares it. For example,
@@ -326,10 +359,10 @@ that question when the user resumes the operation. Keep already supplied answers
 and do not merely report that the vanished question is still awaiting a selection.
 
 If the host cannot keep an asynchronous question alive and offers no blocking
-picker or rendered MCP form, report INTERACTIVE_UI_REQUIRED. Missing native
+picker or rendered MCP form, use the main-harness text fallback. Missing native
 multi-select alone is not a reason to abandon the single-choice sequence.
 Apply this same lifecycle to setup, non-preflight skill questions and workflow
-approval/ask gates. Never replace these questions with chat or a new terminal.
+approval/ask gates. Use chat only through the fallback above, never a new terminal.
 
 Pass this section's instructions to delegated wizards; only the main harness
 renders their questions. A headless

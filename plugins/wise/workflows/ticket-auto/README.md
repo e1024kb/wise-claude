@@ -147,5 +147,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 - `docs/wise/research-ts-engine.md` P4: the `units` contract.
 
 The shared `watch-pipelines-auto.md` prompt used by `/wise-pr-watch-auto` requires
-GUI/TUI consent before each substitute review. Declining or an unavailable picker
-stops that watch without review or merge.
+main-harness consent before each substitute review, preferring GUI/TUI with text
+fallback when native controls and rendered forms are unusable. Children relay
+through Wise/the parent. Declining or an unavailable answer channel stops that
+watch without review or merge.

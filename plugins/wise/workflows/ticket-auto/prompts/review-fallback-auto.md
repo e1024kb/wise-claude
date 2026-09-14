@@ -2,7 +2,7 @@
 
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
-credits / stayed rate-limited / never answered. After explicit GUI/TUI consent,
+credits / stayed rate-limited / never answered. After explicit main-harness consent,
 run **wise's own reviewer panel** (the same discipline
 the `code-review` workflow runs) over the PR's branch diff, commit what
 it finds, push, and let the caller keep driving the PR to green and
@@ -49,10 +49,12 @@ the verdict — it reviews, commits, pushes, and reports.
 
 Run all `git` / `gh` commands with `cd <project.path>` first.
 
-### 0. Mandatory GUI/TUI consent before review
+### 0. Mandatory main-harness consent before review
 
 Before starting any substitute, adversarial, panel, or inline code review, MUST
-present a GUI/TUI picker with populated `options`. Read and follow
+request consent through the main harness, preferring a GUI/TUI picker with
+populated `options` and using text fallback only when no permitted control or
+rendered MCP form is usable. Read and follow
 `${CLAUDE_PLUGIN_ROOT}/references/workflow-host-control.md` for picker dispatch
 and asynchronous question handling. Show the PR URL, current head SHA, stuck
 bots and reasons, and explain that the pass may apply fixes, commit, and push.
@@ -63,12 +65,13 @@ watch/merge authorization, `--on`, and an earlier review's approval are not cons
 
 Decline or cancellation: emit
 `REVIEW-FALLBACK: failed reason=review-consent-declined for=<stuck_bots>`
-and stop. No permitted GUI/TUI
-picker (including a headless child unable to relay through the conductor): emit
+and stop. No permitted answer channel (including a headless child unable to
+relay through the conductor): emit
 `REVIEW-FALLBACK: failed reason=review-consent-unavailable for=<stuck_bots>` and
-stop. Never substitute a chat-only question, assumed answer, or inline review.
+stop. Never substitute an assumed answer or inline review for consent.
 A child may relay via a supported blocking question channel only if its conductor
-presents these options through GUI/TUI and returns the actual user selection.
+presents these options through its native UI or shared text fallback and returns
+the actual user selection. The child never asks the user directly.
 
 Approval covers one invocation for the displayed head only. Recheck the PR is
 open and the head is unchanged before §1. If it changed or the PR closed, emit

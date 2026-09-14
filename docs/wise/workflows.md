@@ -675,7 +675,9 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 
 The conductor uses its native structured picker when available, or requests
 `interactive: true` so the MCP server renders one question at a time through the
-host's form UI. Every fresh preflight starts
+host's form UI. If neither route is usable, the main harness collects explicit
+answers in readable chat and submits cumulative answers with `interactive: false`.
+Every fresh preflight starts
 by asking whether changes belong in the current checkout or a separate worktree.
 
 Codex 0.154.0 exposes its native Default-mode question tool behind the
@@ -684,10 +686,14 @@ started with `codex --enable default_mode_request_user_input` was verified to
 render a native choice picker. To enable that feature for clients using the same
 Codex configuration, add `default_mode_request_user_input = true` under the
 existing `[features]` table in `~/.codex/config.toml`, then fully restart the
-client. This is an under-development Codex feature. Desktop rendering must still
-be tested independently; CLI success does not establish Desktop support. Wise
-5.2.1 already prefers the native tool when it is exposed, so this configuration
-test requires no plugin reinstall. A working MCP status call does not prove that
+client. During `/wise-init`, Wise checks support and offers to run
+`codex features enable default_mode_request_user_input` after explicit consent
+to the global experimental-setting change. It honors the active configuration
+location and preserves recorded skips. Ordinary workflow starts do not change
+this setting. Init reports restart required, not verified UI readiness.
+Desktop rendering must be tested independently; CLI success does not establish
+Desktop support. Other clients, including T3 Code, use their own exposed question
+tools rather than inheriting this Codex-specific setup. A working MCP status call does not prove that
 either native questions or MCP forms are available in the current mode.
 
 The conductor in the main harness owns every prompt; child harnesses and agents
@@ -700,7 +706,7 @@ field, not just its question text. Permission-mode choices follow the same rule:
 use a structured tool whose own instructions permit approval questions. A
 restriction on one question tool does not disable another permitted picker.
 Host execution approvals remain separate and must still be respected.
-Free text is reserved for open-ended content
+With native controls, free text is reserved for open-ended content
 or an explicitly allowed custom answer. Strict literal input enums such as
 `^(auto|ask)$` without extraction become choice questions; general validation
 patterns and extracted inputs stay text. Optional enums retain a clickable
@@ -712,10 +718,15 @@ An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
 turn may dismiss the pending form. At every skill start, identify the main/child
 role, current client and GUI/TUI question tools. If no permitted control is
-available, report INTERACTIVE_UI_REQUIRED without opening a terminal. The engine's
+available, use main-harness text fallback without opening a terminal. The engine's
 standalone terminal TUI is only for explicitly requested standalone CLI use.
-Children relay questions through Wise to the main harness. Raw preflight questions are never
-rendered as ordinary chat prompts. See the
+Children relay questions through Wise to the main harness, including when it
+uses text fallback. Chat questions retain all declared choices and constraints,
+never dump raw JSON or auto-submit defaults, and pause until the user responds.
+Confirmed cancellation stops collection; an MCP decline alone does not prove
+the form was rendered. The questionnaire test reports `PASS_NATIVE`,
+`PASS_TEXT_FALLBACK`, `CANCELLED`, or `FAIL`; fallback success does not verify
+native UI. See the
 [host question lifecycle](../../plugins/wise/references/workflow-host-control.md#keep-asynchronous-questions-open).
 The terminal client also provides an integrated start-and-follow TUI with
 `run --interactive`. Locked
@@ -1053,10 +1064,11 @@ codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
 settings, steps and dependencies. For example,
 `/wise-workflow-create Review the current branch, fix findings, and run tests`
 drafts those steps, then asks harness, model and supported effort for each model
-step in order. These questions MUST use the host's GUI/TUI single-choice
+step in order. These questions prefer the host's GUI/TUI single-choice
 pickers, just like predefined workflow preflight, with selectable options. If no
-permitted picker is available, authoring stops without saving; typed chat answers
-are not a fallback. Non-model steps need no tuning. Models without effort controls
+permitted picker or rendered MCP form is usable, the main harness collects
+explicit text answers with the same catalog and ordering. No partial workflow
+is saved. Non-model steps need no tuning. Models without effort controls
 omit effort. Use `--name <name> <prompt>` to supply a name; the legacy lone name
 uses the workflow description from the conversation.
 

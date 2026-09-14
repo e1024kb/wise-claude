@@ -61,6 +61,8 @@ call. Pass the conversation context needed for input defaults on every staged ca
 Render and answer each stage through the main client's native control, then
 re-call preflight with cumulative answers. If no native control is permitted,
 use `interactive: true` only for MCP forms rendered in this same client.
+If neither UI route is usable, ask through the shared main-harness text fallback
+and continue with `interactive: false` and explicit cumulative answers.
 The main harness still owns the interaction. Pass the completed answers to
 `wise_run` only after `questions: []`.
 
@@ -75,11 +77,13 @@ The main harness still owns the interaction. Pass the completed answers to
   (`plugin:<name>` needs `/plugin install`, `tool:<name>` needs the
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
   until they are installed.
-- `PREFLIGHT_CANCELLED`: stop without starting a run.
+- `PREFLIGHT_CANCELLED`: stop on confirmed user cancellation. If the MCP form
+  did not render, use the shared text fallback with any returned `error.answers`.
+  If visibility is unknown, clarify cancellation versus text continuation first.
 - `INTERACTIVE_UI_REQUIRED`: call `wise_preflight` with `interactive: false`
   and render each staged question through the host's native picker when available.
-  Otherwise report the missing client capability and stop collection. Never
-  launch a terminal fallback, render the raw questionary as a chat prompt, turn a
+  Otherwise use the shared main-harness text fallback. Never
+  launch a terminal fallback, dump the raw questionary into chat, turn a
   displayed default into an answer, or start a run from the TUI. Cancellation
   stops collection.
 
@@ -114,7 +118,7 @@ model question is not asked is when the engine did not return it
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
 Prefer the main harness's available native structured picker, then MCP form
-elicitation. Follow the
+elicitation, then main-harness text fallback if neither is usable. Follow the
 [asynchronous question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open):
 a display acknowledgement is not an answer; keep the turn active while that
 question is pending, without sending a final response that dismisses it.

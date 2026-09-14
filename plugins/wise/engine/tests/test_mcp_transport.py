@@ -454,11 +454,99 @@ async def test_preflight_without_form_capability_starts_nothing() -> None:
         result = await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
     error = body(result)["error"]
     assert error["code"] == "INTERACTIVE_UI_REQUIRED"
-    assert "Ordinary chat is not a preflight UI" in error["message"]
-    assert "never launch a terminal fallback" in error["message"]
+    assert "explicit answers through readable text fallback" in error["message"]
+    assert "Never launch a terminal fallback" in error["message"]
     assert "main client's GUI/TUI" in error["message"]
     assert daemon.calls == []
     assert daemon.refreshed == 0
+
+
+@pytest.mark.parametrize("action", ["decline", "cancel", "accept"])
+async def test_preflight_form_failure_preserves_only_completed_answers(action: str) -> None:
+    daemon = FakeDaemon()
+    questions = [question("worktree"), question("step-select", "multi")]
+    forms = []
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "questions": [q for q in questions if q["id"] not in params["answers"]][:1],
+            "requires_missing": [],
+        }
+
+    async def elicit(ctx: Any, params: Any) -> ElicitResult:
+        forms.append(params.requested_schema)
+        if len(forms) == 1:
+            return ElicitResult(action="accept", content={"worktree": "b"})
+        return ElicitResult(action=action, content={} if action == "accept" else None)
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
+        result = body(
+            await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
+        )
+    error = result["error"]
+    assert error["answers"] == {"worktree": "b"}
+    assert error["question"] == "step-select"
+    assert error["code"] == (
+        "INTERACTIVE_UI_INVALID" if action == "accept" else "PREFLIGHT_CANCELLED"
+    )
+    assert len(forms) == 2
+    assert [method for method, _, _ in daemon.calls] == ["preflight", "preflight"]
+
+
+async def test_preflight_text_answers_use_noninteractive_contract_without_forms() -> None:
+    daemon = FakeDaemon()
+    questions = [
+        question("worktree"),
+        question("step-select", "multi"),
+        {"id": "input.topic", "kind": "text", "label": "Topic"},
+        question("permissions.codex"),
+    ]
+    supplied = {
+        "worktree": "b",
+        "step-select": [],
+        "input.topic": "topic",
+        "permissions.codex": "a",
+    }
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "questions": [q for q in questions if q["id"] not in params["answers"]][:1],
+            "requires_missing": [],
+        }
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy") as client:
+        unavailable = body(
+            await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
+        )
+        assert unavailable["error"]["code"] == "INTERACTIVE_UI_REQUIRED"
+        answers = {}
+        for q in questions:
+            result = body(
+                await client.call_tool(
+                    "wise_preflight",
+                    {
+                        "workflow": "flow",
+                        "cwd": "/project",
+                        "interactive": False,
+                        "answers": answers,
+                    },
+                )
+            )
+            assert result["questions"] == [q]
+            answers[q["id"]] = supplied[q["id"]]
+        result = body(
+            await client.call_tool(
+                "wise_preflight",
+                {"workflow": "flow", "cwd": "/project", "interactive": False, "answers": answers},
+            )
+        )
+    assert result["questions"] == []
+    assert daemon.calls[-1][1]["answers"] == supplied
+    assert all(method == "preflight" for method, _, _ in daemon.calls)
 
 
 async def test_preflight_stays_pending_until_user_answers() -> None:

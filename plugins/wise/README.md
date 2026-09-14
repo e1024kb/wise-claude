@@ -90,7 +90,7 @@ below.
 | `/wise-skills-create <skill-name>` | Scaffold a new action or reference skill via Claude Code's `skill-creator`. Marketplace-repo only. |
 | `/wise-skills-edit <skill-name>` | Modify an existing wise skill. Refuses to edit the `/wise` helper. Marketplace-repo only. |
 | `/wise-workflow-list` | List bundled + user workflow definitions. |
-| `/wise-questionnaire-test [<workflow-name>]` | Test native GUI/TUI preflight and its returned answers without starting a workflow. Defaults to the bundled code-review questionnaire. |
+| `/wise-questionnaire-test [<workflow-name>]` | Test preflight without starting a workflow. Distinguishes native GUI/TUI success, text-fallback success, cancellation and failure. Defaults to the bundled code-review questionnaire. |
 | `/wise-workflow-create <prompt>` | Infer steps from a prompt, select harness/model/effort per step, then validate and save. |
 | `/wise-workflow-run [<workflow-name>]` | Start a workflow run on the wise engine. The main conversation is the conductor: pre-flight questions, run context, one line per event, gates. |
 | `/wise-workflow-resume [<run-ulid>]` | Resume a paused or failed engine run, or answer a gated one, then follow it. |
@@ -104,7 +104,7 @@ below.
 | `/wise-pr-watch` | Watch CI + drive fixes to green. |
 | `/wise-pr-create-auto` | Autonomous `/wise-pr-create` — create/refresh a PR with no prompts (base = repo default branch). |
 | `/wise-pr-request-review-auto` | Autonomous `/wise-pr-add-reviewers` — attach Copilot code review with no prompts. |
-| `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` — bulk rounds: settle (linear 2-min poll until CI and every reviewing bot are done), gather every failing check + bot thread + Sonar issue, fix them all in one pass, resolve threads, one push, then a 2-min re-review window; converges on a clean head or after two nit-only rounds and merges (branch protection respected); a stuck Copilot / CodeRabbit requires explicit GUI/TUI consent before wise's substitute review; declining or an unavailable picker stops without review or merge. |
+| `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` — bulk rounds: settle (linear 2-min poll until CI and every reviewing bot are done), gather every failing check + bot thread + Sonar issue, fix them all in one pass, resolve threads, one push, then a 2-min re-review window; converges on a clean head or after two nit-only rounds and merges (branch protection respected); a stuck Copilot / CodeRabbit requires explicit main-harness consent before wise's substitute review, preferring native UI with text fallback. Declining or an unavailable answer channel stops without review or merge. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. Executors run **supervised** (a watchdog nudges any that hang); tune with `WISE_WORKER_*` env. |
 | `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (dispatches the `code-simplifier` agent, then drafts a Conventional-Commits subject and commits). NO prompts, never pushes. |
 | `/wise-human-writing [<draft or pointer>]` | Rewrite a draft into the plugin's human-first outbound style — the command half of the `wise-human-writing` hybrid skill (see [§ Skills](#skills)). |
@@ -199,8 +199,11 @@ dependencies are all done run together), and persists every run under
 `events.jsonl`, honours `XDG_DATA_HOME`). The main Claude, Codex, Cursor, Grok,
 or T3 Code harness is a thin conductor: it renders every pre-flight question
 through its native GUI/TUI picker or rendered MCP forms. Every skill starts by
-identifying its main/child role and current client controls. Missing controls
-stop collection without a chat or terminal fallback. It hands the run
+identifying its main/child role and current client controls. If no native tool
+or rendered form is usable, the main harness asks in plain text and waits for
+explicit answers, never opens a terminal. Codex init can offer to enable its
+experimental native-question feature after consent, with a client restart required.
+It hands the run
 what it already knows (ticket bodies, guidance, decisions), prints one
 line per engine event and answers gates. It never sees step output.
 Interrupted runs resume from the ledger via

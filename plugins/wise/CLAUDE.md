@@ -105,7 +105,7 @@ Current actions (all standalone):
   `/wise-simplify-auto` — the autonomous (`-auto`) building blocks:
   autonomous variants of the PR / implement /
   quality steps, each a thin reader of a shared fragment or reference.
-  `/wise-pr-watch-auto` MUST obtain GUI/TUI consent before substitute review.
+  `/wise-pr-watch-auto` MUST obtain main-harness consent before substitute review.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent) and the `code-review` workflow (the
   heavyweight branch gate — three reviewer children, a curator, an
@@ -265,7 +265,7 @@ plugins/wise/
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
     ├── wise-pr-create-auto/SKILL.md       # autonomous PR create (no prompts)
     ├── wise-pr-request-review-auto/SKILL.md  # autonomous Copilot attach (no prompts)
-    ├── wise-pr-watch-auto/SKILL.md        # CI watch + fix loop (GUI/TUI consent before substitute review)
+    ├── wise-pr-watch-auto/SKILL.md        # CI watch + fix loop (main-harness consent before substitute review)
     ├── wise-implement-plan-auto/          # autonomously implement a PLAN-*.md
     │   ├── SKILL.md
     │   └── agents/executor.md            # fresh-context per-task executor persona
@@ -551,7 +551,10 @@ Every skill links to the question lifecycle in
 [`references/workflow-host-control.md`](references/workflow-host-control.md#keep-asynchronous-questions-open)
 before collecting input. Shared interactive routines and delegated wizards follow
 it too. An asynchronous display acknowledgement never authorizes an action, and
-the asking agent keeps its turn active until an answer arrives. Existing
+the asking agent keeps its turn active until an answer arrives. If no permitted
+native control or rendered form is usable, the main harness uses the shared
+text fallback, ending its turn for the explicit reply. Children relay questions
+to the main harness in both cases. Existing
 autonomous no-prompt rules still apply. Repository validation checks that every
 skill retains the shared reference, including newly added skills.
 

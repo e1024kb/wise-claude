@@ -2,7 +2,7 @@
 name: wise-pr-watch-auto
 description: >-
   Autonomous variant of `/wise-pr-watch` — drive the current branch's PR
-  to merge in bulk rounds, with mandatory GUI/TUI consent before
+  to merge in bulk rounds, with mandatory main-harness consent before
   substitute review. Each round: one linear
   2-minute poll until CI is terminal and every review bot that is going
   to review the head (Copilot, CodeRabbit) has done so; gather every
@@ -17,7 +17,7 @@ description: >-
   (thread-resolution rule, required approvals), re-reads the PR state at
   every tick so a PR merged or closed from outside ends the run, and
   keeps its state under the PR so a re-invocation resumes. When a bot is stuck,
-  offers wise's own substitute review through a GUI/TUI picker; a human comment
+  offers wise's own substitute review through the main harness; a human comment
   stands the run down. Merges (squash → merge-commit fallback, branch
   protection respected). Invoked as `/wise-pr-watch-auto` (bare alias)
   or `/wise:wise-pr-watch-auto` (canonical). Use when the user says
@@ -53,9 +53,10 @@ human-comment gate. It ends when a settled head has nothing actionable,
 never at "the bot posted another nit".
 
 Copilot and CodeRabbit are review *inputs*, not merge gates. When one is
-down the loop MUST ask through a GUI/TUI picker before starting wise's own
+down the loop MUST ask through the main harness before starting wise's own
 substitute review (`review-fallback-auto.md`). Only an explicit selection to run
-the review permits it. Declining or an unavailable picker stops the watch without
+the review permits it. Prefer GUI/TUI, with the shared text fallback when needed.
+Declining or an unavailable answer channel stops the watch without
 reviewing or merging.
 
 ## Arguments
@@ -111,7 +112,8 @@ the `--on` tokens (everything left is `SKILL_ARGS`), then read
 `--on ask` (or a bare `--on`) picks harness, model and effort through
 one composite `AskUserQuestion` before any child spawns. Substitute review
 consent is also mandatory, including in a dispatched run. A headless child
-without a permitted GUI/TUI route must stop with `review-consent-unavailable`;
+must relay consent through Wise/the parent to the main harness, which uses its
+native UI or shared text fallback. Without that relay, stop with `review-consent-unavailable`;
 `--on` authorization does not authorize substitute review. While the child runs,
 tail its
 heartbeat instead of waiting blind:
@@ -168,7 +170,7 @@ accepted as-is and resolved rather than fixed — say so.
 
 ## Guardrails
 
-- MUST ask through a GUI/TUI picker before every new substitute review,
+- MUST obtain explicit main-harness consent before every new substitute review,
   including an inline or adversarial review. Follow the fallback fragment's
   consent gate. Routine fixes remain autonomous; `--on ask` also permits its
   pre-loop harness picker.

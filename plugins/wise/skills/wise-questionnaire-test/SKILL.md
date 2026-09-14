@@ -2,7 +2,7 @@
 name: wise-questionnaire-test
 description: >-
   Smoke-test Wise's real preflight questionnaire through native GUI or terminal
-  TUI and report the answer contract without starting a workflow.
+  TUI, or main-harness text fallback, without starting a workflow.
   Invoked as `/wise-questionnaire-test` (bare alias) or
   `/wise:wise-questionnaire-test` (canonical), or as
   `$wise:wise-questionnaire-test` in hosts that use skill mentions. Use when the user says
@@ -78,7 +78,8 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
 4. Collect real user answers through the first usable route. Prefer a structured
    input tool owned by the main harness when one is available in the current
    client and mode, then use MCP forms rendered by that same client. Follow the
-   shared startup contract: GUI uses inline GUI, CLI uses native TUI controls.
+   shared startup contract: prefer inline GUI or native TUI controls, then
+   rendered MCP forms, then main-harness text when neither UI route is usable.
    Never launch a terminal from this test as a fallback:
 
    - **Native picker:** render the current engine questions with
@@ -92,14 +93,22 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
      for permission questions; choose another permitted structured route when
      necessary. Do not rename a permission question to evade a restriction.
    - **MCP form:** when no native structured input tool is available, call
-     `wise_preflight` with the same workflow/cwd, empty answers and
+     `wise_preflight` with the same workflow/cwd, cumulative answers and
      `interactive: true`. Let its forms own staged collection. Codex Desktop can
      advertise elicitation but immediately return `decline` without rendering a
      form. When live UI evidence shows no form appeared, record
-     `INTERACTIVE_UI_REQUIRED` and stop collection. Do not report
+     `INTERACTIVE_UI_REQUIRED` as the fallback reason and continue in text. Do not report
      that transport failure as a user cancellation. A visible decline or cancel
      remains terminal. Current Wise MCP forms represent multi-select options as
      required boolean fields because Codex CLI drops array-enum fields.
+   - **Main-harness text:** when neither native controls nor rendered MCP forms
+     are usable, use the shared text fallback. Explain the route, ask the current
+     question with its allowed labels, and end the turn for the user's reply.
+     Do not emit a final test verdict while awaiting that reply. Validate each
+     explicit answer and re-call `interactive: false` with cumulative answers.
+     Preserve any accepted answers returned with an MCP error. If form visibility
+     is unknown, clarify whether the user cancelled or wants text continuation
+     before switching routes. Never switch after confirmed user cancellation.
    - **Standalone terminal test:** only when the user explicitly requested the
      standalone engine CLI test, use its existing user-operated terminal:
 
@@ -119,14 +128,14 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
    The standalone terminal route is never an automatic GUI or CLI skill fallback.
    Await actual selections and preserve prior answers across permitted route changes.
    User acceptance of a highlighted default is valid; auto-submitting defaults
-   is not. Keep the turn active while a prompt is open. Explicit cancellation,
+   is not. Keep the turn active while an asynchronous UI prompt is open. Explicit cancellation,
    closed stdin, or an invalid UI response ends the test with the returned
    error code. Do not restart collection after cancellation. Record every route
    used and any fallback error separately from the final result.
 
 5. Verify the returned contract before PASS. The final payload must identify
    the requested workflow, contain an object `answers`, `questions: []`, and
-   an empty `requires_missing` list, with no `error`. For the native-picker
+   an empty `requires_missing` list, with no `error`. For the native-picker or text
    route, retain your cumulative answer object beside the final raw response
    (raw preflight does not itself return an `answers` field).
 
@@ -154,18 +163,24 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
 6. Emit this compact copy-pasteable report using observed values:
 
    ```text
-   QUESTIONNAIRE PASS|FAIL
+   QUESTIONNAIRE PASS_NATIVE|PASS_TEXT_FALLBACK|CANCELLED|FAIL
    harness=<conductor> client=<client> workflow=<name>
    role=main surface=<GUI|TUI|unknown> question_tool=<actual tool name or none>
-   route=<MCP form|native picker|terminal TUI; list transitions if used>
+   route=<MCP form|native picker|terminal TUI|main-harness text; list transitions if used>
    collected=<comma-separated question IDs, or none>
    coverage=<observed kinds/stages>; unexercised=<stages and short reasons, or none>
    contract=<valid|invalid|unverified> code=<failure code or none> fallback=<code or none>
    workflow_started=no
    ```
 
-   PASS requires actual UI answers and successful contract replay, not merely
-   tool discovery or a successful engine subprocess. Preserve engine error
+   PASS_NATIVE requires every collected answer to come through observed native
+   GUI/TUI controls, rendered MCP forms or the explicitly requested terminal TUI,
+   with successful contract replay. PASS_TEXT_FALLBACK requires actual answers
+   and successful replay when any answer used text fallback; it never verifies
+   native UI support. CANCELLED requires confirmed user cancellation (including
+   closing a user-operated terminal), not an unrendered or visibility-unknown
+   MCP decline. All other errors are FAIL. Tool discovery or a successful
+   engine subprocess alone is not a pass. Preserve engine error
    codes verbatim. Use `ENGINE_UNAVAILABLE` if no preflight route can be called,
    `CONTRACT_UNVERIFIED` if returned answers cannot be checked, and the local
    codes above for specific contract failures. Add at most one sentence naming
@@ -173,15 +188,16 @@ Reject extra tokens, paths, flags, placeholders (`TODO`, `FIXME`, `...`, `$VAR`,
    free-text contents, full payloads, or credentials in the report.
    Do not infer an unrendered decline from response speed alone. If visibility
    is unknown, report it as unknown and preserve the returned cancellation code.
-   Describe only stages actually answered as covered; inspecting the questionary
-   or reaching a prompt is not successful UI coverage.
+   Describe only stages actually answered as covered, distinguishing text answers
+   from UI answers. Inspecting the questionary or reaching a prompt is not coverage.
 
 ## Guardrails
 
 - Never call `wise_run`, CLI `run`, dispatch, resume, workflow steps, or provider
   children. Never create a branch/worktree, stage, commit, push, or write a
   report artifact. Preflight may start the managed engine daemon on demand.
-- Never render preflight as raw chat questions, answer for the user, infer a
+- Use readable chat questions only through the main-harness text fallback, never
+  dump the raw questionary. Never answer for the user, infer a
   choice from elapsed time, or treat cancellation as an empty selection.
 - Do not claim other harnesses passed from this invocation. Repeat this command
   inside each target host after loading the skill there; slash-command discovery

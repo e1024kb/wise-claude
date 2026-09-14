@@ -327,9 +327,11 @@ async def _preflight(
             "the user's answer, keeping asynchronous prompts open in the main client's GUI/TUI. "
             "Populate picker options for choices; for multi-select without native support, "
             "collect clickable Include/Exclude answers for each option. "
-            "Ordinary chat is not a preflight UI. If no persistent native picker is available, "
-            "report the missing client capability; never launch a terminal fallback or render "
-            "the raw questionary as a chat reply or submit defaults as answers.",
+            "If no permitted native picker or rendered MCP form is usable, the main harness "
+            "must collect explicit answers through readable text fallback and call preflight "
+            "with interactive: false and cumulative answers. Children relay questions to the "
+            "main harness. Never launch a terminal fallback, dump the raw questionary into chat, "
+            "or submit defaults as answers.",
         )
     if refresh is not None:
         refresh()
@@ -357,9 +359,12 @@ async def _preflight(
         if response.action != "accept":
             return error_result(
                 "PREFLIGHT_CANCELLED",
-                "The user cancelled workflow preflight.",
+                "The MCP client declined or cancelled the form; this does not prove it was "
+                "rendered or that the user cancelled. Stop on confirmed user cancellation; "
+                "otherwise the main harness must establish visibility before text fallback.",
                 question=question["id"],
                 action=response.action,
+                answers=answers,
             )
         answer = _accepted_answer(question, response.content or {})
         if answer is None:
@@ -367,6 +372,7 @@ async def _preflight(
                 "INTERACTIVE_UI_INVALID",
                 "The form returned an invalid answer.",
                 question=question["id"],
+                answers=answers,
             )
         answers[question["id"]] = answer
     return error_result("PREFLIGHT_LIMIT", "Preflight exceeded its question limit.")
