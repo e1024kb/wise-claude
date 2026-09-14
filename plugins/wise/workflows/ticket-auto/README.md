@@ -27,6 +27,14 @@ the intake and the report. The prompt fragments still under `prompts/`
 ...) are shared routines the standalone `/wise-*-auto` skills and
 `ticket-plan` read; the pipeline itself no longer loads them.
 
+Those shared skill procedures follow
+[model fallback](../../references/workflow-host-control.md#model-fallback) when
+a requested model or native agent route is unavailable. The main harness asks
+through GUI/TUI using its verified model options before substitution; children
+relay the question. Review consent, fresh-reviewer guarantees and merge gates
+remain separate. This does not change the engine pipeline's selected models or
+automatically restart failed units.
+
 ## When to use
 
 - One or more well-specified tickets that should each become a
@@ -85,7 +93,7 @@ Inside `process`, per ticket and in this order:
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
-| `input.worktree_mode` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. Asked before ticket intake. |
+| `worktree` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. This shared question is asked first and stored as `worktree_mode`. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
@@ -147,5 +155,8 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 - `docs/wise/research-ts-engine.md` P4: the `units` contract.
 
 The shared `watch-pipelines-auto.md` prompt used by `/wise-pr-watch-auto` requires
-GUI/TUI consent before each substitute review. Declining or an unavailable picker
-stops that watch without review or merge.
+main-harness consent before each substitute review, preferring blocking or
+asynchronous GUI/TUI controls, then rendered MCP forms, with text fallback when
+neither structured route is usable. Children relay through Wise/the parent.
+Declining or an unavailable answer channel stops that watch without review or
+merge.

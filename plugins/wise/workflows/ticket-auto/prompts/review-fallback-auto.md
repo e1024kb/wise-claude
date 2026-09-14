@@ -1,8 +1,12 @@
 # review-fallback-auto — local reviewer panel when a review bot is stuck
 
+Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
-credits / stayed rate-limited / never answered. After explicit GUI/TUI consent,
+credits / stayed rate-limited / never answered. After explicit main-harness consent,
 run **wise's own reviewer panel** (the same discipline
 the `code-review` workflow runs) over the PR's branch diff, commit what
 it finds, push, and let the caller keep driving the PR to green and
@@ -49,10 +53,12 @@ the verdict — it reviews, commits, pushes, and reports.
 
 Run all `git` / `gh` commands with `cd <project.path>` first.
 
-### 0. Mandatory GUI/TUI consent before review
+### 0. Mandatory main-harness consent before review
 
 Before starting any substitute, adversarial, panel, or inline code review, MUST
-present a GUI/TUI picker with populated `options`. Read and follow
+request consent through the main harness, preferring a GUI/TUI picker with
+populated `options` and using text fallback only when no permitted control or
+rendered MCP form is usable. Read and follow
 `${CLAUDE_PLUGIN_ROOT}/references/workflow-host-control.md` for picker dispatch
 and asynchronous question handling. Show the PR URL, current head SHA, stuck
 bots and reasons, and explain that the pass may apply fixes, commit, and push.
@@ -63,12 +69,14 @@ watch/merge authorization, `--on`, and an earlier review's approval are not cons
 
 Decline or cancellation: emit
 `REVIEW-FALLBACK: failed reason=review-consent-declined for=<stuck_bots>`
-and stop. No permitted GUI/TUI
-picker (including a headless child unable to relay through the conductor): emit
+and stop. No permitted answer channel (including a headless child unable to
+relay through the conductor): emit
 `REVIEW-FALLBACK: failed reason=review-consent-unavailable for=<stuck_bots>` and
-stop. Never substitute a chat-only question, assumed answer, or inline review.
-A child may relay via a supported blocking question channel only if its conductor
-presents these options through GUI/TUI and returns the actual user selection.
+stop. Never substitute an assumed answer or inline review for consent.
+A child may relay only if its conductor presents these options through a
+supported blocking or asynchronous native question tool, a rendered MCP form,
+or the shared text fallback when neither structured route is usable, and returns
+the actual user selection. The child never asks the user directly.
 
 Approval covers one invocation for the displayed head only. Recheck the PR is
 open and the head is unchanged before §1. If it changed or the PR closed, emit
@@ -98,28 +106,19 @@ in `panel=universal` shape — one read-only reviewer covering all three
 focus areas at `medium` effort — curates the concrete correctness /
 security / clear-quality findings, applies them, and commits.
 
-**Check `Task` first.** This fragment always calls `panel=universal` —
-ONE reviewer subagent covering all three focus areas in a single pass,
-never the profile-sized 3/5-lens table — so dispatching it needs the
-`Task` tool. Not every caller has it: the `ticket-auto` / `impl-plan-auto`
-watch step runs as `wise:software-engineer`, whose tool list is `Read,
-Write, Edit, Bash, Glob, Grep` — no `Task` — and a subagent cannot spawn
-subagents anyway. Do not report a dispatch that never happened:
+**Resolve the execution route before review.** Prefer one fresh reviewer on
+the requested model. If its model, named agent or native spawn tool is
+unavailable, use the shared model-fallback GUI/TUI picker. Offer verified
+current-harness native child models first. If no child route exists, this
+substitute pass may offer `Current session model, inline reduced-depth review`.
+That choice covers all three focus areas sequentially in this context; it is
+not an independent reviewer. Never select it automatically.
 
-- **`Task` available** (the standalone `/wise-pr-watch-auto`, which
-  grants it, or any main-thread caller) — dispatch the one universal
-  reviewer as `code-review-pass.md` describes. Report `depth=panel`.
-- **`Task` unavailable** — degrade rather than abort. Work the same
-  three focus areas **sequentially in this context** instead of inside
-  a dispatched subagent, reading the diff and the files each area
-  needs, then curate and apply exactly as the dispatched path does.
-  One context doing all three areas itself catches less than an
-  independent reviewer subagent would; that is a real reduction in
-  depth and it goes on the record. Report `depth=inline`.
-
-Either way the review is genuine and its findings are applied. The
-distinction exists so the verdict never claims a five-agent panel when a
-single context did the work.
+Model selection does not replace §0's per-head review consent. Obtain both
+before reading the diff for review, and recheck the head after the selections.
+Report `depth=panel` only for an actual fresh reviewer, otherwise `depth=inline`,
+alongside the actual model used. On declined/unavailable model selection, emit
+`REVIEW-FALLBACK: failed reason=<model-fallback reason> for=<stuck_bots>` and stop.
 
 Capture its final line:
 

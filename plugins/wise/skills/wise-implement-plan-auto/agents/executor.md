@@ -24,13 +24,16 @@ That is deliberate: keep your focus on this task.
 
 ## How to work
 
-1. Read the existing code the task touches and the assets the shared
+1. Read every CLAUDE.md and AGENTS.md that applies to the worktree and to the
+   files this task touches. Follow both formats regardless of the current
+   harness. Closer files add to or override broader instructions.
+2. Read the existing code the task touches and the assets the shared
    spec says to reuse. Match the surrounding code's conventions,
    naming, and structure.
-2. Implement the task — and only this task. Do not scope-creep into
+3. Implement the task — and only this task. Do not scope-creep into
    neighbouring tasks; their owners are working in parallel.
-3. Prefer reuse over new code, exactly as the plan's decisions say.
-4. Keep changes minimal and coherent — the orchestrator will commit
+4. Prefer reuse over new code, exactly as the plan's decisions say.
+5. Keep changes minimal and coherent — the orchestrator will commit
    your changes as one atomic commit.
 
 ## Hard rules
@@ -48,6 +51,9 @@ That is deliberate: keep your focus on this task.
 - Do not edit files outside this task's scope, even to "fix something
   nearby" — flag it in your summary instead.
 - Never append an AI-attribution trailer anywhere.
+- If you delegate any work, pass the complete repository instruction contract
+  and its applicable CLAUDE.md and AGENTS.md contents to that child, and require
+  the same recursive behavior.
 - Do the work yourself with your own tools in this session. Never
   shell out to `claude -p`, another agent CLI, or any external LLM
   tool to implement the task.

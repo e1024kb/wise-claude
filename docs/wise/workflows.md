@@ -9,8 +9,9 @@ launcher selects Python 3.11+ and installs pinned dependencies into a managed
 versioned environment outside the plugin. It runs as a per-user daemon
 (`wise-engined`) that spawns vendor CLIs headless (`claude -p`,
 `codex exec`, `cursor-agent --print`, `gemini -p`, `grok -p`) and exposes MCP tools to the
-Claude Code, Codex, Cursor or Grok conversation through the managed
-`wise-engine` registration created by `/wise-init`. The conversation is a thin conductor: it renders
+Claude Code, Claude Desktop, Codex, Cursor, Grok, or T3 Code conversation through
+the managed `wise-engine` registration created by `/wise-init`. The conversation
+is a thin conductor: it renders
 questions, forwards context, prints one line per event and answers
 gates. It never sees step output.
 
@@ -37,6 +38,16 @@ and `gh` for GitHub phases. Set `WISE_HOST` to the current conductor (`claude`,
 Follow [host setup and control](../../plugins/wise/references/workflow-host-control.md)
 for registration, upgrade refresh, diagnostics and explicit interactive choices.
 A host reload cannot fix an unresolved path or failed daemon startup.
+
+Standalone skills and their shared handlers use the
+[model-fallback contract](../../plugins/wise/references/workflow-host-control.md#model-fallback)
+when a preferred model or native agent route is unavailable. The main client
+offers its current model and other verified executable models through GUI/TUI,
+then waits for an actual selection. Children relay the question to that client.
+No model choice is inferred from defaults or plain text, and selecting a model
+does not replace review consent or authorize additional actions. Native child
+catalogs and engine-provider catalogs are checked separately. Engine workflow
+steps remain engine-owned and retain their existing preflight/recovery contract.
 
 ## Where things live
 
@@ -74,7 +85,7 @@ v1 error.
 | `description` | no | Free text. |
 | `author` | no | Free text. |
 | `project-selection` | no | `current` (default) \| `ask` \| `none`. |
-| `preflight` | no | `{control-mode, worktree, permissions}` pins. |
+| `preflight` | no | `{control-mode, worktree, permissions}` defaults and pins. |
 | `requires` | no | `{plugins: [...], tools: [...]}`. |
 | `tuning` | no | `{groups: [...]}`. |
 | `profiles` | no | Mapping keyed `low` \| `medium` \| `max`; only `medium` is applied. |
@@ -168,7 +179,7 @@ is unmet, before the auth probes and before a run directory exists.
 | Key | Values | Effect |
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
-| `worktree` | `current` (default) \| `new` | Recorded. The engine runs steps in `cwd`; `units` steps make their own worktrees under the run directory. |
+| `worktree` | `current` (default) \| `new` | Default for the required worktree question. `new` creates branch `wise/<workflow>-<run-id>` at sibling path `<cwd>.wise-<run-id>` for ordinary workflows and retains it after the run. Workflows with a `worktree_mode` input or `units` step apply the same answer through their own worktree handling. |
 | `permissions` | `allowlist` \| `full` | Legacy global pin. `full` maps every provider to `full-access`; `allowlist` maps every provider to `approval-required`. New workflows should omit it and use the per-provider pre-flight questions. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
@@ -322,6 +333,19 @@ Common fields (`StepBase` and `StepOverrides`):
 | `schema` | JSON schema for the structured result (native schema flags where supported; prompt instruction plus JSON extraction for Cursor and Gemini). Required when `outputs` is set. |
 | `outputs` | Names copied from the structured result into run outputs. Each must be a schema property. A missing name fails the step: `schema result lacks <name>`. |
 | `until` | Deprecated. Accepted on `agent` for one release with a warning; an error on other types. `wise-engine migrate` turns a plain enum regex into `schema` plus `outputs`. |
+
+Every agent receives a harness-independent system contract containing the
+applicable user-level and ancestor CLAUDE.md, .claude/CLAUDE.md and AGENTS.md files.
+Symlinked instruction files and symlinked configuration directories are not loaded.
+The contract
+requires the child to discover closer files before touching nested paths and to
+pass the same instructions recursively to any subagent it creates. This keeps
+project rules consistent across Claude, Codex, Cursor, Gemini and Grok instead
+of relying on each CLI's native filename support.
+
+Interactive CLI preflight returns `REQUIRES_MISSING` with a nonzero exit code
+when dependencies are unavailable. It preserves pending questions and collected
+answers in the error payload rather than reporting completed collection.
 
 Verdict: first non-empty line of the child's text (200 chars), else the
 JSON headline, else `ok`. Exit classes: `ok`, `error`, `rate_limited`,
@@ -620,8 +644,9 @@ Children in flight are capped globally and per harness: global 4,
 
 ## Pre-flight questionary
 
-`wise_preflight {workflow, cwd, answers?, interactive?}` returns
-`{workflow, version, questions, defaults, requires_missing}`. With
+`wise_preflight {workflow, cwd, answers?, context?, interactive?}` returns
+`{workflow, version, questions, defaults, requires_missing}`. Noninteractive
+CLI preflight returns the same fields and uses the same dependency probe.
 UI mode is the default. With `interactive: true`, the MCP server presents every question through the
 host's form elicitation UI and returns `questions: []` plus `answers`.
 Without it, question ids double as answer keys and the raw questionary
@@ -631,6 +656,7 @@ empty. An answered question is never repeated.
 
 | Id | Kind | Options | Default |
 |---|---|---|---|
+| `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `choice` for strict literal enums without extraction; otherwise `text` | enum values, plus `Leave unset` for optional enums; none for text | context value, else `default`, else empty when optional |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
@@ -638,8 +664,8 @@ empty. An answered question is never repeated.
 | `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/wise_engine/models.py`) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
-`step-select` and `input.<name>` are stage-free and come on the first
-call. The tuning stages wait for the `step-select` answer (which steps
+`worktree` is always the first question. `step-select` and `input.<name>` follow
+after it. The tuning stages wait for the `step-select` answer (which steps
 run decides which groups matter) and are asked only for the groups a
 step that will run binds (`group:` on an agent step, a `units` phase).
 A step will run when `step-select` keeps it and its `when:` is not
@@ -664,9 +690,32 @@ The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
 `composer-2.5` (no effort flag); grok `grok-4.6`; gemini
 `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-The conductor requests `interactive: true`, so the MCP server renders
-one question at a time through the host's form UI. A host without MCP
-form support may use its native structured picker against the raw
+The conductor uses its native structured picker when available, or requests
+`interactive: true` so the MCP server renders one question at a time through the
+host's form UI. If neither route is usable, the main harness collects explicit
+answers in readable chat and submits cumulative answers with `interactive: false`.
+Every fresh preflight starts
+by asking whether changes belong in the current checkout or a separate worktree.
+
+Codex 0.154.0 exposes its native Default-mode question tool behind the
+`default_mode_request_user_input` feature, which may be disabled. A CLI session
+started with `codex --enable default_mode_request_user_input` was verified to
+render a native choice picker. To enable that feature for clients using the same
+Codex configuration, add `default_mode_request_user_input = true` under the
+existing `[features]` table in `~/.codex/config.toml`, then fully restart the
+client. During `/wise-init`, Wise checks support and offers to run
+`codex features enable default_mode_request_user_input` after explicit consent
+to the global experimental-setting change. It honors the active configuration
+location and preserves recorded skips. Ordinary workflow starts do not change
+this setting. Init reports restart required, not verified UI readiness.
+Desktop rendering must be tested independently; CLI success does not establish
+Desktop support. Other clients, including T3 Code, use their own exposed question
+tools rather than inheriting this Codex-specific setup. A working MCP status call does not prove that
+either native questions or MCP forms are available in the current mode.
+
+The conductor in the main harness owns every prompt; child harnesses and agents
+can only request that it ask on their behalf.
+A host without MCP form support may use its native structured picker against the raw
 questionary. `choice` questions use single-select controls; `multi` questions use
 native multi-select or a sequence of clickable Include/Exclude choices when the
 host only supports single-select. Known options belong in the tool's options
@@ -674,25 +723,36 @@ field, not just its question text. Permission-mode choices follow the same rule:
 use a structured tool whose own instructions permit approval questions. A
 restriction on one question tool does not disable another permitted picker.
 Host execution approvals remain separate and must still be respected.
-Free text is reserved for open-ended content
+With native controls, free text is reserved for open-ended content
 or an explicitly allowed custom answer. Strict literal input enums such as
 `^(auto|ask)$` without extraction become choice questions; general validation
 patterns and extracted inputs stay text. Optional enums retain a clickable
 `Leave unset` choice.
+MCP multi-select forms encode each option as a required boolean field and map the
+accepted booleans back to the engine's string array. This works in clients that
+do not render MCP array-enum fields.
 An asynchronous picker acknowledgement is not an answer: the
 conductor keeps its turn active until the user responds, because ending the
-turn may dismiss the pending form. If no persistent picker is available, it
-presents each engine question in plain text and waits for an explicit reply,
-preserving all labels and values. See the
+turn may dismiss the pending form. At every skill start, identify the main/child
+role, current client and GUI/TUI question tools. If no permitted control is
+available, use main-harness text fallback without opening a terminal. The engine's
+standalone terminal TUI is only for explicitly requested standalone CLI use.
+Children relay questions through Wise to the main harness, including when it
+uses text fallback. Chat questions retain all declared choices and constraints,
+never dump raw JSON or auto-submit defaults, and pause until the user responds.
+Confirmed cancellation stops collection; an MCP decline alone does not prove
+the form was rendered. The questionnaire test reports `PASS_NATIVE`,
+`PASS_TEXT_FALLBACK`, `CANCELLED`, or `FAIL`; fallback success does not verify
+native UI. See the
 [host question lifecycle](../../plugins/wise/references/workflow-host-control.md#keep-asynchronous-questions-open).
-The terminal
-client provides the equivalent TUI with `run --interactive`. Locked
+The terminal client also provides an integrated start-and-follow TUI with
+`run --interactive`. Locked
 questions and inputs filled positionally are skipped. The conductor
 then calls `wise_run {workflow, cwd, answers, context, inputs}`. `wise_run` walks
 the same staged questionary over the answers it was given and refuses
-with `MISSING_ANSWERS` (listing the open questions) when any
-`step-select`, `harness.<group>`, `permissions.<harness>`, `model.<group>` or `effort.<group>`
-question was left unanswered, or a required input has no value; the
+with `MISSING_ANSWERS` (listing the open questions) when any `worktree`,
+`step-select`, `input.<name>`, `harness.<group>`, `permissions.<harness>`,
+`model.<group>` or `effort.<group>` question was left unanswered; the
 engine never fills a tuning stage with its default on the conductor's
 behalf. The CLI's `run` fills defaults itself before calling the
 daemon, for scripted use. Answers, per-provider permission floors, inputs,
@@ -768,6 +828,10 @@ value}`; `value` is the option value, free text when `allow_text`, or a
 string array for multi. `GATE_STALE`: the gate closed, wait again. A
 child `wise_ask` opens an `ask` gate the same way; the answer is
 delivered to the child as a tool result (and as a nudge on Claude).
+The main harness conductor owns every user interaction. Child harnesses and
+nested agents never open their own GUI, TUI, terminal prompt, or chat
+questionnaire; they route questions through `wise_ask` for the conductor to
+present in the main harness.
 
 ### Stale children
 
@@ -879,10 +943,11 @@ Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
 file name without `PLAN-` and `.md`, sanitised (`plan-<n>` for digits).
-New worktree: `<run dir>/worktrees/<branch>`. The ticket workflows ask for
-`worktree_mode: current | new` during pre-flight. `ticket-plan` asks immediately
-before branch handling and returns the selected `work_path` from setup.
-`ticket-auto` asks before ticket intake, which determines branch names. Its
+New worktree: `<run dir>/worktrees/<branch>`. The shared `worktree` pre-flight
+question supplies `worktree_mode: current | new` to the ticket workflows and is
+asked first for every workflow. Ticket-specific branch handling and units use
+that answer. `ticket-plan` returns the selected `work_path` from setup.
+For `ticket-auto`, ticket intake determines branch names. Its
 `current` mode runs units sequentially in `cwd`, refuses dirty branch switches,
 and retains the checkout and branches even after merge. The default remains
 `current` for ticket-plan and `new` for ticket-auto. Current-tree workflows
@@ -949,7 +1014,7 @@ The tool schemas and descriptions are in `engine/wise_engine/mcp_server.py`.
 
 | Tool | Params | Returns |
 |---|---|---|
-| `wise_preflight` | `workflow`, `cwd`, `answers?`, `interactive?` | By default, opens MCP form UI for each question and returns `questions: []` plus `answers`; fails with `INTERACTIVE_UI_REQUIRED` when the host lacks form support. `interactive: false` returns the raw `{workflow, version, questions, defaults, requires_missing}` questionary for API clients. Read-only. |
+| `wise_preflight` | `workflow`, `cwd`, `answers?`, `context?`, `interactive?` | By default, opens MCP form UI for each question and returns `questions: []` plus `answers`; pass conversation context on every staged call so input defaults remain available. Fails with `INTERACTIVE_UI_REQUIRED` when the host lacks form support. `interactive: false` returns the raw `{workflow, version, questions, defaults, requires_missing}` questionary for API clients. Read-only. |
 | `wise_run` | `workflow`, `cwd`, `answers`, `context`, `inputs` | `{run_id, status: running}`. Errors: `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID {issues[]}`, `REQUIRES_MISSING {missing[]}`, `MISSING_ANSWERS {missing[], questions[]}`, `AUTH_REQUIRED {login_cmd}`. |
 | `wise_wait` | `run_id`, `after?`, `timeout_ms?` | `{events, status, gate?, done}`. Returns at once for `gated` and `paused`. |
 | `wise_answer` | `run_id`, `gate_id`, `value` | `{accepted}`; `GATE_STALE`. |
@@ -961,6 +1026,7 @@ The tool schemas and descriptions are in `engine/wise_engine/mcp_server.py`.
 Errors come back as `{"error": {code, message, ...}}`. Codes:
 `WORKFLOW_NOT_FOUND`, `WORKFLOW_INVALID`, `RUN_NOT_FOUND`, `GATE_STALE`,
 `HARNESS_UNAVAILABLE`, `AUTH_REQUIRED`, `BUDGET_EXCEEDED`,
+`WORKTREE_CREATE_FAILED`,
 `DAEMON_VERSION_MISMATCH`, `NOT_IMPLEMENTED`, `ALREADY_RUNNING`,
 `TOKEN_INVALID`, plus `DAEMON_UNAVAILABLE` from the MCP server itself.
 
@@ -973,7 +1039,7 @@ Python runtime. Standalone session/profile/history/supervision commands use
 
 | Command | Purpose |
 |---|---|
-| `preflight <workflow> [--answers <json>] [--context <json>]` | The questionary spec for the answers so far. |
+| `preflight <workflow> [--answers <json>] [--context <json>] [--cwd] [--interactive]` | The questionary spec for the answers so far. `--interactive` collects every staged answer in the terminal TUI and returns them without starting a run. |
 | `compile-check <workflow>...` | Validate definitions; exit 1 on any error. Issues carry `path`, `level`, `message`, `hint`. |
 | `migrate <workflow.yaml> [--write] [--out <path>]` | Rewrite v1 as v2. Dry run by default; `--write` keeps `<file>.v1.bak`; exit 1 when the result still has errors. |
 | `list-defs` | Bundled and user definitions (`name`, `source`, `path`). |
@@ -989,7 +1055,7 @@ Python runtime. Standalone session/profile/history/supervision commands use
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
 | `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
-| `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text]` | One child run on any harness through the adapters, no daemon or ledger: prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`); exit 1 on a failed child. An effort the model does not list is a usage error, never a silent clamp. How a skill runs its procedure on another harness (`--on`). |
+| `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text] [--relay]` | `--relay` is mandatory for skill `--on` dispatch: returns a daemon run ID immediately and gives the child the normal Wise question channel. The main harness follows `wait`, collects gate answers through native UI or permitted text fallback, and uses `answer` or `cancel`. On completion, `status.dispatch_result` contains the provider result. No automatic provider retry or fallback. Without `--relay`, the legacy noninteractive command prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`) without a daemon or question channel. Unsupported effort is a usage error. |
 | `version`, `help` | |
 
 Options: `--json` (default) \| `--text`, `--user-root <dir>`,
@@ -1015,10 +1081,11 @@ codes: 0 ok, 1 error or run failed / cancelled, 2 not found, 64 usage,
 settings, steps and dependencies. For example,
 `/wise-workflow-create Review the current branch, fix findings, and run tests`
 drafts those steps, then asks harness, model and supported effort for each model
-step in order. These questions MUST use the host's GUI/TUI single-choice
+step in order. These questions prefer the host's GUI/TUI single-choice
 pickers, just like predefined workflow preflight, with selectable options. If no
-permitted picker is available, authoring stops without saving; typed chat answers
-are not a fallback. Non-model steps need no tuning. Models without effort controls
+permitted picker or rendered MCP form is usable, the main harness collects
+explicit text answers with the same catalog and ordering. No partial workflow
+is saved. Non-model steps need no tuning. Models without effort controls
 omit effort. Use `--name <name> <prompt>` to supply a name; the legacy lone name
 uses the workflow description from the conversation.
 

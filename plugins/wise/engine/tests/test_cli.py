@@ -99,6 +99,7 @@ def test_preflight_shape_stages_and_context(monkeypatch):
     ]
     answers = {
         "step-select": ["analyze-design", "analyze-related", "research-context", "gap-analysis"],
+        "worktree": "current",
         **{"harness." + group: "claude" for group in groups},
         "permissions.claude": "auto",
         "model.analyze-design": "claude-sonnet-5",
@@ -129,6 +130,20 @@ def test_preflight_shape_stages_and_context(monkeypatch):
     assert code == 0 and "ticket-plan v2" in out and "effort.analyze-design" in out
 
 
+def test_preflight_reports_real_missing_dependencies(tmp_path, monkeypatch):
+    import wise_engine.defs as defs
+
+    workflow = tmp_path / "deps.yaml"
+    workflow.write_text(
+        "name: deps\nversion: 2\nrequires:\n  tools: [test-tool]\nsteps:\n  - id: check\n    type: bash\n    run: 'true'\n"
+    )
+    for available in (False, True):
+        monkeypatch.setattr(defs, "on_path", lambda name, available=available: available)
+        code, out, err = invoke("preflight", str(workflow))
+        assert code == 0, (out, err)
+        assert json.loads(out)["requires_missing"] == ([] if available else ["tool:test-tool"])
+
+
 def test_auth_no_installed_harnesses_and_dispatch_usage():
     code, out, err = invoke("auth", "--json", env={"PATH": ""})
     rows = json.loads(out)
@@ -149,6 +164,8 @@ def test_captured_cli_help_unknown_and_missing_preflight():
             continue
         code, out, err = invoke(*case["args"])
         additions = (
+            "           --relay             daemon-managed child; returns run_id immediately. Main harness\n",
+            "                               uses wait/answer/cancel and status.dispatch_result, never stdin UI\n",
             "  refresh-host --host <host> --plugin-root <path>  refresh an existing registration\n",
             "  setup-host --host <host> --plugin-root <path> [--apply]  preview or repair registration\n",
             "  host-doctor --host <host>    inspect launch registration (does not prove host connectivity)\n",

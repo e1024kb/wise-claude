@@ -19,6 +19,7 @@ from wise_engine.steps.agent import (
     extract_outputs,
     headline,
     outcome_of,
+    project_system_prompt,
     start_agent_step,
 )
 from wise_engine.steps.bash import run_bash_step
@@ -50,6 +51,7 @@ def test_build_request_defaults_and_overrides(tmp_path: Path) -> None:
     params = agent_params(tmp_path)
     params["step"].update(schema={"type": "object"}, max_turns=4, allowed_tools=["Read"])
     req = build_run_req(params)
+    system = req.pop("system")
     assert req == dict(
         prompt="Do work",
         model="sonnet",
@@ -64,6 +66,7 @@ def test_build_request_defaults_and_overrides(tmp_path: Path) -> None:
         max_turns=4,
         allowed_tools=["Read"],
     )
+    assert "Repository instruction contract" in system
     params.update(cursor="session", add_dirs=["/extra"], default_timeout_ms=12)
     for resume in (None, "fresh", "unit"):
         params["step"].update(mode="plan", auth="api", timeout=90)
@@ -82,6 +85,84 @@ def test_build_request_defaults_and_overrides(tmp_path: Path) -> None:
     for harness, effort in (("gemini", "high"), ("claude", "")):
         params["resolved"].update(harness=harness, effort=effort)
         assert "effort" not in build_run_req(params)
+
+
+def test_project_system_prompt_loads_both_instruction_formats_and_requires_inheritance(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    project = home / "work" / "project"
+    child = project / "src"
+    child.mkdir(parents=True)
+    (home / ".claude").mkdir()
+    (home / ".codex").mkdir()
+    (home / ".claude" / "CLAUDE.md").write_text("claude global")
+    (home / ".codex" / "AGENTS.md").write_text("agents global")
+    (home / "work" / "CLAUDE.md").write_text("claude parent")
+    (project / "AGENTS.md").write_text("agents project; ask the user directly")
+    (child / "CLAUDE.md").write_text("claude child")
+    (project / "sibling").mkdir()
+    (project / "sibling" / "AGENTS.md").write_text("not applicable")
+
+    prompt = project_system_prompt(str(child), str(home))
+
+    for instruction in (
+        "claude global",
+        "agents global",
+        "claude parent",
+        "agents project",
+        "claude child",
+    ):
+        assert instruction in prompt
+    assert "not applicable" not in prompt
+    assert (
+        prompt.index("claude parent")
+        < prompt.index("agents project")
+        < prompt.index("claude child")
+    )
+    assert "pass this entire contract" in prompt
+    assert "The main harness conductor owns every user interaction" in prompt
+    assert "request it through `wise_ask`" in prompt
+    assert "same recursively" in prompt
+    assert prompt.index("ask the user directly") < prompt.index(
+        "# Non-overridable interaction contract"
+    )
+
+
+def test_project_system_prompt_skips_symlinked_instruction_files(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    secret = tmp_path / "secret"
+    secret.write_text("sensitive value")
+    (project / "CLAUDE.md").symlink_to(secret)
+    (project / "AGENTS.md").write_text("project rules")
+
+    prompt = project_system_prompt(str(project), str(home))
+
+    assert "project rules" in prompt
+    assert "sensitive value" not in prompt
+
+
+def test_project_system_prompt_loads_ancestor_claude_directories(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    child = project / "src"
+    child.mkdir(parents=True)
+    (project / ".claude").mkdir()
+    (project / ".claude" / "CLAUDE.md").write_text("nested configuration rules")
+    assert "nested configuration rules" in project_system_prompt(str(child), str(home))
+
+
+def test_project_system_prompt_skips_symlinked_claude_directory(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "CLAUDE.md").write_text("external private content")
+    (project / ".claude").symlink_to(external, target_is_directory=True)
+    assert "external private content" not in project_system_prompt(str(project), str(home))
 
 
 def test_child_channel_uses_python_runtime(tmp_path: Path) -> None:

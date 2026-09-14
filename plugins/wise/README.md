@@ -28,11 +28,18 @@ everything a wise skill needs in one step. See
 
 ## Install
 
-Add the marketplace, then install the plugin:
+Claude Code:
 
 ```
 /plugin marketplace add e1024kb/wise-claude
 /plugin install wise@wise-claude
+```
+
+Codex, from a terminal rather than the Codex prompt:
+
+```bash
+codex plugin marketplace add e1024kb/wise-claude
+codex plugin add wise@wise-claude
 ```
 
 Update in place:
@@ -41,6 +48,14 @@ Update in place:
 /plugin uninstall wise --keep-data
 /plugin install wise@wise-claude
 /reload-plugins
+```
+
+For Codex, refresh the marketplace and reinstall from a terminal:
+
+```bash
+codex plugin marketplace upgrade wise-claude
+codex plugin remove wise@wise-claude
+codex plugin add wise@wise-claude
 ```
 
 `--keep-data` preserves your workflow definitions across the reinstall.
@@ -65,6 +80,12 @@ registration for `wise-engine`; a `DAEMON_UNAVAILABLE` error from any
 
 ## Commands
 
+Every skill follows [model fallback](references/workflow-host-control.md#model-fallback)
+when its preferred model or delegation route is unavailable. The main harness
+offers the current model and verified alternatives through its GUI/TUI; children
+relay that decision. This required selection is an exception to routine no-prompt
+behavior, not permission to bypass review, commit or merge gates.
+
 Every action is its own flat slash command. Typing `/wise-` and
 hitting Tab in Claude Code's slash menu fans out to every command
 below.
@@ -88,7 +109,7 @@ below.
 | `/wise-pr-watch` | Watch CI + drive fixes to green. |
 | `/wise-pr-create-auto` | Autonomous `/wise-pr-create` — create/refresh a PR with no prompts (base = repo default branch). |
 | `/wise-pr-request-review-auto` | Autonomous `/wise-pr-add-reviewers` — attach Copilot code review with no prompts. |
-| `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` — bulk rounds: settle (linear 2-min poll until CI and every reviewing bot are done), gather every failing check + bot thread + Sonar issue, fix them all in one pass, resolve threads, one push, then a 2-min re-review window; converges on a clean head or after two nit-only rounds and merges (branch protection respected); a stuck Copilot / CodeRabbit requires explicit GUI/TUI consent before wise's substitute review; declining or an unavailable picker stops without review or merge. |
+| `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` — bulk rounds: settle (linear 2-min poll until CI and every reviewing bot are done), gather every failing check + bot thread + Sonar issue, fix them all in one pass, resolve threads, one push, then a 2-min re-review window; converges on a clean head or after two nit-only rounds and merges (branch protection respected); a stuck Copilot / CodeRabbit requires explicit main-harness consent before wise's substitute review, preferring native UI with text fallback. Declining or an unavailable answer channel stops without review or merge. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. Executors run **supervised** (a watchdog nudges any that hang); tune with `WISE_WORKER_*` env. |
 | `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (dispatches the `code-simplifier` agent, then drafts a Conventional-Commits subject and commits). NO prompts, never pushes. |
 | `/wise-human-writing [<draft or pointer>]` | Rewrite a draft into the plugin's human-first outbound style — the command half of the `wise-human-writing` hybrid skill (see [§ Skills](#skills)). |
@@ -180,8 +201,14 @@ vendor CLIs headless (`claude -p`, `codex exec`, `cursor-agent --print`, `gemini
 under your existing logins, schedules the step DAG (steps whose
 dependencies are all done run together), and persists every run under
 `~/.local/share/wise/runs/<cwd-slug>/<run-ulid>/` (`state.json` +
-`events.jsonl`, honours `XDG_DATA_HOME`). The Claude Code conversation
-is a thin conductor: it renders the pre-flight questions, hands the run
+`events.jsonl`, honours `XDG_DATA_HOME`). The main Claude, Codex, Cursor, Grok,
+or T3 Code harness is a thin conductor: it renders every pre-flight question
+through its native GUI/TUI picker or rendered MCP forms. Every skill starts by
+identifying its main/child role and current client controls. If no native tool
+or rendered form is usable, the main harness asks in plain text and waits for
+explicit answers, never opens a terminal. Codex init can offer to enable its
+experimental native-question feature after consent, with a client restart required.
+It hands the run
 what it already knows (ticket bodies, guidance, decisions), prints one
 line per engine event and answers gates. It never sees step output.
 Interrupted runs resume from the ledger via
@@ -194,7 +221,8 @@ answer as an output), and `units` (the ticket -> PR and plan -> PR
 pipelines as engine code: claim, worktree, plan, implement, review /
 fix, push, PR, request review, watch, merge, cleanup).
 
-Every `agent` step and every `units` phase binds to a **tuning group**
+Every fresh pre-flight first asks whether changes belong in the current checkout
+or a separate worktree. Every `agent` step and every `units` phase binds to a **tuning group**
 (`{harness, model, effort}` plus optional presets) that the pre-flight
 questionary offers; **budget profiles** (`low` / `medium` / `max`, the
 `/wise-profile` vocabulary) override groups and set the caps the

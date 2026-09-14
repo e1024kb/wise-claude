@@ -123,9 +123,12 @@ unambiguous. The directory name on disk equals the slash command:
   directory name matches the frontmatter `name:` field verbatim
   and doubles as the slash command.
 - Frontmatter keys: `name:`, `description:`, `argument-hint:`,
-  `allowed-tools:`, plus optional `model:` / `effort:` (see the
-  "model / effort follows the work" invariant in
-  `plugins/wise/CLAUDE.md`). `user-invocable:` must not be set at
+  `allowed-tools:`. Put preferred model/effort in the body, not startup
+  frontmatter pins, so an unavailable provider cannot prevent the fallback
+  picker from loading. Every skill links to
+  `references/workflow-host-control.md#model-fallback`; it requires a real
+  main-harness GUI/TUI selection from that route's executable models before
+  substitution, including in autonomous procedures. `user-invocable:` must not be set at
   all — the default (`true`) is the only supported value. No
   `command:` / `subcommand:` / `subcommand-aliases:` /
   `arguments:` — those were v1 dispatcher-routing fields and have
@@ -551,14 +554,24 @@ populated from that resolution, not from a stored file.
 
 ### 6.1 Install the plugin from a clone
 
+Claude Code:
+
 ```
 /plugin marketplace add /Users/<you>/Projects/wise-claude
 /plugin install wise@wise-claude
 ```
 
-Re-running `/plugin install` after an edit picks up changes. You can pass
-`--keep-data` on uninstall to preserve your workflow definitions between
-installs: `/plugin uninstall wise --keep-data`.
+Codex, from a terminal:
+
+```bash
+codex plugin marketplace add /Users/<you>/Projects/wise-claude
+codex plugin add wise@wise-claude
+```
+
+Re-running the host's install command after an edit picks up changes. Claude Code
+accepts `--keep-data` on uninstall to preserve workflow definitions:
+`/plugin uninstall wise --keep-data`. Codex commands run in the shell, not as
+slash commands inside its prompt.
 
 ### 6.2 Syntax and structural checks
 

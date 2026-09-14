@@ -63,7 +63,7 @@ Current actions (all standalone):
   per session; profile-sensitive skills (`wise-pr-watch-auto`)
   read it via `references/profile-read.md` and
   degrade silently to `medium`. Workflows never read it: the engine's
-  pre-flight asks harness, per-provider permission floor, model and effort instead.
+  pre-flight asks worktree, harness, per-provider permission floor, model and effort instead.
   Budget only — model tiers, optional-step scope, panel size, retry
   caps; NEVER correctness rules.
 - `/wise-fork` — reorient a forked session. Inherited context becomes
@@ -103,7 +103,7 @@ Current actions (all standalone):
   `/wise-simplify-auto` — the autonomous (`-auto`) building blocks:
   autonomous variants of the PR / implement /
   quality steps, each a thin reader of a shared fragment or reference.
-  `/wise-pr-watch-auto` MUST obtain GUI/TUI consent before substitute review.
+  `/wise-pr-watch-auto` MUST obtain main-harness consent before substitute review.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent) and the `code-review` workflow (the
   heavyweight branch gate — three reviewer children, a curator, an
@@ -262,7 +262,7 @@ plugins/wise/
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
     ├── wise-pr-create-auto/SKILL.md       # autonomous PR create (no prompts)
     ├── wise-pr-request-review-auto/SKILL.md  # autonomous Copilot attach (no prompts)
-    ├── wise-pr-watch-auto/SKILL.md        # CI watch + fix loop (GUI/TUI consent before substitute review)
+    ├── wise-pr-watch-auto/SKILL.md        # CI watch + fix loop (main-harness consent before substitute review)
     ├── wise-implement-plan-auto/          # autonomously implement a PLAN-*.md
     │   ├── SKILL.md
     │   └── agents/executor.md            # fresh-context per-task executor persona
@@ -396,14 +396,12 @@ one-liners below are the rule, not the argument for it.
   and no skill that writes one.
 - **`allowed-tools` in each skill is narrowly scoped.** Expanding it
   should be a deliberate decision, not an incidental fix-up.
-- **`model` / `effort` frontmatter follows the work, not the skill.**
-  Lightweight, mechanical, or read-only skills (the commit-drafting
-  trio, `wise-workflow-list` / `-status` / `-remove`, `wise-feedback`)
-  pin `model: opus` + `effort: low` for snappy turnaround. Skills that
-  do real reasoning or orchestration (`wise-pr-watch`, the workflow
-  conductor / resume, the wizards, the PRD/TRD architects) omit both
-  and inherit the session model — `effort: low` would hurt them. Set
-  the knobs to match the skill's cognitive load.
+- **Portable skills load before selecting a model.** Keep preferred model
+  and effort in the body, not provider-specific frontmatter pins. Every skill
+  reads the shared model-fallback contract before work. Unavailable models or
+  delegation routes require an explicit main-harness GUI/TUI choice from live
+  executable options, including the current model when supported. No silent
+  substitution or text fallback for this gate. Preserve other task permissions.
 - **The agent roster is plugin-level; the engine has no roster field.**
   The `agents/*.md` roster files are real Claude Code plugin subagents -
   frontmatter is limited to `name` / `description` / `tools` / `model` /
@@ -548,7 +546,10 @@ Every skill links to the question lifecycle in
 [`references/workflow-host-control.md`](references/workflow-host-control.md#keep-asynchronous-questions-open)
 before collecting input. Shared interactive routines and delegated wizards follow
 it too. An asynchronous display acknowledgement never authorizes an action, and
-the asking agent keeps its turn active until an answer arrives. Existing
+the asking agent keeps its turn active until an answer arrives. If no permitted
+native control or rendered form is usable, the main harness uses the shared
+text fallback, ending its turn for the explicit reply. Children relay questions
+to the main harness in both cases. Existing
 autonomous no-prompt rules still apply. Repository validation checks that every
 skill retains the shared reference, including newly added skills.
 

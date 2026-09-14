@@ -5,6 +5,7 @@ import inspect
 import json
 import math
 import os
+import re
 import secrets
 import subprocess
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ from .daemon import (
 )
 from .defs import default_roots, locate_def, load_and_validate, probe_requires
 from .ledger import (
+    apply_worktree_include,
     append_event,
     init_state,
     read_state,
@@ -63,6 +65,7 @@ from .preflight import (
     input_choice_values,
     invalid_choice_input_ids,
     invalid_provider_permission_answers,
+    invalid_worktree_answers,
     resolve_from_context,
 )
 from .pricing import price_usage
@@ -81,6 +84,57 @@ DEFAULT_CAPS: Json = {
     "global": 4,
     "harness": {"claude": 2, "codex": 1, "cursor": 1, "gemini": 1, "grok": 1},
 }
+WORKFLOW_BRANCH_COMPONENT_MAX = 80
+
+
+def workflow_manages_worktrees(definition: Json, enabled_steps: set[str]) -> bool:
+    if any(item.get("name") == "worktree_mode" for item in definition.get("inputs", [])):
+        return True
+    writing_steps = [
+        step
+        for step in definition["steps"]
+        if step["id"] in enabled_steps and step["type"] in ("agent", "bash", "units")
+    ]
+    return bool(writing_steps) and all(step["type"] == "units" for step in writing_steps)
+
+
+def workflow_branch_component(workflow: str) -> str:
+    component = re.sub(r"\.{2,}", "-", re.sub(r"[^A-Za-z0-9._-]+", "-", workflow))
+    component = component.strip("-.")[:WORKFLOW_BRANCH_COMPONENT_MAX].rstrip("-.")
+    component = component.removesuffix(".lock")
+    return component or "workflow"
+
+
+async def create_run_worktree(cwd: str, workflow: str, run_id: str, env: dict[str, str]) -> Json:
+    source = Path(cwd).resolve()
+    suffix = run_id.lower()
+    path = source.with_name(f"{source.name}.wise-{suffix}")
+    branch = f"wise/{workflow_branch_component(workflow)}-{suffix}"
+    try:
+        process = await asyncio.to_thread(
+            subprocess.run,
+            ["git", "worktree", "add", "-b", branch, str(path), "HEAD"],
+            cwd=source,
+            env=clean_env(parent=env),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise domain_error(
+            "WORKTREE_CREATE_FAILED",
+            f"could not create the selected worktree: {error}",
+            {"cwd": str(source), "worktree": str(path), "branch": branch},
+        ) from error
+    if process.returncode:
+        message = (process.stderr or process.stdout).strip()
+        raise domain_error(
+            "WORKTREE_CREATE_FAILED",
+            f"could not create the selected worktree: {message or 'git worktree add failed'}",
+            {"cwd": str(source), "worktree": str(path), "branch": branch},
+        )
+    include = await asyncio.to_thread(apply_worktree_include, source, path)
+    return {"source_cwd": str(source), "path": str(path), "branch": branch, "include": include}
 
 
 def default_config_path(env: Any = None) -> str:
@@ -251,6 +305,7 @@ class Executor:
             name: getattr(self, name)
             for name in (
                 "preflight",
+                "dispatch_start",
                 "run",
                 "answer",
                 "status",
@@ -321,6 +376,40 @@ class Executor:
     def ensure_live(self, directory: str, state: Json) -> LiveRun:
         if state["run_id"] in self.lives:
             return self.lives[state["run_id"]]
+        if "dispatch_definition" in state:
+            live = LiveRun(
+                state["run_id"],
+                directory,
+                state["dispatch_definition"],
+                state["cwd"],
+                "interactive",
+            )
+            token = state.get("dispatch_step_token")
+            if isinstance(token, str):
+                live.tokens["dispatch"] = token
+            for ask_id, record in state.get("dispatch_pending_asks", {}).items():
+                if not isinstance(ask_id, str) or not isinstance(record, dict):
+                    continue
+                step, question = record.get("step"), record.get("question")
+                if not isinstance(step, str) or not isinstance(question, str):
+                    continue
+                live.asks[ask_id] = PendingAsk(
+                    ask_id,
+                    step,
+                    question,
+                    options=record.get("options")
+                    if isinstance(record.get("options"), list)
+                    else None,
+                    allow_text=record.get("allow_text")
+                    if isinstance(record.get("allow_text"), bool)
+                    else None,
+                    gate_id=record.get("gate_id")
+                    if isinstance(record.get("gate_id"), str)
+                    else None,
+                    value=record.get("value") if isinstance(record.get("value"), str) else None,
+                )
+            self.lives[live.run_id] = live
+            return live
         wf = state["workflow"]
         located = locate_def(wf["name"], self.roots)
         if not located and wf.get("dir"):
@@ -493,14 +582,26 @@ class Executor:
             return
         from .units import acquire_checkout_lock
 
-        path = subprocess.check_output(
-            ["git", "rev-parse", "--path-format=absolute", "--git-path", "wise-current-tree.lock"],
-            cwd=state["cwd"],
-            env=clean_env(parent=self.env),
-            text=True,
-            stderr=subprocess.PIPE,
-            timeout=10,
-        ).strip()
+        try:
+            path = subprocess.check_output(
+                [
+                    "git",
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "wise-current-tree.lock",
+                ],
+                cwd=state["cwd"],
+                env=clean_env(parent=self.env),
+                text=True,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            ).strip()
+        except subprocess.CalledProcessError as error:
+            stderr = (error.stderr or "").lower()
+            if "not a git repository" in stderr:
+                return
+            raise
         live.checkout_lock = acquire_checkout_lock(Path(path))
         outputs = state.get("outputs", {})
         if (
@@ -889,6 +990,8 @@ class Executor:
                 live.trackers[step_id] = tracker
                 token = secrets.token_hex(16)
                 live.tokens[step_id] = token
+                if "dispatch_definition" in state:
+                    update_run(live.run_dir, {"dispatch_step_token": token})
 
                 def on_event(event: Json) -> None:
                     progress = tracker.ingest(event)
@@ -912,6 +1015,11 @@ class Executor:
                 )
                 if self.channel is not None:
                     params["channel"] = self.channel
+                if "dispatch_definition" in state:
+                    params["add_dirs"] = state.get("dispatch_add_dirs", [])
+                    params["on_result"] = lambda result: update_run(
+                        live.run_dir, {"dispatch_result": result}
+                    )
                 if cursor_harness == resolved["harness"] and "cursor" in fresh["steps"][step_id]:
                     params["cursor"] = fresh["steps"][step_id]["cursor"]
                 started = await start_agent_step(params)
@@ -959,6 +1067,12 @@ class Executor:
         finally:
             live.children.pop(step_id, None)
             live.tokens.pop(step_id, None)
+            state = read_state(live.run_dir)
+            if (
+                "dispatch_definition" in state
+                and state.pop("dispatch_step_token", None) is not None
+            ):
+                write_state(live.run_dir, state)
             live.trackers.pop(step_id, None)
             watch = live.stale_watches.pop(step_id, None)
             if watch:
@@ -1119,6 +1233,14 @@ class Executor:
         elif outcome["exit"] == "ok":
             self.complete_step(
                 live, step_id, outcome["verdict"], outcome["outputs"], {**patch, "usage": usage}
+            )
+        elif "dispatch_definition" in read_state(live.run_dir):
+            self.fail_step(
+                live,
+                step_id,
+                str(outcome.get("error") or outcome["exit"]),
+                outcome["verdict"],
+                patch,
             )
         elif outcome["exit"] == "rate_limited":
             self.rate_limited(live, step, harness, outcome.get("error", "rate limited"))
@@ -1289,7 +1411,30 @@ class Executor:
             gate["allow_text"] = ask.allow_text
         ask.gate_id = gate["gate_id"]
         update_run(live.run_dir, dict(status="gated", gate=gate))
+        self.persist_dispatch_ask(live, ask)
         live.emit(dict(type="gate.opened", step=ask.step, verdict=headline(gate["message"])))
+
+    def persist_dispatch_ask(self, live: LiveRun, ask: PendingAsk) -> None:
+        state = read_state(live.run_dir)
+        if "dispatch_definition" not in state:
+            return
+        record: Json = dict(step=ask.step, question=ask.question)
+        for name in ("options", "allow_text", "gate_id", "value"):
+            value = getattr(ask, name)
+            if value is not None:
+                record[name] = value
+        state.setdefault("dispatch_pending_asks", {})[ask.ask_id] = record
+        write_state(live.run_dir, state)
+
+    def remove_dispatch_ask(self, live: LiveRun, ask_id: str) -> None:
+        state = read_state(live.run_dir)
+        pending = state.get("dispatch_pending_asks")
+        if not isinstance(pending, dict) or ask_id not in pending:
+            return
+        pending.pop(ask_id)
+        if not pending:
+            state.pop("dispatch_pending_asks", None)
+        write_state(live.run_dir, state)
 
     def close_child_asks(self, live: LiveRun, step_id: str) -> None:
         closed = False
@@ -1297,6 +1442,7 @@ class Executor:
             if ask.step != step_id:
                 continue
             del live.asks[key]
+            self.remove_dispatch_ask(live, ask.ask_id)
             ask.drop()
             state = read_state(live.run_dir)
             if ask.gate_id is not None and state.get("gate", {}).get("gate_id") == ask.gate_id:
@@ -1324,6 +1470,7 @@ class Executor:
         text = decision.get("output", {}).get("value", "")
         self.reopen(live)
         ask.value = text
+        self.persist_dispatch_ask(live, ask)
         ask.changed.set()
         live.emit(dict(type="gate.answered", step=ask.step, verdict=headline(f"answered: {text}")))
         self.nudge(live.run_id, ask.step, f"Answer to your question: {text}")
@@ -1385,6 +1532,71 @@ class Executor:
                 dict(missing=invalid, invalid=invalid),
             )
 
+    def dispatch_start(self, params: Any, ctx: Any = None) -> Json:
+        from .dispatch import DispatchIo, prepare_dispatch
+
+        flags = as_record(params, "dispatch_start")
+        errors: list[str] = []
+        prepared = prepare_dispatch(flags, DispatchIo(lambda text: None, errors.append))
+        if isinstance(prepared, int):
+            raise RpcError(RPC_INVALID_PARAMS, "".join(errors).strip())
+        if self.channel is None:
+            raise domain_error(
+                "INTERACTION_RELAY_UNAVAILABLE", "dispatch requires the child channel"
+            )
+        harness, req, warnings = prepared
+        self.assert_permissions({f"permissions.{harness}": req["mode"]})
+        step = dict(
+            id="dispatch",
+            type="agent",
+            prompt=req["prompt"],
+            harness=harness,
+            model=req["model"],
+            mode=req["mode"],
+            auth=req["auth"],
+            timeout=req["timeout_ms"] / 1000,
+        )
+        for key in ("effort", "allowed_tools"):
+            if key in req:
+                step[key] = req[key]
+        definition = dict(version=2, name="dispatch", steps=[step])
+        run_id = new_ulid()
+        cwd = req["cwd"]
+        run_dir = str(Path(self.rt.paths.runs_root) / cwd_slug(cwd) / run_id)
+        state = init_state(
+            run_dir=run_dir,
+            run_id=run_id,
+            cwd=cwd,
+            step_ids=["dispatch"],
+            workflow=dict(name="dispatch", version=2, dir=cwd),
+        )
+        state.update(dispatch_definition=definition, dispatch_add_dirs=req.get("add_dirs", []))
+        write_state(run_dir, state)
+        start_run(
+            run_dir,
+            dict(
+                resolved={
+                    "dispatch": dict(
+                        harness=harness, model=req["model"], effort=req.get("effort", "")
+                    )
+                },
+                provider_permissions={harness: req["mode"]},
+            ),
+        )
+        live = LiveRun(run_id, run_dir, definition, cwd, "interactive")
+        self.lives[run_id] = live
+        live.emit(dict(type="run.started", verdict=f"dispatch on {harness}"))
+        self.defer(live)
+        return dict(
+            run_id=run_id,
+            status="running",
+            harness=harness,
+            model=req["model"],
+            effort=req.get("effort"),
+            mode=req["mode"],
+            warnings=warnings,
+        )
+
     async def preflight(self, params: Any, ctx: Any = None) -> Json:
         from .auth import installed_harnesses
         from .preflight import build_questionary_with_auth
@@ -1393,12 +1605,16 @@ class Executor:
         workflow = require_string(rec, "workflow", "preflight")
         require_string(rec, "cwd", "preflight")
         answers = dict(optional_record(rec, "answers", "preflight"))
+        context = optional_record(rec, "context", "preflight")
         self.assert_permissions(answers)
         located = self.locate(workflow)
         definition = validated(located)
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         questionary = await build_questionary_with_auth(
-            definition, {"harnesses": harnesses}, answers, self.get_adapter
+            definition,
+            {"harnesses": harnesses, "context": context},
+            answers,
+            self.get_adapter,
         )
         return dict(
             workflow=located["name"],
@@ -1469,6 +1685,9 @@ class Executor:
         for item in definition.get("inputs", []):
             name = item["name"]
             answer_id = f"input.{name}"
+            if name == "worktree_mode":
+                inputs[name] = applied["worktree"]
+                continue
             if input_choice_values(item) is not None:
                 if name in explicit:
                     inputs[name] = explicit[name]
@@ -1489,7 +1708,9 @@ class Executor:
                 value = resolve_from_context(item["from-context"], context)
                 if value is not None:
                     inputs[name] = value
+        inputs["worktree_mode"] = applied["worktree"]
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
+        invalid_worktree = invalid_worktree_answers(seeded)
         missing = list(
             dict.fromkeys(
                 [question["id"] for question in unanswered]
@@ -1503,18 +1724,21 @@ class Executor:
                     )
                 ]
                 + invalid_inputs
+                + (["worktree"] if invalid_worktree else [])
             )
         )
         if missing:
             questions = {question["id"]: question for question in completed["questions"]}
-            if invalid_inputs:
+            if invalid_inputs or invalid_worktree:
                 retry_answers = {
-                    key: value for key, value in answers.items() if key not in invalid_inputs
+                    key: value
+                    for key, value in answers.items()
+                    if key not in (*invalid_inputs, *invalid_worktree)
                 }
                 for question in build_questionary(
-                    definition, {"harnesses": harnesses}, retry_answers
+                    definition, {"harnesses": harnesses, "context": context}, retry_answers
                 )["questions"]:
-                    if question["id"] in invalid_inputs:
+                    if question["id"] in (*invalid_inputs, "worktree"):
                         questions[question["id"]] = question
             raise domain_error(
                 "MISSING_ANSWERS",
@@ -1529,14 +1753,26 @@ class Executor:
         )
         run_id = new_ulid()
         run_dir = str(Path(self.rt.paths.runs_root) / cwd_slug(cwd) / run_id)
+        selected_worktree = None
+        effective_cwd = cwd
+        if applied["worktree"] == "new" and not workflow_manages_worktrees(
+            definition, applied["enabled_steps"]
+        ):
+            selected_worktree = await create_run_worktree(cwd, located["name"], run_id, self.env)
+            effective_cwd = selected_worktree["path"]
         state = init_state(
             run_dir=run_dir,
             run_id=run_id,
             workflow=dict(name=located["name"], version=definition["version"], dir=located["dir"]),
             step_ids=[step["id"] for step in definition["steps"]],
-            cwd=cwd,
+            cwd=effective_cwd,
             profile=applied["profile"],
         )
+        if selected_worktree is not None:
+            state["source_cwd"] = selected_worktree["source_cwd"]
+            state["worktree"] = {
+                key: selected_worktree[key] for key in ("path", "branch", "include")
+            }
         for step in definition["steps"]:
             if step["id"] not in applied["enabled_steps"]:
                 state["steps"][step["id"]].update(
@@ -1549,7 +1785,7 @@ class Executor:
         if legacy not in ("allowlist", "full"):
             legacy = definition.get("preflight", {}).get("permissions")
         run_context = dict(
-            project=self.project_of(cwd),
+            project=self.project_of(effective_cwd),
             inputs=inputs,
             answers=answers,
             context=persist_context(run_dir, context),
@@ -1572,7 +1808,7 @@ class Executor:
                 ),
             )
         )
-        self.rt.log(f"run {run_id}: started {located['name']} in {cwd}")
+        self.rt.log(f"run {run_id}: started {located['name']} in {effective_cwd}")
         self.defer(live)
         return dict(run_id=run_id, status="running")
 
@@ -1686,6 +1922,10 @@ class Executor:
         if isinstance(result, list):
             return [decorate(row) for row in result]
         directory = self.rt.find_run_dir(result["run_id"])
+        if directory:
+            state = read_state(directory)
+            if "dispatch_result" in state:
+                result["dispatch_result"] = state["dispatch_result"]
         return (
             {**decorate(result), "usage_total": usage_total(read_state(directory)["usage"])}
             if directory
@@ -1802,6 +2042,7 @@ class Executor:
                 else None,
             )
             live.asks[ask.ask_id] = ask
+            self.persist_dispatch_ask(live, ask)
             self.open_child_asks(live)
         if ask.value is None and not ask.dropped and timeout > 0:
             started = asyncio.get_running_loop().time()
@@ -1834,6 +2075,7 @@ class Executor:
                 await asyncio.gather(*tasks, return_exceptions=True)
         if ask.value is not None:
             live.asks.pop(ask.ask_id, None)
+            self.remove_dispatch_ask(live, ask.ask_id)
             return dict(ask_id=ask.ask_id, status="answered", value=ask.value)
         if ask.dropped:
             raise domain_error(

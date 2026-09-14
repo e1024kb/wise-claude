@@ -141,16 +141,19 @@ Use `AskUserQuestion`:
     `None of these` (description: `Don't add any extras — keep the
     defaults only.`) so AskUserQuestion's 2-option minimum holds.
 
-AskUserQuestion also supplies an `Other` free-text affordance the
-user can use to add a login Claude didn't propose — that's
-always available even when `multiSelect=true`. The user can type
-one login or a comma-separated list; we'll parse both shapes.
+When the main harness supports direct custom text, accept extra logins there.
+Otherwise offer `Add other reviewers` as an action, then ask a separate native
+text question for the extra logins while retaining selected reviewers.
+Store custom text from any route in `EXTRA_REVIEWERS`. Use the shared text
+fallback only when no permitted native UI or rendered MCP form is usable.
+Do not treat the action label as a login. The user can enter one login or a
+comma-separated list. Explicit cancellation stops before requesting reviewers.
 
 ### 5. Apply the picks
 
 Collect the user's selections into a final list `PICKED`:
 - Selected options (one or more logins from §4).
-- Any freetext from `Other`: split on commas, trim whitespace per
+- `EXTRA_REVIEWERS`: split on commas, trim whitespace per
   entry, keep only entries matching `^[A-Za-z0-9][A-Za-z0-9-]*$`.
   Warn on invalid entries in the step prose (don't fail).
 - De-duplicate.

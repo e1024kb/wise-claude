@@ -9,14 +9,19 @@ description: >-
   workflows", "which workflows are available", "what workflows can I
   run", or types `/wise-workflow-list`.
 argument-hint: ""
-model: opus
-effort: low
-allowed-tools: Read, Bash(bash:*), Bash(python3:*)
+allowed-tools: Read, AskUserQuestion, Bash(bash:*), Bash(python3:*)
 ---
 
 # /wise-workflow-list — list available workflows
 
-Before asking any user question, read and follow the
+Preferred model: `opus`; preferred effort: `low`. Resolve availability before work;
+do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.

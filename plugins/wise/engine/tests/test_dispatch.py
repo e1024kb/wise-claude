@@ -67,19 +67,20 @@ def test_dispatch_request_and_result(tmp_path):
             lambda h: adapter,
         )
         assert code == 0 and not err
-        assert adapter.seen == [
-            dict(
-                prompt="watch the PR",
-                model="gpt-6-astra",
-                effort="high",
-                mode="full-access",
-                cwd=str(tmp_path),
-                timeout_ms=60000,
-                auth="subscription",
-                allowed_tools=["Bash(git:*)", "Bash(gh:*)"],
-                add_dirs=["/extra"],
-            )
-        ]
+        assert len(adapter.seen) == 1
+        request = adapter.seen[0]
+        assert request.pop("system").startswith("# Repository instruction contract")
+        assert request == dict(
+            prompt="watch the PR",
+            model="gpt-6-astra",
+            effort="high",
+            mode="full-access",
+            cwd=str(tmp_path),
+            timeout_ms=60000,
+            auth="subscription",
+            allowed_tools=["Bash(git:*)", "Bash(gh:*)"],
+            add_dirs=["/extra"],
+        )
         result = json.loads("".join(out))
         assert result["ok"] and result["harness"] == "codex"
         assert result["verdict"] == "all green, merged"

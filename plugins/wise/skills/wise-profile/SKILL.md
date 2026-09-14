@@ -13,14 +13,19 @@ description: >-
   profile", "low budget mode", "token budget", "cheaper runs", "max
   quality mode", or types `/wise-profile`.
 argument-hint: "[low|medium|max]"
-model: opus
-effort: low
 allowed-tools: Read, Bash(python3:*), Bash(cat:*), Bash(mkdir:*), Bash(printf:*), Bash(mv:*), ToolSearch, AskUserQuestion
 ---
 
 # /wise-profile — session token-budget profile
 
-Before asking any user question, read and follow the
+Preferred model: `opus`; preferred effort: `low`. Resolve availability before work;
+do not silently substitute.
+
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.

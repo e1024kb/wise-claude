@@ -139,6 +139,22 @@ async def test_parent_dispatch(
     assert daemon.closed == 1
 
 
+async def test_preflight_catalog_explains_main_harness_fallback() -> None:
+    async with Client(parent(FakeDaemon()), mode="legacy") as client:
+        tools = (await client.list_tools()).tools
+        preflight = next(tool for tool in tools if tool.name == "wise_preflight")
+        description = preflight.description
+        assert description is not None
+        assert "main-harness plain-text fallback" in description
+        assert "Explicit user cancellation stops" in description
+        assert "Ordinary chat is not a preflight UI" not in description
+        assert "never for chat rendering" not in description
+        assert (
+            "plain-text fallback"
+            in preflight.input_schema["properties"]["interactive"]["description"]
+        )
+
+
 async def test_nested_unknown_keys_are_stripped_but_records_survive() -> None:
     daemon = FakeDaemon()
     async with Client(parent(daemon), mode="legacy") as client:
@@ -373,7 +389,12 @@ async def test_interactive_preflight_collects_real_staged_answers() -> None:
 
     async def elicit(ctx: Any, params: Any) -> ElicitResult:
         forms.append(params.requested_schema)
-        identifier = params.requested_schema["required"][0]
+        identifier = questions[len(forms) - 1]["id"]
+        if identifier == "step-select":
+            return ElicitResult(
+                action="accept",
+                content={key: key.endswith(".1") for key in params.requested_schema["required"]},
+            )
         return ElicitResult(
             action="accept",
             content={
@@ -386,7 +407,14 @@ async def test_interactive_preflight_collects_real_staged_answers() -> None:
     daemon.handlers["preflight"] = preflight
     async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
         result = body(
-            await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
+            await client.call_tool(
+                "wise_preflight",
+                {
+                    "workflow": "flow",
+                    "cwd": "/project",
+                    "context": {"guidance": "keep it small"},
+                },
+            )
         )
     assert result["answers"] == {
         "step-select": ["b"],
@@ -396,15 +424,145 @@ async def test_interactive_preflight_collects_real_staged_answers() -> None:
     assert result["questions"] == []
     assert forms == [question_form_schema(q) for q in questions]
     assert len(daemon.calls) == 4
+    assert all(
+        params["context"] == {"guidance": "keep it small"}
+        for method, params, _ in daemon.calls
+        if method == "preflight"
+    )
+
+
+async def test_interactive_preflight_reasks_invalid_existing_answer() -> None:
+    daemon = FakeDaemon()
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "version": 2,
+            "questions": (
+                [question("worktree")] if params["answers"].get("worktree") == "invalid" else []
+            ),
+            "defaults": {"worktree": "a"},
+            "requires_missing": [],
+        }
+
+    async def elicit(ctx: Any, params: Any) -> ElicitResult:
+        return ElicitResult(action="accept", content={"worktree": "b"})
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
+        result = body(
+            await client.call_tool(
+                "wise_preflight",
+                {
+                    "workflow": "flow",
+                    "cwd": "/project",
+                    "answers": {"worktree": "invalid"},
+                },
+            )
+        )
+    assert result["answers"]["worktree"] == "b"
+    assert [params["answers"]["worktree"] for _, params, _ in daemon.calls] == ["invalid", "b"]
 
 
 async def test_preflight_without_form_capability_starts_nothing() -> None:
     daemon = FakeDaemon()
     async with Client(parent(daemon), mode="legacy") as client:
         result = await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
-    assert body(result)["error"]["code"] == "INTERACTIVE_UI_REQUIRED"
+    error = body(result)["error"]
+    assert error["code"] == "INTERACTIVE_UI_REQUIRED"
+    assert "explicit answers through readable text fallback" in error["message"]
+    assert "Never launch a terminal fallback" in error["message"]
+    assert "main client's GUI/TUI" in error["message"]
     assert daemon.calls == []
     assert daemon.refreshed == 0
+
+
+@pytest.mark.parametrize("action", ["decline", "cancel", "accept"])
+async def test_preflight_form_failure_preserves_only_completed_answers(action: str) -> None:
+    daemon = FakeDaemon()
+    questions = [question("worktree"), question("step-select", "multi")]
+    forms = []
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "questions": [q for q in questions if q["id"] not in params["answers"]][:1],
+            "requires_missing": [],
+        }
+
+    async def elicit(ctx: Any, params: Any) -> ElicitResult:
+        forms.append(params.requested_schema)
+        if len(forms) == 1:
+            return ElicitResult(action="accept", content={"worktree": "b"})
+        return ElicitResult(action=action, content={} if action == "accept" else None)
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy", elicitation_callback=elicit) as client:
+        result = body(
+            await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
+        )
+    error = result["error"]
+    assert error["answers"] == {"worktree": "b"}
+    assert error["question"] == "step-select"
+    assert error["code"] == (
+        "INTERACTIVE_UI_INVALID" if action == "accept" else "PREFLIGHT_CANCELLED"
+    )
+    assert len(forms) == 2
+    assert [method for method, _, _ in daemon.calls] == ["preflight", "preflight"]
+
+
+async def test_preflight_text_answers_use_noninteractive_contract_without_forms() -> None:
+    daemon = FakeDaemon()
+    questions = [
+        question("worktree"),
+        question("step-select", "multi"),
+        {"id": "input.topic", "kind": "text", "label": "Topic"},
+        question("permissions.codex"),
+    ]
+    supplied = {
+        "worktree": "b",
+        "step-select": [],
+        "input.topic": "topic",
+        "permissions.codex": "a",
+    }
+
+    async def preflight(params: Any, progress: Any) -> Any:
+        return {
+            "workflow": "flow",
+            "questions": [q for q in questions if q["id"] not in params["answers"]][:1],
+            "requires_missing": [],
+        }
+
+    daemon.handlers["preflight"] = preflight
+    async with Client(parent(daemon), mode="legacy") as client:
+        unavailable = body(
+            await client.call_tool("wise_preflight", {"workflow": "flow", "cwd": "/project"})
+        )
+        assert unavailable["error"]["code"] == "INTERACTIVE_UI_REQUIRED"
+        answers = {}
+        for q in questions:
+            result = body(
+                await client.call_tool(
+                    "wise_preflight",
+                    {
+                        "workflow": "flow",
+                        "cwd": "/project",
+                        "interactive": False,
+                        "answers": answers,
+                    },
+                )
+            )
+            assert result["questions"] == [q]
+            answers[q["id"]] = supplied[q["id"]]
+        result = body(
+            await client.call_tool(
+                "wise_preflight",
+                {"workflow": "flow", "cwd": "/project", "interactive": False, "answers": answers},
+            )
+        )
+    assert result["questions"] == []
+    assert daemon.calls[-1][1]["answers"] == supplied
+    assert all(method == "preflight" for method, _, _ in daemon.calls)
 
 
 async def test_preflight_stays_pending_until_user_answers() -> None:

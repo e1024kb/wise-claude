@@ -130,8 +130,15 @@ async def fake(monkeypatch):
                 if method in state.fail:
                     raise state.fail[method]
                 if method == "preflight":
-                    return state.preflight
-                if method == "run":
+                    result = copy.deepcopy(state.preflight)
+                    answers = params.get("answers", {})
+                    result["questions"] = [
+                        question
+                        for question in result["questions"]
+                        if question.get("locked") or question["id"] not in answers
+                    ]
+                    return result
+                if method in ("run", "dispatch_start"):
                     return {"run_id": "01RUN", "status": "running"}
                 if method == "wait":
                     return state.waits.pop(0)
@@ -156,7 +163,10 @@ async def fake(monkeypatch):
             data_root=root,
             env={},
             version="test",
-            handlers={method: handler(method) for method in ("preflight", *cli.CLIENT_COMMANDS)},
+            handlers={
+                method: handler(method)
+                for method in ("dispatch_start", "preflight", *cli.CLIENT_COMMANDS)
+            },
         )
 
         async def connector(**options):
@@ -174,6 +184,29 @@ async def fake(monkeypatch):
             yield state
         finally:
             await daemon.close()
+
+
+async def test_dispatch_relay_returns_without_prompting_or_waiting(fake, tmp_path):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("ask the main harness")
+    result = await fake.run(
+        ["dispatch", "--relay", "--harness", "claude", "--prompt-file", str(prompt)]
+    )
+    assert result.code == 0, result.err
+    assert json.loads(result.out)["run_id"] == "01RUN"
+    calls = fake.method("dispatch_start")
+    assert len(calls) == 1
+    assert calls[0]["prompt-file"] == str(prompt.resolve())
+    assert not fake.method("wait") and not fake.method("answer") and not fake.method("run")
+    assert not result.err
+
+
+async def test_dispatch_relay_accepts_inline_prompt(fake):
+    result = await fake.run(
+        ["dispatch", "--relay", "--harness", "claude", "--prompt", "inline prompt"]
+    )
+    assert result.code == 0, result.err
+    assert fake.method("dispatch_start")[0]["prompt"] == "inline prompt"
 
 
 async def test_usage_help_missing_and_bad_arguments(fake):
@@ -227,6 +260,70 @@ async def test_interactive_asks_every_open_question_and_eof(fake):
     assert not fake.method("run")
 
 
+async def test_interactive_preflight_tui_returns_answers_without_starting_run(fake):
+    context = '{"guidance":"brief"}'
+    result = await fake.run(
+        ["preflight", "wf", "--interactive", "--context", context], "\n2\nREF\n\n"
+    )
+    assert result.code == 0, result.err + result.out
+    payload = json.loads(result.out)
+    assert payload["questions"] == []
+    assert payload["answers"] == {
+        "permissions.claude": "auto",
+        "model.plan": "sonnet",
+        "input.ticket": "REF",
+        "input.notes": "",
+    }
+    assert all(call["context"] == {"guidance": "brief"} for call in fake.method("preflight"))
+    assert not fake.method("run")
+
+
+async def test_interactive_preflight_reasks_invalid_existing_answer() -> None:
+    calls = []
+
+    class Client:
+        async def call(self, method, params):
+            calls.append(copy.deepcopy(params))
+            questions = (
+                [
+                    {
+                        "id": "worktree",
+                        "kind": "choice",
+                        "label": "Where should changes be made?",
+                        "options": [
+                            {"value": "current", "label": "Current checkout"},
+                            {"value": "new", "label": "Separate worktree"},
+                        ],
+                    }
+                ]
+                if params["answers"].get("worktree") == "invalid"
+                else []
+            )
+            return {"workflow": "wf", "questions": questions, "requires_missing": []}
+
+    errors = []
+    result = await cli.collect_interactive_answers(
+        Client(),
+        "wf",
+        "/project",
+        {"worktree": "invalid"},
+        {},
+        cli.LineSource(io.StringIO("2\n")),
+        SimpleNamespace(err=errors.append),
+    )
+    assert result["answers"]["worktree"] == "new"
+    assert [call["answers"]["worktree"] for call in calls] == ["invalid", "new"]
+
+
+async def test_interactive_preflight_missing_requirements_never_reports_complete(fake):
+    fake.preflight["requires_missing"] = ["missing-tool"]
+    result = await fake.run(["preflight", "wf", "--interactive"])
+    assert result.code != 0
+    assert json.loads(result.out)["error"]["code"] == "REQUIRES_MISSING"
+    assert "preflight complete" not in result.out
+    assert not fake.method("run")
+
+
 async def test_answers_inputs_defaults_and_staged_preflight(fake):
     result = await fake.run(
         [
@@ -252,6 +349,7 @@ async def test_answers_inputs_defaults_and_staged_preflight(fake):
         "context": {"guidance": "brief"},
     }
     assert len(fake.method("preflight")) == 2
+    assert all(call["context"] == {"guidance": "brief"} for call in fake.method("preflight"))
     assert "permissions.claude" not in fake.method("preflight")[0]["answers"]
     assert json.loads(result.out)["run_id"] == "01RUN"
     fake.calls.clear()

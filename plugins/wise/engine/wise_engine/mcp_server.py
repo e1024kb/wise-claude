@@ -248,14 +248,25 @@ def _normalize(value: Any, schema: dict[str, Any]) -> Any:
 
 def question_form_schema(question: Mapping[str, Any]) -> dict[str, Any]:
     options = question.get("options") or []
+    if question["kind"] == "multi" and options:
+        selected = set(question.get("default") or [])
+        properties = {
+            f"{question['id']}.{index}": {
+                "type": "boolean",
+                "title": item["label"],
+                **({"description": item["description"]} if item.get("description") else {}),
+                "default": item["value"] in selected,
+            }
+            for index, item in enumerate(options)
+        }
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties),
+        }
     prop: dict[str, Any] = {"type": "string", "title": question["label"]}
     if question["kind"] == "choice" and options:
         prop["oneOf"] = [{"const": item["value"], "title": item["label"]} for item in options]
-    elif question["kind"] == "multi" and options:
-        prop["type"] = "array"
-        prop["items"] = {
-            "anyOf": [{"const": item["value"], "title": item["label"]} for item in options]
-        }
     elif not question.get("optional"):
         prop["minLength"] = 1
     if options and question["kind"] in ("choice", "multi"):
@@ -265,9 +276,7 @@ def question_form_schema(question: Mapping[str, Any]) -> dict[str, Any]:
         if notes:
             prop["description"] = "\n".join(notes)
     default = question.get("default")
-    if (prop["type"] == "string" and isinstance(default, str)) or (
-        prop["type"] == "array" and isinstance(default, list)
-    ):
+    if isinstance(default, str):
         prop["default"] = default
     key = question["id"]
     return {"type": "object", "properties": {key: prop}, "required": [key]}
@@ -278,6 +287,15 @@ def _accepted_answer(question: Mapping[str, Any], content: Mapping[str, Any]) ->
     options = question.get("options") or []
     allowed = {item["value"] for item in options}
     if question["kind"] == "multi":
+        if options and value is None:
+            fields = [content.get(f"{question['id']}.{index}") for index in range(len(options))]
+            if not all(isinstance(item, bool) for item in fields):
+                return None
+            return [
+                option["value"]
+                for option, selected in zip(options, fields, strict=True)
+                if selected
+            ]
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             return None
         return None if allowed and any(item not in allowed for item in value) else value
@@ -306,23 +324,30 @@ async def _preflight(
         return error_result(
             "INTERACTIVE_UI_REQUIRED",
             "This MCP host does not support form elicitation. Use a native picker and await "
-            "the user's answer, keeping asynchronous prompts open, or use the terminal TUI. "
+            "the user's answer, keeping asynchronous prompts open in the main client's GUI/TUI. "
             "Populate picker options for choices; for multi-select without native support, "
             "collect clickable Include/Exclude answers for each option. "
-            "If no persistent picker is available, show each raw preflight question in text "
-            "and wait for an explicit reply; never submit defaults as answers.",
+            "If no permitted native picker or rendered MCP form is usable, the main harness "
+            "must collect explicit answers through readable text fallback and call preflight "
+            "with interactive: false and cumulative answers. Children relay questions to the "
+            "main harness. Never launch a terminal fallback, dump the raw questionary into chat, "
+            "or submit defaults as answers.",
         )
     if refresh is not None:
         refresh()
     answers = dict(args.get("answers", {}))
+    context = dict(args.get("context", {}))
     for _ in range(256):
         result = await call(
             "preflight",
-            {"workflow": args["workflow"], "cwd": args["cwd"], "answers": answers.copy()},
+            {
+                "workflow": args["workflow"],
+                "cwd": args["cwd"],
+                "answers": answers.copy(),
+                "context": context,
+            },
         )
-        questions = [
-            q for q in result["questions"] if not q.get("locked") and q["id"] not in answers
-        ]
+        questions = [q for q in result["questions"] if not q.get("locked")]
         if result["requires_missing"] or not questions:
             return ok_result({**result, "questions": [], "answers": answers})
         question = questions[0]
@@ -334,9 +359,12 @@ async def _preflight(
         if response.action != "accept":
             return error_result(
                 "PREFLIGHT_CANCELLED",
-                "The user cancelled workflow preflight.",
+                "The MCP client declined or cancelled the form; this does not prove it was "
+                "rendered or that the user cancelled. Stop on confirmed user cancellation; "
+                "otherwise the main harness must establish visibility before text fallback.",
                 question=question["id"],
                 action=response.action,
+                answers=answers,
             )
         answer = _accepted_answer(question, response.content or {})
         if answer is None:
@@ -344,6 +372,7 @@ async def _preflight(
                 "INTERACTIVE_UI_INVALID",
                 "The form returned an invalid answer.",
                 question=question["id"],
+                answers=answers,
             )
         answers[question["id"]] = answer
     return error_result("PREFLIGHT_LIMIT", "Preflight exceeded its question limit.")

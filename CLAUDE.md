@@ -1,46 +1,16 @@
-# wise-claude
+@AGENTS.md
 
-Claude Code plugin marketplace for the `wise` copilot — flat `/wise-*`
-skills, a multi-agent workflow engine, an SDLC agent roster, and hooks
-for everyday git / PR / ticket-planning tasks.
+## Claude Code integration
 
-## Structure
-
-Since **v4.0.0** the repo is Claude Code only. The plugin at
-`plugins/wise/` is the canonical, hand-edited source of truth — there
-is no generation step.
-
-```
-wise-claude/
-├── .claude-plugin/
-│   └── marketplace.json      # Claude Code marketplace index → plugins/wise
-├── plugins/
-│   └── wise/                 # the plugin (canonical, hand-edited)
-│       ├── skills/           # SKILL.md skills / slash commands
-│       ├── agents/           # SDLC role cards
-│       ├── workflows/        # workflow definitions
-│       ├── references/       # shared prose routines
-│       ├── hooks/            # plugin hooks
-│       ├── engine/           # Python v2 executor and tests
-│       ├── scripts/          # standalone helpers and skill catalog
-│       └── tests/            # engine test suite
-├── scripts/
-│   └── validate_repo.py      # structural validation
-├── docs/wise/                # workflow engine + authoring reference
-├── justfile                  # task runner (validate / test / check)
-├── CLAUDE.md                 # This file
-└── README.md                 # Repo docs
-```
-
-## Editing model
-
-- **Source of truth**: the plugin at `plugins/wise/`. Edit it directly —
-  nothing in the repo is generated.
-- **Validate before committing**: `just check` — runs
-  repository validation, pytest, Ruff and mypy in the pinned Python development environment.
-
-## Conventions
-
-- One version source: `plugins/wise/.claude-plugin/plugin.json`
-- Include a LICENSE file for open-source plugins
-- Pin external sources to a commit SHA in marketplace.json
+- Installed role cards in `plugins/wise/agents/` are Claude Code plugin
+  subagents. Invoke them as `subagent_type: wise:<name>` when delegation is
+  authorized. Their frontmatter supplies the persona, tools, inherited model
+  and default effort. Plugin subagents do not support `hooks`, `mcpServers`
+  or `permissionMode` fields.
+- A Claude workflow child can adopt a role card or delegate through its
+  `Task` / `Agent` tool when permitted by the step's `allowed_tools`.
+  Do not assume a headless child inherits the main conversation's context
+  or user-interaction tools.
+- For user questions, use Claude's `AskUserQuestion` when available and
+  permitted in the active client. Follow the shared host-control reference
+  linked from `AGENTS.md` for routing and fallback behavior.

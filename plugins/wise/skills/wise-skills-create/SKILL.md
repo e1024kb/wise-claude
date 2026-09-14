@@ -17,7 +17,11 @@ allowed-tools: Read, Skill, Bash(test:*), Bash(git:*), Bash(pwd:*), Bash(cat:*),
 
 # /wise-skills-create — scaffold a new wise plugin skill
 
-Before asking any user question, read and follow the
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.
@@ -193,6 +197,12 @@ question — skip that question and confirm the implied answer
 instead of re-asking.
 
 Before this wizard asks any question, read and follow
+the shared model-fallback contract at
+[WISE_PLUGIN_ROOT]/references/workflow-host-control.md#model-fallback.
+Keep model/effort preferences in the resulting skill body, not startup pins,
+and include its relative model-fallback link before execution so unavailable
+models require a main-harness GUI/TUI choice from live executable options.
+For other question handling, read
 [WISE_PLUGIN_ROOT]/references/workflow-host-control.md, section
 "Keep asynchronous questions open". In the resulting SKILL.md body, include this
 exact Markdown link before any user-question procedure:

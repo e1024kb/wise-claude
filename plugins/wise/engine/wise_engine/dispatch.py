@@ -12,7 +12,7 @@ from .adapters import adapter_for, has_adapter
 from .adapters._common import dumps
 from .constants import EFFORTS, HARNESSES, RUN_MODES
 from .models import catalog_for, catalog_model, default_model
-from .steps.agent import headline
+from .steps.agent import headline, project_system_prompt
 
 
 @dataclass
@@ -42,9 +42,7 @@ def cmd_models(positional: list[str], flags: Json, io: DispatchIo) -> int:
     return 0
 
 
-async def cmd_dispatch(
-    flags: Json, io: DispatchIo, adapters: Callable[[str], Adapter] = adapter_for
-) -> int:
+def prepare_dispatch(flags: Json, io: DispatchIo) -> tuple[str, Json, list[str]] | int:
     harness = _string(flags.get("harness"))
     if harness is None or harness not in HARNESSES:
         io.err(f"dispatch: --harness must be one of {', '.join(HARNESSES)}\n")
@@ -103,20 +101,34 @@ async def cmd_dispatch(
     if not math.isfinite(timeout_ms) or timeout_ms <= 0:
         io.err("dispatch: --timeout-s must be a positive number\n")
         return 64
+    cwd_flag = flags.get("cwd")
+    cwd = cwd_flag if isinstance(cwd_flag, str) else os.getcwd()
     req = dict(
         prompt=prompt,
         model=model,
-        cwd=_string(flags.get("cwd")) if isinstance(flags.get("cwd"), str) else os.getcwd(),
+        cwd=cwd,
         mode=mode,
         timeout_ms=timeout_ms,
         auth="subscription",
     )
+    req["system"] = project_system_prompt(cwd)
     if effort is not None:
         req["effort"] = effort
     if isinstance(flags.get("add-dir"), str):
         req["add_dirs"] = [flags["add-dir"]]
     if isinstance(flags.get("allowed-tools"), str):
         req["allowed_tools"] = [tool for tool in flags["allowed-tools"].split(",") if tool]
+    return harness, req, warnings
+
+
+async def cmd_dispatch(
+    flags: Json, io: DispatchIo, adapters: Callable[[str], Adapter] = adapter_for
+) -> int:
+    prepared = prepare_dispatch(flags, io)
+    if isinstance(prepared, int):
+        return prepared
+    harness, req, warnings = prepared
+    model, effort, mode = req["model"], req.get("effort"), req["mode"]
     res = await adapters(harness).run(req, lambda event: None)
     result = dict(
         ok=res["exit"] == "ok",

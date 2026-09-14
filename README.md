@@ -20,15 +20,24 @@ pipeline to run unattended.
 
 ## Install
 
+Claude Code:
+
 ```
 /plugin marketplace add e1024kb/wise-claude
 /plugin install wise@wise-claude
 ```
 
+Codex, from a terminal rather than the Codex prompt:
+
+```bash
+codex plugin marketplace add e1024kb/wise-claude
+codex plugin add wise@wise-claude
+```
+
 Then run the `wise-init` skill to prepare Python and register the workflow
 engine for the current host, and `/wise` to print the command catalog.
 
-For Codex, Cursor or Grok, load Wise's skills through that host's supported
+For Cursor, Grok, or T3 Code, load Wise's skills through that host's supported
 skill installation mechanism, then run `wise-init` from the loaded installation.
 The [host setup guide](plugins/wise/references/workflow-host-control.md) covers
 registration and workflow control. The conductor host does not determine which
@@ -74,7 +83,9 @@ Workflows are YAML v2 definitions (`agent`, `bash`, `approval`, `ask`,
 `units` steps, tuning groups asked in stages). The engine under
 `plugins/wise/engine` runs them as a per-user daemon and talks to Claude
 Code through the plugin's `wise-engine` MCP server; the conversation
-only answers pre-flight questions and gates.
+renders pre-flight questions and gates through the main client's native GUI/TUI
+or rendered MCP forms. When neither structured route is usable, the main harness
+collects explicit answers in chat. Missing controls never launch a terminal.
 
 See the [plugin README](plugins/wise/README.md) for the full command
 reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
@@ -82,7 +93,8 @@ reference and [`docs/wise/`](docs/wise/) for the workflow engine, the
 
 ## Requirements
 
-- **Claude Code, Codex, Cursor or Grok** as the workflow conductor.
+- **Claude Code, Claude Desktop, Codex, Cursor, Grok, or T3 Code** as the
+  workflow conductor.
 - **`git`**, and an authenticated **`gh` CLI** for the PR skills.
 - **Python 3.11+** for the workflow engine. The launcher manages pinned
   dependencies outside the plugin installation; no Bun, Node or npm is required

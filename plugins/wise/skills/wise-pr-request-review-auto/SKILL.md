@@ -17,7 +17,11 @@ allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*), AskUserQ
 
 # /wise-pr-request-review-auto — request bot review, autonomously
 
-Before asking any user question, read and follow the
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.
@@ -53,8 +57,10 @@ sanctioned prompt in this skill: it happens at invocation time, so the
 dispatched run itself stays decision-free.
 The reference probes the harness login, validates model and effort
 against the engine catalog, and runs the procedure as a headless child
-via `engine.sh dispatch`; you only relay its result. Without `--on`,
-this section does not apply.
+via `engine.sh dispatch --relay`. Follow its run, handle any required gates
+in the main harness, and relay the final result as specified by the shared
+dispatch reference. This does not add routine prompts to autonomous paths.
+Without `--on`, this section does not apply.
 
 ## Procedure
 

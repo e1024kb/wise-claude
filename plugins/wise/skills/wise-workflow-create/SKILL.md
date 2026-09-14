@@ -13,7 +13,11 @@ allowed-tools: Read, Write, AskUserQuestion, Bash(mkdir:*), Bash(test:*), Bash(b
 
 # /wise-workflow-create - author a v2 workflow
 
-Before asking any user question, read and follow the
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.
@@ -26,7 +30,8 @@ is unavailable. Conductor host and child provider are independent.
 
 
 Create `version: 2` definitions for the Python engine. Use the host's
-structured picker for choices and text inputs. Keep accepted answers
+structured picker for choices and text inputs, with the shared main-harness text
+fallback when no permitted native control or rendered MCP form is usable. Keep accepted answers
 across stages; never create v1 `prompt`, `loop`, or `interactive` steps.
 
 ## 1. Read the prompt and resolve the destination
@@ -117,18 +122,16 @@ every question:
    and omit `effort`; do not invent an effort option. If only one value exists,
    still present it for explicit selection.
 
-**MUST: ask every harness, model and effort question through the host's GUI/TUI
-single-choice picker, using the same structured question controls as predefined
-workflow preflight.** Follow the shared question lifecycle and populate the
-actual tool `options` field with selectable catalog values. A chat message,
-numbered prose list, or text-only question with choices in its title does not
-satisfy this rule. Paginate choices when the picker limits option counts.
+**MUST: ask every harness, model and effort question explicitly.** Prefer the
+host's GUI/TUI single-choice picker, using the same controls as predefined
+workflow preflight. Follow the shared question lifecycle and populate the
+actual tool `options` field with selectable catalog values. Paginate choices
+when the picker limits option counts.
 
-If no permitted GUI/TUI picker is available, stop authoring and explain that
-structured selection is required. Preserve answers in the conversation, but do
-not fall back to typed chat answers, invent defaults, or save a partial workflow.
-This requirement overrides the shared reference's optional text fallback for
-these authoring questions. An asynchronous display acknowledgement is not an
+If no permitted native picker or rendered MCP form is usable, use the shared
+main-harness text fallback with the same catalog values and stage ordering.
+Preserve answers in the conversation; never invent defaults or save a partial
+workflow. An asynchronous display acknowledgement is not an
 answer: keep the question pending until the user submits a selection.
 
 Do not batch

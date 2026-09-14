@@ -206,9 +206,8 @@ Emit ONE `AskUserQuestion`:
      Include this option ONLY when `S` ∈ `allowed_letters` — the
      Sonar queue (`F,A`) never renders it; every fetched Sonar
      issue must end Fixed or Accepted.
-  4. `Custom decisions` — edit the decisions via the always-
-     available **Other** text input. Use this to override
-     Claude's picks or to type the string from scratch.
+  4. `Custom decisions` - open a separate main-harness text question
+     to override the suggested decisions or enter them from scratch.
 
 For the Humans queue (`auto_classify=false`), the three visible
 options are `All Fix` / `All Skip` / `Custom decisions` — no
@@ -222,14 +221,18 @@ picks-action option.
 - `All Skip` → synthesise `1S 2S 3S 4S 5S` (trimmed to page
   size). (Only reachable on queues whose `allowed_letters`
   include `S` — see §3b.)
-- `Custom decisions` → the user typed a string via Other. Parse
-  it with the grammar in §4.
+- `Custom decisions` -> ask for the decision string in a separate native
+  text question, or the shared main-harness text fallback if no permitted
+  UI is usable. Preserve this page until a real answer arrives, then parse
+  it with the grammar in §4. The selected label alone is not an answer string.
 
-**Other-text precedence.** `AskUserQuestion` always exposes an
-`Other` free-form text input regardless of the option set. Apply
-this precedence when resolving the response:
+**Custom-text precedence.** Use the actual response schema of the main
+harness's question tool. Do not assume it supplies both an option and text.
+If the client supports direct custom text, apply this precedence:
 
-- If the user picked `Custom decisions` → parse the Other text.
+- If the user picked `Custom decisions` and supplied non-empty accompanying
+  text, parse that text without asking again. Otherwise ask the separate
+  text question described above.
 - If the user picked `Other` directly (no option label chosen,
   only free-form text) → treat that as `Custom decisions` and
   parse the Other text.
@@ -240,16 +243,14 @@ this precedence when resolving the response:
   `"Ignored extra text typed in Other — <option-label> was
   picked. Re-run and pick Custom decisions if you meant to
   override."`.
-- If the user picked `Custom decisions` but the Other text is
-  empty or whitespace-only → re-ask the same page with
-  `"Custom decisions picked but no string typed — type a
-  decision string in Other, e.g. '1F 2A 3S 4F 5A' (or pick All
-  Skip to skip the whole page)."`. An empty string would
+- If the separate text answer is empty or whitespace-only, keep the page
+  pending and re-ask that text question with a valid example for this queue.
+  Explicit cancellation stops without recording decisions. An empty string would
   otherwise parse as "no tokens" and implicit-skip every item
   on the page; force an explicit decision.
-- If the user picked nothing AND typed nothing → re-ask the
-  same page with `"No decision recorded — pick an option or
-  type a decision string in Other."`.
+- If the tool only acknowledged displaying the question, keep waiting.
+  If the user explicitly cancelled, stop. An empty submitted answer keeps
+  the page pending; re-ask without recording decisions.
 
 #### 3d. Validate and record
 
@@ -299,10 +300,12 @@ walk the page in order and append a decision entry to
   draft text). Then `AskUserQuestion`:
     - question: `Reply to @<author> on <file:line> — confirm or edit?`
     - header: `Reply <i>/<N>` (≤12 chars; truncate)
-    - options: `Post as drafted` / `Skip — don't reply` —
-      the always-available Other input lets the user paste
-      an edited reply body verbatim. If the user typed Other,
-      use that as the final body; if they picked
+    - options: `Post as drafted` / `Edit reply` / `Skip - don't reply`.
+      `Edit reply` opens a separate main-harness text question under the
+      shared native-first lifecycle. Keep the item pending until a non-empty
+      edited reply arrives. If the client instead returns direct custom text,
+      use it as the final body. Explicit cancellation stops without recording
+      a reply. If they picked
       `Post as drafted`, use the drafted body; if they picked
       `Skip — don't reply`, downgrade this item's letter to
       `S` (record `{ item, letter: S }`) and skip the append

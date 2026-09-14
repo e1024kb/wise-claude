@@ -13,7 +13,11 @@ allowed-tools: Read, Write, Skill, AskUserQuestion, TodoWrite, Task, Agent, Team
 
 # /wise-workflow-run - the conductor
 
-Before asking any user question, read and follow the
+Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
+for unavailable models or delegation routes, including in autonomous procedures.
+
+At every skill start, identify your main/child role and the current client
+and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
 questions in autonomous or otherwise prompt-free procedures.
@@ -52,11 +56,18 @@ instead.
 
 ## 2. Pre-flight
 
-`wise_preflight {workflow, cwd, answers, interactive: true}`; `cwd` is
+First resolve the main client's GUI/TUI controls using the shared startup
+contract. Prefer its native question tool with
+`wise_preflight {workflow, cwd, answers, context, interactive: false}`; `cwd` is
 the absolute git toplevel, else pwd; `answers` is `{}` on the first
-call. The MCP server owns the interaction and opens one host form per
-question. On success it returns `questions: []` plus the collected
-`answers`; pass those answers to `wise_run`.
+call. Pass the conversation context needed for input defaults on every staged call.
+Render and answer each stage through the main client's native control, then
+re-call preflight with cumulative answers. If no native control is permitted,
+use `interactive: true` only for MCP forms rendered in this same client.
+If neither UI route is usable, ask through the shared main-harness text fallback
+and continue with `interactive: false` and explicit cumulative answers.
+The main harness still owns the interaction. Pass the completed answers to
+`wise_run` only after `questions: []`.
 
 - `WORKFLOW_NOT_FOUND`: say so, stop.
 - `WORKFLOW_INVALID`: list `path: message (hint)` and stop. A v1
@@ -69,15 +80,19 @@ question. On success it returns `questions: []` plus the collected
   (`plugin:<name>` needs `/plugin install`, `tool:<name>` needs the
   binary on PATH) and stop; `wise_run` refuses with `REQUIRES_MISSING`
   until they are installed.
-- `PREFLIGHT_CANCELLED`: stop without starting a run.
+- `PREFLIGHT_CANCELLED`: stop on confirmed user cancellation. If the MCP form
+  did not render, use the shared text fallback with any returned `error.answers`.
+  If visibility is unknown, clarify cancellation versus text continuation first.
 - `INTERACTIVE_UI_REQUIRED`: call `wise_preflight` with `interactive: false`
   and render each staged question through the host's native picker when available.
-  Otherwise use the explicit CLI interaction route in host control. Show each
-  engine-provided question, wait for the user's answer, and submit it unchanged.
-  Never turn a displayed default into an answer. Cancellation stops collection.
+  Otherwise use the shared main-harness text fallback. Never
+  launch a terminal fallback, dump the raw questionary into chat, turn a
+  displayed default into an answer, or start a run from the TUI. Cancellation
+  stops collection.
 
-The questionary is staged. The first form asks `step-select`
-(which optional steps run) and the `input.<name>` questions. Once
+The questionary is staged. The first form asks `worktree` (current checkout or
+separate worktree), then `step-select` (which optional steps run) and the
+`input.<name>` questions. Once
 `step-select` is answered the tuning stages follow, for every group a
 step that will run uses (selected, and not ruled out by a `when:` the
 inputs already settle, such as `implement_mode: plan-only`): which CLI
@@ -90,15 +105,23 @@ it asks `permissions.<harness>` once per selected or fallback provider
 takes (`effort.<group>`). Each accepted form unlocks the next stage.
 An answered question is never returned twice.
 
-MUST: every `harness.<group>`, `permissions.<harness>`, `model.<group>`, `effort.<group>` and
-`step-select` question the engine returns is put to the user. Never
+The main harness conductor owns all user interaction. Provider children and
+nested agents may request an answer through `wise_ask`, but they never open a
+GUI, TUI, terminal prompt, or ordinary chat questionnaire themselves. Render
+every resulting gate in this main harness and return the answer with
+`wise_answer`.
+
+MUST: every `worktree`, `step-select`, `input.<name>`, `harness.<group>`,
+`permissions.<harness>`, `model.<group>` and `effort.<group>` question the engine
+returns is put to the user. Never
 answer one yourself, including a permission question; never take its default to save a call, never
 start the run with a stage still open. The only time a harness or
 model question is not asked is when the engine did not return it
 (one CLI installed, a one-model catalog, a one-effort model). `wise_run`
 refuses with `MISSING_ANSWERS` when a pre-flight question was skipped.
 
-Prefer MCP form elicitation, then the host's native picker. Follow the
+Prefer the main harness's available native structured picker, then MCP form
+elicitation, then main-harness text fallback if neither is usable. Follow the
 [asynchronous question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open):
 a display acknowledgement is not an answer; keep the turn active while that
 question is pending, without sending a final response that dismisses it.
@@ -112,11 +135,13 @@ answer unless the user explicitly selected that mode for both providers.
 Render `choice` questions with options and `multi` questions with native
 multi-select or the shared clickable Include/Exclude sequence. Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
-In the explicit
-CLI fallback, preserve the same labels, descriptions and values. Ask one
-question at a time, preserve the defaults and option values, skip
-`locked: true` questions and `input.<name>` filled positionally, and
-call raw `wise_preflight` after each answer to unlock the next stage.
+Codex Desktop currently advertises MCP elicitation but can immediately decline
+standard forms without rendering them, so use its native inline picker when that
+control is available. An unrendered automatic decline is a failed transport
+route, not a user cancellation. Codex CLI does not render MCP array-enum fields;
+current Wise versions encode MCP multi-select as required boolean fields instead.
+Standalone `wise-engine preflight <workflow> --interactive` is only for an
+explicitly requested standalone terminal session, never a skill fallback.
 Never answer one for the user or drop it to save a call.
 
 ## 3. Context and start

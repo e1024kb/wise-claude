@@ -1,5 +1,9 @@
 # review-branch-auto — autonomous high-depth code-review branch gate
 
+Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 The branch-review gate of `ticket-auto`'s per-ticket pipeline. Once a
 ticket's branch is fully implemented and every task is committed — but
 **before the branch is pushed / a PR is opened** — this reviews the
@@ -13,8 +17,8 @@ commit.
 
 Prose form of the gate, read by the PR watcher's review fallback
 (`review-fallback-auto.md`); the standalone gate is the `code-review`
-workflow (`workflows/code-review/`). It is decision-free — it NEVER
-calls `AskUserQuestion`.
+workflow (`workflows/code-review/`). Routine work is decision-free; model
+unavailability is relayed to the main harness's model-fallback picker.
 
 ## Context the caller supplies
 
@@ -141,7 +145,7 @@ Emit, as the FINAL line — alone, no markdown, no backticks — per `fixer`:
 
 ## Guardrails
 
-- Fully autonomous — never call `AskUserQuestion`.
+- No routine questions. Relay required model-fallback choices to the main harness.
 - Never `git push` — the caller's push step owns that.
 - This gate does ONE review pass per invocation and never iterates
   internally — in `fixer=self` that is one pass + one fix-apply + one
@@ -150,5 +154,5 @@ Emit, as the FINAL line — alone, no markdown, no backticks — per `fixer`:
 - Bounded apply — guard the change, do not redesign it; respect the
   plan's deliberate decisions when `plan_path` is supplied.
 - Never append an AI-attribution trailer to the fix commit.
-- All work runs in this Claude Code session with native tools. Never
+- All work runs in the current harness with permitted native tools. Never
   shell out to `claude -p` or any external agent / LLM CLI.

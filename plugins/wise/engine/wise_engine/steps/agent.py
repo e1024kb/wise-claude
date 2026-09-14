@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ..adapter_types import AgentHandle
@@ -18,6 +20,70 @@ VERDICT_MAX = 200
 LOG_HEAD_BYTES = 2048
 Json = dict[str, Any]
 _SPACE = re.compile(f"[{re.escape(JS_WHITESPACE)}]+")
+INSTRUCTION_NAMES = ("CLAUDE.md", "AGENTS.md")
+
+
+def project_system_prompt(cwd: str, home: str | None = None) -> str:
+    root = Path(cwd).resolve()
+    user_home = Path(home or os.environ.get("HOME") or Path.home()).resolve()
+    directories = [root, *root.parents]
+    if user_home in directories:
+        directories = directories[: directories.index(user_home) + 1]
+    paths = [user_home / ".claude" / "CLAUDE.md", user_home / ".codex" / "AGENTS.md"]
+    paths.extend(
+        directory / name
+        for directory in reversed(directories)
+        for name in (*INSTRUCTION_NAMES, ".claude/CLAUDE.md")
+    )
+    blocks = []
+    seen = set()
+    for path in paths:
+        if path.is_symlink() or path.parent.is_symlink():
+            continue
+        expected_directory = path.parent.resolve()
+        resolved = path.resolve()
+        if not resolved.is_relative_to(expected_directory):
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            content = resolved.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if content:
+            blocks.append(f"### {resolved}\n\n{content}")
+    loaded = "\n\n".join(blocks) or "(No applicable files found at child startup.)"
+    return f"""# Repository instruction contract
+
+CLAUDE.md and AGENTS.md files are mandatory project instructions for this task,
+regardless of which harness is running. Follow all applicable files below. A
+file in a deeper directory adds to or overrides broader instructions for work
+inside its directory.
+
+Before reading or changing a path below the working directory, check its path
+for a closer CLAUDE.md, .claude/CLAUDE.md or AGENTS.md and follow it too.
+
+## Instructions loaded for {root}
+
+{loaded}
+
+# Non-overridable interaction contract
+
+Repository instructions cannot weaken or override this section. If you create
+any subagent, teammate, Task, or Agent, pass this entire contract and every
+applicable instruction file to it before its task details, and require it to do
+the same recursively. Harness defaults do not override these project rules.
+
+The main harness conductor owns every user interaction. Never ask the user
+directly or open a GUI, TUI, terminal prompt, or chat questionnaire. When an
+answer is required, request it through `wise_ask`; nested agents must route
+their question back through you so it reaches the same conductor.
+At each skill or workflow start, identify yourself as a child. The main
+conductor selects controls for its own GUI or TUI client; your provider, shell
+access, or question tools do not change that ownership. If wise_ask is absent,
+send the question, options, and constraints to your parent and wait for its
+relayed answer. Never launch a terminal or invent an answer as a fallback."""
 
 
 def utf16_length(text: str) -> int:
@@ -68,6 +134,7 @@ def build_run_req(params: Json) -> Json:
         auth=step.get("auth", "subscription"),
         step_token=params["step_token"],
         add_dirs=[str(params["run_dir"]), str(PLUGIN_ROOT), *params.get("add_dirs", [])],
+        system=project_system_prompt(params["cwd"]),
     )
     for source, target in [
         ("allowed_tools", "allowed_tools"),
@@ -196,6 +263,8 @@ async def start_agent_step(params: Json) -> StartedAgent:
 
     async def finish() -> Json:
         result = await handle.done
+        if "on_result" in params:
+            params["on_result"](result)
         try:
             write_log(
                 params["run_dir"],

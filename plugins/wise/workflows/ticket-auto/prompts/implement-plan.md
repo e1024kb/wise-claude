@@ -1,5 +1,9 @@
 # implement-plan — execute a PLAN-*.md autonomously (parallel executor agents)
 
+Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
+Unavailable models or delegation routes require a main-harness GUI/TUI selection,
+including in autonomous paths. Preserve the procedure's other gates and limits.
+
 Autonomously implement a written implementation plan in a git
 working tree using a phase-gated executor pattern: the plan's task **waves**
 are phase gates, each task in a wave is handed to a fresh-context
@@ -58,8 +62,14 @@ guardrails, files to avoid) appended to the shared spec. Each executor has
 tasks' transcripts. Every executor is dispatched with `model: <opus_model>`
 (the caller's `opus_model` context — `opus`, or `claude-opus-4-8` under the
 `low` profile, which never dispatches Opus 5; missing → `opus`) and told to
-reason at **high** effort — implementation runs on Opus, whichever dispatch
-mode below is used.
+reason at **high** effort. Opus is preferred in either dispatch mode; when
+unavailable, relay the shared model-fallback picker before starting that wave.
+
+Prepend the current repository instruction contract, including every applicable
+CLAUDE.md and AGENTS.md file, to each executor prompt. Require each executor to
+check for closer instruction files before touching a path and to pass the same
+contract recursively if it delegates again. Native Task or Agent inheritance is
+not a substitute for including the contract explicitly.
 
 How they're dispatched depends on `SUPERVISE`:
 
@@ -100,10 +110,9 @@ subagents all return, the orchestrator processes each `done` task
    stage, validate, or commit that task's files (the pass-failure
    policy forbids staging after a broken run), and continue with the
    next task — do not abort the wave. If the `code-simplifier` agent is
-   **unavailable** (dispatch rejected — the reference's
-   dispatch-failure class), skip the pass for this task AND every
-   later task in the run (don't re-probe), note it once, and continue
-   to the task's commit — the task is not failed.
+   **unavailable**, follow the reference's model-fallback choice before
+   continuing. Reuse an approved replacement for later equivalent tasks only
+   if the picker explicitly covered them. Do not silently skip the pass.
 2. **Commit.** Stage only that task's `files` (now including any
    simplify edits), draft a Conventional-Commits subject (scoped with any
    verified ticket reference suitable for a commit scope), `git commit`. One

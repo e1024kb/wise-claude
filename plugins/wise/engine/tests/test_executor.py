@@ -13,7 +13,14 @@ import pytest
 from wise_engine.adapter_types import AgentHandle
 from wise_engine.daemon import DaemonRuntime, daemon_paths
 from wise_engine.defs import load_and_validate
-from wise_engine.executor import create_executor, load_caps, default_backoff_ms, detect_project
+from wise_engine.executor import (
+    create_executor,
+    default_backoff_ms,
+    detect_project,
+    load_caps,
+    workflow_branch_component,
+    workflow_manages_worktrees,
+)
 from wise_engine.ledger import read_state, read_events, utc_now, usage_total
 from wise_engine.preflight import build_questionary, fill_answers
 from wise_engine.rpc import RpcError, domain_code, CallContext
@@ -165,6 +172,29 @@ def test_caps_backoff_project(tmp_path):
     assert detect_project(str(tmp_path))["kind"] == "python"
 
 
+def test_workflow_branch_component_is_git_ref_safe_and_bounded():
+    assert workflow_branch_component("team plan: review") == "team-plan-review"
+    assert workflow_branch_component(":::") == "workflow"
+    assert len(workflow_branch_component("a" * 200)) == 80
+
+
+def test_only_enabled_units_steps_manage_worktrees():
+    definition = {
+        "inputs": [],
+        "steps": [
+            {"id": "prepare", "type": "agent"},
+            {"id": "batch", "type": "units"},
+        ],
+    }
+    assert not workflow_manages_worktrees(definition, {"prepare"})
+    assert not workflow_manages_worktrees(definition, {"prepare", "batch"})
+    assert workflow_manages_worktrees(definition, {"batch"})
+    definition["steps"].append({"id": "confirm", "type": "approval"})
+    assert workflow_manages_worktrees(definition, {"batch", "confirm"})
+    definition["inputs"] = [{"name": "worktree_mode"}]
+    assert workflow_manages_worktrees(definition, {"prepare", "batch"})
+
+
 def test_preflight_strict_answers_and_errors(tmp_path):
     async def scenario():
         rig = Rig(tmp_path)
@@ -195,6 +225,40 @@ def test_preflight_strict_answers_and_errors(tmp_path):
     asyncio.run(scenario())
 
 
+def test_preflight_uses_request_context_for_input_defaults(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "context-definitions"
+        definitions.mkdir()
+        (definitions / "context.yaml").write_text(
+            "version: 2\n"
+            "name: context\n"
+            "inputs:\n"
+            "  - name: guidance\n"
+            "    prompt: Guidance?\n"
+            "    from-context: guidance\n"
+            "steps:\n"
+            "  - id: answer\n"
+            "    type: agent\n"
+            "    prompt: Answer.\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            result = await rig.executor.preflight(
+                {
+                    "workflow": "context",
+                    "cwd": rig.cwd,
+                    "answers": {},
+                    "context": {"guidance": "keep it small"},
+                }
+            )
+            assert result["defaults"]["input.guidance"] == "keep it small"
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "workflow,status",
     [
@@ -215,6 +279,155 @@ def test_basic_execution(tmp_path, workflow, status):
             assert events[0]["type"] == "run.started"
             assert events[-1]["type"] == "run.done"
             assert not rig.executor.live_runs()
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_separate_worktree_runs_ordinary_workflow_on_new_branch(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        subprocess.run(["git", "init", "-q", "-b", "main", rig.cwd], check=True)
+        source = Path(rig.cwd)
+        (source / "tracked.txt").write_text("tracked\n")
+        (source / ".worktreeinclude").write_text(".env\n")
+        (source / ".env").write_text("LOCAL=1\n")
+        subprocess.run(["git", "add", "tracked.txt", ".worktreeinclude"], cwd=source, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "initial",
+            ],
+            cwd=source,
+            check=True,
+        )
+        try:
+            run = await rig.conduct(answers={"worktree": "new"})
+            state = await rig.status(run["run_id"], "completed")
+            selected = Path(state["cwd"])
+            assert state["source_cwd"] == str(source)
+            assert state["worktree"]["path"] == str(selected)
+            assert state["worktree"]["branch"].startswith("wise/single-agent-")
+            assert selected != source and (selected / "tracked.txt").is_file()
+            assert (selected / ".env").read_text() == "LOCAL=1\n"
+            assert rig.adapter.calls[0]["cwd"] == str(selected)
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_separate_worktree_requires_a_git_checkout(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.conduct(answers={"worktree": "new"})
+            assert domain_code(error.value) == "WORKTREE_CREATE_FAILED"
+            assert rig.rt.list_run_dirs() == []
+            assert not rig.adapter.calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("answers", [{"worktree": "elsewhere"}, {"input.worktree_mode": "x"}])
+def test_invalid_worktree_answer_never_falls_back_to_default(tmp_path, answers):
+    async def scenario():
+        rig = Rig(tmp_path)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "single-agent",
+                        "cwd": rig.cwd,
+                        "answers": {"permissions.claude": "auto", **answers},
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["missing"] == ["worktree"]
+            assert [question["id"] for question in error.value.data["questions"]] == ["worktree"]
+            assert rig.rt.list_run_dirs() == []
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_invalid_input_retry_preserves_context_default(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "retry-definitions"
+        definitions.mkdir()
+        (definitions / "retry.yaml").write_text(
+            "version: 2\n"
+            "name: retry\n"
+            "inputs:\n"
+            "  - name: mode\n"
+            "    prompt: Mode?\n"
+            "    from-context: guidance\n"
+            "    validate: '^(small|large)$'\n"
+            "steps:\n"
+            "  - id: verify\n"
+            "    type: bash\n"
+            "    run: 'true'\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "retry",
+                        "cwd": rig.cwd,
+                        "answers": {"worktree": "current", "input.mode": "invalid"},
+                        "context": {"guidance": "small"},
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["questions"][0]["default"] == "small"
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_shared_worktree_answer_reaches_workflow_managed_input(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "managed-definitions"
+        definitions.mkdir()
+        (definitions / "managed.yaml").write_text(
+            "version: 2\n"
+            "name: managed\n"
+            "inputs:\n"
+            "  - name: worktree_mode\n"
+            "    prompt: Tree?\n"
+            "    default: current\n"
+            "    validate: '^(current|new)$'\n"
+            "steps:\n"
+            "  - id: verify\n"
+            "    type: bash\n"
+            "    run: test '{{worktree_mode}}' = new\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            run = await rig.conduct(
+                "managed", answers={"worktree": "new"}, inputs={"worktree_mode": "current"}
+            )
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["worktree_mode"] == "new"
+            assert state["cwd"] == rig.cwd
         finally:
             await rig.close()
 
@@ -408,6 +621,156 @@ class Held:
             done.set_result(schema_answer(req))
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex", "cursor", "gemini", "grok"])
+def test_dispatch_relay_questions_and_result(tmp_path, harness):
+    async def scenario():
+        held = Held()
+        rig = Rig(tmp_path, start_agent=held.start)
+        try:
+            run = rig.executor.dispatch_start(
+                dict(
+                    harness=harness,
+                    prompt="literal {{inputs.keep}}",
+                    cwd=rig.cwd,
+                    mode="auto",
+                    **{"add-dir": str(tmp_path / "extra")},
+                )
+            )
+            run_id = run["run_id"]
+            await rig.until(lambda: bool(held.calls))
+            req = held.calls[0][0]
+            assert req["prompt"] == "literal {{inputs.keep}}"
+            assert str(tmp_path / "extra") in req["add_dirs"]
+            assert (
+                req["mcp_config"]["mcpServers"]["wise-engine"]["env"]["WISE_STEP_TOKEN"]
+                == req["step_token"]
+            )
+            for options, value in [(["Allow", "Decline"], "Decline"), (None, "custom decision")]:
+                question = dict(
+                    token=req["step_token"], question="Main harness decision?", timeout_ms=0
+                )
+                if options is not None:
+                    question["options"] = options
+                pending = await rig.executor.child_ask(question)
+                assert pending["status"] != "answered"
+                assert not held.calls[0][1].done()
+                gate = rig.state(run_id)["gate"]
+                assert rig.executor.answer(
+                    dict(run_id=run_id, gate_id=gate["gate_id"], value=value)
+                )["accepted"]
+                answered = await rig.executor.child_ask({**question, "ask_id": pending["ask_id"]})
+                assert answered["value"] == value
+            held.finish()
+            await rig.status(run_id, "completed")
+            status = await rig.executor.status(dict(run_id=run_id))
+            assert status["dispatch_result"]["exit"] == "ok"
+            assert len(held.calls) == 1
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_relay_restores_pending_question(tmp_path):
+    async def scenario():
+        held = Held()
+        rig = Rig(tmp_path, start_agent=held.start)
+        try:
+            run_id = rig.executor.dispatch_start(dict(harness="claude", prompt="ask", cwd=rig.cwd))[
+                "run_id"
+            ]
+            await rig.until(lambda: bool(held.calls))
+            token = held.calls[0][0]["step_token"]
+            question = dict(token=token, question="Continue?", timeout_ms=0)
+            pending = await rig.executor.child_ask(question)
+            state = rig.state(run_id)
+            gate_id = state["gate"]["gate_id"]
+            assert state["dispatch_step_token"] == token
+            assert state["dispatch_pending_asks"][pending["ask_id"]]["gate_id"] == gate_id
+
+            rig.executor.lives.pop(run_id)
+            assert rig.executor.answer(dict(run_id=run_id, gate_id=gate_id, value="Continue"))[
+                "accepted"
+            ]
+            answered = await rig.executor.child_ask({**question, "ask_id": pending["ask_id"]})
+            assert answered["value"] == "Continue"
+            assert "dispatch_pending_asks" not in rig.state(run_id)
+
+            held.finish()
+            await rig.status(run_id, "completed")
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("exit_code", ["rate_limited", "auth", "timeout", "error"])
+def test_dispatch_relay_preserves_failed_result_without_retry(tmp_path, exit_code):
+    async def scenario():
+        rig = Rig(tmp_path)
+        rig.adapter.script = lambda req, count: {
+            **schema_answer(req),
+            "exit": exit_code,
+            "error": "provider failure",
+            "text": "partial output",
+        }
+        try:
+            run_id = rig.executor.dispatch_start(dict(harness="claude", prompt="run", cwd=rig.cwd))[
+                "run_id"
+            ]
+            await rig.status(run_id, "failed")
+            status = await rig.executor.status(dict(run_id=run_id))
+            assert status["dispatch_result"]["text"] == "partial output"
+            assert status["dispatch_result"]["exit"] == exit_code
+            assert len(rig.adapter.calls) == 1
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_relay_refuses_missing_channel_and_invalid_flags(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path, channel={"inject": False})
+        try:
+            with pytest.raises(RpcError):
+                rig.executor.dispatch_start(dict(harness="claude", cwd=rig.cwd))
+            with pytest.raises(RpcError):
+                rig.executor.dispatch_start(
+                    dict(harness="not-a-harness", prompt="run", cwd=rig.cwd)
+                )
+            with pytest.raises(RpcError) as failure:
+                rig.executor.dispatch_start(dict(harness="claude", prompt="run", cwd=rig.cwd))
+            assert domain_code(failure.value) == "INTERACTION_RELAY_UNAVAILABLE"
+            assert not rig.executor.lives and not rig.adapter.calls
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_relay_cancel_stops_waiting_child(tmp_path):
+    async def scenario():
+        held = Held()
+        rig = Rig(tmp_path, start_agent=held.start)
+        try:
+            run_id = rig.executor.dispatch_start(dict(harness="claude", prompt="ask", cwd=rig.cwd))[
+                "run_id"
+            ]
+            await rig.until(lambda: bool(held.calls))
+            await rig.executor.child_ask(
+                dict(token=held.calls[0][0]["step_token"], question="Continue?", timeout_ms=0)
+            )
+            rig.executor.cancel(dict(run_id=run_id))
+            assert rig.state(run_id)["status"] == "cancelled"
+            assert held.kills
+            assert not rig.state(run_id).get("gate")
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 def test_child_channel_ask_report_context_checkpoint_and_token_end(tmp_path):
     async def scenario():
         held = Held()
@@ -591,14 +954,14 @@ def test_context_choice_gates_match_runtime_staging(
             staged = build_questionary(
                 defn,
                 {"context": context},
-                {"permissions.claude": "auto", **answers},
+                {"worktree": "current", "permissions.claude": "auto", **answers},
             )
             assert ("model.gated" in [question["id"] for question in staged["questions"]]) is active
 
             params = {
                 "workflow": "gated-tuning",
                 "cwd": rig.cwd,
-                "answers": {"permissions.claude": "auto", **answers},
+                "answers": {"worktree": "current", "permissions.claude": "auto", **answers},
                 "context": context,
             }
             if active:
@@ -626,7 +989,11 @@ def test_explicit_optional_unset_overrides_context(tmp_path, answers, expected):
                 {
                     "workflow": "channel",
                     "cwd": rig.cwd,
-                    "answers": {"permissions.claude": "auto", **answers},
+                    "answers": {
+                        "worktree": "current",
+                        "permissions.claude": "auto",
+                        **answers,
+                    },
                     "context": {"guidance": "engines"},
                 },
                 rig.ctx,
@@ -694,7 +1061,7 @@ def test_inferred_choice_runtime_precedence(
                 {
                     "workflow": "enum-input",
                     "cwd": rig.cwd,
-                    "answers": answers,
+                    "answers": {"worktree": "current", **answers},
                     "context": context,
                     "inputs": inputs,
                 },
@@ -726,7 +1093,7 @@ def test_run_rejects_invalid_inferred_choice_inputs(tmp_path, default, answers, 
                     {
                         "workflow": "enum-input",
                         "cwd": rig.cwd,
-                        "answers": answers,
+                        "answers": {"worktree": "current", **answers},
                         "context": context,
                         "inputs": inputs,
                     },
@@ -941,6 +1308,18 @@ def test_current_checkout_lock_spans_gates_and_rejects_another_run(tmp_path):
             await rig.close()
 
     asyncio.run(scenario())
+
+
+def test_current_checkout_lock_propagates_operational_git_errors(tmp_path, monkeypatch):
+    rig = Rig(tmp_path)
+    live = type("Live", (), {"checkout_lock": None})()
+
+    def fail(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 10)
+
+    monkeypatch.setattr("wise_engine.executor.subprocess.check_output", fail)
+    with pytest.raises(subprocess.TimeoutExpired):
+        rig.executor.lock_checkout(live, {"cwd": rig.cwd, "inputs": {"worktree_mode": "current"}})
 
 
 @pytest.mark.parametrize("ending", ["cancel", "fail", "stop", "task-cancel"])

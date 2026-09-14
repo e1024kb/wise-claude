@@ -21,10 +21,26 @@ from .rpc import RpcError, domain_code
 from .scheduler import JS_WHITESPACE, UNDEFINED, js_string
 
 Json = dict[str, Any]
-CLIENT_COMMANDS = ("run", "status", "answer", "cancel", "resume", "report", "wait", "nudge")
+CLIENT_COMMANDS = (
+    "dispatch",
+    "preflight",
+    "run",
+    "status",
+    "answer",
+    "cancel",
+    "resume",
+    "report",
+    "wait",
+    "nudge",
+)
 CLIENT_USAGE = """wise-engine <command> [options]
 
 Commands:
+  dispatch --relay --harness <h> (--prompt-file <path> | --prompt <text>)
+                              [--model <id>] [--effort <e>]
+                              start a child with main-harness question relay; returns run_id
+  preflight <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] --interactive
+                              collect every staged answer in the terminal TUI without starting a run
   run <workflow> [--cwd <dir>] [--answers <json>] [--context <json>] [--input name=value ...]
                  [--interactive] [--follow] [--timeout-ms <n>]
                               preflight, start a run; --interactive asks every question in the TUI,
@@ -42,7 +58,7 @@ Commands:
 Options: --json (default) | --text   --data-root <dir>   --socket <path>   --no-start
 Exit codes: 0 ok, 1 error or run failed/cancelled, 2 not found, 64 usage, 69 daemon unavailable
 """
-BOOLEAN_FLAGS = frozenset(("text", "json", "interactive", "follow", "no-start"))
+BOOLEAN_FLAGS = frozenset(("text", "json", "interactive", "follow", "no-start", "relay"))
 
 
 def parse_args(argv: list[str]) -> Json:
@@ -410,19 +426,21 @@ async def read_question(question: Json, stdin: LineSource, io: Any) -> Any:
 
 
 async def collect_interactive_answers(
-    client: Client, workflow: str, cwd: str, given: Json, stdin: LineSource, io: Any
+    client: Client,
+    workflow: str,
+    cwd: str,
+    given: Json,
+    context: Json,
+    stdin: LineSource,
+    io: Any,
 ) -> Json | None:
     answers = dict(given)
     for _ in range(256):
-        pre = await client.call("preflight", {"workflow": workflow, "cwd": cwd, "answers": answers})
-        question = next(
-            (
-                item
-                for item in pre["questions"]
-                if not item.get("locked") and item["id"] not in answers
-            ),
-            None,
+        pre = await client.call(
+            "preflight",
+            {"workflow": workflow, "cwd": cwd, "answers": answers, "context": context},
         )
+        question = next((item for item in pre["questions"] if not item.get("locked")), None)
         if question is None or pre["requires_missing"]:
             return {"pre": pre, "answers": answers}
         answer = await read_question(question, stdin, io)
@@ -532,7 +550,9 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
     stdin = LineSource(getattr(io, "stdin", None) or sys.stdin)
     try:
         if bool_flag(parsed, "interactive"):
-            collected = await collect_interactive_answers(client, workflow, cwd, given, stdin, io)
+            collected = await collect_interactive_answers(
+                client, workflow, cwd, given, context, stdin, io
+            )
             if collected is None:
                 out.error(
                     {"code": "PREFLIGHT_UNANSWERED", "workflow": workflow},
@@ -547,7 +567,8 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
             }
         else:
             pre = await client.call(
-                "preflight", {"workflow": workflow, "cwd": cwd, "answers": given}
+                "preflight",
+                {"workflow": workflow, "cwd": cwd, "answers": given, "context": context},
             )
             filled = fill_answers(pre["questions"], given)
             known = len(given)
@@ -556,7 +577,13 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
                     break
                 known = len(filled["answers"])
                 pre = await client.call(
-                    "preflight", {"workflow": workflow, "cwd": cwd, "answers": filled["answers"]}
+                    "preflight",
+                    {
+                        "workflow": workflow,
+                        "cwd": cwd,
+                        "answers": filled["answers"],
+                        "context": context,
+                    },
                 )
                 filled = fill_answers(pre["questions"], filled["answers"])
             if filled["missing"]:
@@ -604,6 +631,63 @@ async def cmd_run(parsed: Json, io: Any, out: Out) -> int:
         return 0
     finally:
         stdin.close()
+        client.close()
+
+
+async def cmd_preflight(parsed: Json, io: Any, out: Out) -> int:
+    if not bool_flag(parsed, "interactive"):
+        raise UsageError("preflight: the daemon route requires --interactive")
+    workflow = require_arg(parsed, 0, "workflow")
+    cwd = str_flag(parsed, "cwd") or os.getcwd()
+    given = json_flag(parsed, "answers") or {}
+    context = json_flag(parsed, "context") or {}
+    client = await open_client(parsed, io)
+    stdin = LineSource(getattr(io, "stdin", None) or sys.stdin)
+    try:
+        collected = await collect_interactive_answers(
+            client, workflow, cwd, given, context, stdin, io
+        )
+        if collected is None:
+            out.error(
+                {"code": "PREFLIGHT_UNANSWERED", "workflow": workflow},
+                lambda: "stdin closed before interactive preflight was complete; no run started",
+            )
+            return 64
+        pre, answers = collected["pre"], collected["answers"]
+        if pre["requires_missing"]:
+            out.error(
+                {
+                    "code": "REQUIRES_MISSING",
+                    "workflow": pre["workflow"],
+                    "missing": pre["requires_missing"],
+                    "questions": pre["questions"],
+                    "answers": answers,
+                },
+                lambda: f"preflight: missing requirements: {', '.join(pre['requires_missing'])}",
+            )
+            return 64
+        result = {**pre, "questions": [], "answers": answers}
+        out.emit(result, lambda: f"preflight complete ({pre['workflow']})")
+        return 0
+    finally:
+        stdin.close()
+        client.close()
+
+
+async def cmd_dispatch(parsed: Json, io: Any, out: Out) -> int:
+    if not bool_flag(parsed, "relay"):
+        raise UsageError("dispatch: the daemon route requires --relay")
+    flags = {key: values[-1] for key, values in parsed["flags"].items()}
+    flags.setdefault("cwd", os.getcwd())
+    for key in ("cwd", "prompt-file", "add-dir"):
+        if isinstance(flags.get(key), str):
+            flags[key] = os.path.abspath(flags[key])
+    client = await open_client(parsed, io)
+    try:
+        started = await client.call("dispatch_start", flags)
+        out.emit(started, lambda: f"dispatch {started['run_id']} started; follow with wait")
+        return 0
+    finally:
         client.close()
 
 
@@ -720,6 +804,10 @@ async def client_command(argv: list[str], io: Any) -> int:
         io.out(CLIENT_USAGE)
         return 0
     try:
+        if parsed["cmd"] == "dispatch":
+            return await cmd_dispatch(parsed, io, out)
+        if parsed["cmd"] == "preflight":
+            return await cmd_preflight(parsed, io, out)
         if parsed["cmd"] == "run":
             return await cmd_run(parsed, io, out)
         if parsed["cmd"] == "wait":
