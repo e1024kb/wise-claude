@@ -141,6 +141,27 @@ def test_project_system_prompt_skips_symlinked_instruction_files(tmp_path: Path)
     assert "sensitive value" not in prompt
 
 
+def test_project_system_prompt_loads_ancestor_claude_directories(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    child = project / "src"
+    child.mkdir(parents=True)
+    (project / ".claude").mkdir()
+    (project / ".claude" / "CLAUDE.md").write_text("nested configuration rules")
+    assert "nested configuration rules" in project_system_prompt(str(child), str(home))
+
+
+def test_project_system_prompt_skips_symlinked_claude_directory(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "CLAUDE.md").write_text("external private content")
+    (project / ".claude").symlink_to(external, target_is_directory=True)
+    assert "external private content" not in project_system_prompt(str(project), str(home))
+
+
 def test_child_channel_uses_python_runtime(tmp_path: Path) -> None:
     params = agent_params(tmp_path)
     params["channel"] = dict(socket_path="/socket", data_root="/data", engine_root="/engine")

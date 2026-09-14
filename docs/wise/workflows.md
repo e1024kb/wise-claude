@@ -325,11 +325,17 @@ Common fields (`StepBase` and `StepOverrides`):
 | `until` | Deprecated. Accepted on `agent` for one release with a warning; an error on other types. `wise-engine migrate` turns a plain enum regex into `schema` plus `outputs`. |
 
 Every agent receives a harness-independent system contract containing the
-applicable user-level and ancestor CLAUDE.md and AGENTS.md files. The contract
+applicable user-level and ancestor CLAUDE.md, .claude/CLAUDE.md and AGENTS.md files.
+Symlinked instruction files and symlinked configuration directories are not loaded.
+The contract
 requires the child to discover closer files before touching nested paths and to
 pass the same instructions recursively to any subagent it creates. This keeps
 project rules consistent across Claude, Codex, Cursor, Gemini and Grok instead
 of relying on each CLI's native filename support.
+
+Interactive CLI preflight returns `REQUIRES_MISSING` with a nonzero exit code
+when dependencies are unavailable. It preserves pending questions and collected
+answers in the error payload rather than reporting completed collection.
 
 Verdict: first non-empty line of the child's text (200 chars), else the
 JSON headline, else `ok`. Exit classes: `ok`, `error`, `rate_limited`,

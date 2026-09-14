@@ -31,12 +31,14 @@ def project_system_prompt(cwd: str, home: str | None = None) -> str:
         directories = directories[: directories.index(user_home) + 1]
     paths = [user_home / ".claude" / "CLAUDE.md", user_home / ".codex" / "AGENTS.md"]
     paths.extend(
-        directory / name for directory in reversed(directories) for name in INSTRUCTION_NAMES
+        directory / name
+        for directory in reversed(directories)
+        for name in (*INSTRUCTION_NAMES, ".claude/CLAUDE.md")
     )
     blocks = []
     seen = set()
     for path in paths:
-        if path.is_symlink():
+        if path.is_symlink() or path.parent.is_symlink():
             continue
         expected_directory = path.parent.resolve()
         resolved = path.resolve()
@@ -60,7 +62,7 @@ file in a deeper directory adds to or overrides broader instructions for work
 inside its directory.
 
 Before reading or changing a path below the working directory, check its path
-for a closer CLAUDE.md or AGENTS.md and follow it too. If you create any
+for a closer CLAUDE.md, .claude/CLAUDE.md or AGENTS.md and follow it too. If you create any
 subagent, teammate, Task, or Agent, pass this entire contract and every
 applicable instruction file to it before its task details, and require it to do
 the same recursively. Harness defaults do not override these project rules.

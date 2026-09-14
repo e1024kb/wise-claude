@@ -303,6 +303,15 @@ async def test_interactive_preflight_reasks_invalid_existing_answer() -> None:
     assert [call["answers"]["worktree"] for call in calls] == ["invalid", "new"]
 
 
+async def test_interactive_preflight_missing_requirements_never_reports_complete(fake):
+    fake.preflight["requires_missing"] = ["missing-tool"]
+    result = await fake.run(["preflight", "wf", "--interactive"])
+    assert result.code != 0
+    assert json.loads(result.out)["error"]["code"] == "REQUIRES_MISSING"
+    assert "preflight complete" not in result.out
+    assert not fake.method("run")
+
+
 async def test_answers_inputs_defaults_and_staged_preflight(fake):
     result = await fake.run(
         [

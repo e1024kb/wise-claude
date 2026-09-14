@@ -653,6 +653,18 @@ async def cmd_preflight(parsed: Json, io: Any, out: Out) -> int:
             )
             return 64
         pre, answers = collected["pre"], collected["answers"]
+        if pre["requires_missing"]:
+            out.error(
+                {
+                    "code": "REQUIRES_MISSING",
+                    "workflow": pre["workflow"],
+                    "missing": pre["requires_missing"],
+                    "questions": pre["questions"],
+                    "answers": answers,
+                },
+                lambda: f"preflight: missing requirements: {', '.join(pre['requires_missing'])}",
+            )
+            return 64
         result = {**pre, "questions": [], "answers": answers}
         out.emit(result, lambda: f"preflight complete ({pre['workflow']})")
         return 0
