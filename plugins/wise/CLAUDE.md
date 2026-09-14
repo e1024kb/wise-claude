@@ -58,6 +58,14 @@ Current actions (all standalone):
   open gate.
 - `/wise-workflow-remove` — delete a user workflow definition.
 - `/wise-feedback` — file a feedback issue against the marketplace repo.
+- `/wise-exec-on-harness` — run one free-form prompt as a headless child
+  on any supported harness (`claude|codex|cursor|gemini|grok`) at a chosen
+  model, effort and permission mode (`ask|auto|full`). First action is a
+  host inventory of installed and logged-in harnesses; `--on` is validated
+  against it, otherwise the ready ones are offered as a picker. Every other
+  omitted option is asked through a GUI/TUI picker; the prompt is the
+  trailing free text or `--p` / `--prompt`, asked last when missing.
+  Dispatches via `dispatch --relay`; gates relay back to the main harness.
 - `/wise-profile` — set the session's token-budget profile
   (`low|medium|max`, default `medium` = the standard behavior). Stored
   per session; profile-sensitive skills (`wise-pr-watch-auto`)
@@ -241,6 +249,7 @@ plugins/wise/
     ├── wise-prd-architect/           # model-invoked PRD authoring (SKILL.md + agents/ + references/)
     ├── wise-trd-architect/           # model-invoked TRD authoring (SKILL.md + agents/ + references/)
     ├── wise-feedback/SKILL.md       # file a feedback issue
+    ├── wise-exec-on-harness/SKILL.md # run one free-form prompt on any harness (pickers for --on/--model/--effort/--mode)
     ├── wise-profile/SKILL.md        # session token-budget profile (low|medium|max; budget only, never correctness)
     ├── wise-fork/SKILL.md           # reorient a forked session (context = background; pre-fork work dropped)
     ├── wise-report/SKILL.md         # verified session status report (ref-coded, evidence-tagged; --full / --save)
