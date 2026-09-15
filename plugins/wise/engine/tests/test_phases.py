@@ -461,21 +461,25 @@ def test_real_local_worktree_include_push_and_cleanup(tmp_path):
     asyncio.run(scenario())
 
 
-def test_local_only_base_branch_cuts_from_the_local_ref(tmp_path):
+def test_base_branch_must_exist_on_origin(tmp_path):
     async def scenario():
         fixture = PhaseFixture(tmp_path)
         fixture.ctx["unit"].update(worktree=str(fixture.repo), base="main")
         fixture.branches.add("main")
         fixture.failures[("git", "fetch", "origin", "main")] = command_result("", code=128)
+        # a fetch failure alone keeps the last fetched origin/main
+        result = await worktree_phase(fixture.ctx)
+        assert result["ok"] and result["patch"]["unit"]["base_ref"] == "origin/main"
+        checkouts = [
+            args for cmd, args, _ in fixture.calls if cmd == "git" and args[0] == "checkout"
+        ]
+        assert checkouts == [["checkout", "--no-track", "-b", "PROJ-1", "origin/main"]]
+        # a local-only base cannot be a PR target, so the unit stops here
         fixture.failures[("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main")] = (
             command_result("", code=1)
         )
         result = await worktree_phase(fixture.ctx)
-        assert result["ok"] and result["patch"]["unit"]["base_ref"] == "main"
-        checkouts = [
-            args for cmd, args, _ in fixture.calls if cmd == "git" and args[0] == "checkout"
-        ]
-        assert checkouts == [["checkout", "--no-track", "-b", "PROJ-1", "main"]]
+        assert not result["ok"] and "exists only locally; push it to origin" in result["reason"]
         fixture.failures[("git", "show-ref", "--verify", "--quiet", "refs/heads/main")] = (
             command_result("", code=1)
         )

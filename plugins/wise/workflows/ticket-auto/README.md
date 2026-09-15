@@ -120,7 +120,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 |---|---|---|
 | `worktree_mode` | yes | `new` (default) creates a worktree per ticket; `current` uses the current tree, runs tickets sequentially, and refuses to switch with uncommitted or untracked changes. Cleanup never removes the current tree or its branches. |
 | `tickets` | yes | Comma-separated ticket URLs or ids. Pre-filled from the run context when the conductor already knows them. A URL is normalised to its key by the engine (`branch-naming.md`). |
-| `base_branch` | yes | The branch ticket branches are cut from and PRs target (`origin/<base_branch>` when the remote branch is known, else the local branch). Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. Replaces the earlier default-branch lookup. |
+| `base_branch` | yes | The branch ticket branches are cut from and PRs target (always `origin/<base_branch>`; a branch origin does not have stops the unit at `worktree`, since a PR cannot target it). Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. Replaces the earlier default-branch lookup. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
 ## Outputs

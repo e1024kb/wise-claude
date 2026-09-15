@@ -50,8 +50,12 @@ async def worktree_phase(ctx: Json) -> Json:
     ref = await base_ref(ctx, base)
     if ref is None:
         return fail(f"worktree: base {base} exists neither on origin nor locally")
+    # Every worktree pipeline opens a PR against the base, and GitHub
+    # cannot target a branch origin does not have.
+    if not ref.startswith("origin/"):
+        return fail(f"worktree: base {base} exists only locally; push it to origin first")
     if not ok(fetched):
-        ctx["log"](f"worktree: fetch origin {base} failed, using the local {ref}")
+        ctx["log"](f"worktree: fetch origin {base} failed, using the last fetched {ref}")
     unit = {**unit, "base_ref": ref}
     if path.resolve() == Path(ctx["cwd"]).resolve():
         head = await git(ctx, ["symbolic-ref", "--quiet", "--short", "HEAD"])

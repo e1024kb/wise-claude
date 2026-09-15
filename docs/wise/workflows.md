@@ -269,8 +269,11 @@ a git checkout the question falls back to plain text. The answer must be
 a plain git branch name (letters, digits, `.`, `_`, `/`, `+`, `-`, no `..`);
 anything else is rejected at pre-flight. The `ticket` and `plan` pipelines
 read the `base_branch` input as the base every ticket branch is cut from and
-every PR targets. The `pr` and `implement` pipelines attach to the checked-out
-branch and do not read it: an existing PR keeps its own base.
+every PR targets; it must exist on origin (`origin/<base_branch>`), a
+local-only branch stops the unit at `worktree` because a PR cannot target
+it. The `pr` and `implement` pipelines attach to the checked-out branch and
+do not read it: an existing PR keeps its own base, and a local-only base is
+accepted there for the diff range.
 
 `from-context` grammar: `guidance` \| `ticket[].ref` \| `ticket[].title`
 \| `ticket[].body` \| `ticket[].url` \| `links[]` \| `decisions.<key>`.
