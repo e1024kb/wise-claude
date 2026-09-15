@@ -445,7 +445,7 @@ layout apply, and the host's affordances pick one of two:
   `Other` field): the visible rows are the first `cap` entries exactly, in
   source order. The question text names every option that is not a visible
   row, by value, so the user can see the full set and type or paste one:
-  `Also available (type it in Other): cursor, gemini.` For a list far beyond
+  `Also available (type it in Other): gemini.` For a list far beyond
   the cap, such as a harness-reported model catalog, still name every value;
   a long question text is acceptable, a hidden option is not.
 - Option-only host (T3 Code among them): `cap - 1` entries plus `More…` as

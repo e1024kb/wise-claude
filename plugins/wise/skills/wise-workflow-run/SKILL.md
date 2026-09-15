@@ -175,7 +175,7 @@ with the engine's labels. Show as many options as the host allows; when the
 list exceeds the host's cap (four on Claude Code's `AskUserQuestion`), use
 the shared overflow layout: with a custom-answer box (Claude Code) the first
 `cap` entries as rows plus every remaining value named in the question text
-(`Also available (type it in Other): cursor, gemini.`), on an option-only
+(`Also available (type it in Other): gemini.`), on an option-only
 host `cap - 1` entries plus `More…` paged with `Back`, never an entry left
 unreachable, following the
 [long option list rule](../../references/workflow-host-control.md#long-option-lists).
