@@ -525,8 +525,10 @@ def test_attached_pipelines_force_current_tree_and_input_cap_overrides():
     result = config_for(step, state)
     assert result["worktree_mode"] == "current"
     assert result["caps"] == {"max_fix_attempts": 3.0, "watch_minutes": 120}
-    for raw in ("soon", "inf", "-inf", "nan", "-1", "0", "1.5", "1441"):
+    for raw in ("soon", "inf", "-inf", "nan", "-1", "0", "1.5", "1441", "9" * 400):
         state["inputs"]["watch_minutes"] = raw
         assert config_for(step, state)["caps"]["watch_minutes"] == 120
     state["inputs"]["watch_minutes"] = "1440"
     assert config_for(step, state)["caps"]["watch_minutes"] == 1440.0
+    state["inputs"]["max_fix_attempts"] = "9" * 400
+    assert config_for(step, state)["caps"]["max_fix_attempts"] == 10

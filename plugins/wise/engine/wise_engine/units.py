@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import fcntl
 import time
 from collections import deque
@@ -52,7 +51,14 @@ __all__ = [
     "phase_key",
 ]
 DEFAULT_REVIEWERS = ["copilot-pull-request-reviewer"]
-CAP_MAX = {"watch_minutes": 1440}
+# Finite ceilings for every overrideable cap, checked before the float conversion.
+CAP_MAX = {
+    "max_review_cycles": 100,
+    "max_fix_attempts": 1000,
+    "watch_minutes": 1440,
+    "watch_poll_seconds": 3600,
+    "watch_stable_passes": 100,
+}
 CAP_DEFAULTS = {
     "max_review_cycles": 2,
     "max_fix_attempts": 3,
@@ -92,7 +98,7 @@ def _cap_overrides(step: Json, inputs: Json) -> Json:
     out: Json = {}
     for name in step.get("caps", []):
         raw = str(inputs.get(name, "") or "").strip()
-        if raw.isdigit() and 1 <= int(raw) <= CAP_MAX.get(name, math.inf):
+        if raw.isdigit() and len(raw) <= 6 and 1 <= int(raw) <= CAP_MAX.get(name, 1000):
             out[name] = float(raw)
     return out
 
@@ -229,11 +235,11 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
     def save() -> None:
         ctx["checkpoint"]({"watch": dict(watch)})
 
-    started = ctx["now"]()
     if "started" not in watch:
-        watch["started"] = started
+        watch["started"] = ctx["now"]()
         save()
-    run_started = utc_now(datetime.fromtimestamp(watch["started"] / 1000, timezone.utc))
+    started = watch["started"]
+    run_started = utc_now(datetime.fromtimestamp(started / 1000, timezone.utc))
     last = None
     hooks["emit_phase"]("watch")
 

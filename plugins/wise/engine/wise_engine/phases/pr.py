@@ -15,6 +15,7 @@ from .common import (
     ok,
     pass_,
     ticket_context,
+    unit_base_ref,
 )
 
 TITLE_MAX = 90
@@ -142,7 +143,7 @@ async def _collect_facts(ctx: Json) -> Json:
             "log",
             "--pretty=%s",
             f"--max-count={COMMITS_MAX}",
-            f"origin/{unit['base'] or 'main'}..{unit['branch']}",
+            f"{unit_base_ref(unit)}..{unit['branch']}",
         ],
     )
     commits = (

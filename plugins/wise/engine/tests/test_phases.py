@@ -111,8 +111,12 @@ class PhaseFixture:
             if args[0] == "ls-remote":
                 return command_result("sha refs/heads/x\n" if args[-1] in self.remote else "")
             if args[0] == "show-ref":
+                ref = args[-1]
+                if ref.startswith("refs/remotes/origin/"):
+                    name = ref.removeprefix("refs/remotes/origin/")
+                    return command_result(code=0 if name == "main" or name in self.remote else 1)
                 return command_result(
-                    code=0 if args[-1].removeprefix("refs/heads/") in self.branches else 1
+                    code=0 if ref.removeprefix("refs/heads/") in self.branches else 1
                 )
             if args[0] == "symbolic-ref":
                 return command_result("origin/main\n")
@@ -453,6 +457,30 @@ def test_real_local_worktree_include_push_and_cleanup(tmp_path):
         assert (await fixture.phase(cleanup_phase))["patch"]["cleaned"] is True
         assert not worktree.exists()
         assert "refs/heads/PROJ-1" not in local_git("show-ref", "--heads")
+
+    asyncio.run(scenario())
+
+
+def test_local_only_base_branch_cuts_from_the_local_ref(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        fixture.ctx["unit"].update(worktree=str(fixture.repo), base="main")
+        fixture.branches.add("main")
+        fixture.failures[("git", "fetch", "origin", "main")] = command_result("", code=128)
+        fixture.failures[("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main")] = (
+            command_result("", code=1)
+        )
+        result = await worktree_phase(fixture.ctx)
+        assert result["ok"] and result["patch"]["unit"]["base_ref"] == "main"
+        checkouts = [
+            args for cmd, args, _ in fixture.calls if cmd == "git" and args[0] == "checkout"
+        ]
+        assert checkouts == [["checkout", "--no-track", "-b", "PROJ-1", "main"]]
+        fixture.failures[("git", "show-ref", "--verify", "--quiet", "refs/heads/main")] = (
+            command_result("", code=1)
+        )
+        result = await worktree_phase(fixture.ctx)
+        assert not result["ok"] and "neither on origin nor locally" in result["reason"]
 
     asyncio.run(scenario())
 

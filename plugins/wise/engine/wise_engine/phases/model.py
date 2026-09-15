@@ -21,7 +21,7 @@ from ..prompts.units.schemas import (
 from ..render import render_vars, unresolved_placeholders
 from ..resolve import resolve_model_dict
 from ..yaml_compat import MISSING, js_string
-from .common import Json, err_text, fail, gh, git, ok, pass_, ticket_context
+from .common import Json, err_text, fail, gh, git, ok, pass_, ticket_context, unit_base_ref
 
 NO_AGENT_RUNTIME = "no agent starter configured; model phases skipped"
 
@@ -432,7 +432,7 @@ async def head_sha(ctx: Json) -> str:
 
 
 def _branch_range(ctx: Json) -> str:
-    return f"origin/{ctx['unit']['base'] or 'main'}..HEAD"
+    return f"{unit_base_ref(ctx['unit'])}..HEAD"
 
 
 async def plan_phase(ctx: Json) -> Json:

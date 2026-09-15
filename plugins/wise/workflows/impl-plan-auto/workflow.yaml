@@ -106,13 +106,10 @@ steps:
     # a missing seed stops the run here, before any worktree exists.
     run: |
       set -eu
-      # The value lands in a temp file first: bash 3.2 (macOS) cannot
-      # parse a heredoc inside $( ) when the text has an odd quote.
+      # The value comes from the step env, never from shell source.
       raw=$(mktemp)
       trap 'rm -f "$raw"' EXIT
-      cat >"$raw" <<'WISE_PLANS'
-      {{plans}}
-      WISE_PLANS
+      printf '%s\n' "${WISE_PLANS-}" >"$raw"
       list=$(tr ',;' '\n\n' <"$raw" | tr -d '\r' \
         | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF && !seen[$0]++')
       if [ -z "$list" ]; then

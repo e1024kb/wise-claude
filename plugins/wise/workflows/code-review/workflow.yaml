@@ -75,12 +75,7 @@ steps:
     # branch from gh, else origin/HEAD, else main. Prints the bare name.
     run: |
       set -eu
-      raw=$(mktemp)
-      trap 'rm -f "$raw"' EXIT
-      cat >"$raw" <<'WISE_BASE'
-      {{base}}
-      WISE_BASE
-      base=$(tr -d '\r' <"$raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's@^origin/@@' | head -n 1)
+      base=$(printf '%s\n' "${WISE_BASE-}" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's@^origin/@@' | head -n 1)
       if [ -z "$base" ]; then
         base=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null || true)
       fi

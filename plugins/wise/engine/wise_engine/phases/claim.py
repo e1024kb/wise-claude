@@ -3,6 +3,7 @@ from pathlib import Path
 from ..constants import ATTACHED_PIPELINES
 from .common import (
     Json,
+    base_ref,
     fail,
     gh,
     git,
@@ -50,6 +51,9 @@ async def attach_phase(ctx: Json) -> Json:
     else:
         attached["base"] = unit["base"] or await resolve_base(ctx)
         ctx["log"](f"claim: implementing on {branch} (base {attached['base']})")
+    # The PR's base is authoritative even before it is fetched; a local-only
+    # base resolves to its local ref.
+    attached["base_ref"] = await base_ref(ctx, attached["base"]) or f"origin/{attached['base']}"
     return pass_({"unit": attached, "cursors": {**ctx["ledger"]["cursors"], "claim": OWNED}})
 
 
