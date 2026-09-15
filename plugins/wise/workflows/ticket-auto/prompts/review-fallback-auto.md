@@ -1,8 +1,11 @@
 # review-fallback-auto — local reviewer panel when a review bot is stuck
 
-Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
-Unavailable models or delegation routes require a main-harness GUI/TUI selection,
-including in autonomous paths. Preserve the procedure's other gates and limits.
+This pass pins no model: the reviewer runs on the current model, as a
+fresh subagent when the session can dispatch one and inline otherwise, per
+`code-review-pass.md`; the
+[model fallback](../../../references/workflow-host-control.md#model-fallback)
+picker never opens for it. The only question it asks is the §0 review
+consent.
 
 Substitute review for a PR whose external review bot could not review —
 Copilot timed out / errored / hit a rate limit, or CodeRabbit ran out of
@@ -43,11 +46,8 @@ the verdict — it reviews, commits, pushes, and reports.
 - (The substitute review is deliberately profile-INDEPENDENT in
   effort: one universal reviewer at `medium` effort, whatever the
   run's budget profile — see below. No `profile` input.)
-- `opus_model` — **optional** — the Opus model id the reviewer
-  dispatches on, passed straight through to the review pass: `opus`
-  (default) or `claude-opus-4-8`. MUST be `claude-opus-4-8` when the
-  session / run budget profile is `low` (`low` never dispatches Opus 5
-  — `code-review-pass.md`'s low-profile Opus rule).
+- (No model input. The reviewer runs on the current model; without a
+  subagent tool the universal pass runs inline - `code-review-pass.md`.)
 
 ## Procedure
 
@@ -94,8 +94,7 @@ required `base`, **`panel=universal`** (ONE reviewer subagent covering
 correctness, security, and test-coverage in a single read-only pass at
 `medium` effort — a substitute for a bot review of a branch that
 already passed the pre-push gate, so one universal reviewer is the
-right weight), `opus_model` (when supplied — `claude-opus-4-8` on a
-`low` run), plus `ticket_ref`, `plan_path`, and `config_prompt`
+right weight), plus `ticket_ref`, `plan_path`, and `config_prompt`
 when supplied. Verify `base` is non-empty first (see the context contract
 above) — a review of the wrong diff still satisfies the caller's merge
 gate, so this is the one input worth checking before the panel spins
@@ -106,19 +105,17 @@ in `panel=universal` shape — one read-only reviewer covering all three
 focus areas at `medium` effort — curates the concrete correctness /
 security / clear-quality findings, applies them, and commits.
 
-**Resolve the execution route before review.** Prefer one fresh reviewer on
-the requested model. If its model, named agent or native spawn tool is
-unavailable, use the shared model-fallback GUI/TUI picker. Offer verified
-current-harness native child models first. If no child route exists, this
-substitute pass may offer `Current session model, inline reduced-depth review`.
-That choice covers all three focus areas sequentially in this context; it is
-not an independent reviewer. Never select it automatically.
+**Pick the route from the session's tools, without asking.** When the
+session can dispatch a `Task` / `Agent` subagent, run one fresh reviewer on
+the current model (`depth=panel`). Otherwise review inline in this context
+on the current model, covering all three focus areas sequentially
+(`depth=inline`); that is a reduced-depth pass, not an independent reviewer,
+and is still a valid substitute review. Never open the model-fallback
+picker and never stop because a subagent tool is missing.
 
-Model selection does not replace §0's per-head review consent. Obtain both
-before reading the diff for review, and recheck the head after the selections.
-Report `depth=panel` only for an actual fresh reviewer, otherwise `depth=inline`,
-alongside the actual model used. On declined/unavailable model selection, emit
-`REVIEW-FALLBACK: failed reason=<model-fallback reason> for=<stuck_bots>` and stop.
+The route never replaces §0's per-head review consent. Obtain consent before
+reading the diff for review, and recheck the head afterwards. Report the
+`depth` that actually ran alongside the model used.
 
 Capture its final line:
 

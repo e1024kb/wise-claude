@@ -5,6 +5,7 @@ from ..ledger import apply_worktree_include
 from .common import (
     Json,
     NETWORK_CMD_TIMEOUT_MS,
+    base_ref,
     err_text,
     fail,
     git,
@@ -46,10 +47,16 @@ async def worktree_phase(ctx: Json) -> Json:
     path = Path(unit["worktree"])
     base = unit["base"] or "main"
     fetched = await git(ctx, ["fetch", "origin", base], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS})
+    ref = await base_ref(ctx, base)
+    if ref is None:
+        return fail(f"worktree: base {base} exists neither on origin nor locally")
+    # Every worktree pipeline opens a PR against the base, and GitHub
+    # cannot target a branch origin does not have.
+    if not ref.startswith("origin/"):
+        return fail(f"worktree: base {base} exists only locally; push it to origin first")
     if not ok(fetched):
-        if not ok(await git(ctx, ["rev-parse", "--verify", "--quiet", f"origin/{base}"])):
-            return fail(f"worktree: fetch origin/{base} failed and no local copy")
-        ctx["log"](f"worktree: fetch failed, using the local origin/{base}")
+        ctx["log"](f"worktree: fetch origin {base} failed, using the last fetched {ref}")
+    unit = {**unit, "base_ref": ref}
     if path.resolve() == Path(ctx["cwd"]).resolve():
         head = await git(ctx, ["symbolic-ref", "--quiet", "--short", "HEAD"])
         if not ok(head) or head["stdout"].strip() != unit["branch"]:
@@ -59,7 +66,7 @@ async def worktree_phase(ctx: Json) -> Json:
             args = (
                 ["checkout", unit["branch"]]
                 if await local_branch_exists(ctx, unit["branch"])
-                else ["checkout", "--no-track", "-b", unit["branch"], f"origin/{base}"]
+                else ["checkout", "--no-track", "-b", unit["branch"], ref]
             )
             switched = await git(ctx, args)
             if not ok(switched):
@@ -93,7 +100,7 @@ async def worktree_phase(ctx: Json) -> Json:
                 str(path),
                 "-b",
                 unit["branch"],
-                f"origin/{base}",
+                ref,
             ]
         )
         added = await git(ctx, args)

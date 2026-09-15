@@ -68,15 +68,15 @@ callers that already ran simplify themselves (`/wise-simplify-auto`) or
 that explicitly want a raw commit (the review fallback's fix commit).
 
 Otherwise, before staging, run the per-commit cleanup per
-`${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md` — it dispatches the
-`code-simplifier` agent over the recently-modified code so its edits get
-swept into this commit by §3's `git add -A`. Surface its summary
-verbatim and continue; the summary is mid-flight diagnostics, not a stop point.
-
-If the model or `code-simplifier` route is unavailable, follow the reference's
-model-fallback picker before continuing. Do not silently skip cleanup or change
-models. Declined/unavailable selection stops before staging, using the failure
-line below. A clean working tree needs no simplify dispatch.
+`${CLAUDE_PLUGIN_ROOT}/references/simplify-pass.md` over the
+recently-modified code so its edits get swept into this commit by §3's
+`git add -A`. The reference picks the route: the `code-simplifier` agent
+when this Claude Code session lists it, otherwise the same cleanup inline
+on the current model per `references/simplify-instructions.md` (Codex,
+Cursor, Gemini, Grok, or Claude without the plugin). Neither route asks
+anything or opens a model picker. Surface its summary verbatim and
+continue; the summary is mid-flight diagnostics, not a stop point. A
+clean working tree needs no simplify pass.
 
 On a simplify **pass** failure (the agent ran and errored, or left the
 tree broken), follow that reference's failure policy and stop with:
@@ -323,8 +323,8 @@ COMMIT: failed reason="git push rejected (non-fast-forward)"
 - Simplify **pass** failure aborts the commit (§2). Same no-retry /
   no-bypass policy as the `git commit` and `git push` steps; callers
   that want to skip the simplify pass entirely pass `SIMPLIFY=no` at
-  the routine boundary. An unavailable model or agent enters the GUI/TUI
-  model-fallback gate; it is not permission to skip cleanup.
+  the routine boundary. A missing `code-simplifier` agent is not a
+  failure: the pass runs inline on the current model instead.
 - Simplify never re-validates inside the routine. The pre-commit hook
   in §7 is the final guard for whatever the simplify pass edits; a
   longer validation chain (typecheck / lint / format) is an orchestrator

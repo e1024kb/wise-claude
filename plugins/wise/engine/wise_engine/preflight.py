@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .branches import is_branch_name
 from .constants import HARNESSES, RUN_MODES
-from .models import catalog_for, catalog_model, default_effort, default_model
+from .models import catalog_model, default_effort, default_model, merged_catalog
 from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 
 Json = dict[str, Any]
@@ -52,15 +53,30 @@ def choice_input_preset(item: Json, context: Json | None = None) -> str | None:
 
 
 def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
+    """Inputs whose answer is outside its choices, or not a git branch name for branch inputs."""
     invalid = []
     for item in definition.get("inputs", []):
         values = input_choice_values(item)
         name = item["name"]
-        if values is None or name not in inputs:
+        if name not in inputs:
             continue
         value = inputs[name]
-        if not isinstance(value, str) or value not in values:
-            invalid.append(f"input.{name}")
+        if values is not None:
+            if not isinstance(value, str) or value not in values:
+                invalid.append(f"input.{name}")
+        elif item.get("options-from") == "branches":
+            if not isinstance(value, str) or not (
+                is_branch_name(value) or (value == "" and item.get("optional"))
+            ):
+                invalid.append(f"input.{name}")
+        elif item.get("validate") and not item.get("extract"):
+            from .defs import validate_input
+
+            if (
+                not isinstance(value, str)
+                or not validate_input(value, None, item["validate"])["ok"]
+            ):
+                invalid.append(f"input.{name}")
     return invalid
 
 
@@ -136,6 +152,7 @@ def _stage_group(
     answers: Json,
     installed: list[str] | None = None,
     logged_out: list[str] | None = None,
+    models: Json | None = None,
 ) -> Json:
     first = _stage_harness(definition, group, answers, installed, logged_out)
     base = first["base"]
@@ -146,8 +163,9 @@ def _stage_group(
     harness = first.get("harness", base.get("harness", "claude"))
     stage["harness"] = harness
     pinned = base.get("model") if harness == base.get("harness", "claude") else None
-    model = catalog_model(harness, _answer_string(answers.get(f"model.{group['id']}")))
-    catalog = catalog_for(harness)
+    discovered = (models or {}).get(harness)
+    model = catalog_model(harness, _answer_string(answers.get(f"model.{group['id']}")), discovered)
+    catalog = merged_catalog(harness, discovered)
     label = group.get("label", group["id"])
     if model is None and len(catalog) > 1:
         stage["questions"].append(
@@ -156,14 +174,14 @@ def _stage_group(
                 kind="choice",
                 label=f"Which {harness} model: {label}?",
                 options=[
-                    {k: m[k] for k in ("label", "description")} | {"value": m["id"]}
+                    {k: m[k] for k in ("label", "description", "source")} | {"value": m["id"]}
                     for m in catalog
                 ],
-                default=default_model(harness, pinned)["id"],
+                default=default_model(harness, pinned, discovered)["id"],
             )
         )
         return stage
-    model = model or default_model(harness, pinned)
+    model = model or default_model(harness, pinned, discovered)
     stage["model"] = model
     effort = _answer_string(answers.get(f"effort.{group['id']}"))
     if effort in model["efforts"]:
@@ -414,7 +432,13 @@ def worktree_default(definition: Json) -> str:
     )
 
 
+def worktree_locked(definition: Json) -> bool:
+    return definition.get("preflight", {}).get("lock-worktree") is True
+
+
 def worktree_answer(definition: Json, answers: Json) -> str | None:
+    if worktree_locked(definition):
+        return worktree_default(definition)
     value = answers.get("worktree", answers.get("input.worktree_mode"))
     return value if value in ("current", "new") else None
 
@@ -445,6 +469,20 @@ def _worktree_question(definition: Json) -> Json:
     )
 
 
+def _branch_input_question(item: Json, branches: Json | None) -> Json:
+    q: Json = dict(id=f"input.{item['name']}", kind="text", label=item["prompt"])
+    if item.get("optional"):
+        q["optional"] = True
+    if branches and branches.get("options"):
+        q.update(kind="choice", options=list(branches["options"]), allow_text=True)
+        q["default"] = branches["default"]
+    elif item.get("default") is not None:
+        q["default"] = item["default"]
+    elif item.get("optional"):
+        q["default"] = ""
+    return q
+
+
 def build_questionary(
     definition: Json, ctx: Json | None = None, answers: Json | None = None
 ) -> Json:
@@ -470,6 +508,9 @@ def build_questionary(
         push(_step_select_question(definition, optional))
     for item in list_inputs(definition):
         if item["name"] == "worktree_mode":
+            continue
+        if item.get("options-from") == "branches":
+            push(_branch_input_question(item, ctx.get("branches")))
             continue
         options = None if item.get("extract") else _input_options(item.get("validate"))
         q = dict(
@@ -520,23 +561,31 @@ def build_questionary(
         if group.get("locked") or group["id"] not in active:
             continue
         for q in _stage_group(
-            definition, group, answers, ctx.get("harnesses"), ctx.get("logged_out")
+            definition,
+            group,
+            answers,
+            ctx.get("harnesses"),
+            ctx.get("logged_out"),
+            ctx.get("models"),
         )["questions"]:
             push(q)
     return result
 
 
-def apply_answers(definition: Json, answers: Json) -> Json:
+def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> Json:
     tuning = {}
+    models = (ctx or {}).get("models")
     for group in _groups(definition):
         if group.get("locked"):
             tuning[group["id"]] = _group_base(definition, group)
             continue
-        stage = _stage_group(definition, group, answers)
+        stage = _stage_group(definition, group, answers, models=models)
         base = stage["base"]
         harness = stage.get("harness", base.get("harness", "claude"))
         model = stage.get("model") or default_model(
-            harness, base.get("model") if harness == base.get("harness", "claude") else None
+            harness,
+            base.get("model") if harness == base.get("harness", "claude") else None,
+            (models or {}).get(harness),
         )
         effort = stage.get("effort", default_effort(model, base.get("effort")))
         value = {**base, "harness": harness, "model": model["id"]}
@@ -602,11 +651,65 @@ def complete_answers(definition: Json, ctx: Json, given: Json) -> Json:
     return {**filled, "questions": list(seen.values())}
 
 
+EARLIER_STAGES = ("worktree", "step-select", "harness.", "permissions.")
+
+
+def chosen_harnesses(definition: Json, answers: Json) -> list[str]:
+    chosen = []
+    for group in _groups(definition):
+        if group.get("locked"):
+            continue
+        answer = _answer_string(answers.get(f"harness.{group['id']}"))
+        chosen.append(
+            answer
+            if answer in HARNESSES
+            else _group_base(definition, group).get("harness", "claude")
+        )
+    return list(dict.fromkeys(chosen))
+
+
+def invalid_model_answer_ids(definition: Json, answers: Json, models: Json | None) -> list[str]:
+    """Explicit model answers that no catalog row (predefined or discovered) backs."""
+    invalid = []
+    for group in _groups(definition):
+        if group.get("locked"):
+            continue
+        key = f"model.{group['id']}"
+        wanted = _answer_string(answers.get(key))
+        if not wanted:
+            continue
+        harness = _answer_string(answers.get(f"harness.{group['id']}"))
+        if harness not in HARNESSES:
+            harness = _group_base(definition, group).get("harness", "claude")
+        if catalog_model(harness, wanted, (models or {}).get(harness)) is None:
+            invalid.append(key)
+    return invalid
+
+
+def model_stage_reached(definition: Json, ctx: Json, answers: Json) -> bool:
+    if any(key.startswith("model.") for key in answers):
+        return True
+    questions = build_questionary(definition, ctx, answers)["questions"]
+    return not any(question["id"].startswith(EARLIER_STAGES) for question in questions)
+
+
+async def with_discovered_models(
+    definition: Json, ctx: Json, answers: Json, lookup: Any, cache: Json | None = None
+) -> Json:
+    if "models" in ctx or not model_stage_reached(definition, ctx, answers):
+        return ctx
+    from .models import discover_models
+
+    harnesses = chosen_harnesses(definition, answers)
+    return {**ctx, "models": await discover_models(harnesses, lookup, cache)}
+
+
 async def build_questionary_with_auth(
-    definition: Json, ctx: Json, answers: Json, lookup: Any
+    definition: Json, ctx: Json, answers: Json, lookup: Any, cache: Json | None = None
 ) -> Json:
     from .auth import logged_out_harnesses
 
+    ctx = await with_discovered_models(definition, ctx, answers, lookup, cache)
     questionary = build_questionary(definition, ctx, answers)
     group_ids = [
         question["id"][len("harness.") :]

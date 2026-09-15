@@ -181,16 +181,22 @@ Cancellation stops the skill with nothing dispatched:
 ### 4. Model and effort
 
 Use the chosen harness's catalog from §3 (or read it now when `--on` was
-given). Rows: `id`, `label`, `efforts`, `description`. Never hardcode a model
-list.
+given). Rows: `id`, `label`, `efforts`, `description`, `source` (`catalog`
+for the predefined entries, `harness` for models the installed harness
+reported, appended after them sorted by id). Never hardcode a model list.
 
 - `--model` given: match it against the catalog rows (`dispatch` accepts an
   uncatalogued id and warns; keep that warning for the final report). A
   catalogued model that the harness cannot currently run enters model
   fallback with the actual alternatives from this catalog.
 - `--model` omitted or `ask`: single-choice picker `Which model on
-  <harness>?`, header `Model`, options in catalog order (first entry first),
-  label + description; paginate past the host's option limit.
+  <harness>?`, header `Model`, every row as an option in catalog order (first
+  entry first), label + description. Under a four-option cap follow the
+  shared first-page layout in the host-control reference: with an Other box
+  the first four rows plus the remaining ids named in the question text; on
+  an option-only host three rows plus `More models…`, paged with `Back`.
+  Never drop a row and never leave one reachable only through a box the host
+  does not render.
 - `--effort` given: must be in the chosen model's `efforts`; otherwise print
   `Model <id> takes <efforts>, not <effort>.` and ask the effort picker below
   restricted to that model's list. Never silently clamp.

@@ -17,7 +17,7 @@ description: >-
   `/wise:wise-pr-watch` (canonical). Use when the user says "watch the
   PR", "drive the pipelines", "fix the failing checks", "babysit CI", or
   types `/wise-pr-watch`.
-argument-hint: "[--on <harness>[:<model>[:<effort>]] | --on ask]"
+argument-hint: ""
 allowed-tools: Read, Edit, Write, Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), AskUserQuestion
 ---
 
@@ -56,24 +56,17 @@ at run time and follows it.
 
 No positionals, no flags.
 
-## Run on another harness (`--on`)
+## Run on another harness
 
-If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
-`--on ask` / a bare `--on`), do
-NOT run the procedure below in this conversation. Strip the `--on`
-tokens (everything left is `SKILL_ARGS`), then read
-`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
+This interactive loop runs in the current conversation only. To run the
+watch on another harness, at a chosen model and effort, use
+`/wise-pr-watch-auto`: it conducts the bundled `pr-watch` workflow and
+its pre-flight asks harness, model and effort per phase. A `--on` token
+in `$ARGUMENTS` is an error — stop with:
 
-- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-watch-auto/SKILL.md`
-- `SKILL_ARGS` = the remaining tokens
-
-`--on ask` (or a bare `--on`) picks harness, model and effort through one composite `AskUserQuestion` built from the engine's `auth --json` and `models` output.
-The reference probes the harness login, validates model and effort
-against the engine catalog, and runs the procedure as a headless child
-via `engine.sh dispatch --relay`. Follow its run, handle any required gates
-in the main harness, and relay the final result as specified by the shared
-dispatch reference. This does not add routine prompts to autonomous paths.
-Without `--on`, this section does not apply.
+```
+--on is not supported here; run /wise-pr-watch-auto (pre-flight picks the harness, model and effort)
+```
 
 ## Procedure
 

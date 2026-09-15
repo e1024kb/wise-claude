@@ -44,7 +44,7 @@ That is deliberate: keep your focus on this task.
   the orchestrator serialises all commits after the wave. If you run
   git you corrupt the wave.
 - **Do not simplify or review your own work.** The orchestrator runs
-  the per-task simplify (the `code-simplifier` agent) after the wave,
+  the per-task simplify pass after the wave,
   scoped to your `files=`, and the branch-level code-review is a later
   pipeline step. You only edit.
 - Stay inside `worktree`. Never touch files outside it.

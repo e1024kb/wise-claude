@@ -30,19 +30,71 @@ def output():
     return DispatchIo(stdout.append, stderr.append), stdout, stderr
 
 
+class ListingAdapter:
+    def __init__(self, identifier, bin=None, rows=None, error=None):
+        self.id = identifier
+        self.bin = bin
+        self.rows = rows or []
+        self.error = error
+        self.calls = 0
+
+    async def list_models(self):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.rows
+
+
 def test_models_json_text_and_invalid_harness():
     io, out, err = output()
-    assert cmd_models([], {}, io) == 0
+    assert asyncio.run(cmd_models([], {"catalog-only": True}, io)) == 0
     rows = json.loads("".join(out))
     assert any(row["harness"] == "claude" and row["id"] == "claude-fable-5-1" for row in rows)
+    assert any(row["harness"] == "claude" and row["id"] == "claude-fable-5" for row in rows)
+    assert all(row["source"] == "catalog" for row in rows)
     assert all(not row["efforts"] for row in rows if row["harness"] == "grok")
     out.clear()
-    assert cmd_models(["codex"], {"text": True}, io) == 0
-    assert "codex\tgpt-6-astra\t" in "".join(out)
+    assert asyncio.run(cmd_models(["codex"], {"text": True, "catalog-only": True}, io)) == 0
+    assert "codex\tgpt-6-astra\t" in "".join(out) and "\tcatalog\t" in "".join(out)
     out.clear()
-    assert cmd_models(["unknown"], {}, io) == 2
+    assert asyncio.run(cmd_models(["unknown"], {}, io)) == 2
     assert "unknown harness unknown" in "".join(err)
     assert out == []
+
+
+def test_models_appends_harness_reported_rows_deterministically(tmp_path):
+    binary = tmp_path / "grok"
+    binary.write_text("#!/bin/sh\n")
+    binary.chmod(0o755)
+    reported = [
+        dict(id="grok-4.5", label="grok-4.5", description="reported", efforts=[]),
+        dict(id="grok-4.6", label="dup of catalog", description="reported", efforts=[]),
+        dict(id="grok-4.4", label="grok-4.4", description="reported", efforts=[]),
+        dict(id="grok-4.5", label="dup", description="reported", efforts=[]),
+    ]
+    adapters = {
+        "grok": ListingAdapter("grok", "grok", reported),
+        "cursor": ListingAdapter("cursor", "cursor-agent", [dict(id="x", label="x", efforts=[])]),
+        "codex": ListingAdapter("codex", "codex", error=RuntimeError("boom")),
+    }
+    env = {"PATH": str(tmp_path)}
+    io, out, _ = output()
+    assert asyncio.run(cmd_models(["grok", "cursor", "codex"], {}, io, env, adapters.get)) == 0
+    rows = json.loads("".join(out))
+    assert [(r["id"], r["source"]) for r in rows if r["harness"] == "grok"] == [
+        ("grok-4.6", "catalog"),
+        ("grok-4.4", "harness"),
+        ("grok-4.5", "harness"),
+    ]
+    assert next(r for r in rows if r["id"] == "grok-4.5")["label"] == "grok-4.5"
+    assert adapters["grok"].calls == 1
+    assert adapters["cursor"].calls == 0, "cursor-agent is not on PATH"
+    assert adapters["codex"].calls == 0
+    assert all(r["source"] == "catalog" for r in rows if r["harness"] != "grok")
+    out.clear()
+    assert asyncio.run(cmd_models(["grok"], {"catalog-only": True}, io, env, adapters.get)) == 0
+    assert [r["id"] for r in json.loads("".join(out))] == ["grok-4.6"]
+    assert adapters["grok"].calls == 1
 
 
 def test_dispatch_request_and_result(tmp_path):

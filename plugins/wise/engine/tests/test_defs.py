@@ -2393,7 +2393,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "steps[0].pipeline",
-                    "message": "pipeline must be ticket | plan",
+                    "message": "pipeline must be ticket | plan | pr | implement",
                 }
             ]
         },
@@ -5268,6 +5268,8 @@ def test_input_listing():
         },
     ]
     assert list_inputs({"inputs": inputs}) == [{"name": "a", "prompt": "Value for a?"}, inputs[1]]
+    sourced = [{"name": "base", "prompt": "Base?", "options-from": "branches"}]
+    assert list_inputs({"inputs": sourced}) == sourced
     assert list_inputs({}) == []
     assert list_inputs({"inputs": [{"name": "a", "prompt": ""}]}) == [{"name": "a", "prompt": ""}]
     for path in ("guidance", "ticket[].ref", "ticket[].url", "links[]", "decisions.db-choice"):
@@ -5312,11 +5314,13 @@ def test_invalid_regexes():
 def test_bundled_and_v1_definitions():
     engine = Path(__file__).resolve().parents[1]
     expected = {
-        "ticket-plan": 16,
+        "ticket-plan": 17,
         "example-workflow": 8,
         "ticket-auto": 5,
         "impl-plan-auto": 4,
         "code-review": 12,
+        "pr-watch": 3,
+        "impl-plan": 3,
     }
     items = list_defs(
         {"user_root": engine / "no-user", "bundled_root": engine.parent / "workflows"}

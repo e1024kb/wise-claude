@@ -7,6 +7,14 @@ BOT_REVIEW_STATES = ["resolved", "open", "stuck", "pending"]
 CI_STATES = ["green", "red", "pending"]
 
 MODEL_PHASES = ["plan", "implement", "review", "fix", "watch"]
+# Model phases each units pipeline can reach; the others are never
+# resolved or auth-probed for it.
+PIPELINE_MODEL_PHASES = {
+    "ticket": MODEL_PHASES,
+    "plan": MODEL_PHASES,
+    "pr": ["review", "fix", "watch"],
+    "implement": ["implement"],
+}
 
 PHASE_SCHEMAS = {
     "plan": {

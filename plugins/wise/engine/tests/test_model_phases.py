@@ -203,6 +203,14 @@ def test_templates_resolution_and_context_pointer(tmp_path):
         for value in resolve_unit_phases({**step, "model": "haiku"}, tuning, "medium", {}).values()
     )
     assert "github-actions[bot]" in BOT_LOGINS
+    assert list(resolve_unit_phases({**step, "pipeline": "pr"}, tuning, "low", {})) == [
+        "review",
+        "fix",
+        "watch",
+    ]
+    assert list(resolve_unit_phases({**step, "pipeline": "implement"}, tuning, "low", {})) == [
+        "implement"
+    ]
 
 
 def test_repository_qualified_ticket_uses_native_context_and_prompt_ref(tmp_path):

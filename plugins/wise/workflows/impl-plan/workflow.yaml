@@ -1,0 +1,137 @@
+version: 2
+name: impl-plan
+description: >-
+  Implement one PLAN-*.md on the checked-out branch: the plan's task
+  waves become atomic commits, each task tidied and validated, nothing
+  pushed. Runs in the current checkout, never creates a worktree or
+  branch, never opens a PR. No prompts after launch. Pre-flight picks
+  harness, model and effort for the implementer.
+author: e1024kb
+
+project-selection: current
+
+# The engine's `units` step on the `implement` pipeline: the item is
+# the plan file, claim binds to the checked-out branch, the implement
+# phase runs the engine's own implement prompt (task waves, one commit
+# per task, per-task tidy and validation). /wise-implement-plan-auto
+# conducts this workflow; impl-plan-auto is the full plan -> PR pipeline.
+preflight:
+  control-mode: synchronous
+  worktree: current
+  # Implementation lands on the checked-out branch, so the worktree
+  # question is settled: current checkout, never asked.
+  lock-worktree: true
+
+tuning:
+  groups:
+    - id: implement
+      label: "Implement: executes the plan's task waves as commits on the checked-out branch (code changes, the expensive part)"
+      default: { harness: claude, model: opus, effort: high }
+    - id: support
+      label: "Support: the end-of-run report (mechanical, no code changes)"
+      default: { harness: claude, model: sonnet, effort: medium }
+
+inputs:
+  - name: plan
+    prompt: "Which plan file? A PLAN-*.md path, relative to the repo root or absolute."
+  - name: guidance
+    prompt: "Optional guidance for this run: skills or libraries to prefer, guidelines, files to avoid. Blank = none."
+    optional: true
+    from-context: guidance
+
+steps:
+  - id: resolve-plan
+    type: bash
+    # The plan must exist and the checkout must be clean and on a named,
+    # unprotected branch before any child spawns.
+    run: |
+      set -eu
+      item=$(printf '%s\n' "${WISE_PLAN-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1)
+      if [ -z "$item" ]; then
+        echo "ERROR: no plan file given." >&2
+        exit 1
+      fi
+      case "$item" in
+        /*) path="$item" ;;
+        *)  path="$(pwd)/$item" ;;
+      esac
+      if [ ! -f "$path" ]; then
+        echo "ERROR: plan file not found: $item" >&2
+        exit 1
+      fi
+      branch=$(git symbolic-ref --quiet --short HEAD || true)
+      if [ -z "$branch" ]; then
+        echo "ERROR: detached HEAD; check out the branch to implement on first." >&2
+        exit 1
+      fi
+      case "$branch" in
+        main|master|release*)
+          echo "ERROR: $branch is a protected branch; check out a feature branch first." >&2
+          exit 1 ;;
+      esac
+      # The implement phase commits on this checkout; unrelated local
+      # changes must never ride along.
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "ERROR: checkout at $(pwd) has uncommitted or untracked changes; stash or commit them, then re-run." >&2
+        exit 1
+      fi
+      printf '%s\n' "$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
+    outputs: [plan_path]
+    timeout: 15
+    depends_on: []
+
+  - id: process
+    type: units
+    pipeline: implement
+    items: "{{plan_path}}"
+    groups: { implement: implement }
+    depends_on: [resolve-plan]
+
+  - id: report
+    type: agent
+    group: support
+    mcp: engine-only
+    prompt: |
+      Write the end-of-run report for an unattended impl-plan run
+      ({{run.id}}) on {{project.name}} at {{project.path}}.
+
+      The row between the markers is the `units` step result for the
+      plan, as JSON. A raw placeholder in double braces there means the
+      step did not run; report that the run stopped before implementing.
+
+      ---
+      {{units}}
+      ---
+
+      Fields: unit.branch, unit.plan_path, verdict (all-green | failed |
+      skipped), reason. The ledger {{run.dir}}/units/<branch>.json
+      carries the implement counters (waves, tasks, done, failed,
+      commits) and usage.
+
+      The run's token usage, as JSON the engine folded: `total`, `by_pool`
+      (subscription, api-key), `by_harness`, `by_step`.
+
+      ---
+      {{usage}}
+      ---
+
+      Verify before you claim: `git log --oneline` on the branch and
+      count the commits made during this run.
+
+      Write {{run.dir}}/report.md with: the plan, the branch, waves and
+      tasks done / failed, the commits, and for each failed task the
+      next step for a human. Remind that nothing was pushed. Print the
+      same in your reply. State facts once, no praise.
+
+      Return the fields directly, no wrapping: verdict, report_path.
+    schema:
+      type: object
+      properties:
+        verdict: { type: string }
+        report_path: { type: string }
+      required: [verdict, report_path]
+      additionalProperties: false
+    outputs: [verdict, report_path]
+    allowed_tools: ["Bash(git:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)"]
+    depends_on: [process]
+    trigger-rule: all-done

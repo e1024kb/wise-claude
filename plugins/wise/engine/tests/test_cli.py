@@ -19,7 +19,7 @@ def test_compile_bundled_and_missing():
     code, out, err = invoke("compile-check", *paths)
     assert code == 0 and err == ""
     rows = json.loads(out)
-    assert len(rows) == 5 and all(r["ok"] for r in rows)
+    assert len(rows) == 7 and all(r["ok"] for r in rows)
     code, out, err = invoke("compile-check", "missing")
     assert code == 1 and json.loads(out)[0]["issues"] == [
         {"level": "error", "path": "", "message": "workflow not found"}
@@ -187,6 +187,13 @@ def test_captured_cli_help_unknown_and_missing_preflight():
                 "wait|status|answer|cancel|resume|report",
             ),
             ("used by managed host registration", "used by .mcp.json"),
+            (
+                "  models [harness...] [--text] [--catalog-only]\n"
+                "                               models per harness: the predefined catalog first, then models the\n"
+                "                               installed harness reports (`cursor-agent models`, `grok models`),\n"
+                "                               each row with source catalog|harness (JSON by default)\n",
+                "  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)\n",
+            ),
         ]:
             out, err = out.replace(before, after), err.replace(before, after)
         for line in additions:

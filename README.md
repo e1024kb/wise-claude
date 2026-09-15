@@ -73,6 +73,10 @@ provider CLI runs workflow steps.
 - **`impl-plan-auto`** — same autonomous pipeline, but fed a ready
   `PLAN-*.md` (e.g. one `/wise-revise` wrote): re-plan from the file →
   implement → review → PR → watch → merge.
+- **`pr-watch`** / **`impl-plan`** — the engine behind `/wise-pr-watch-auto`
+  and `/wise-implement-plan-auto`: watch an existing PR to merge, or land
+  a plan's tasks as commits on the checked-out branch, with harness,
+  model and effort chosen per phase at pre-flight.
 - **`ticket-plan`** — autonomous planning you review and adjust before you
   implement.
 - **`code-review`** — the pre-push branch gate: three parallel reviewers,

@@ -65,16 +65,21 @@ provider fully unsandboxed. A step's stronger mode still wins.
 - Run from inside the project's git repository —
   `project-selection: current` auto-detects the project from cwd.
 - `/wise-init` completed at least once.
-- No tracker plugin needs to be pre-installed — the `ensure-access`
-  step probes for a tracker MCP / CLI at run time and proposes install
-  options (or a manual-paste fallback) when none is found.
+- Ticket access is settled before the run: the conductor fetches the
+  ticket into run context ahead of every pre-flight question, and the
+  `ensure-access` / `require-access` pair re-checks first thing in the
+  run and stops it, with the fix, when the ticket is still unreachable.
+  No tracker plugin needs to be pre-installed; a granted CLI (`gh`,
+  `glab`, `linear`, `jira`) or a public URL is probed when the
+  conductor did not supply the body.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    T[detect-context<br/>agent - tracker + ref + current branch] --> X[ensure-access<br/>agent - probe / propose access via wise_ask]
-    X --> A[fetch-ticket<br/>agent - fetch + normalise + classify type → research/ticket.md]
+    T[detect-context<br/>agent - tracker + ref + current branch] --> X[ensure-access<br/>agent - context body, else probe a granted CLI / public URL -> access, detail]
+    X --> RA[require-access<br/>bash - stop the run when access is blocked]
+    RA --> A[fetch-ticket<br/>agent - fetch + normalise + classify type → research/ticket.md]
     A --> C[analyze-design<br/>agent - design-spec summary → research/design.md]
     A --> D[analyze-related<br/>agent - linked items + docs → research/related.md]
     A --> RCx[research-context<br/>agent - grill multi-source sweep → research/dossier.md]
@@ -96,6 +101,10 @@ flowchart TD
     S -->|implement=no| FN
     IM --> FN[finalize<br/>agent - summary + next-step, branched on implement_choice]
 ```
+
+The conductor fetches the ticket before the first pre-flight question
+(`wise-workflow-run` §1b), so a missing tracker channel surfaces before
+any picker, not mid-run.
 
 No questions fire mid-run unless a flow mode asked for them: with
 `gap_mode=defaults` the `gap-analysis` gate records its open questions
@@ -121,8 +130,9 @@ The implement decision comes out of `setup` as `implement_choice`,
 resolved from the pre-flight `implement_mode` (`now` / `plan-only`)
 or from the setup questionnaire when the mode was `ask`. On **yes**,
 the conditional `implement` step runs the shared `implement-plan.md`
-procedure in-session — dispatching each task wave's tasks to parallel
-executor subagents and landing one atomic commit per task (nothing is
+procedure in the implement child — each task wave's tasks run by
+parallel executor subagents when the harness can spawn them and
+sequentially inline otherwise, one atomic commit per task (nothing is
 pushed). Otherwise `implement` is bypassed and the plan is left for
 later. `finalize` depends on `setup` + `implement` with
 `trigger-rule: all-done`, so it closes the run either way, branching
@@ -152,7 +162,10 @@ stage selection and inputs first, harnesses and provider permissions next, then 
 - **Tuning** - one group per model step: design spec
   (`analyze-design`), deep-dive sweep (`research-context`), codebase
   audit (`codebase-audit`), gap analysis, build plan, refine plan,
-  implement. Only the groups of steps that will run are asked:
+  implement, plus one `support` group shared by the mechanical steps
+  (tracker detection, ticket fetch, related-item summary, plan
+  presentation, branch setup, final summary). Every group's label says
+  what the model will do. Only the groups of steps that will run are asked:
   deselect the design analysis and its group is skipped; leave
   `review_mode` on `auto` and the refine-plan group is skipped; leave
   `implement_mode` on `plan-only` and the implement group is skipped
@@ -165,8 +178,8 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   engine's catalog for that harness, then the effort that model takes. Every one of these questions goes to the
   user; the run refuses to start on a skipped one. Defaults:
   `claude-opus-5 / high` for all seven (the authoring four declare
-  `xhigh`, which Opus 5's ceiling resolves to `high`). The sonnet
-  steps pin their model and are not tunable.
+  `xhigh`, which Opus 5's ceiling resolves to `high`);
+  `claude-sonnet-5 / medium` for `support`.
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
@@ -187,10 +200,11 @@ until `setup`).
 | Step | Type | Purpose |
 |---|---|---|
 | `detect-context` | `agent` | Identifies the tracker from the input URL/id (host map, WebSearch fallback) and reads the current git branch; emits tracker slug + bare ticket ref + current branch. |
-| `ensure-access` | `agent` | Probes for a tracker MCP / CLI; when none is found, web-searches for options and proposes installs (or a manual-paste fallback) through the child `wise_ask` channel. Emits `access`. |
+| `ensure-access` | `agent` | Reads `wise_context("ticket")` first (the conductor's fetched body); otherwise probes a granted CLI or a public URL for the detected tracker. Never asks. Emits `access` (`ok` / `blocked`) and `detail`. `support` tuning group. |
+| `require-access` | `bash` | Fails the run with `detail` when `access` is not `ok`: the safeguard runs before the research wave, so nobody waits through a run to learn the ticket was unreachable. |
 | `fetch-ticket` | `agent` | Fetches the ticket via the established access (or normalises the `ticket` entry of the run context when the conductor already passed the body), writes the tracker-agnostic shape to `<run-dir>/research/ticket.md`, and classifies it as frontend / backend / fullstack / other. Emits `ticket_path` + `ticket_type`. |
 | `analyze-design` | `agent` | Design-spec summary (layout / states / responsive) from any design links, written to `<run-dir>/research/design.md`. Replies `NO-DESIGN` for backend tickets or when there are none. Acts as the `ux-designer` role; `evidence` tuning group (`opus / high`). |
-| `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `sonnet`. |
+| `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `support` tuning group. |
 | `research-context` | `agent` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and builds the Context Dossier (incl. the People map and sources-unavailable list) - persisted to `<run-dir>/research/dossier.md` (the file is the channel: `gap-analysis` and `build-plan` Read it; the step's structured result carries `dossier_path` / `lexicon` / `sources_unavailable`). `evidence` tuning group (`opus / high`). |
 | `codebase-audit` | `agent` | Type-routed "reuse first" audit - UI layer for frontend, API/data/service layer for backend, both for fullstack - written to `<run-dir>/research/audit.md`. Acts as `software-engineer` covering the `architect` lens; `evidence` tuning group (`opus / high`). |
 | `gap-analysis` | `agent` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory; the paste-ready per-person question blocks are printed inline only when `gap_mode=ask` (on `defaults` only the blueprint path + per-person counts are printed - nobody would answer mid-run). Also writes the scorecard to `<run-dir>/research/gap-scorecard.md`. Emits `readiness` + `open_questions`. Acts as `architect`; `authoring` tuning group (`opus / xhigh`, resolved to `high` under Opus 5's policy ceiling). |
@@ -199,8 +213,8 @@ until `setup`).
 | `present-plan` | `agent` | Informational - surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
 | `review-comments` | `ask` | `when: review_mode == 'ask'` — free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. With `review_mode=auto` the plan is accepted as presented. |
 | `refine-plan` | `agent` | `when: review_mode == 'ask' && user_comments != '' && user_comments != 'Accept the plan as-is'` - folds the comments in and overwrites the plan once. Acts as `architect`; `authoring` tuning group. |
-| `setup` | `agent` | Acts on the pre-flight `worktree_mode` / `branch_mode` / `implement_mode`: creates the ticket branch off the repo's default branch or switches to it automatically (`auto`, dirty-tree refused before any source-tree checkout), stays put (`current`), or asks through `wise_ask` (branch, then base branch) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `sonnet`, `mode: full-access` for the git operations. Emits `work_path` + `work_branch` + `work_head` + `implement_choice`. |
-| `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. `authoring` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
+| `setup` | `agent` | Acts on the pre-flight `worktree_mode` / `branch_mode` / `implement_mode`: creates the ticket branch off the pre-flight `base_branch` or switches to it automatically (`auto`, dirty-tree refused before any source-tree checkout), stays put (`current`), or asks through `wise_ask` (create / switch / stay; the base is already settled) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `support` tuning group, `mode: full-access` for the git operations. Emits `work_path` + `work_branch` + `work_head` + `implement_choice`. |
+| `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks run by parallel executor subagents when the harness can spawn them, sequentially inline otherwise; one atomic commit per task, no push. `implement` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
 | `finalize` | `agent` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-workflow-run code-review` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
 
 Roles are folded into each prompt (v2 has no roster routing or agent
@@ -215,8 +229,9 @@ seven per-step tuning groups: `gap-analysis`, `build-plan`,
 policy ceiling resolves to `high` (see
 [Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings));
 `analyze-design`, `research-context` and `codebase-audit` default to
-`opus / high`; every other step pins `sonnet`. The pre-flight
-answers override the group defaults at dispatch. See
+`opus / high`; every other step shares the `support` group
+(`sonnet / medium`). The pre-flight answers override the group
+defaults at dispatch. See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Inputs
@@ -227,13 +242,15 @@ answers override the group defaults at dispatch. See
 | `gap_mode` | yes | `defaults` (default - open gap questions proceed on their stated defaults, recorded as assumptions) / `ask` (pause at `resolve-gaps`). |
 | `review_mode` | yes | `auto` (default - accept the plan as presented) / `ask` (pause at `review-comments` for one refine pass). |
 | `worktree_mode` | yes | Asked immediately before branch handling: `current` (default) uses the current tree; `new` creates a separate worktree at `<run-dir>/worktrees/<ticket-branch>`. Staying on the current branch with a new worktree uses a detached checkout at the source HEAD for plan-only work. Implementation requires a named branch. |
-| `branch_mode` | yes | `auto` (default - create/switch the ticket branch off the repo's default branch, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
+| `branch_mode` | yes | `auto` (default - create/switch the ticket branch off `base_branch`, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
+| `base_branch` | yes | The branch new ticket branches start from (`origin/<base_branch>` when it exists on origin, else the local branch). Options come from the checkout (`options-from: branches`): the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches; free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 | `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
 
 The five mode inputs are choice inputs inferred from a strict literal
-`validate:` regex over the allowed values; each also accepts its
-value positionally, e.g. `/wise-workflow-run ticket-plan PROJ-1
-defaults auto current auto now`.
+`validate:` regex over the allowed values; `base_branch` is a choice
+computed from the checkout. Each also accepts its value positionally in
+declared order, e.g. `/wise-workflow-run ticket-plan PROJ-1
+defaults auto current auto main now`.
 
 ## Outputs
 

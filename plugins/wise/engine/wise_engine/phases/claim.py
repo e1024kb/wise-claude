@@ -1,7 +1,10 @@
 from pathlib import Path
 
+from ..constants import ATTACHED_PIPELINES
 from .common import (
+    NETWORK_CMD_TIMEOUT_MS,
     Json,
+    base_ref,
     fail,
     gh,
     git,
@@ -12,6 +15,7 @@ from .common import (
     remote_branch_exists,
     resolve_base,
 )
+from .pr import view_pr
 
 OWNED = "owned"
 
@@ -20,8 +24,48 @@ def is_owned(ctx: Json) -> bool:
     return ctx["ledger"]["cursors"].get("claim") == OWNED
 
 
+async def attach_phase(ctx: Json) -> Json:
+    """Claim for the `pr` and `implement` pipelines: bind to the checked-out branch."""
+    unit, pipeline = ctx["unit"], ctx["config"]["pipeline"]
+    if pipeline == "implement" and not Path(unit.get("plan_path", "")).is_file():
+        return fail(f"missing: plan file {unit.get('plan_path', '?')} not found")
+    head = await git(ctx, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    branch = head["stdout"].strip() if ok(head) else ""
+    if not branch:
+        return fail("claim: the checkout is detached; check out a named branch first")
+    if branch in ("main", "master") or branch.startswith("release"):
+        return fail(f"claim: refusing to work on protected branch {branch}")
+    if pipeline == "pr" and branch != unit["branch"]:
+        return fail(f"claim: expected branch {unit['branch']}, the checkout is on {branch}")
+    attached = {**unit, "branch": branch, "worktree": str(Path(ctx["cwd"]).resolve())}
+    if pipeline == "pr":
+        pr = await view_pr(ctx, branch)
+        if pr is None:
+            return fail(f"claim: no pull request for {branch}; create one first")
+        if pr["state"] == "MERGED":
+            return fail(f"pr-merged: #{pr['number']}", "merged", {"unit": {**attached, "pr": pr}})
+        if pr["state"] != "OPEN":
+            return fail(f"claim: pull request #{pr['number']} is {pr['state'].lower()}", "skipped")
+        attached["base"] = unit["base"] or pr.get("base") or await resolve_base(ctx)
+        attached["pr"] = {"number": pr["number"], "url": pr["url"]}
+        ctx["log"](f"claim: watching #{pr['number']} on {branch} (base {attached['base']})")
+    else:
+        attached["base"] = unit["base"] or await resolve_base(ctx)
+        ctx["log"](f"claim: implementing on {branch} (base {attached['base']})")
+    # Fetch the base so the diff range exists even in a shallow or
+    # single-branch checkout; a local-only base resolves to its local ref.
+    await git(ctx, ["fetch", "origin", attached["base"]], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS})
+    ref = await base_ref(ctx, attached["base"])
+    if ref is None:
+        return fail(f"claim: base {attached['base']} exists neither on origin nor locally")
+    attached["base_ref"] = ref
+    return pass_({"unit": attached, "cursors": {**ctx["ledger"]["cursors"], "claim": OWNED}})
+
+
 async def claim_phase(ctx: Json) -> Json:
     unit = ctx["unit"]
+    if ctx["config"]["pipeline"] in ATTACHED_PIPELINES:
+        return await attach_phase(ctx)
     if ctx["config"]["pipeline"] == "plan" and (
         "plan_path" not in unit or not Path(unit["plan_path"]).exists()
     ):

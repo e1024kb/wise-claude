@@ -134,6 +134,22 @@ async def local_branch_exists(ctx: Json, branch: str) -> bool:
     return ok(await git(ctx, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]))
 
 
+async def base_ref(ctx: Json, base: str) -> str | None:
+    """The ref a base branch resolves to: `origin/<base>` when the remote-tracking
+    branch exists, else the local branch, else None. Every phase that cuts a
+    branch from the base or diffs against it uses this, so a local-only base
+    chosen at pre-flight works end to end."""
+    if ok(await git(ctx, ["show-ref", "--verify", "--quiet", f"refs/remotes/origin/{base}"])):
+        return f"origin/{base}"
+    if await local_branch_exists(ctx, base):
+        return base
+    return None
+
+
+def unit_base_ref(unit: Json) -> str:
+    return unit.get("base_ref") or f"origin/{unit.get('base') or 'main'}"
+
+
 async def remote_branch_exists(ctx: Json, branch: str) -> bool | None:
     result = await git(
         ctx, ["ls-remote", "--heads", "origin", branch], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS}
@@ -215,6 +231,13 @@ def worktree_slug(branch: str) -> str:
 
 
 def make_unit(pipeline: str, item: str, cwd: str, run_dir: str, base: str = "") -> Json:
+    if pipeline == "pr":
+        branch = item.strip()
+        return {"ref": branch, "branch": branch, "worktree": cwd, "base": base}
+    if pipeline == "implement":
+        seed = os.path.abspath(os.path.join(cwd, item.strip()))
+        ref = plan_branch(seed)
+        return {"ref": ref, "branch": ref, "worktree": cwd, "base": base, "plan_path": seed}
     plan_path = os.path.abspath(os.path.join(cwd, item.strip())) if pipeline == "plan" else None
     ref = plan_branch(plan_path) if plan_path is not None else ticket_ref(item)
     branch = ref if plan_path is not None else ticket_branch(ref)

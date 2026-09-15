@@ -241,8 +241,9 @@ Three mechanisms by dependency kind:
   §2.3 before declaring one**: a marketplace-qualified dependency
   breaks plugin loading in the Claude desktop app, so `wise`
   currently declares none and relies on run-time degradation
-  instead (e.g. the simplify pass degrades when the
-  `code-simplifier` agent is absent).
+  instead (e.g. the simplify pass runs inline per
+  `references/simplify-instructions.md` when the `code-simplifier`
+  agent is absent, which is always the case on non-Claude harnesses).
 - **MCP server** → the plugin's `.mcp.json` (currently empty).
   Claude Code auto-registers any `mcpServers` the plugin declares
   when it loads. **MCP tool ids are derived from the plugin name**

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..adapter_types import AgentHandle, EventCallback, Json
+from ..models import parse_model_listing
 from ..resolve import effort_for
 from ..spawn import SpawnExit, SpawnOptions, clean_env, spawn_clean
 from ._common import (
@@ -229,4 +230,17 @@ async def probe_auth(
     return dict(ok=ok, login_cmd="cursor-agent login")
 
 
-cursor_adapter = ProviderAdapter("cursor", CURSOR_BIN, start_cursor, probe_auth, effort_map)
+async def list_models(
+    *, bin: str = CURSOR_BIN, parent_env: Mapping[str, str | None] | None = None
+) -> list[Json]:
+    exit, stdout = await probe_process(
+        bin, ["models"], child_env(dict(auth="subscription"), parent_env)
+    )
+    if exit.code != 0 or exit.timed_out:
+        return []
+    return parse_model_listing("cursor", stdout)
+
+
+cursor_adapter = ProviderAdapter(
+    "cursor", CURSOR_BIN, start_cursor, probe_auth, effort_map, list_models
+)

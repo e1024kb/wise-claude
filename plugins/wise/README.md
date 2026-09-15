@@ -109,9 +109,9 @@ below.
 | `/wise-pr-watch` | Watch CI + drive fixes to green. |
 | `/wise-pr-create-auto` | Autonomous `/wise-pr-create` — create/refresh a PR with no prompts (base = repo default branch). |
 | `/wise-pr-request-review-auto` | Autonomous `/wise-pr-add-reviewers` — attach Copilot code review with no prompts. |
-| `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` — bulk rounds: settle (linear 2-min poll until CI and every reviewing bot are done), gather every failing check + bot thread + Sonar issue, fix them all in one pass, resolve threads, one push, then a 2-min re-review window; converges on a clean head or after two nit-only rounds and merges (branch protection respected); a stuck Copilot / CodeRabbit requires explicit main-harness consent before wise's substitute review, preferring native UI with text fallback. Declining or an unavailable answer channel stops without review or merge. |
-| `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` — parallel fresh-context executor agents per task wave, one atomic commit per task. Executors run **supervised** (a watchdog nudges any that hang); tune with `WISE_WORKER_*` env. |
-| `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (dispatches the `code-simplifier` agent, then drafts a Conventional-Commits subject and commits). NO prompts, never pushes. |
+| `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` — conducts the bundled `pr-watch` workflow: the engine polls CI and the review bots, fixes what they raise, pushes, runs wise's substitute review when a bot is stuck (only if the `substitute_review` pre-flight answer allows it) and merges when green and quiet (branch protection respected). Pre-flight asks harness, model and effort per phase (watch, fix, review, report); a human comment stands the run down. |
+| `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` on the checked-out branch — conducts the bundled `impl-plan` workflow: task waves as atomic commits, each task tidied and validated, nothing pushed. Pre-flight asks harness, model and effort for the implementer. |
+| `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (the `code-simplifier` agent on Claude Code when installed, otherwise the same cleanup inline on the current model, then drafts a Conventional-Commits subject and commits). Works on every harness. NO prompts, never pushes. |
 | `/wise-human-writing [<draft or pointer>]` | Rewrite a draft into the plugin's human-first outbound style — the command half of the `wise-human-writing` hybrid skill (see [§ Skills](#skills)). |
 | `/wise-tickets [<ticket-ref or draft>]` | Restructure an oversized ticket or draft to the canonical ticket shape, and — when asked — apply it back to the tracker; the command half of the `wise-tickets` hybrid skill (see [§ Skills](#skills)). |
 | `/wise-supervise [<team-name>]` | Attach a watchdog / supervisor loop to a running team of background agents — probe each member, nudge the idle-but-unfinished or off-goal ones, escalate the persistently stuck. The automation of manually typing "ping all your subagents, are you on track?". |
@@ -253,6 +253,8 @@ related skills.
 | [`ticket-plan`](./workflows/ticket-plan/README.md) | `/wise-workflow-run ticket-plan` | Tracker ticket → detect tracker + probe access → type-routed parallel research (design spec + related items + grill multi-source context sweep + codebase audit) → gap check (on gaps: a `BLUEPRINT-<ref>.md` with targeted questions) → autonomous decisions → SP-estimated implementation plan → setup. Every decision is a pre-flight input with an `ask` escape value. |
 | [`ticket-auto`](./workflows/ticket-auto/README.md) | `/wise-workflow-run ticket-auto` | Autonomous ticket → PR pipeline as one `units` step: per ticket claim a branch and worktree, plan, implement, review / fix loop, push, PR, request bot reviews, watch CI and the bots, fix, merge when green and quiet. No prompts after launch; one PR per ticket; anything not merged stays open for a human with its worktree kept. |
 | [`impl-plan-auto`](./workflows/impl-plan-auto/README.md) | `/wise-workflow-run impl-plan-auto` | The same `units` pipeline fed ready `PLAN-*.md` files (for example from `/wise-revise`): re-plan the seed at HEAD, implement, review, PR, watch, merge. |
+| [`pr-watch`](./workflows/pr-watch/README.md) | `/wise-pr-watch-auto` (or `/wise-workflow-run pr-watch`) | Watch the checked-out branch's open PR on the engine: CI and bot reviews polled, fixes pushed, substitute review when a bot is stuck (consent asked at pre-flight), merge when green and quiet. Current checkout only. |
+| [`impl-plan`](./workflows/impl-plan/README.md) | `/wise-implement-plan-auto <plan>` (or `/wise-workflow-run impl-plan`) | Implement one `PLAN-*.md` on the checked-out branch: task waves as atomic commits, nothing pushed. Harness, model and effort for the implementer at pre-flight. |
 
 ## Agent roster
 
@@ -391,18 +393,21 @@ of the following mechanisms, and update the table below.
 | `claude` CLI login (`claude auth login`); optionally `codex login`, `cursor-agent login`, `gemini`, `grok login` | CLI binaries - the harnesses the engine spawns headless under your subscription | probed by the engine before every run (`AUTH_REQUIRED` carries the login command); `/wise-init` checks every harness | every `agent` step and `units` phase |
 | [`gh` CLI](https://cli.github.com) + `gh auth login` | CLI binary — authenticated GitHub client | `plugins/wise/scripts/init.sh` + `bootstrap-deps.sh` probes; registry cached by `/wise-init` | the `wise-pr-*` family of skills and the `ticket-auto` workflow |
 | [`markitdown`](https://github.com/microsoft/markitdown) (`markitdown[all]` via `uv tool install`) | CLI binary — file → markdown text extraction (PDF, DOCX, XLSX, PPTX, images, audio, EPUB, ZIP, …) | `plugins/wise/scripts/init.sh` `probe-markitdown`; installed + registry-cached by `/wise-init` §5 (one-shot `uvx` fallback when skipped) | the `wise-markitdown` reference skill |
-| [`code-simplifier` plugin](https://github.com/anthropics/claude-plugins-official) (`claude-plugins-official`) — ships the `code-simplifier` agent | Plugin-to-plugin — **optional, install manually**: `/plugin install code-simplifier@claude-plugins-official` (not declared in `plugin.json` `dependencies:`; see CONTRIBUTING §2.3) | documented here only | the per-commit simplify pass (`references/simplify-pass.md`): the commit routine (`/wise-commit`, `/wise-commit-push`), the implement phase, `/wise-simplify-auto` |
+| [`code-simplifier` plugin](https://github.com/anthropics/claude-plugins-official) (`claude-plugins-official`) — ships the `code-simplifier` agent | Plugin-to-plugin — **optional, install manually**: `/plugin install code-simplifier@claude-plugins-official` (not declared in `plugin.json` `dependencies:`; see CONTRIBUTING §2.3) | documented here only | the per-commit simplify pass (`references/simplify-pass.md`) on Claude Code: the commit routine (`/wise-commit`, `/wise-commit-push`), the implement phase, `/wise-simplify-auto`. Without it, and on every other harness, the pass runs inline per `references/simplify-instructions.md` |
 
 `code-simplifier` is wise's only plugin-to-plugin dependency, and it
 is deliberately NOT declared in `plugin.json` `dependencies:` — a
 marketplace-qualified dependency silently breaks wise loading in the
 Claude desktop app (CONTRIBUTING §2.3 has the full story). The
 `ticket-plan` / `ticket-auto` workflows work with any task tracker, so
-instead of pre-declaring a tracker plugin they detect the tracker at
-run time, probe for a matching MCP / CLI, and web-search + propose
-install options when none is found. If the `code-simplifier` agent is
-absent, the simplify pass degrades gracefully — commits proceed
-without the cleanup; only `/wise-simplify-auto` refuses.
+instead of pre-declaring a tracker plugin the conductor fetches every
+ticket through this session's channels before the first pre-flight
+question, and the run's `ensure-access` step re-checks first thing and
+stops the run with the fix when a ticket is still unreachable. If the `code-simplifier` agent is
+absent (Codex, Cursor, Gemini and Grok children never have it), the
+simplify pass runs the same cleanup inline on the current model per
+`references/simplify-instructions.md`; no step blocks on the missing
+agent.
 
 ### How each dependency kind is bundled
 

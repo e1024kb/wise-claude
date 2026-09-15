@@ -47,9 +47,11 @@ project-selection: current
 #
 # No `requires:` block: tracker-agnostic. The conductor fetches the
 # ticket before the run (its body lands in <run dir>/context/tickets/);
-# `ensure-access` only probes for a tracker MCP / CLI when that did not
-# happen, and proposes install options when none is found, rather than
-# declaring a fixed tracker plugin up front.
+# `ensure-access` only probes for a granted CLI or a public URL when
+# that did not happen, and `require-access` stops the run, first thing,
+# when the ticket is still unreachable: no mid-run install proposals,
+# no `wise_ask`, no waiting through the research to learn the ticket
+# could not be fetched.
 preflight:
   control-mode: interactive
   worktree: current
@@ -88,8 +90,11 @@ tuning:
       label: "Refine plan"
       default: { harness: claude, model: opus, effort: xhigh }
     - id: implement
-      label: "Implement"
+      label: "Implement: executes the plan's task waves as commits (code changes, the expensive part)"
       default: { harness: claude, model: opus, effort: xhigh }
+    - id: support
+      label: "Support: tracker detection, ticket fetch, related-item summary, plan presentation, branch setup, final summary (mechanical, no code changes)"
+      default: { harness: claude, model: sonnet, effort: medium }
 
 # All flow decisions are collected UP FRONT as inputs so the run can
 # proceed autonomously afterwards. Every mode keeps an `ask` escape hatch
@@ -114,9 +119,12 @@ inputs:
     default: current
     validate: "^(current|new)$"
   - name: branch_mode
-    prompt: "Branch handling at setup? (auto: ticket branch off the default branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)"
+    prompt: "Branch handling at setup? (auto: ticket branch off the base branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)"
     default: auto
     validate: "^(auto|current|ask)$"
+  - name: base_branch
+    prompt: "Base branch for the ticket branch and its PR? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
+    options-from: branches
   - name: implement_mode
     prompt: "Implement the plan after setup? (plan-only: stop after setup | now: implement autonomously | ask: ask me once the plan and branch are settled)"
     default: plan-only
@@ -139,7 +147,7 @@ step-select:
 steps:
   - id: detect-context
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       Identify which task-tracking system the input `{{ticket_id}}`
       points at, and capture the current git branch (no questions, no
@@ -186,47 +194,65 @@ steps:
 
   - id: ensure-access
     type: agent
-    model: sonnet
+    group: support
     prompt: |
-      Confirm this session can reach the **{{tracker_slug}}** tracker
-      before fetching ticket `{{ticket_ref}}`.
+      Confirm this run can fetch the real content of ticket
+      `{{ticket_ref}}` on the **{{tracker_slug}}** tracker before any
+      research starts. The run never plans from an id alone. Ask the
+      user nothing: the conductor already had its chance before the
+      run, and a blocked result stops the run with the fix.
 
       First call the `wise_context` tool with key `ticket`. When it
       returns an entry with a `path` (the conductor fetched the ticket
       into that file) or a `body`, access is `ok`, stop here, probe
       nothing.
 
-      Otherwise probe for an integration: a tracker MCP tool (you have
-      the same MCP servers as the `claude` CLI; read-shaped tools are
-      granted without a prompt), or a CLI (`command -v gh`, `command -v
-      glab`, etc.).
+      Otherwise probe for a granted channel that actually returns the
+      ticket: a tracker MCP tool (you have the same MCP servers as the
+      `claude` CLI; read-shaped tools are granted without a prompt), a
+      CLI (`command -v gh`, `command -v glab`, `command -v linear`,
+      `command -v jira`; e.g. `gh issue view <id>`), or `WebFetch` on a
+      public URL. A login page, a 401/403 or an empty body is not
+      access.
 
-      - If an MCP or CLI is available -> access is `ok`.
-      - If nothing is available -> run a WebSearch for
-        "{{tracker_slug}} Claude Code MCP server" and
-        "{{tracker_slug}} CLI", then ask the user through the
-        `wise_ask` tool with one option per researched install path
-        (exact command in the option text, marked as an unverified
-        suggestion), a `Paste the ticket manually` option, and
-        `Abort`. After an out-of-band install, re-probe. When access
-        works (or the user chose manual paste), access is `ok`; on
-        abort it is `abort`.
+      Reachable: `access` = `ok`, `detail` = the channel that works.
+      Unreachable: `access` = `blocked`, `detail` = the tracker, the
+      channels tried and the fix (install and log in to its CLI, make
+      the URL public, or let the conductor fetch the ticket into run
+      context before the run), then "fix tracker access and re-run
+      /wise-workflow-run ticket-plan".
 
-      Return the field directly as the structured result (no wrapping,
-      no JSON-in-a-string): `access` = `ok` or `abort`.
+      Return the fields directly (no wrapping, no JSON-in-a-string):
+      access, detail.
     schema:
       type: object
       properties:
-        access: { type: string, enum: [ok, abort] }
-      required: [access]
+        access: { type: string, enum: [ok, blocked] }
+        detail: { type: string }
+      required: [access, detail]
       additionalProperties: false
-    outputs: [access]
-    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebSearch"]
+    outputs: [access, detail]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebFetch"]
     depends_on: [detect-context]
+
+  - id: require-access
+    type: bash
+    # The safeguard: a ticket nobody can fetch fails the run here, before
+    # the research wave, with the fix in the error.
+    run: |
+      set -eu
+      if [ "${WISE_ACCESS-}" != "ok" ]; then
+        printf 'ERROR: ticket unreachable:\n%s\n' "${WISE_DETAIL-}" >&2
+        exit 1
+      fi
+      echo ok
+    outputs: [access_checked]
+    timeout: 15
+    depends_on: [ensure-access]
 
   - id: fetch-ticket
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       First call the `wise_context` tool with key `ticket`. When it
       returns an entry with a `path`, Read that file and normalise from
@@ -277,7 +303,7 @@ steps:
       additionalProperties: false
     outputs: [ticket_path, ticket_type]
     allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(git:*)", "Bash(mkdir:*)", "Bash(test:*)"]
-    depends_on: [ensure-access]
+    depends_on: [require-access]
 
   - id: analyze-design
     type: agent
@@ -313,7 +339,7 @@ steps:
 
   - id: analyze-related
     type: agent
-    model: sonnet
+    group: support
     description: "Related tickets & reference docs"
     prompt: |
       Read the normalised ticket at `{{ticket_path}}`. For every
@@ -624,7 +650,7 @@ steps:
 
   - id: present-plan
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       Read the plan at `{{plan_path}}` and present it to the user for
       review; informational only, no decisions, no questions. Show:
@@ -684,7 +710,7 @@ steps:
 
   - id: setup
     type: agent
-    model: sonnet
+    group: support
     # Branch creation / checkout needs unattended git access.
     mode: full-access
     prompt: |
@@ -696,6 +722,7 @@ steps:
 
         worktree_mode:  {{worktree_mode}}   (current | new)
         branch_mode:    {{branch_mode}}     (auto | current | ask)
+        base_branch:    {{base_branch}}     (the branch new ticket branches start from)
         implement_mode: {{implement_mode}}  (plan-only | now | ask)
 
       First compute the target branch from `{{ticket_ref}}` per
@@ -740,10 +767,10 @@ steps:
         if it is registered on target_branch. If target_branch is checked
         out elsewhere, stop with its path. For an existing unoccupied branch, use
         `git worktree add <work_path> <target_branch>`. For a new branch,
-        fetch the selected/default base and use `git worktree add
-        --no-track -b <target_branch> <work_path> origin/<base>`.
+        resolve <base_ref> as described under Branch, then use
+        `git worktree add --no-track -b <target_branch> <work_path> <base_ref>`.
         Do not delete or overwrite an existing path. Resolve ask-mode
-        branch/base choices below before creating the worktree.
+        branch choices below before creating the worktree.
         Only after successfully creating a fresh worktree in this setup
         attempt, copy `.worktreeinclude` entries with the existing safe
         helper before implementation. Use Python 3.11+ with
@@ -757,22 +784,27 @@ steps:
       - Branch (current tree checkout rules; new uses worktree add above):
         `auto`: if the current branch already equals target_branch, nothing to do; else if target_branch exists,
         dirty-check then `git checkout <target_branch>`; else
-        dirty-check, resolve the repo's default branch
-        (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling
-        back to `gh repo view --json defaultBranchRef`), and create the
-        branch FROM it: `git checkout -b <target_branch>
-        origin/<default>`, never from whatever branch happens to be
-        checked out.
+        dirty-check, resolve <base_ref>, and create the branch FROM the
+        pre-flight base: `git checkout -b <target_branch> <base_ref>`,
+        never from whatever branch happens to be checked out.
+        Resolving <base_ref> from the pre-flight base `'{{base_branch}}'`
+        (always pass it to git as one single-quoted argument): if
+        `git ls-remote --exit-code --heads origin '{{base_branch}}'`
+        succeeds, run `git fetch origin '{{base_branch}}'` and use
+        `origin/{{base_branch}}`; else if `git show-ref --verify --quiet
+        'refs/heads/{{base_branch}}'` succeeds, use the local branch
+        `'{{base_branch}}'` (a local-only base is fine); else stop with a
+        clear message naming the branch that exists neither on origin
+        nor locally.
         `current`: do nothing; stay on the current branch.
         `ask`: ask the user with `wise_ask` (ONLY if the current branch
         != target_branch; when they already match, do not ask): options
         `Create <target_branch>` / `Switch to existing <target_branch>`
         (offer only if that branch already exists) / `Stay on <current
-        branch>`. When the answer is Create, ask a second `wise_ask` for
-        the base branch: the repo's default branch first, then recent
-        `release*` branches; free text allowed. Then act exactly as the
-        `auto` rules describe (dirty-tree refusal before every checkout;
-        the branch name MUST equal target_branch exactly).
+        branch>`. The base is already settled by pre-flight
+        (`{{base_branch}}`); do not ask for it again. Then act exactly as
+        the `auto` rules describe (dirty-tree refusal before every
+        checkout; the branch name MUST equal target_branch exactly).
       - Implement: `now`: implement_choice=yes. `plan-only`:
         implement_choice=no. `ask`: ask the user with `wise_ask`
         ("Implement the plan now?", options `Yes, implement now` /
@@ -845,7 +877,7 @@ steps:
 
   - id: finalize
     type: agent
-    model: sonnet
+    group: support
     mcp: engine-only
     prompt: |
       Print the closing summary. Link the ticket only with the `url`

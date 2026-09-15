@@ -10,7 +10,6 @@ from typing import Any
 
 from .constants import HARNESSES
 from .defs import default_roots, list_defs, load_and_validate, locate_def
-from .models import catalog_for
 from .version import runtime_version, source_build_id
 
 USAGE = """wise-engine <command> [options]
@@ -38,7 +37,10 @@ Commands:
                                token and socket from WISE_STEP_TOKEN / WISE_ENGINE_SOCKET / WISE_DATA_ROOT
   auth [harness...] [--json]   which harness CLIs are installed and logged in (subscription probe);
                                exit 1 when a checked provider is missing or logged out
-  models [harness...] [--text] model catalog per harness: id, label, efforts (JSON by default)
+  models [harness...] [--text] [--catalog-only]
+                               models per harness: the predefined catalog first, then models the
+                               installed harness reports (`cursor-agent models`, `grok models`),
+                               each row with source catalog|harness (JSON by default)
   dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>]
            [--mode approval-required|auto|full-access] [--cwd <dir>] [--timeout-s <n>]
            [--add-dir <dir>] [--allowed-tools <a,b>] [--text]
@@ -173,21 +175,17 @@ def cmd_compile_check(parsed: Json, io: Io) -> int:
     return 0 if all(r["ok"] for r in report) else 1
 
 
-def cmd_models(parsed: Json, io: Io) -> int:
-    rows: list[Json] = []
-    for name in parsed["positional"] or HARNESSES:
-        if name not in HARNESSES:
-            io.err(f"models: unknown harness {name} (one of {', '.join(HARNESSES)})\n")
-            return 2
-        rows.extend({"harness": name, **model} for model in catalog_for(name))
-    if parsed["flags"].get("text") is True:
-        for r in rows:
-            io.out(
-                f"{r['harness']}\t{r['id']}\t{r['label']}\t{','.join(r['efforts']) or '-'}\t{r['description']}\n"
-            )
-    else:
-        io.out(json.dumps(rows, ensure_ascii=False, separators=(",", ":")) + "\n")
-    return 0
+async def cmd_models(parsed: Json, io: Io) -> int:
+    from .dispatch import DispatchIo
+    from .dispatch import cmd_models as models_rows
+
+    return await models_rows(
+        parsed["positional"],
+        parsed["flags"],
+        DispatchIo(io.out, io.err),
+        io.env,
+        adapter_lookup,
+    )
 
 
 def cmd_migrate(parsed: Json, io: Io) -> int:
@@ -261,7 +259,13 @@ async def cmd_preflight(parsed: Json, io: Io) -> int:
             answers = decoded
         else:
             context = decoded
-    ctx: Json = {"harnesses": installed_harnesses(definition, adapter_lookup, io.env)}
+    from .branches import branch_choices
+
+    cwd = flag_string(parsed["flags"], "cwd") or os.getcwd()
+    ctx: Json = {
+        "harnesses": installed_harnesses(definition, adapter_lookup, io.env),
+        "branches": branch_choices(cwd, io.env),
+    }
     if context is not None:
         ctx["context"] = context
     questionary = await build_questionary_with_auth(definition, ctx, answers, adapter_lookup)
@@ -438,7 +442,7 @@ async def main(argv: Sequence[str], io: Io | None = None) -> int:
             io.out(json.dumps(cmd_list_agents(), ensure_ascii=False, indent=2) + "\n")
             return 0
         if command == "models":
-            return cmd_models(parsed, io)
+            return await cmd_models(parsed, io)
         if command == "migrate":
             return cmd_migrate(parsed, io)
         if command == "version":

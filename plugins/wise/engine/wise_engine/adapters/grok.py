@@ -11,6 +11,7 @@ from typing import Any
 import tomlkit
 
 from ..adapter_types import AgentHandle, EventCallback, Json
+from ..models import parse_model_listing
 from ..resolve import effort_for
 from ..spawn import SpawnExit, SpawnOptions, clean_env, spawn_clean
 from ._common import (
@@ -23,6 +24,7 @@ from ._common import (
     exit_detail,
     finish_process,
     loads,
+    probe_process,
     rec,
     string,
     temporary_file,
@@ -362,4 +364,15 @@ async def probe_auth(
     return dict(ok=ok, login_cmd="grok login")
 
 
-grok_adapter = ProviderAdapter("grok", GROK_BIN, start_grok, probe_auth, effort_map)
+async def list_models(
+    *, bin: str = GROK_BIN, parent_env: Mapping[str, str | None] | None = None
+) -> list[Json]:
+    exit, stdout = await probe_process(
+        bin, ["models"], child_env(dict(auth="subscription"), parent_env)
+    )
+    if exit.code != 0 or exit.timed_out:
+        return []
+    return parse_model_listing("grok", stdout)
+
+
+grok_adapter = ProviderAdapter("grok", GROK_BIN, start_grok, probe_auth, effort_map, list_models)

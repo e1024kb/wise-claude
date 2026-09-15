@@ -64,9 +64,12 @@ from .preflight import (
     complete_answers,
     input_choice_values,
     invalid_choice_input_ids,
+    invalid_model_answer_ids,
     invalid_provider_permission_answers,
     invalid_worktree_answers,
     resolve_from_context,
+    with_discovered_models,
+    worktree_locked,
 )
 from .pricing import price_usage
 from .protocol import RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS
@@ -76,7 +79,7 @@ from .rpc import RpcError, domain_error
 from .scheduler import next_wave, JS_WHITESPACE
 from .spawn import clean_env
 from .steps.agent import headline, start_agent_step
-from .steps.bash import start_bash_step
+from .steps.bash import bash_step_env, start_bash_step
 from .steps.gate import APPROVAL_OPTIONS, build_gate, decide_gate, is_gate_step
 
 Json = dict[str, Any]
@@ -284,6 +287,9 @@ class Executor:
         self.project_of = self.opts.get("detect_project", detect_project)
         self.requires_of = self.opts.get("probe_requires", probe_requires)
         self.ledger = ledger_handlers(rt)
+        # Harness model listings, probed once per daemon and reused by every
+        # cumulative pre-flight page and the final run() validation.
+        self.model_cache: Json = {}
         self.channel_opts = self.opts.get("channel", {})
         self.timers = self.channel_opts.get("timers") or real_timers()
         self.channel = (
@@ -331,6 +337,14 @@ class Executor:
 
         task.add_done_callback(done)
         return task
+
+    def branches(self, cwd: str) -> Json | None:
+        from .branches import branch_choices
+
+        if "branches" in self.opts:
+            chooser = self.opts["branches"]
+            return chooser(cwd) if callable(chooser) else chooser
+        return branch_choices(cwd, self.env)
 
     def get_adapter(self, harness: str) -> Any:
         from .adapters import adapter_for, has_adapter
@@ -955,7 +969,13 @@ class Executor:
             live.emit(event)
             if step["type"] == "bash":
                 handle = await start_bash_step(
-                    step, dict(cwd=state["cwd"], parent_env=self.env, **self.timeout_opts())
+                    step,
+                    dict(
+                        cwd=state["cwd"],
+                        parent_env=self.env,
+                        step_env=bash_step_env(fresh),
+                        **self.timeout_opts(),
+                    ),
                 )
                 live.children[step_id] = handle
                 if live.stopped and handle.kill:
@@ -1603,7 +1623,7 @@ class Executor:
 
         rec = as_record(params, "preflight")
         workflow = require_string(rec, "workflow", "preflight")
-        require_string(rec, "cwd", "preflight")
+        cwd = require_string(rec, "cwd", "preflight")
         answers = dict(optional_record(rec, "answers", "preflight"))
         context = optional_record(rec, "context", "preflight")
         self.assert_permissions(answers)
@@ -1612,9 +1632,14 @@ class Executor:
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         questionary = await build_questionary_with_auth(
             definition,
-            {"harnesses": harnesses, "context": context},
+            {
+                "harnesses": harnesses,
+                "context": context,
+                "branches": await asyncio.to_thread(self.branches, cwd),
+            },
             answers,
             self.get_adapter,
+            self.model_cache,
         )
         return dict(
             workflow=located["name"],
@@ -1639,9 +1664,18 @@ class Executor:
         definition = validated(located)
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         seeded = {**given, **{f"input.{key}": value for key, value in explicit.items()}}
-        completed = complete_answers(
-            definition, {"harnesses": harnesses, "context": context}, seeded
+        ctx = await with_discovered_models(
+            definition,
+            {
+                "harnesses": harnesses,
+                "context": context,
+                "branches": await asyncio.to_thread(self.branches, cwd),
+            },
+            seeded,
+            self.get_adapter,
+            self.model_cache,
         )
+        completed = complete_answers(definition, ctx, seeded)
         answers = completed["answers"]
         unanswered = [
             question
@@ -1650,7 +1684,7 @@ class Executor:
             and not question["id"].startswith("input.")
             and question["id"] not in given
         ]
-        applied = apply_answers(definition, answers)
+        applied = apply_answers(definition, answers, ctx)
         resolved = {}
         for step in definition["steps"]:
             if step["id"] not in applied["enabled_steps"]:
@@ -1710,7 +1744,10 @@ class Executor:
                     inputs[name] = value
         inputs["worktree_mode"] = applied["worktree"]
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
-        invalid_worktree = invalid_worktree_answers(seeded)
+        invalid_worktree = [] if worktree_locked(definition) else invalid_worktree_answers(seeded)
+        # An explicit model no catalog row backs (a harness-reported id whose
+        # listing failed this time) is re-asked, never swapped for the default.
+        invalid_models = invalid_model_answer_ids(definition, given, ctx.get("models"))
         missing = list(
             dict.fromkeys(
                 [question["id"] for question in unanswered]
@@ -1725,20 +1762,19 @@ class Executor:
                 ]
                 + invalid_inputs
                 + (["worktree"] if invalid_worktree else [])
+                + invalid_models
             )
         )
         if missing:
             questions = {question["id"]: question for question in completed["questions"]}
-            if invalid_inputs or invalid_worktree:
+            if invalid_inputs or invalid_worktree or invalid_models:
                 retry_answers = {
                     key: value
                     for key, value in answers.items()
-                    if key not in (*invalid_inputs, *invalid_worktree)
+                    if key not in (*invalid_inputs, *invalid_worktree, *invalid_models)
                 }
-                for question in build_questionary(
-                    definition, {"harnesses": harnesses, "context": context}, retry_answers
-                )["questions"]:
-                    if question["id"] in (*invalid_inputs, "worktree"):
+                for question in build_questionary(definition, ctx, retry_answers)["questions"]:
+                    if question["id"] in (*invalid_inputs, *invalid_models, "worktree"):
                         questions[question["id"]] = question
             raise domain_error(
                 "MISSING_ANSWERS",

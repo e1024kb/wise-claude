@@ -148,7 +148,16 @@ workflow steps.
 
 Read this contract at every skill start and before dispatching a model-backed
 task, including shared procedures and children. It governs unavailable model,
-effort, named-agent and native delegation routes. Model names in skill bodies
+effort, named-agent and native delegation routes. A procedure that declares no
+model preference and its own inline route runs inline on the current model when
+its named agent or its subagent tool is absent; it never enters this picker.
+The simplify pass (`simplify-pass.md`), the implement phase
+(`implement-plan.md`), the code-review pass (`code-review-pass.md`) and the PR
+watcher's `dispatch_mode=task` handlers (`watch-pipelines-auto.md`) are such
+procedures: they pin no model, a Claude-native subagent inherits the current
+model, and a child on any harness without a subagent tool runs the same work
+sequentially inline on the model its tuning group selected at pre-flight.
+Model names in skill bodies
 are preferences, not proof that a client can run them. Keep portable skill
 frontmatter free of provider-specific model pins so the body can load and ask.
 This contract takes precedence over a routine's automatic inline/skip/abort
@@ -416,6 +425,28 @@ For multi-select on a host with only single-choice pickers:
 
 For a long single-choice list, use pages with clickable navigation within the
 host's option-count limit. Navigation does not answer the underlying question.
+
+Model questions (`model.<group>`, the `models` command, any model picker) are
+the usual long list. The engine returns every option: the predefined catalog
+first (`source: catalog`), then the models the installed harness reported
+(`source: harness`). Render them all, in the engine's order, with the engine's
+labels and descriptions, never with invented ones. Never reorder the list,
+never pick a "representative" subset, and never drop an entry silently. The
+catalog order is the page order: on a host that caps a question at four
+options, two first-page layouts exist and the host's affordances pick one:
+
+- Host with a custom-answer box (Claude Code's `AskUserQuestion`): the first
+  page is the first four engine entries exactly (for claude: Fable 5.1,
+  Opus 5, Opus 4.8, Sonnet 5); the remaining ids are named in the question
+  text so the box reaches them.
+- Option-only host (T3 Code among them): three entries plus `More models…` as
+  the fourth option; every later page holds three entries plus `Back` (and
+  `More models…` while entries remain). Never make `Other` the only route to
+  an engine option on a host that cannot render it.
+
+The highlighted default stays on the first page. Mention the source in
+the description when the host shows one (`reported by the cursor harness`),
+not in the value.
 When a skill asks a bounded contextual question without an engine questionary,
 provide concise choices for the known alternatives; use free text only for content
 that cannot reasonably be enumerated. Do not invent an exhaustive option set for

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from typing import Any
 
 from .constants import EFFORTS
+
+SOURCE_CATALOG = "catalog"
+SOURCE_HARNESS = "harness"
 
 MODEL_CATALOG: dict[str, Any] = {
     "claude": [
@@ -35,6 +40,12 @@ MODEL_CATALOG: dict[str, Any] = {
             "label": "Haiku 4.5",
             "description": "cheap tier for simple steps",
             "efforts": ["medium"],
+        },
+        {
+            "id": "claude-fable-5",
+            "label": "Fable 5",
+            "description": "previous Fable",
+            "efforts": ["low", "medium", "high"],
         },
     ],
     "codex": [
@@ -104,21 +115,122 @@ CLAUDE_ALIASES: dict[str, Any] = {
 }
 
 
+Discovered = dict[str, list[dict[str, Any]]]
+
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
+CURSOR_LINE_RE = re.compile(r"^(?P<id>\S+)\s+-\s+(?P<label>.+?)\s*$")
+GROK_LINE_RE = re.compile(r"^\s*[*-]\s+(?P<id>\S+)(?:\s+\((?P<note>[^)]*)\))?\s*$")
+
+
 def catalog_for(harness: str) -> list[dict[str, Any]]:
     return MODEL_CATALOG[harness]
 
 
-def catalog_model(harness: str, model_id: str | None) -> dict[str, Any] | None:
+def discovered_model(harness: str, model_id: str, label: str | None = None) -> dict[str, Any]:
+    return {
+        "id": model_id,
+        "label": label or model_id,
+        "description": f"reported by the {harness} harness",
+        "efforts": [],
+    }
+
+
+def parse_cursor_models(harness: str, text: str) -> list[dict[str, Any]]:
+    rows = []
+    for line in text.splitlines():
+        match = CURSOR_LINE_RE.match(line.strip())
+        if match is None or not MODEL_ID_RE.match(match["id"]):
+            continue
+        rows.append(discovered_model(harness, match["id"], match["label"]))
+    return rows
+
+
+def parse_grok_models(harness: str, text: str) -> list[dict[str, Any]]:
+    rows = []
+    listing = False
+    for line in text.splitlines():
+        if not listing:
+            listing = line.strip().lower().startswith("available models")
+            continue
+        match = GROK_LINE_RE.match(line)
+        if match is None or not MODEL_ID_RE.match(match["id"]):
+            continue
+        rows.append(discovered_model(harness, match["id"]))
+    return rows
+
+
+MODEL_PARSERS: dict[str, Callable[[str, str], list[dict[str, Any]]]] = {
+    "cursor": parse_cursor_models,
+    "grok": parse_grok_models,
+}
+
+
+def parse_model_listing(harness: str, text: str) -> list[dict[str, Any]]:
+    parser = MODEL_PARSERS.get(harness)
+    return parser(harness, text) if parser else []
+
+
+def merged_catalog(
+    harness: str, discovered: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    rows = [{**model, "source": SOURCE_CATALOG} for model in catalog_for(harness)]
+    known = {model["id"].casefold() for model in rows}
+    extra: dict[str, dict[str, Any]] = {}
+    for model in discovered or []:
+        key = model["id"].casefold()
+        if key in known or key in extra:
+            continue
+        extra[key] = {**model, "source": SOURCE_HARNESS}
+    rows.extend(extra[key] for key in sorted(extra))
+    return rows
+
+
+def catalog_model(
+    harness: str, model_id: str | None, discovered: list[dict[str, Any]] | None = None
+) -> dict[str, Any] | None:
     if model_id is None:
         return None
     key = model_id.strip().lower()
     if harness == "claude":
         key = CLAUDE_ALIASES.get(key, key)
-    return next((model for model in catalog_for(harness) if model["id"] == key), None)
+    catalog = merged_catalog(harness, discovered) if discovered else catalog_for(harness)
+    return next((model for model in catalog if model["id"].lower() == key), None)
 
 
-def default_model(harness: str, pinned: str | None = None) -> dict[str, Any]:
-    return catalog_model(harness, pinned) or catalog_for(harness)[0]
+def default_model(
+    harness: str, pinned: str | None = None, discovered: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    return catalog_model(harness, pinned, discovered) or catalog_for(harness)[0]
+
+
+async def discover_models(
+    harnesses: list[str], lookup: Callable[[str], Any], cache: Discovered | None = None
+) -> Discovered:
+    """List each harness's models once; `cache` carries the outcome across calls.
+
+    A harness already in the cache is not probed again, whether its listing
+    returned rows, nothing, or failed: the predefined catalog covers the
+    negative cases and a later failure never evicts rows already discovered.
+    """
+    result: Discovered = {}
+    for harness in dict.fromkeys(harnesses):
+        if cache is not None and harness in cache:
+            if cache[harness]:
+                result[harness] = cache[harness]
+            continue
+        adapter = lookup(harness)
+        probe = getattr(adapter, "list_models", None)
+        if adapter is None or probe is None:
+            continue
+        try:
+            rows = await probe()
+        except Exception:
+            rows = []
+        if cache is not None:
+            cache[harness] = rows
+        if rows:
+            result[harness] = rows
+    return result
 
 
 def default_effort(model: dict[str, Any], wanted: str | None = None) -> str | None:

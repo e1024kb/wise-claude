@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import subprocess
@@ -17,6 +18,7 @@ INPUTS = [
     "input.gap_mode",
     "input.review_mode",
     "input.branch_mode",
+    "input.base_branch",
     "input.implement_mode",
 ]
 MODES = {"input.review_mode": "ask", "input.implement_mode": "now"}
@@ -118,6 +120,108 @@ def test_stage_order_and_explicit_answers():
     assert ids(p.build_questionary(defn, ready, answer)) == [i for i in INPUTS if i not in MODES]
 
 
+def test_model_options_carry_source_and_accept_harness_reported_models():
+    defn = definition()
+    base = {"worktree": "current", "step-select": OPTIONAL, **MODES, **AUTO}
+    reported = [
+        dict(id="grok-4.5", label="grok-4.5", description="reported", efforts=[]),
+        dict(id="grok-4.6", label="dup", description="reported", efforts=[]),
+    ]
+    ctx = {"harnesses": ["grok"], "models": {"grok": reported}}
+    answer = {**base, **{f"harness.{g}": "grok" for g in groups(defn)}, "permissions.grok": "auto"}
+    stage = p.build_questionary(defn, ctx, answer)
+    question = next(q for q in stage["questions"] if q["id"] == "model.analyze-design")
+    assert [(o["value"], o["source"]) for o in question["options"]] == [
+        ("grok-4.6", "catalog"),
+        ("grok-4.5", "harness"),
+    ]
+    assert question["default"] == "grok-4.6"
+    # without the discovery the single-entry grok catalog asks nothing
+    silent = p.build_questionary(defn, {"harnesses": ["grok"]}, answer)
+    assert not any(q["id"].startswith("model.") for q in silent["questions"])
+    answer.update({f"model.{g}": "grok-4.5" for g in groups(defn)})
+    assert not any(
+        q["id"].startswith(("model.", "effort."))
+        for q in p.build_questionary(defn, ctx, answer)["questions"]
+    )
+    applied = p.apply_answers(defn, answer, ctx)
+    assert applied["tuning"]["analyze-design"] == dict(harness="grok", model="grok-4.5")
+    # the same answer without the discovery context is not a known model
+    assert p.apply_answers(defn, answer)["tuning"]["analyze-design"] == dict(
+        harness="grok", model="grok-4.6"
+    )
+    claude = p.build_questionary(
+        defn, {"harnesses": ["grok"]}, {**base, **{f"harness.{g}": "claude" for g in groups(defn)}}
+    )
+    question = next(q for q in claude["questions"] if q["id"] == "model.analyze-design")
+    assert [o["value"] for o in question["options"]] == [
+        "claude-fable-5-1",
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5",
+        "claude-fable-5",
+    ]
+    assert all(o["source"] == "catalog" for o in question["options"])
+
+
+def test_questionary_with_auth_discovers_models_once():
+    class Adapter:
+        def __init__(self, identifier, rows=None):
+            self.id = identifier
+            self.rows = rows
+            self.listed = 0
+
+        async def probe_auth(self, auth):
+            return {"ok": True}
+
+        async def list_models(self):
+            self.listed += 1
+            return self.rows or []
+
+    defn = definition()
+    adapters = {
+        "claude": Adapter("claude"),
+        "grok": Adapter(
+            "grok", [dict(id="grok-4.5", label="grok-4.5", description="", efforts=[])]
+        ),
+    }
+    answer = {
+        "worktree": "current",
+        "step-select": OPTIONAL,
+        **MODES,
+        **AUTO,
+        **{f"harness.{g}": "grok" for g in groups(defn)},
+        "permissions.grok": "auto",
+    }
+
+    async def run():
+        asked = await p.build_questionary_with_auth(
+            defn, {"harnesses": ["grok"]}, answer, adapters.get
+        )
+        question = next(q for q in asked["questions"] if q["id"] == "model.analyze-design")
+        assert [o["value"] for o in question["options"]] == ["grok-4.6", "grok-4.5"]
+        assert (adapters["grok"].listed, adapters["claude"].listed) == (1, 0)
+        ctx = await p.with_discovered_models(defn, {"harnesses": ["grok"]}, answer, adapters.get)
+        assert ctx["models"] == {"grok": adapters["grok"].rows}
+        assert await p.with_discovered_models(defn, ctx, answer, adapters.get) is ctx
+        assert adapters["grok"].listed == 2
+        # earlier stages never probe; a model answer under validation always does
+        early = {"worktree": "current"}
+        assert "models" not in await p.with_discovered_models(
+            defn, {"harnesses": ["grok"]}, early, adapters.get
+        )
+        assert adapters["grok"].listed == 2
+        validating = {"model.analyze-design": "grok-4.5", "harness.analyze-design": "grok"}
+        ctx = await p.with_discovered_models(
+            defn, {"harnesses": ["grok"]}, validating, adapters.get
+        )
+        assert ctx["models"] == {"grok": adapters["grok"].rows}
+        assert (adapters["grok"].listed, adapters["claude"].listed) == (3, 1)
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("ctx", [{}, {"harnesses": ["claude"]}, {"harnesses": []}])
 def test_single_harness_skips_question(ctx):
     defn = definition()
@@ -164,6 +268,7 @@ def test_deselected_locked_and_unbound_groups():
         "model.build-plan",
         "model.refine-plan",
         "model.implement",
+        "model.support",
     ]
     assert not any(i.endswith(".presentation") for i in ids(stage))
     applied = p.apply_answers(
@@ -433,12 +538,15 @@ def test_complete_answers_and_selection():
     defn = extended()
     ctx = {"harnesses": ["claude", "codex"]}
     done = p.complete_answers(defn, ctx, {})
-    assert done["missing"] == ["input.ticket_id"]
+    assert done["missing"] == ["input.ticket_id", "input.base_branch"]
     assert done["answers"]["step-select"] == OPTIONAL
     assert "effort.build-plan" in [q["id"] for q in done["questions"]]
     assert "model.implement" not in [q["id"] for q in done["questions"]]
     full = p.complete_answers(defn, ctx, MODES)
-    assert all(full["answers"][f"effort.{g}"] == "high" for g in groups(defn))
+    assert all(
+        full["answers"][f"effort.{g}"] == ("medium" if g == "support" else "high")
+        for g in groups(defn)
+    )
     steered = p.complete_answers(defn, ctx, {"harness.analyze-design": "codex"})
     assert steered["answers"]["model.analyze-design"] == "gpt-6-astra"
     assert steered["answers"]["effort.analyze-design"] == "high"
@@ -587,6 +695,32 @@ def test_legacy_worktree_input_answer_remains_accepted():
     assert p.known_inputs(defn, {"worktree": "new"})["worktree_mode"] == "new"
 
 
+@pytest.mark.parametrize(
+    "value, invalid",
+    [("release/1.2", []), ("main; id", ["input.base_branch"]), ("", ["input.base_branch"])],
+)
+def test_branch_inputs_must_be_git_branch_names(value, invalid):
+    spec = {"inputs": [{"name": "base_branch", "prompt": "Base?", "options-from": "branches"}]}
+    assert p.invalid_choice_input_ids(spec, {"base_branch": value}) == invalid
+
+
+@pytest.mark.parametrize(
+    "value, invalid", [("", []), ("7", []), ("0", ["input.minutes"]), ("1441", ["input.minutes"])]
+)
+def test_text_inputs_are_checked_against_their_validate_regex(value, invalid):
+    spec = {
+        "inputs": [
+            {
+                "name": "minutes",
+                "prompt": "Minutes?",
+                "optional": True,
+                "validate": "^([1-9][0-9]{0,2}|1[0-3][0-9]{2}|14[0-3][0-9]|1440)?$",
+            }
+        ]
+    }
+    assert p.invalid_choice_input_ids(spec, {"minutes": value}) == invalid
+
+
 @pytest.mark.parametrize("key", ["worktree", "input.worktree_mode"])
 def test_invalid_worktree_answer_is_replaced_with_question(key):
     result = p.build_questionary(definition(), answers={key: "invalid"})
@@ -636,3 +770,107 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(
         assert no_origin.returncode == 1 and "no 'origin'" in no_origin.stderr
     else:
         assert "uncommitted or untracked changes" in result.stderr
+
+
+def test_branch_input_is_a_choice_from_the_checkout_and_text_without_one():
+    defn = definition()
+    ready = {"harnesses": ["claude"]}
+    plain = next(
+        q for q in p.build_questionary(defn, ready)["questions"] if q["id"] == "input.base_branch"
+    )
+    assert plain["kind"] == "text" and "default" not in plain
+    branches = {
+        "current": "release-26-9-0",
+        "default": "release-26-9-0",
+        "options": [
+            {"value": "release-26-9-0", "label": "release-26-9-0", "description": "checked out"},
+            {"value": "main", "label": "main", "description": "default"},
+        ],
+    }
+    stage = p.build_questionary(defn, {**ready, "branches": branches})
+    question = next(q for q in stage["questions"] if q["id"] == "input.base_branch")
+    assert question["kind"] == "choice" and question["allow_text"] is True
+    assert [o["value"] for o in question["options"]] == ["release-26-9-0", "main"]
+    assert question["default"] == "release-26-9-0"
+    assert stage["defaults"]["input.base_branch"] == "release-26-9-0"
+    answered = p.build_questionary(
+        defn, {**ready, "branches": branches}, {"input.base_branch": "x"}
+    )
+    assert "input.base_branch" not in ids(answered)
+
+
+def test_branch_choice_accepts_free_text_in_forms_and_answers():
+    question = {
+        "id": "input.base_branch",
+        "kind": "choice",
+        "label": "Base?",
+        "options": [{"value": "main", "label": "main"}],
+        "allow_text": True,
+        "default": "main",
+    }
+    schema = question_form_schema(question)["properties"]["input.base_branch"]
+    assert "oneOf" not in schema and schema["examples"] == ["main"] and schema["minLength"] == 1
+    assert _accepted_answer(question, {"input.base_branch": "main"}) == "main"
+    assert _accepted_answer(question, {"input.base_branch": "release-26-9-0"}) == "release-26-9-0"
+    assert _accepted_answer(question, {"input.base_branch": "  "}) is None
+    strict = {**question, "allow_text": False}
+    assert _accepted_answer(strict, {"input.base_branch": "release-26-9-0"}) is None
+
+
+@pytest.mark.parametrize("workflow", ["pr-watch", "impl-plan"])
+def test_lock_worktree_skips_the_worktree_question(workflow):
+    defn = load_and_validate({"path": str(ROOT / f"workflows/{workflow}/workflow.yaml")})["def"]
+    assert p.worktree_locked(defn)
+    assert "worktree" not in ids(p.build_questionary(defn))
+    assert p.build_questionary(defn)["questions"][0]["id"].startswith("input.")
+    assert p.apply_answers(defn, {"worktree": "new"})["worktree"] == "current"
+    assert p.apply_answers(defn, {"worktree": "new"})["inputs"]["worktree_mode"] == "current"
+
+
+def test_invalid_model_answer_ids_rejects_unbacked_explicit_models():
+    defn = definition()
+    group = next(iter(groups(defn)))
+    discovered = {"grok": [{"id": "grok-4.5", "label": "grok-4.5", "efforts": []}]}
+    answers = {f"harness.{group}": "grok", f"model.{group}": "grok-4.5"}
+    assert p.invalid_model_answer_ids(defn, answers, discovered) == []
+    # the same answer with the listing gone is invalid, never defaulted
+    assert p.invalid_model_answer_ids(defn, answers, {}) == [f"model.{group}"]
+    assert p.invalid_model_answer_ids(defn, answers, None) == [f"model.{group}"]
+    assert p.invalid_model_answer_ids(defn, {f"model.{group}": "opus"}, None) == []
+    assert p.invalid_model_answer_ids(defn, {f"model.{group}": ""}, None) == []
+
+
+def test_discover_models_cache_reuses_rows_and_survives_a_failed_listing():
+    from wise_engine.models import discover_models
+
+    class Adapter:
+        def __init__(self, rows, fail=False):
+            self.rows, self.fail, self.listed = rows, fail, 0
+
+        async def list_models(self):
+            self.listed += 1
+            if self.fail:
+                raise RuntimeError("listing timed out")
+            return self.rows
+
+    rows = [dict(id="grok-4.5", label="grok-4.5", description="", efforts=[])]
+    adapter = Adapter(rows)
+    cache = {}
+
+    async def run():
+        assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
+        assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
+        assert adapter.listed == 1
+        # a later transient failure keeps the rows the first page discovered
+        adapter.fail = True
+        assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
+        assert await discover_models(["grok"], lambda _h: adapter) == {}
+        assert adapter.listed == 2
+        # a failed or empty first listing is cached too: one probe per daemon
+        for first in (Adapter(rows, fail=True), Adapter([])):
+            negative = {}
+            for _ in range(2):
+                assert await discover_models(["grok"], lambda _h, a=first: a, negative) == {}
+            assert first.listed == 1 and negative == {"grok": []}
+
+    asyncio.run(run())

@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 
 from test_model_phases import ModelFixture
-from test_phases import PhaseFixture
+from test_phases import PhaseFixture, command_result
 from wise_engine.ledger import empty_usage, read_unit, write_unit
+from wise_engine.phases.claim import claim_phase
 from wise_engine.phases.common import make_unit, pass_
 from wise_engine.units import config_for, run_units_step
 
@@ -57,6 +58,9 @@ def test_config_caps_reviewer_default_and_context():
     assert result["timeout"] == 5 and result["mcp"] == "engine-only"
     del step["reviewers"]
     assert config_for(step, state)["reviewers"] == ["copilot-pull-request-reviewer"]
+    assert config_for(step, state)["base"] == ""
+    state["inputs"] = {"base_branch": " release-26-9-0 "}
+    assert config_for(step, state)["base"] == "release-26-9-0"
 
 
 def test_deduplicated_ticket_spellings_and_done_resume(tmp_path):
@@ -395,3 +399,137 @@ def test_current_tree_units_borrow_live_run_lock_without_releasing_it(tmp_path):
         await run_units_step(args)
 
     asyncio.run(scenario())
+
+
+def _on_branch(fixture, branch):
+    fixture.failures[("git", "symbolic-ref", "--quiet", "--short", "HEAD")] = (
+        command_result(branch + "\n") if branch else command_result(code=128)
+    )
+
+
+def test_pr_pipeline_watches_checked_out_branch_in_place(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        _on_branch(fixture, "feat/x")
+        fixture.remote.add("develop")
+        fixture.pr = {
+            "number": 7,
+            "url": "https://github.invalid/a/r/pull/7",
+            "state": "OPEN",
+            "baseRefName": "develop",
+        }
+        fixture.step.update(
+            {"pipeline": "pr", "items": "feat/x", "groups": {"watch": "watch"}, "caps": []}
+        )
+        result = await run_units_step(
+            fixture.input(items=["feat/x"], state={**fixture.state, "worktree_mode": "new"})
+        )
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "merged" and row["unit"]["pr"]["number"] == 7
+        assert row["unit"]["base"] == "develop"
+        assert Path(row["unit"]["worktree"]).resolve() == fixture.repo.resolve()
+        assert not [c for c in fixture.calls if c[0] == "git" and c[1][:2] == ["worktree", "add"]]
+        assert fixture.counts["plan"] == 0 and fixture.counts["implement"] == 0
+        assert fixture.counts["watch"] >= 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "branch,pr,verdict,needle",
+    [
+        ("", None, "failed", "detached"),
+        ("main", {"number": 1, "url": "u", "state": "OPEN"}, "failed", "protected branch main"),
+        ("feat/x", None, "failed", "no pull request for feat/x"),
+        ("feat/x", {"number": 1, "url": "u", "state": "MERGED"}, "merged", "pr-merged: #1"),
+        ("feat/x", {"number": 1, "url": "u", "state": "CLOSED"}, "skipped", "is closed"),
+        ("feat/y", {"number": 1, "url": "u", "state": "OPEN"}, "failed", "checkout is on feat/y"),
+    ],
+)
+def test_pr_pipeline_claim_refusals(tmp_path, branch, pr, verdict, needle):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        _on_branch(fixture, branch)
+        fixture.pr = pr
+        fixture.ctx["config"]["pipeline"] = "pr"
+        fixture.ctx["unit"] = make_unit("pr", "feat/x", str(fixture.repo), str(fixture.run_dir))
+        result = await claim_phase(fixture.ctx)
+        assert result["ok"] is False
+        assert result.get("verdict", "failed") == verdict and needle in result["reason"]
+
+    asyncio.run(scenario())
+
+
+def test_implement_pipeline_runs_on_checked_out_branch(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        _on_branch(fixture, "feat/PROJ-3")
+        plan = fixture.repo / "docs" / "plans" / "PLAN-PROJ-3.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text("# Plan\n1. do it\n")
+        fixture.step.update(
+            {"pipeline": "implement", "items": str(plan), "groups": {"implement": "implement"}}
+        )
+        result = await run_units_step(fixture.input(items=[str(plan)]))
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "all-green" and row["unit"]["branch"] == "feat/PROJ-3"
+        assert row["unit"]["plan_path"] == str(plan)
+        assert read_unit(str(fixture.run_dir), "feat/PROJ-3")["verdict"] == "all-green"
+        assert fixture.counts == {"implement": 1}
+        assert not [c for c in fixture.calls if c[0] == "gh" and c[1][:2] == ["pr", "create"]]
+        assert not [c for c in fixture.calls if c[0] == "git" and c[1][0] == "push"]
+
+    asyncio.run(scenario())
+
+
+def test_implement_pipeline_requires_plan_file(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        _on_branch(fixture, "feat/x")
+        fixture.ctx["config"]["pipeline"] = "implement"
+        fixture.ctx["unit"] = make_unit(
+            "implement", str(fixture.repo / "PLAN-nope.md"), str(fixture.repo), str(fixture.run_dir)
+        )
+        result = await claim_phase(fixture.ctx)
+        assert result["ok"] is False and "missing: plan file" in result["reason"]
+
+    asyncio.run(scenario())
+
+
+def test_declined_substitute_review_stands_down_on_a_stuck_bot(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        from test_model_phases import answer, watch_output
+
+        _on_branch(fixture, "feat/x")
+        fixture.pr = {"number": 7, "url": "https://github.invalid/a/r/pull/7", "state": "OPEN"}
+        fixture.step.update({"pipeline": "pr", "items": "feat/x", "groups": {}, "caps": []})
+        fixture.scripts["watch"] = lambda req, nth: answer(watch_output(bot_reviews="stuck"))
+        state = {**fixture.state, "inputs": {"substitute_review": "no"}}
+        result = await run_units_step(fixture.input(items=["feat/x"], state=state))
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "all-green" and "review-consent-declined" in row["reason"]
+        assert fixture.counts["review"] == 0 and fixture.counts["watch"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_attached_pipelines_force_current_tree_and_input_cap_overrides():
+    step = {"pipeline": "pr", "groups": {}, "caps": ["max_fix_attempts", "watch_minutes"]}
+    state = {
+        "context": {},
+        "caps": {"max_fix_attempts": 10, "watch_minutes": 120},
+        "profile": "medium",
+        "worktree_mode": "new",
+        "inputs": {"max_fix_attempts": " 3 ", "watch_minutes": "", "base_branch": ""},
+    }
+    result = config_for(step, state)
+    assert result["worktree_mode"] == "current"
+    assert result["caps"] == {"max_fix_attempts": 3.0, "watch_minutes": 120}
+    for raw in ("soon", "inf", "-inf", "nan", "-1", "0", "1.5", "1441", "9" * 400):
+        state["inputs"]["watch_minutes"] = raw
+        assert config_for(step, state)["caps"]["watch_minutes"] == 120
+    state["inputs"]["watch_minutes"] = "1440"
+    assert config_for(step, state)["caps"]["watch_minutes"] == 1440.0
+    state["inputs"]["max_fix_attempts"] = "9" * 400
+    assert config_for(step, state)["caps"]["max_fix_attempts"] == 10

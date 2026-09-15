@@ -180,6 +180,7 @@ is unmet, before the auth probes and before a run directory exists.
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
 | `worktree` | `current` (default) \| `new` | Default for the required worktree question. `new` creates branch `wise/<workflow>-<run-id>` at sibling path `<cwd>.wise-<run-id>` for ordinary workflows and retains it after the run. Workflows with a `worktree_mode` input or `units` step apply the same answer through their own worktree handling. |
+| `lock-worktree` | `true` \| `false` (default) | `true` skips the worktree question and applies `worktree` (the `pr` / `implement` units pipelines run in the checkout by construction). |
 | `permissions` | `allowlist` \| `full` | Legacy global pin. `full` maps every provider to `full-access`; `allowlist` maps every provider to `approval-required`. New workflows should omit it and use the per-provider pre-flight questions. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
@@ -252,7 +253,27 @@ inputs:
     from-context: ticket[].ref       # pre-fill from the run context
     extract: "([A-Z]+-\\d+)"         # first capture group (else whole match) becomes the value
     validate: "^(defaults|ask)$"     # full match after extract
+  - name: base_branch
+    prompt: "Base branch?"
+    options-from: branches           # choice list computed from the checkout; free text allowed
 ```
+
+`options-from: branches` renders the question as a choice whose options
+the engine reads from the checkout it pre-flights in (`engine/wise_engine/branches.py`):
+the checked-out branch first when it is `main` / `master` / `release*`,
+then the repository default branch, then the five most recent `release*`
+branches (local and `origin/`), deduplicated. The default is the first
+option. The question carries `allow_text: true`, so the MCP form, the TUI and
+the conductor accept any other branch name as free text. Outside
+a git checkout the question falls back to plain text. The answer must be
+a plain git branch name (letters, digits, `.`, `_`, `/`, `+`, `-`, no `..`);
+anything else is rejected at pre-flight. The `ticket` and `plan` pipelines
+read the `base_branch` input as the base every ticket branch is cut from and
+every PR targets; it must exist on origin (`origin/<base_branch>`), a
+local-only branch stops the unit at `worktree` because a PR cannot target
+it. The `pr` and `implement` pipelines attach to the checked-out branch and
+do not read it: an existing PR keeps its own base, and a local-only base is
+accepted there for the diff range.
 
 `from-context` grammar: `guidance` \| `ticket[].ref` \| `ticket[].title`
 \| `ticket[].body` \| `ticket[].url` \| `links[]` \| `decisions.<key>`.
@@ -365,7 +386,11 @@ rate limits](#fallback-and-rate-limits)); `auth` fails the run.
   timeout: 15
 ```
 
-`bash -c <run>` in the run cwd under the clean child environment.
+`bash -c <run>` in the run cwd under the clean child environment, with
+every input and prior output also exported as `WISE_<NAME>` (upper-cased,
+non-alphanumerics to `_`): read values from those variables (`"$WISE_PLAN"`)
+rather than interpolating `{{name}}` into shell source, where a crafted
+value can break out of quotes or a here-document.
 Success is exit code 0 without timeout. `outputs`: the first name gets
 the whole trimmed stdout (1 MiB cap). Verdict: last non-empty stdout
 line, else `ok`; on failure `failed: <last stderr line or exit code>`.
@@ -409,7 +434,7 @@ pipelines](#unit-pipelines).
 ```yaml
 - id: process
   type: units
-  pipeline: ticket                 # ticket | plan
+  pipeline: ticket                 # ticket | plan | pr | implement
   items: "{{ticket_list}}"         # rendered, then parsed
   groups: { plan: plan, implement: implement, review: review, fix: implement, watch: watch }
   caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
@@ -420,10 +445,10 @@ pipelines](#unit-pipelines).
 
 | Field | Notes |
 |---|---|
-| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd). |
+| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd) \| `pr` (unit = the checked-out branch with its open PR) \| `implement` (unit = a `PLAN-*.md` implemented on the checked-out branch). `pr` and `implement` always run in the current checkout. |
 | `items` | String. After rendering: a JSON array of strings or `{ref}` objects, else split on `,` `;` newline. Deduplicated. |
 | `groups` | Non-empty mapping phase -> tuning group id for `plan`, `implement`, `review`, `fix`, `watch`. Unknown phase warns. `fix` falls back to `implement`'s group. |
-| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. |
+| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. A workflow input named after a listed cap overrides it when it holds a number (`pr-watch`: `max_fix_attempts`, `watch_minutes`). |
 | `reviewers` | GitHub logins for `gh pr edit --add-reviewer`. |
 | `parallel` | Positive int. Git operations are serialised per step. |
 | `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (sessions never cross harnesses, so a fixer on another one starts clean); `fresh` (default) starts each child clean. |
@@ -658,10 +683,10 @@ empty. An answered question is never repeated.
 |---|---|---|---|
 | `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
-| `input.<name>` | `choice` for strict literal enums without extraction; otherwise `text` | enum values, plus `Leave unset` for optional enums; none for text | context value, else `default`, else empty when optional |
+| `input.<name>` | `choice` for strict literal enums without extraction and for `options-from: branches` (free text allowed); otherwise `text` | enum values, plus `Leave unset` for optional enums; the checkout's base-branch candidates for `options-from: branches`; none for text | context value, else `default`, else empty when optional; the checked-out base branch else the default branch for `options-from: branches` |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
-| `model.<group>` | `choice` | the engine's model catalog for the chosen harness (`engine/wise_engine/models.py`) | the group's pinned model when the catalog has it, else the catalog's first entry |
+| `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, sorted by id, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
 `worktree` is always the first question. `step-select` and `input.<name>` follow
@@ -683,12 +708,25 @@ one effort. A stage with one possible value is settled silently; every
 other stage MUST be answered. A locked group asks nothing and runs its
 default.
 
-The catalog (2026-09-10): claude `claude-fable-5-1`, `claude-opus-5`,
-`claude-opus-4-8` (low, medium, high), `claude-sonnet-5` (low, medium),
-`claude-haiku-4-5` (medium); codex `gpt-6-astra`, `gpt-5.6-sol`,
-`gpt-5.6-luna`, `gpt-5.5` (low, medium, high); cursor `cursor-grok-4.6-high`,
-`composer-2.5` (no effort flag); grok `grok-4.6`; gemini
-`gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
+The predefined catalog (2026-09-15), in picker order: claude
+`claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
+`claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
+(low, medium, high); the first four are the page a four-option host shows; codex
+`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low, medium, high);
+cursor `cursor-grok-4.6-high`, `composer-2.5` (no effort flag); grok
+`grok-4.6`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
+
+The predefined entries are always offered. On top of them, once the model
+stage is reached, the engine asks the harness chosen for each tuning group for
+its live model list when that harness has a listing command
+(`cursor-agent models`, `grok models`; Claude Code, Codex and Gemini expose
+none) and appends every id the catalog does not already contain, sorted by id
+with `source: harness`, so the same host always produces the same option list.
+A failed or timed-out listing adds nothing. A harness-reported id is a valid
+`model.<group>` answer; it runs without an effort flag. The conductor renders
+every option: a host with an option cap pages the list rather than dropping
+entries, since pickers without a free-text box (T3 Code, for example) leave
+the user no other way to reach an omitted model.
 
 The conductor uses its native structured picker when available, or requests
 `interactive: true` so the MCP server renders one question at a time through the
@@ -939,6 +977,18 @@ v1 prose orchestrators used to describe. Phases in order:
 | `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. |
 | `cleanup` | code | On `merged` in `new` mode: remove worktree, delete local branch, `cleaned: true`. `current` retains the checkout and branch. Runs after a failure too. |
 
+The `pr` pipeline runs `claim -> watch -> cleanup` and the `implement`
+pipeline `claim -> implement -> cleanup`. Their `claim` attaches to the
+checked-out branch instead of creating one: a detached HEAD or a
+protected branch fails the unit; `pr` also needs the branch to match
+the item and to carry an open PR (`MERGED` -> `merged`, closed ->
+`skipped`; the base is the PR's), `implement` needs the plan file. Both
+force `worktree_mode: current`. `implement` records `all-green` with
+`implemented: <done> of <tasks> tasks in <n> commits (failed <f>)`.
+The `substitute_review` input (`pr-watch`) set to `no` makes a stuck
+bot end the watch loop as `all-green reason=review-consent-declined`
+instead of running the substitute review.
+
 Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
@@ -1054,7 +1104,7 @@ Python runtime. Standalone session/profile/history/supervision commands use
 | `mcp [--no-start]` | The stdio MCP server used by managed host registration. |
 | `unit-mcp [--token <t>]` | The child-side MCP server. |
 | `auth [harness...] [--json]` | Per harness: binary on PATH, subscription login, login command. Exit 1 when `claude` is missing or logged out. Read by `/wise-init`. |
-| `models [harness...] [--text]` | The model catalog per harness: `id`, `label`, `description`, `efforts`. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
+| `models [harness...] [--text] [--catalog-only]` | The models per harness: `id`, `label`, `description`, `efforts`, `source`. The predefined catalog rows come first, then the models an installed harness reports (`cursor-agent models`, `grok models`), sorted by id; `--catalog-only` skips the harness probes. Read by the `--on` dispatch reference (`references/dispatch.md`) so skills never hardcode a model list. |
 | `dispatch --harness <h> --prompt-file <path> [--model <id>] [--effort <e>] [--mode <m>] [--cwd <dir>] [--timeout-s <n>] [--add-dir <dir>] [--allowed-tools <a,b>] [--text] [--relay]` | `--relay` is mandatory for skill `--on` dispatch: returns a daemon run ID immediately and gives the child the normal Wise question channel. The main harness follows `wait`, collects gate answers through native UI or permitted text fallback, and uses `answer` or `cancel`. On completion, `status.dispatch_result` contains the provider result. No automatic provider retry or fallback. Without `--relay`, the legacy noninteractive command prints one JSON result (`ok`, `exit`, `verdict`, `text`, `usage`, `warnings`) without a daemon or question channel. Unsupported effort is a usage error. |
 | `version`, `help` | |
 
@@ -1113,7 +1163,8 @@ workflow has no `approval` step that needs a human. The repo validator
 (`just validate`) calls the canonical Python definition validator on every
 bundled definition. Bundled workflows:
 `example-workflow` (every step type), `ticket-plan`, `ticket-auto`,
-`impl-plan-auto`, `code-review` (see their READMEs).
+`impl-plan-auto`, `pr-watch`, `impl-plan`, `code-review` (see their
+READMEs).
 
 ## Resume limits
 

@@ -271,6 +271,30 @@ def test_bash_timeout_and_clean_environment(tmp_path: Path) -> None:
     assert answer["stdout"] == f"{tmp_path}|||{os.environ['PATH']}"
 
 
+def test_bash_step_env_carries_inputs_and_outputs_verbatim(tmp_path: Path) -> None:
+    from wise_engine.steps.bash import bash_step_env
+
+    state = {
+        "inputs": {"plan": "docs/PLAN.md\nWISE_PLAN\necho pwned", "base-branch": "main", "n": 3},
+        "outputs": {"access": "ok", "detail": 'it\'s "fine"', "flag": True, "rows": [1]},
+    }
+    env = bash_step_env(state)
+    assert env == {
+        "WISE_PLAN": "docs/PLAN.md\nWISE_PLAN\necho pwned",
+        "WISE_BASE_BRANCH": "main",
+        "WISE_N": "3",
+        "WISE_ACCESS": "ok",
+        "WISE_DETAIL": 'it\'s "fine"',
+    }
+    answer = asyncio.run(
+        run_bash_step(
+            dict(id="sh", run='printf "%s|%s" "$WISE_ACCESS" "$WISE_DETAIL"'),
+            dict(cwd=str(tmp_path), step_env=env),
+        )
+    )
+    assert answer["stdout"] == 'ok|it\'s "fine"'
+
+
 def test_gates() -> None:
     approval = dict(id="ship", type="approval", message=" Ship? \n")
     assert is_gate_step(approval) and not is_gate_step({"type": "bash"})

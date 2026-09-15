@@ -1,0 +1,163 @@
+version: 2
+name: pr-watch
+description: >-
+  Watch the open pull request of the checked-out branch until it is
+  merged or needs a human: poll CI and the bot reviews, fix what they
+  raise, push, run a substitute review when a bot is stuck, and merge
+  once the PR is green and quiet. Runs in the current checkout, never
+  creates a worktree or branch. No prompts after launch. The engine
+  drives the loop; pre-flight picks harness, model and effort per phase.
+author: e1024kb
+
+project-selection: current
+
+# The loop is the engine's `units` step on the `pr` pipeline: the item
+# is the checked-out branch, claim binds to its open PR, then the same
+# watch / fix / push / substitute-review loop ticket-auto runs after its
+# PR is open. /wise-pr-watch-auto conducts this workflow.
+preflight:
+  control-mode: synchronous
+  worktree: current
+  # The PR lives on the checked-out branch, so the worktree question is
+  # settled: current checkout, never asked.
+  lock-worktree: true
+
+# One question per group. Labels say what each model will be doing so
+# the choice can be priced: a cheap model for the watch pass, a strong
+# one for the fixes and the substitute review.
+tuning:
+  groups:
+    - id: watch
+      label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state, writes the findings file (cheap, frequent)"
+      default: { harness: claude, model: sonnet, effort: medium }
+    - id: fix
+      label: "Fix pass: applies CI failures, bot review threads and substitute-review findings as commits (code changes)"
+      default: { harness: claude, model: opus, effort: high }
+    - id: review
+      label: "Substitute review: one read-only 3-lens review when a review bot is stuck (correctness, security, tests)"
+      default: { harness: claude, model: opus, effort: high }
+    - id: support
+      label: "Support: the end-of-run report (mechanical, no code changes)"
+      default: { harness: claude, model: sonnet, effort: medium }
+
+# Caps the `units` step reads: fix rounds, wall clock, poll interval and
+# the consecutive green passes before merging. The `max_fix_attempts`
+# and `watch_minutes` inputs override the first two when given.
+profiles:
+  medium:
+    caps:
+      max_fix_attempts: 10
+      watch_minutes: 120
+      watch_poll_seconds: 60
+      watch_stable_passes: 2
+
+inputs:
+  # The consent gate the interactive watcher asks mid-run, asked once
+  # here instead: the run never prompts after launch.
+  - name: substitute_review
+    prompt: "When a review bot is stuck, may this run review the branch itself (one read-only 3-lens pass on the review group's model) before merging? `no` stands the run down on a stuck bot."
+    default: "yes"
+    validate: "^(yes|no)$"
+  - name: max_fix_attempts
+    prompt: "Cap on fix rounds before standing down? Blank = 10."
+    optional: true
+    validate: "^([1-9][0-9]*)?$"
+  - name: watch_minutes
+    prompt: "Wall-clock budget in minutes (1-1440)? Blank = 120."
+    optional: true
+    validate: "^([1-9][0-9]{0,2}|1[0-3][0-9]{2}|14[0-3][0-9]|1440)?$"
+
+steps:
+  - id: resolve-branch
+    type: bash
+    # The checked-out branch is the unit. Protected branches, a detached
+    # HEAD and a dirty checkout stop the run before any child spawns.
+    run: |
+      set -eu
+      gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
+      branch=$(git symbolic-ref --quiet --short HEAD || true)
+      if [ -z "$branch" ]; then
+        echo "ERROR: detached HEAD; check out the PR branch first." >&2
+        exit 1
+      fi
+      case "$branch" in
+        main|master|release*)
+          echo "ERROR: $branch is a protected branch; check out the PR branch first." >&2
+          exit 1 ;;
+      esac
+      # The fix phase commits and pushes this checkout; unrelated local
+      # changes must never ride along.
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "ERROR: checkout at $(pwd) has uncommitted or untracked changes; stash or commit them, then re-run." >&2
+        exit 1
+      fi
+      echo "$branch"
+    outputs: [branch]
+    timeout: 30
+    depends_on: []
+
+  - id: process
+    type: units
+    pipeline: pr
+    items: "{{branch}}"
+    # Phase -> tuning group. The engine owns the loop, the caps and the merge.
+    groups: { watch: watch, fix: fix, review: review }
+    caps: [max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
+    # Copilot is attached with `gh pr edit --add-reviewer`; the watch
+    # pass triggers CodeRabbit by comment when the repo has it.
+    reviewers: [copilot-pull-request-reviewer]
+    resume: unit
+    depends_on: [resolve-branch]
+
+  - id: report
+    type: agent
+    group: support
+    mcp: engine-only
+    prompt: |
+      Write the end-of-run report for an unattended pr-watch run
+      ({{run.id}}) on {{project.name}} at {{project.path}}.
+
+      The row between the markers is the `units` step result for the
+      watched branch, as JSON. A raw placeholder in double braces there
+      means the step did not run; report that the run stopped before
+      watching.
+
+      ---
+      {{units}}
+      ---
+
+      Fields: unit.branch, unit.pr.url, verdict (merged | all-green |
+      blocked | partial | exhausted | human-intervention | failed |
+      skipped), reason, review.converged and review.cycles. The ledger
+      {{run.dir}}/units/<branch>.json carries the watch counters
+      (passes, fix_attempts, stable) and usage.
+
+      The run's token usage, as JSON the engine folded: `total`, `by_pool`
+      (subscription, api-key), `by_harness`, `by_step`.
+
+      ---
+      {{usage}}
+      ---
+
+      Verify before you claim: run `gh pr view <url> --json
+      state,mergedAt,url` and report the live state; where it disagrees
+      with the verdict say so.
+
+      Write {{run.dir}}/report.md with: the PR, the verdict and reason,
+      the number of watch passes and fix rounds, what was fixed, and the
+      next step for a human when the PR is not merged (the findings file
+      for `blocked`, the PR for `human-intervention`, the ledger for a
+      failure). Print the same in your reply. State facts once, no praise.
+
+      Return the fields directly, no wrapping: verdict, report_path.
+    schema:
+      type: object
+      properties:
+        verdict: { type: string }
+        report_path: { type: string }
+      required: [verdict, report_path]
+      additionalProperties: false
+    outputs: [verdict, report_path]
+    allowed_tools: ["Bash(gh:*)", "Bash(git:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)"]
+    depends_on: [process]
+    trigger-rule: all-done

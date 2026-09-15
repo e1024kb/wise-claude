@@ -1,6 +1,6 @@
 # wise unit phase: review
 
-Review branch {{branch}} in {{worktree}}: exactly `origin/{{base}}..HEAD`, the commits about to be pushed. Review shape: {{shape}}. Review cycle {{cycle}}.
+Review branch {{branch}} in {{worktree}}: exactly `{{base_ref}}..HEAD` (the base {{base}} as resolved by the engine), the commits about to be pushed. Review shape: {{shape}}. Review cycle {{cycle}}.
 
 Report only. Never edit the worktree, never run a git write command, never run a formatter or linter in write mode, never commit. The one file you write is the findings file.
 
