@@ -57,7 +57,10 @@ children as above. `RUN_NOT_FOUND`: `No run <run_id>.`
 
 Status `gated`: print `gate.step` and `gate.message`, then
 AskUserQuestion `Answer this gate now?` with the gate's options plus
-`Not now` (free text when `allow_text`). On a choice, `wise_answer
+`Not now` (free text when `allow_text`); beyond the host's option cap
+follow the
+[long option list rule](../../references/workflow-host-control.md#long-option-lists)
+so every gate option stays reachable. On a choice, `wise_answer
 {run_id, gate_id, value}`, print `gate answered`, point to
 `/wise-workflow-resume <run_id>` to follow the run.
 

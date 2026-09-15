@@ -534,8 +534,12 @@ fails `wise_run` with `AUTH_REQUIRED` and `login_cmd`.
 | `claude` | `claude` | `claude auth status` (`loggedIn: true`) | `claude auth login` | `ANTHROPIC_API_KEY` | `CLAUDE_CONFIG_DIR` |
 | `codex` | `codex` | `codex login status` | `codex login` | `OPENAI_API_KEY` | `CODEX_HOME` |
 | `cursor` | `cursor-agent` | `cursor-agent status --format json` (`isAuthenticated: true`) | `cursor-agent login` | `CURSOR_API_KEY` | `CURSOR_CONFIG_DIR` |
-| `gemini` | `gemini` | OAuth credentials under `GEMINI_CLI_HOME` or `~/.gemini` | `gemini` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `GEMINI_CLI_HOME` |
 | `grok` | `grok` | `$GROK_HOME/auth.json` (default `~/.grok/auth.json`) non-empty | `grok login` | `XAI_API_KEY` | `GROK_HOME` |
+| `gemini` | `gemini` | OAuth credentials under `GEMINI_CLI_HOME` or `~/.gemini` | `gemini` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `GEMINI_CLI_HOME` |
+
+The table order is the picker order: every harness question, the `auth`
+inventory and the `models` listing offer harnesses as claude, codex, cursor,
+grok, gemini.
 
 `auth: api-key` copies the key variable into the child; `subscription`
 (default) never does. Usage is folded per pool (`subscription`,
@@ -684,7 +688,7 @@ empty. An answered question is never repeated.
 | `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `choice` for strict literal enums without extraction and for `options-from: branches` (free text allowed); otherwise `text` | enum values, plus `Leave unset` for optional enums; the checkout's base-branch candidates for `options-from: branches`; none for text | context value, else `default`, else empty when optional; the checked-out base branch else the default branch for `options-from: branches` |
-| `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH); a logged-out one carries its login command in the option description | the group's default harness |
+| `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH) in the order claude, codex, cursor, grok, gemini; a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Auto (recommended)`, `Approval required`, `Bypass permissions`; once for every selected or fallback provider | `auto`, or the mapped legacy workflow pin |
 | `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, sorted by id, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
@@ -711,7 +715,8 @@ default.
 The predefined catalog (2026-09-15), in picker order: claude
 `claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
 `claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
-(low, medium, high); the first four are the page a four-option host shows; codex
+(low, medium, high); the first four are the rows a four-option host shows, the
+rest are named in the question text; codex
 `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low, medium, high);
 cursor `cursor-grok-4.6-high`, `composer-2.5` (no effort flag); grok
 `grok-4.6`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
@@ -724,9 +729,11 @@ none) and appends every id the catalog does not already contain, sorted by id
 with `source: harness`, so the same host always produces the same option list.
 A failed or timed-out listing adds nothing. A harness-reported id is a valid
 `model.<group>` answer; it runs without an effort flag. The conductor renders
-every option: a host with an option cap pages the list rather than dropping
-entries, since pickers without a free-text box (T3 Code, for example) leave
-the user no other way to reach an omitted model.
+every option of every choice question, not only model lists: it shows as
+many rows as the host allows and, beyond the host's cap, names every
+remaining value in the question text on a host with a custom-answer box
+(Claude Code) or pages the list with `More…` / `Back` on a host without one
+(T3 Code, for example), so no option is ever dropped or left unreachable.
 
 The conductor uses its native structured picker when available, or requests
 `interactive: true` so the MCP server renders one question at a time through the

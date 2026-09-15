@@ -168,12 +168,17 @@ question:
 
 - question: `Which harness should run this prompt?`
 - header: `Harness`
-- options: every *ready* harness from §2, `claude` first, each labelled with
-  the harness name and described by the first catalog entry's label (its
-  default model). Harnesses that are installed but logged out, or not
-  installed, are listed in the question text with their state and
-  `login_cmd`, not as options. When only one harness is ready, offer
-  `Use <harness>` and `Cancel`.
+- options: every *ready* harness from §2 in the inventory's order (claude,
+  codex, cursor, grok, gemini), each labelled with the harness name and
+  described by the first catalog entry's label (its default model). Show as
+  many as the host allows; when the ready list exceeds the host's option cap
+  (four on Claude Code's `AskUserQuestion`), the first `cap` harnesses are
+  rows and every remaining one is named in the question text so it can be
+  typed into `Other` (`Also available (type it in Other): gemini.`), per the
+  [long option list rule](../../references/workflow-host-control.md#long-option-lists).
+  Harnesses that are installed but logged out, or not installed, are listed
+  in the question text with their state and `login_cmd`, not as options.
+  When only one harness is ready, offer `Use <harness>` and `Cancel`.
 
 Cancellation stops the skill with nothing dispatched:
 `EXEC: cancelled harness=- model=- mode=- run=-`.
@@ -191,18 +196,20 @@ reported, appended after them sorted by id). Never hardcode a model list.
   fallback with the actual alternatives from this catalog.
 - `--model` omitted or `ask`: single-choice picker `Which model on
   <harness>?`, header `Model`, every row as an option in catalog order (first
-  entry first), label + description. Under a four-option cap follow the
-  shared first-page layout in the host-control reference: with an Other box
-  the first four rows plus the remaining ids named in the question text; on
-  an option-only host three rows plus `More models…`, paged with `Back`.
-  Never drop a row and never leave one reachable only through a box the host
-  does not render.
+  entry first), label + description. Show as many rows as the host allows;
+  beyond its option cap follow the
+  [long option list rule](../../references/workflow-host-control.md#long-option-lists):
+  with an Other box the first `cap` rows plus every remaining id named in
+  the question text; on an option-only host `cap - 1` rows plus `More…`,
+  paged with `Back`. Never drop a row and never leave one reachable only
+  through a box the host does not render.
 - `--effort` given: must be in the chosen model's `efforts`; otherwise print
   `Model <id> takes <efforts>, not <effort>.` and ask the effort picker below
   restricted to that model's list. Never silently clamp.
 - `--effort` omitted or `ask`: when the model's `efforts` list is empty, skip
   the question and pass no effort flag; otherwise single-choice picker
-  `Effort for <model>?`, header `Effort`, one option per listed effort.
+  `Effort for <model>?`, header `Effort`, one option per listed effort, the
+  same overflow rule applying should the list ever exceed the host's cap.
 
 Ask model and effort as two questions in one `AskUserQuestion` call when both
 are open and the host renders multi-question forms; otherwise sequentially.

@@ -119,7 +119,9 @@ def _stage_harness(
 
     base = _group_base(definition, group)
     default = base.get("harness", "claude")
-    offered = [default, *[h for h in installed or [] if h != default]]
+    # Default first, then every other installed harness in HARNESSES order,
+    # whatever order the caller listed them in.
+    offered = [default, *[h for h in HARNESSES if h in (installed or []) and h != default]]
     answer = _answer_string(answers.get(f"harness.{group['id']}"))
     if answer in HARNESSES:
         return {"base": base, "harness": answer}

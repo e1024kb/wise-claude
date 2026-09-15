@@ -76,10 +76,17 @@ def test_stage_order_and_explicit_answers():
         f"harness.{g}" for g in groups(defn)
     ]
     assert stage["defaults"]["harness.analyze-design"] == "claude"
-    assert (
-        next(q for q in stage["questions"] if q["id"] == "harness.analyze-design")["label"]
-        == "Which harness runs: Design spec?"
-    )
+    harness_q = next(q for q in stage["questions"] if q["id"] == "harness.analyze-design")
+    assert harness_q["label"] == "Which harness runs: Design spec?"
+    # default first, then the canonical picker order, not the caller's order
+    shuffled = {"harnesses": ["gemini", "grok", "cursor", "codex", "claude"]}
+    for ctx in (ready, shuffled):
+        q = next(
+            q
+            for q in p.build_questionary(defn, ctx, answer)["questions"]
+            if q["id"] == "harness.analyze-design"
+        )
+        assert [o["value"] for o in q["options"]] == ["claude", "codex", "cursor", "grok", "gemini"]
     # Defaults describe recommendations; building the next stage requires submitted answers.
     assert ids(p.build_questionary(defn, ready, answer)) == ids(stage)
     answer.update(

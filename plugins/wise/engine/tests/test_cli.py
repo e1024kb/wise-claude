@@ -241,7 +241,7 @@ def test_auth_uses_cursor_adapter_binary_and_selected_provider_exit(tmp_path, mo
     assert code == 0 and not err
     assert json.loads(out)[0]["installed"] is True
     assert calls == ["cursor"]
-    for harness in ("claude", "codex", "cursor", "gemini", "grok"):
+    for harness in ("claude", "codex", "cursor", "grok", "gemini"):
         code, out, err = invoke("auth", harness, "--json", env={"PATH": ""})
         assert code == 1 and not json.loads(out)[0]["installed"]
     assert calls == ["cursor"]

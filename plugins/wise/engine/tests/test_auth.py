@@ -96,8 +96,8 @@ def test_installed_harnesses_respects_unlocked_defaults_and_binary_presence(tmp_
     installed["cursor"].bin = "missing-cli"
     assert installed_harnesses(definition, installed.get, {"PATH": str(tmp_path)}) == [
         "codex",
-        "gemini",
         "grok",
+        "gemini",
     ]
     assert not any(a.calls for a in installed.values())
     assert installed_harnesses({}, installed.get) == []
@@ -105,8 +105,8 @@ def test_installed_harnesses_respects_unlocked_defaults_and_binary_presence(tmp_
     assert installed_harnesses(definition, installed.get, {"PATH": str(tmp_path)}) == [
         "claude",
         "codex",
-        "gemini",
         "grok",
+        "gemini",
     ]
 
 
