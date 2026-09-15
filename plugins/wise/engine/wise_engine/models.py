@@ -206,15 +206,17 @@ def default_model(
 async def discover_models(
     harnesses: list[str], lookup: Callable[[str], Any], cache: Discovered | None = None
 ) -> Discovered:
-    """List each harness's models once; `cache` carries rows across calls.
+    """List each harness's models once; `cache` carries the outcome across calls.
 
-    A harness already in the cache is not probed again, and a failed or
-    empty listing never evicts rows a previous call discovered.
+    A harness already in the cache is not probed again, whether its listing
+    returned rows, nothing, or failed: the predefined catalog covers the
+    negative cases and a later failure never evicts rows already discovered.
     """
     result: Discovered = {}
     for harness in dict.fromkeys(harnesses):
         if cache is not None and harness in cache:
-            result[harness] = cache[harness]
+            if cache[harness]:
+                result[harness] = cache[harness]
             continue
         adapter = lookup(harness)
         probe = getattr(adapter, "list_models", None)
@@ -223,11 +225,11 @@ async def discover_models(
         try:
             rows = await probe()
         except Exception:
-            continue
+            rows = []
+        if cache is not None:
+            cache[harness] = rows
         if rows:
             result[harness] = rows
-            if cache is not None:
-                cache[harness] = rows
     return result
 
 

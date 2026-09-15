@@ -866,5 +866,11 @@ def test_discover_models_cache_reuses_rows_and_survives_a_failed_listing():
         assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
         assert await discover_models(["grok"], lambda _h: adapter) == {}
         assert adapter.listed == 2
+        # a failed or empty first listing is cached too: one probe per daemon
+        for first in (Adapter(rows, fail=True), Adapter([])):
+            negative = {}
+            for _ in range(2):
+                assert await discover_models(["grok"], lambda _h, a=first: a, negative) == {}
+            assert first.listed == 1 and negative == {"grok": []}
 
     asyncio.run(run())
