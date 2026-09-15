@@ -273,10 +273,9 @@ stays open and is counted in the chat line below as `<N> still
 apply`; the queue handlers skip outdated threads, so tell the user
 where those are. The handler-level classifiers
 in `handle-bot-reviews.md` §2 and `comment-surfaces.md` §2
-already filter outdated items out of the actionable lists —
-they're stale by construction (the lines they anchor to moved
-or were deleted, so the comment no longer applies to the
-current diff) — but pre-2.6.2 the workflow left them
+already filter outdated items out of the actionable lists
+(the lines they anchor to moved or were deleted), which says
+nothing about whether the concern is fixed, but pre-2.6.2 the workflow left them
 *unresolved* on GitHub, which produced the failure mode "PR
 ships with green CI but a pile of `Outdated` badges on the
 Conversation tab nobody cleaned up". Resolve them as a

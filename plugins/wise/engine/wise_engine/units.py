@@ -374,7 +374,7 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             watch["stable"] += 1
             save()
             if watch["stable"] >= stable_target:
-                merged = await merge_pr(ctx)
+                merged = await merge_pr(ctx, head)
                 if not merged["ok"]:
                     return fail(merged["reason"], "all-green", {"watch": dict(watch)})
                 ctx["log"](f"watch: merged #{js_string(ctx['unit']['pr']['number'])}")

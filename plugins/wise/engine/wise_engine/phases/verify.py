@@ -156,8 +156,11 @@ async def _paginated(ctx: Json, path: str) -> list[Json] | str:
 
 
 async def gather_evidence(ctx: Json, repo: str, number: int, head: str) -> Json:
-    """Head, PR state, reviews, issue comments and the head's check runs, or `{error}`."""
-    view = await gh(ctx, ["pr", "view", js_string(number), "--json", "headRefOid,state"])
+    """Head, PR state, review requests, reviews, issue comments and the head's
+    check runs, or `{error}`."""
+    view = await gh(
+        ctx, ["pr", "view", js_string(number), "--json", "headRefOid,state,reviewRequests"]
+    )
     parsed = json_of(view)
     if not isinstance(parsed, dict) or not isinstance(parsed.get("headRefOid"), str):
         return {"error": f"pr view: {err_text(view, 120)}"}
@@ -174,9 +177,15 @@ async def gather_evidence(ctx: Json, repo: str, number: int, head: str) -> Json:
     if not ok(runs) or not docs or not isinstance(docs[0], dict):
         return {"error": f"check runs: {err_text(runs, 120)}"}
     check_runs = [row for row in docs[0].get("check_runs", []) if isinstance(row, dict)]
+    requests = parsed.get("reviewRequests")
     return {
         "head": head,
         "state": parsed.get("state"),
+        "requested": [
+            row["login"].lower()
+            for row in (requests if isinstance(requests, list) else [])
+            if isinstance(row, dict) and isinstance(row.get("login"), str)
+        ],
         "reviews": reviews,
         "comments": comments,
         "check_runs": check_runs,
@@ -199,7 +208,9 @@ def classify(spec: Json, evidence: Json, head: str, head_since: float, record: J
     reviews = [row for row in evidence["reviews"] if _login(row) in logins]
     comments = [row for row in evidence["comments"] if _login(row) in logins]
     runs = [row for row in evidence["check_runs"] if _provider_run(spec, row)]
-    footprint = bool(reviews or comments or runs)
+    # A provider configured as a reviewer is on the PR even before it spoke.
+    requested = any(login in logins for login in evidence.get("requested", ()))
+    footprint = bool(reviews or comments or runs or requested)
     paused = False
     for row in sorted(evidence["comments"], key=lambda row: _ms(row.get("created_at")) or 0):
         command = _command(spec, row.get("body") or "")
@@ -343,10 +354,11 @@ async def _verify_provider(
 ) -> bool:
     evidence = await gather_evidence(ctx, repo, number, head)
     if "error" in evidence:
-        # Access errors are not "no review": keep the previous state, wait.
+        # Access errors are not "no review": hold the merge and read again
+        # next pass; the watch_minutes cap bounds the wait.
         record["detail"] = evidence["error"]
         record["state"] = "access-error"
-        return False
+        return True
     if evidence.get("mismatch"):
         record.update(state="head-mismatch", detail=f"PR head is {evidence['head'][:12]}")
         return False

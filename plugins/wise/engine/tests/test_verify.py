@@ -71,6 +71,9 @@ def test_absent_without_any_footprint_and_silent_with_one():
     assert state_of([old])["state"] == "silent"
     # Copilot or a human reviewing the head is not CodeRabbit evidence.
     assert state_of([review("Copilot", "h2"), review("alice", "h2")])["state"] == "absent"
+    # A configured-but-silent reviewer is on the PR: silent, not absent.
+    configured = {**evidence(), "requested": ["coderabbitai"]}
+    assert classify(CR, configured, "h2", T0, {})["state"] == "silent"
 
 
 def test_completed_only_by_a_review_bound_to_the_head():
@@ -476,7 +479,7 @@ def test_explicit_skip_and_pause_are_respected(tmp_path):
         assert record["state"] == ("skipped" if body else "paused")
 
 
-def test_access_error_neither_requests_nor_reports_completion(tmp_path):
+def test_access_error_holds_the_merge_without_requesting(tmp_path):
     fixture = VerifyFixture(tmp_path)
     cr_footprint(fixture, "head-0")
     fixture.head = "head-5"
@@ -485,7 +488,8 @@ def test_access_error_neither_requests_nor_reports_completion(tmp_path):
     )
     fixture.scripts["watch"] = lambda req, nth: answer(watch_output())
     result = fixture.run()
-    assert "merged=1" in result["verdict"] and fixture.triggers() == []
+    assert "merged=0" in result["verdict"] and fixture.triggers() == []
+    assert not any(args[:2] == ["pr", "merge"] for cmd, args, _ in fixture.calls if cmd == "gh")
     record = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]
     assert record["state"] == "access-error" and "403" in record["detail"]
 

@@ -661,16 +661,18 @@ async def watch_phase(ctx: Json) -> Json:
     return pass_(extra={**extra, "output": output})
 
 
-async def merge_pr(ctx: Json) -> Json:
+async def merge_pr(ctx: Json, head: str | None = None) -> Json:
     pr = ctx["unit"].get("pr")
     if not pr:
         return {"ok": False, "reason": "no PR recorded"}
-    first = await gh(ctx, ["pr", "merge", js_string(pr["number"]), "--squash"])
+    # Bound to the validated head: a push after validation fails the merge.
+    guard = ["--match-head-commit", head] if head else []
+    first = await gh(ctx, ["pr", "merge", js_string(pr["number"]), "--squash", *guard])
     if ok(first):
         return {"ok": True}
     text = err_text(first)
     if re.search(r"squash|merge method|not allowed|disabled", text, re.I):
-        second = await gh(ctx, ["pr", "merge", js_string(pr["number"]), "--merge"])
+        second = await gh(ctx, ["pr", "merge", js_string(pr["number"]), "--merge", *guard])
         if ok(second):
             return {"ok": True}
         return {"ok": False, "reason": f"merge blocked: {err_text(second)}"}

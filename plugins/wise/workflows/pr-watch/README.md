@@ -52,7 +52,7 @@ Inside `process`, for the checked-out branch and in this order:
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
 | `claim` | code | - | Binds to the checkout: named unprotected branch, matching the item, with an open PR (`MERGED` -> verdict `merged`, closed -> `skipped`). Base from the PR. |
-| `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); after the push the engine reconciles CodeRabbit's state for the new head (reviews bound to the head, its check run, notices and trigger comments newer than the head) and, when the head is silent past a 2-minute grace or CodeRabbit says automatic reviews are off, posts one `@coderabbitai review` per head (`references/pr/review-verification.md`; ledger `watch.verification`), holding the merge while the request is unanswered or the review runs; a stuck bot gets the substitute review once per head when `substitute_review` is `yes`, else the run stands down (`all-green reason=review-consent-declined`); a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
+| `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); after the push the engine reconciles CodeRabbit's state for the new head (reviews bound to the head, its check run, notices and trigger comments created after the head appeared) and, when the head is silent past a 2-minute grace or CodeRabbit says automatic reviews are off, posts one `@coderabbitai review` per head (`references/pr/review-verification.md`; ledger `watch.verification`), holding the merge while the request is unanswered or the review runs; a stuck bot gets the substitute review once per head when `substitute_review` is `yes`, else the run stands down (`all-green reason=review-consent-declined`); a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
 | `cleanup` | code | - | Always keeps the current tree and branch. |
 
 ## Pre-flight questions
@@ -97,7 +97,7 @@ Unit caps (`profiles.medium.caps`):
 | Name | Source | Content |
 |---|---|---|
 | `branch` | `resolve-branch` | The checked-out branch, the `units` item. |
-| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. Ledger under `<run-dir>/units/<branch>.json`; its `watch.verification.<provider>.<head>` records every verification request (state, attempts, comment id, retry time). |
+| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. Ledger under `<run-dir>/units/<branch>.json`; its `watch.verification.<provider>.<head>` records the verification requests for the 5 most recent heads (state, attempts, comment id, retry time). |
 | `verdict`, `report_path` | `report` | The verdict and the report file. |
 
 ## Examples

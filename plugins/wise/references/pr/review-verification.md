@@ -48,7 +48,7 @@ State of the provider for `HEAD`, first match wins:
 | `manual-required` | "Review skipped: auto (incremental) reviews are disabled" for the head: the bot itself asks for a manual trigger | yes, at once |
 | `silent` | the provider has a footprint on the PR (any review, notice or check run) but nothing for this head | yes, after the grace |
 | `absent` | no provider footprint on the PR and the provider is not a configured reviewer | no |
-| `access-error` | any of the reads failed (403, 404, timeout) | no; retry the read next pass, never treat as "not reviewed" |
+| `access-error` | any of the reads failed (403, 404, timeout) | no; hold the merge and retry the read next pass, never treat as "not reviewed" |
 
 Old bot comments prove participation, never completion: only evidence
 bound to `HEAD` (commit id, check-run sha, notices newer than the head)
