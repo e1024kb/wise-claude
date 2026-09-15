@@ -180,6 +180,7 @@ is unmet, before the auth probes and before a run directory exists.
 |---|---|---|
 | `control-mode` | `interactive` (default) \| `synchronous` | `synchronous` auto-approves every `approval` gate (warn plus `step.done` "auto-approved (control-mode synchronous)") and answers child `wise_ask` calls from `context.decisions`, else fails them with `needs-human`. `interactive` parks the run at every gate. |
 | `worktree` | `current` (default) \| `new` | Default for the required worktree question. `new` creates branch `wise/<workflow>-<run-id>` at sibling path `<cwd>.wise-<run-id>` for ordinary workflows and retains it after the run. Workflows with a `worktree_mode` input or `units` step apply the same answer through their own worktree handling. |
+| `lock-worktree` | `true` \| `false` (default) | `true` skips the worktree question and applies `worktree` (the `pr` / `implement` units pipelines run in the checkout by construction). |
 | `permissions` | `allowlist` \| `full` | Legacy global pin. `full` maps every provider to `full-access`; `allowlist` maps every provider to `approval-required`. New workflows should omit it and use the per-provider pre-flight questions. |
 
 v1 keys `rename_session`, `tuning`, `step-select` are errors, as are
@@ -423,7 +424,7 @@ pipelines](#unit-pipelines).
 ```yaml
 - id: process
   type: units
-  pipeline: ticket                 # ticket | plan
+  pipeline: ticket                 # ticket | plan | pr | implement
   items: "{{ticket_list}}"         # rendered, then parsed
   groups: { plan: plan, implement: implement, review: review, fix: implement, watch: watch }
   caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
@@ -434,10 +435,10 @@ pipelines](#unit-pipelines).
 
 | Field | Notes |
 |---|---|
-| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd). |
+| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd) \| `pr` (unit = the checked-out branch with its open PR) \| `implement` (unit = a `PLAN-*.md` implemented on the checked-out branch). `pr` and `implement` always run in the current checkout. |
 | `items` | String. After rendering: a JSON array of strings or `{ref}` objects, else split on `,` `;` newline. Deduplicated. |
 | `groups` | Non-empty mapping phase -> tuning group id for `plan`, `implement`, `review`, `fix`, `watch`. Unknown phase warns. `fix` falls back to `implement`'s group. |
-| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. |
+| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. A workflow input named after a listed cap overrides it when it holds a number (`pr-watch`: `max_fix_attempts`, `watch_minutes`). |
 | `reviewers` | GitHub logins for `gh pr edit --add-reviewer`. |
 | `parallel` | Positive int. Git operations are serialised per step. |
 | `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (sessions never cross harnesses, so a fixer on another one starts clean); `fresh` (default) starts each child clean. |
@@ -965,6 +966,18 @@ v1 prose orchestrators used to describe. Phases in order:
 | `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. |
 | `cleanup` | code | On `merged` in `new` mode: remove worktree, delete local branch, `cleaned: true`. `current` retains the checkout and branch. Runs after a failure too. |
 
+The `pr` pipeline runs `claim -> watch -> cleanup` and the `implement`
+pipeline `claim -> implement -> cleanup`. Their `claim` attaches to the
+checked-out branch instead of creating one: a detached HEAD or a
+protected branch fails the unit; `pr` also needs the branch to match
+the item and to carry an open PR (`MERGED` -> `merged`, closed ->
+`skipped`; the base is the PR's), `implement` needs the plan file. Both
+force `worktree_mode: current`. `implement` records `all-green` with
+`implemented: <done> of <tasks> tasks in <n> commits (failed <f>)`.
+The `substitute_review` input (`pr-watch`) set to `no` makes a stuck
+bot end the watch loop as `all-green reason=review-consent-declined`
+instead of running the substitute review.
+
 Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
 `abstract-task-<n>`; a URL is reduced to its key. A plan branch is the
@@ -1139,7 +1152,8 @@ workflow has no `approval` step that needs a human. The repo validator
 (`just validate`) calls the canonical Python definition validator on every
 bundled definition. Bundled workflows:
 `example-workflow` (every step type), `ticket-plan`, `ticket-auto`,
-`impl-plan-auto`, `code-review` (see their READMEs).
+`impl-plan-auto`, `pr-watch`, `impl-plan`, `code-review` (see their
+READMEs).
 
 ## Resume limits
 

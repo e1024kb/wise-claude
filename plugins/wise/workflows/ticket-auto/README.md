@@ -66,10 +66,10 @@ automatically restart failed units.
 ```mermaid
 flowchart TD
     A[preflight-checks<br/>bash - current-tree cleanliness, gh auth, origin] --> B[split-tickets<br/>bash - comma list -> JSON array ticket_list]
-    B --> C[ensure-access<br/>agent sonnet - context first, probe each tracker -> access, detail]
+    B --> C[ensure-access<br/>agent support - context first, probe each tracker -> access, detail]
     C -->|access = ok| D[process<br/>units pipeline ticket - one unit per ticket -> units rows]
     C -->|access = blocked| E
-    D --> E[report<br/>agent sonnet - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
+    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
 ```
 
 Inside `process`, per ticket and in this order:
@@ -80,19 +80,19 @@ Inside `process`, per ticket and in this order:
 | `worktree` | code | - | Selected current tree or `<run-dir>/worktrees/<branch>` on branch `<ticket-ref>` off the fetched `base_branch`. |
 | `plan` | model | `plan` | Reads the ticket (context body first, else the tracker), audits the worktree, writes `<run-dir>/plans/PLAN-<ref>.md`. `no-access` or `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
-| `review` <-> `fix` | model | `review` / `implement` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
+| `review` <-> `fix` | model | `review` / `fix` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
 | `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body, `gh pr edit --add-reviewer` for each login in `reviewers`. |
-| `watch` (+ `fix`, `push`) | model | `watch` / `implement` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
+| `watch` (+ `fix`, `push`) | model | `watch` / `fix` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
 | `cleanup` | code | - | Only on `merged`: remove a separate worktree and its local branch. Always retain the current tree and its branches. |
 
 ## Pre-flight questions
 
 | Id | Kind | Default | Notes |
 |---|---|---|---|
-| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked whenever another harness is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
+| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `fix`, `review`, `watch`, `support`), each labelled with what the model will do; asked whenever another harness is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
-| `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
-| `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `model.<group>` | choice | `claude-opus-5` (`watch`, `support`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
+| `effort.<group>` | choice | `high` (`watch`, `support`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 | `worktree` | choice | `new` | `current` uses this checkout and runs units sequentially; `new` creates separate worktrees. This shared question is asked first and stored as `worktree_mode`. |
 | `input.tickets` | text | pre-filled from the run context (`ticket[].ref`) | Comma-separated URLs or ids. |
 | `input.base_branch` | choice (free text allowed) | the checked-out base branch, else the default branch | The branch every ticket branch starts from and every PR targets: the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches. |
@@ -110,9 +110,9 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 |---|---|---|
 | `preflight-checks` | `bash` | Clean source tree in current mode, `gh auth status`, `origin` remote. |
 | `split-tickets` | `bash` | Splits the `tickets` input on commas and semicolons, trims, dedupes, validates the charset, emits a JSON array as `ticket_list`. Fails on an empty list. |
-| `ensure-access` | `agent` (sonnet) | Reads `wise_context("ticket")` first; probes a granted CLI (`gh`, `glab`, `linear`, or `jira`) or public URL for tickets whose tracker identity is established. Custom or private tracker content must be preloaded into run context. Ambiguous bare IDs fail closed. Emits `access` (`ok` / `blocked`) and `detail`. |
-| `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |
-| `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands for separate worktrees only, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
+| `ensure-access` | `agent` (`support` group) | Reads `wise_context("ticket")` first; probes a granted CLI (`gh`, `glab`, `linear`, or `jira`) or public URL for tickets whose tracker identity is established. Custom or private tracker content must be preloaded into run context. Ambiguous bare IDs fail closed. Emits `access` (`ok` / `blocked`) and `detail`. |
+| `process` | `units` | `pipeline: ticket`, `items: {{ticket_list}}`, `when: access == 'ok'`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket). |
+| `report` | `agent` (`support` group) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands for separate worktrees only, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
 
 ## Inputs
 

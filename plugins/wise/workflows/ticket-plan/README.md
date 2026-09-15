@@ -121,8 +121,9 @@ The implement decision comes out of `setup` as `implement_choice`,
 resolved from the pre-flight `implement_mode` (`now` / `plan-only`)
 or from the setup questionnaire when the mode was `ask`. On **yes**,
 the conditional `implement` step runs the shared `implement-plan.md`
-procedure in-session — dispatching each task wave's tasks to parallel
-executor subagents and landing one atomic commit per task (nothing is
+procedure in the implement child — each task wave's tasks run by
+parallel executor subagents when the harness can spawn them and
+sequentially inline otherwise, one atomic commit per task (nothing is
 pushed). Otherwise `implement` is bypassed and the plan is left for
 later. `finalize` depends on `setup` + `implement` with
 `trigger-rule: all-done`, so it closes the run either way, branching
@@ -152,7 +153,10 @@ stage selection and inputs first, harnesses and provider permissions next, then 
 - **Tuning** - one group per model step: design spec
   (`analyze-design`), deep-dive sweep (`research-context`), codebase
   audit (`codebase-audit`), gap analysis, build plan, refine plan,
-  implement. Only the groups of steps that will run are asked:
+  implement, plus one `support` group shared by the mechanical steps
+  (tracker detection, ticket fetch, related-item summary, plan
+  presentation, branch setup, final summary). Every group's label says
+  what the model will do. Only the groups of steps that will run are asked:
   deselect the design analysis and its group is skipped; leave
   `review_mode` on `auto` and the refine-plan group is skipped; leave
   `implement_mode` on `plan-only` and the implement group is skipped
@@ -165,8 +169,8 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   engine's catalog for that harness, then the effort that model takes. Every one of these questions goes to the
   user; the run refuses to start on a skipped one. Defaults:
   `claude-opus-5 / high` for all seven (the authoring four declare
-  `xhigh`, which Opus 5's ceiling resolves to `high`). The sonnet
-  steps pin their model and are not tunable.
+  `xhigh`, which Opus 5's ceiling resolves to `high`);
+  `claude-sonnet-5 / medium` for `support`.
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
@@ -190,7 +194,7 @@ until `setup`).
 | `ensure-access` | `agent` | Probes for a tracker MCP / CLI; when none is found, web-searches for options and proposes installs (or a manual-paste fallback) through the child `wise_ask` channel. Emits `access`. |
 | `fetch-ticket` | `agent` | Fetches the ticket via the established access (or normalises the `ticket` entry of the run context when the conductor already passed the body), writes the tracker-agnostic shape to `<run-dir>/research/ticket.md`, and classifies it as frontend / backend / fullstack / other. Emits `ticket_path` + `ticket_type`. |
 | `analyze-design` | `agent` | Design-spec summary (layout / states / responsive) from any design links, written to `<run-dir>/research/design.md`. Replies `NO-DESIGN` for backend tickets or when there are none. Acts as the `ux-designer` role; `evidence` tuning group (`opus / high`). |
-| `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `sonnet`. |
+| `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `support` tuning group. |
 | `research-context` | `agent` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and builds the Context Dossier (incl. the People map and sources-unavailable list) - persisted to `<run-dir>/research/dossier.md` (the file is the channel: `gap-analysis` and `build-plan` Read it; the step's structured result carries `dossier_path` / `lexicon` / `sources_unavailable`). `evidence` tuning group (`opus / high`). |
 | `codebase-audit` | `agent` | Type-routed "reuse first" audit - UI layer for frontend, API/data/service layer for backend, both for fullstack - written to `<run-dir>/research/audit.md`. Acts as `software-engineer` covering the `architect` lens; `evidence` tuning group (`opus / high`). |
 | `gap-analysis` | `agent` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory; the paste-ready per-person question blocks are printed inline only when `gap_mode=ask` (on `defaults` only the blueprint path + per-person counts are printed - nobody would answer mid-run). Also writes the scorecard to `<run-dir>/research/gap-scorecard.md`. Emits `readiness` + `open_questions`. Acts as `architect`; `authoring` tuning group (`opus / xhigh`, resolved to `high` under Opus 5's policy ceiling). |
@@ -199,8 +203,8 @@ until `setup`).
 | `present-plan` | `agent` | Informational - surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
 | `review-comments` | `ask` | `when: review_mode == 'ask'` — free-text: comment to adjust the plan, or skip to accept it as-is. Skip is the approval. With `review_mode=auto` the plan is accepted as presented. |
 | `refine-plan` | `agent` | `when: review_mode == 'ask' && user_comments != '' && user_comments != 'Accept the plan as-is'` - folds the comments in and overwrites the plan once. Acts as `architect`; `authoring` tuning group. |
-| `setup` | `agent` | Acts on the pre-flight `worktree_mode` / `branch_mode` / `implement_mode`: creates the ticket branch off the pre-flight `base_branch` or switches to it automatically (`auto`, dirty-tree refused before any source-tree checkout), stays put (`current`), or asks through `wise_ask` (create / switch / stay; the base is already settled) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `sonnet`, `mode: full-access` for the git operations. Emits `work_path` + `work_branch` + `work_head` + `implement_choice`. |
-| `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks dispatched to parallel executor subagents, one atomic commit per task, no push. `authoring` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
+| `setup` | `agent` | Acts on the pre-flight `worktree_mode` / `branch_mode` / `implement_mode`: creates the ticket branch off the pre-flight `base_branch` or switches to it automatically (`auto`, dirty-tree refused before any source-tree checkout), stays put (`current`), or asks through `wise_ask` (create / switch / stay; the base is already settled) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `support` tuning group, `mode: full-access` for the git operations. Emits `work_path` + `work_branch` + `work_head` + `implement_choice`. |
+| `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks run by parallel executor subagents when the harness can spawn them, sequentially inline otherwise; one atomic commit per task, no push. `implement` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
 | `finalize` | `agent` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-workflow-run code-review` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
 
 Roles are folded into each prompt (v2 has no roster routing or agent
@@ -215,8 +219,9 @@ seven per-step tuning groups: `gap-analysis`, `build-plan`,
 policy ceiling resolves to `high` (see
 [Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings));
 `analyze-design`, `research-context` and `codebase-audit` default to
-`opus / high`; every other step pins `sonnet`. The pre-flight
-answers override the group defaults at dispatch. See
+`opus / high`; every other step shares the `support` group
+(`sonnet / medium`). The pre-flight answers override the group
+defaults at dispatch. See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 
 ## Inputs

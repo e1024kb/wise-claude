@@ -31,22 +31,28 @@ preflight:
   # Pre-flight asks once per provider. Auto is recommended; permission floors
   # never weaken a phase that explicitly needs full-access.
 
-# One question per group. `fix` shares the implement group. Model
+# One question per group, `fix` included. Model
 # tiering (opus = the latest Opus, Opus 5): opus at high for re-plan,
-# implement and the review gate; sonnet for the watch pass.
+# implement, fix and the review gate; sonnet for the watch pass and support.
 tuning:
   groups:
     - id: plan
       label: "Re-plan phase (architect, re-plans the seed at HEAD)"
       default: { harness: claude, model: opus, effort: high }
     - id: implement
-      label: "Implement + fix phases (engineer executors)"
+      label: "Implement: executes the plan's task waves as commits (code changes, the expensive part)"
+      default: { harness: claude, model: opus, effort: high }
+    - id: fix
+      label: "Fix pass: applies review findings, CI failures and bot review threads as commits (code changes)"
       default: { harness: claude, model: opus, effort: high }
     - id: review
-      label: "Review gate (3 lenses: correctness, security, tests)"
+      label: "Review gate: read-only 3-lens review before push (correctness, security, tests) and the substitute review when a bot is stuck"
       default: { harness: claude, model: opus, effort: high }
     - id: watch
-      label: "CI + bot-review watch pass"
+      label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state (cheap, frequent)"
+      default: { harness: claude, model: sonnet, effort: medium }
+    - id: support
+      label: "Support: access checks and the end-of-run report (mechanical, no code changes)"
       default: { harness: claude, model: sonnet, effort: medium }
 
 # Caps the `units` step reads (docs/wise/workflows.md, `profiles`): review
@@ -149,9 +155,9 @@ steps:
     type: units
     pipeline: plan
     items: "{{plan_list}}"
-    # Phase -> tuning group. `fix` shares the implement group. The
+    # Phase -> tuning group, one question each at pre-flight. The
     # engine owns the loops, the caps and the merge.
-    groups: { plan: plan, implement: implement, review: review, fix: implement, watch: watch }
+    groups: { plan: plan, implement: implement, review: review, fix: fix, watch: watch }
     caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
     # Copilot is attached with `gh pr edit --add-reviewer`; the watch
     # pass triggers CodeRabbit by comment when the repo has it.
@@ -163,7 +169,7 @@ steps:
 
   - id: report
     type: agent
-    model: sonnet
+    group: support
     mcp: engine-only
     prompt: |
       Write the end-of-run report for an unattended impl-plan-auto run

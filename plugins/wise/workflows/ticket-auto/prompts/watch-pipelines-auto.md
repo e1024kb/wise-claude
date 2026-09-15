@@ -1,8 +1,11 @@
 # watch-pipelines-auto — autonomous CI watch + bulk-fix loop
 
-Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
-Unavailable models or delegation routes require a main-harness GUI/TUI selection,
-including in autonomous paths. Preserve the procedure's other gates and limits.
+This loop pins no model: every handler runs on the current model (the
+tuning group the pre-flight selected), as a fresh subagent under
+`dispatch_mode=task` when the session can dispatch one and inline in this
+context otherwise; the
+[model fallback](../../../references/workflow-host-control.md#model-fallback)
+picker never opens for it.
 
 Autonomous analogue of `references/pr/watch-pipelines.md`. Drives one
 PR from "pushed" to "merged" with mandatory main-harness consent before substitute review, in **rounds**:
@@ -48,16 +51,12 @@ Source of truth for the `/wise-pr-watch-auto` skill.
   same range the `--minutes` flag validates before calling this
   fragment). The loop stops with `exhausted reason=wall-clock` when it
   runs out, whatever phase it is in.
-- `profile` — **optional** `low` / `medium` (default) / `max`. Scales only
-  the model tier the fix subagent prompts request at `low`; never the
-  gates, verdicts or merge rules.
-- `opus_model` — **optional** Opus id for every Opus-tier subagent (§4c
-  fallback reviewer): `opus` (default) or `claude-opus-4-8`. MUST be
-  `claude-opus-4-8` on `profile=low`.
 - `dispatch_mode` — **optional** `inline` (default) / `task`. `inline` =
   read each handler file and follow it in THIS conversation. `task` =
-  dispatch each handler to a fresh `Task` subagent that returns only its
-  verdict line. `/wise-pr-watch-auto` passes `task`. §4c is always inline.
+  dispatch each handler to a fresh `Task` subagent (current model) that
+  returns only its verdict line. `task` on a session without a subagent
+  tool (Codex, Cursor, Gemini, Grok, a Claude child without `Task`)
+  silently behaves as `inline`; no picker, no stop. §4c is always inline.
 - `base` — **optional** override for the PR's base branch.
 - `ticket_ref`, `plan_path`, `config_prompt` — **optional** ticket
   context / operator guardrails, passed through to the handlers.
@@ -451,7 +450,7 @@ ALWAYS inline — read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-fallback-auto.md`
 and follow it with `pr_number`, `pr_url`, `current_branch`,
 `project.path`, `stuck_bots=<bot>:<reason>[,…]`, `base=$BASE`,
-`opus_model`, and `ticket_ref` / `plan_path` / `config_prompt` when
+and `ticket_ref` / `plan_path` / `config_prompt` when
 supplied. Read its final line:
 
 - `REVIEW-FALLBACK: ran … committed=no …` → `FALLBACK_STATE=ran`; pass
@@ -551,16 +550,14 @@ Order inside a round. The round makes exactly ONE push — the handler's
    `plan_path` / `config_prompt` when supplied — by `dispatch_mode`:
    - `inline`: read the handler and follow it here.
    - `task`: ONE `Task` subagent (`subagent_type: wise:software-engineer`,
-     `model: sonnet`) with a self-sufficient prompt: "Read <handler
-     path> and follow it end to end with: <context lines, values filled
-     in>. Your final message must END with the `BOT-REVIEWS-AUTO:`
-     verdict line." Resolve unavailable `Task`, role or `sonnet` through the
-     shared model-fallback picker before dispatch. A user-selected native child
-     runs the same handler with the `wise:software-engineer` role card supplied
-     as instructions. If no native child exists, offer the existing `inline`
-     handler mode on the current model with explicit GUI/TUI approval. The
-     same selection may cover Sonar only when the picker explicitly said so.
-     Selection never relaxes human-comment, review-consent or merge gates.
+     inheriting the current model) with a self-sufficient prompt: "Read
+     <handler path> and follow it end to end with: <context lines, values
+     filled in>. Your final message must END with the `BOT-REVIEWS-AUTO:`
+     verdict line." When the role is not registered, pass the
+     `wise:software-engineer` role card as instructions to a generic
+     subagent; when the session has no subagent tool at all, run the
+     handler `inline` on the current model - no picker, no approval step.
+     The route never relaxes human-comment, review-consent or merge gates.
      Capture only the handler verdict. A launched dispatch that dies without
      a verdict → treat as `aborted reason=dispatch-failed` (terminal for
      this run; a fresh invocation retries naturally since handlers

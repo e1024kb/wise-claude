@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
-from .constants import PHASES
+from .constants import ATTACHED_PIPELINES, PHASES, PIPELINE_PHASES
 from .ledger import add_usage, empty_usage, read_unit, utc_now, write_log, write_unit
 from .pricing import price_usage
 from .spawn import clean_env
@@ -85,15 +85,35 @@ def is_done(ledger: Json) -> bool:
     return ledger["cleaned"] or ledger["last_phase"] == "cleanup" and "verdict" in ledger
 
 
+def _cap_overrides(step: Json, inputs: Json) -> Json:
+    """A workflow input named after a cap overrides it when it holds a number."""
+    out: Json = {}
+    for name in step.get("caps", []):
+        raw = str(inputs.get(name, "") or "").strip()
+        if raw:
+            try:
+                out[name] = float(raw)
+            except ValueError:
+                continue
+    return out
+
+
 def config_for(step: Json, state: Json) -> Json:
+    inputs = state.get("inputs", {})
     config = {
         "pipeline": step["pipeline"],
-        "worktree_mode": state.get("inputs", {}).get("worktree_mode", "new"),
-        "base": str(state.get("inputs", {}).get("base_branch", "") or "").strip(),
+        "worktree_mode": "current"
+        if step["pipeline"] in ATTACHED_PIPELINES
+        else inputs.get("worktree_mode", "new"),
+        "base": str(inputs.get("base_branch", "") or "").strip(),
+        # The `substitute_review` input (pr-watch) declines the stuck-bot
+        # review at pre-flight; every other workflow leaves it on.
+        "substitute_review": str(inputs.get("substitute_review", "") or "").strip().lower() != "no",
         "reviewers": step.get("reviewers", DEFAULT_REVIEWERS),
         "tickets": state["context"].get("ticket", []),
         "caps": {
-            name: state["caps"][name] for name in step.get("caps", []) if name in state["caps"]
+            **{name: state["caps"][name] for name in step.get("caps", []) if name in state["caps"]},
+            **_cap_overrides(step, inputs),
         },
         "groups": step["groups"],
         "profile": state["profile"],
@@ -290,6 +310,13 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
         if output["bot_reviews"] == "stuck":
             if watch.get("fallback_sha") == head:
                 covered = True
+            elif not ctx["config"].get("substitute_review", True):
+                return fail(
+                    "review-consent-declined: a review bot is stuck and the substitute "
+                    "review was declined at pre-flight",
+                    "all-green",
+                    {"watch": dict(watch)},
+                )
             else:
                 hooks["emit_phase"]("review")
                 substitute = await runners["review"](
@@ -487,7 +514,7 @@ async def _run_units_step(input: Json) -> Json:
 
         hooks = {"emit_phase": emit_phase, "fold": fold}
         stopped = False
-        for phase in PHASES:
+        for phase in PIPELINE_PHASES[config["pipeline"]]:
             if input.get("signal") is not None and input["signal"].is_set():
                 break
             if (
@@ -522,6 +549,14 @@ async def _run_units_step(input: Json) -> Json:
                 ledger["reason"] = result["reason"]
                 stopped = True
                 log(f"{phase}: {ledger['verdict']} ({result['reason']})")
+            elif phase == "implement" and config["pipeline"] == "implement":
+                # The implement pipeline ends here: nothing to push, review or watch.
+                output = result.get("output", {})
+                ledger["verdict"] = "all-green"
+                ledger["reason"] = (
+                    f"implemented: {output.get('done', 0)} of {output.get('tasks', 0)} tasks "
+                    f"in {output.get('commits', 0)} commits (failed {output.get('failed', 0)})"
+                )
             persist()
         if "verdict" not in ledger:
             ledger.update(verdict="failed", reason="no verdict recorded")

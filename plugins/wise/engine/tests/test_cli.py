@@ -19,7 +19,7 @@ def test_compile_bundled_and_missing():
     code, out, err = invoke("compile-check", *paths)
     assert code == 0 and err == ""
     rows = json.loads(out)
-    assert len(rows) == 5 and all(r["ok"] for r in rows)
+    assert len(rows) == 7 and all(r["ok"] for r in rows)
     code, out, err = invoke("compile-check", "missing")
     assert code == 1 and json.loads(out)[0]["issues"] == [
         {"level": "error", "path": "", "message": "workflow not found"}

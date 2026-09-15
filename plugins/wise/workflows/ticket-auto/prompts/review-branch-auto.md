@@ -1,8 +1,11 @@
 # review-branch-auto — autonomous high-depth code-review branch gate
 
-Before model-backed work, follow [model fallback](../../../references/workflow-host-control.md#model-fallback).
-Unavailable models or delegation routes require a main-harness GUI/TUI selection,
-including in autonomous paths. Preserve the procedure's other gates and limits.
+This gate pins no model: its reviewers run on the current model (the
+tuning group the pre-flight selected), fanned out as subagents when the
+session can dispatch them and sequentially inline otherwise, per
+`code-review-pass.md`; the
+[model fallback](../../../references/workflow-host-control.md#model-fallback)
+picker never opens for it.
 
 The branch-review gate of `ticket-auto`'s per-ticket pipeline. Once a
 ticket's branch is fully implemented and every task is committed — but
@@ -52,14 +55,9 @@ unavailability is relayed to the main harness's model-fallback picker.
   re-checked before apply). `ticket-auto` always pins `medium` (the
   review gate never follows the run's budget profile down or up); the
   review fallback pins it too.
-- `opus_model` — **optional** — the Opus model id the reviewer
-  subagents dispatch on: `opus` (default) or `claude-opus-4-8`. The
-  low-profile Opus rule (`code-review-pass.md`): under the `low`
-  session / run profile this MUST be `claude-opus-4-8` — `low` never
-  dispatches Opus 5. It is keyed by the budget profile of the SESSION /
-  RUN, not by the `profile` effort argument above (ticket-auto pins
-  that to `medium` and still passes `opus_model=claude-opus-4-8` on a
-  `low` run). The review fallback derives it from the session profile.
+- (No model input. Reviewers run on the current model; the route -
+  parallel subagents or sequential inline lenses - is picked by
+  `code-review-pass.md` from the session's tools.)
 
 ## Procedure
 
@@ -83,8 +81,9 @@ review — emit the **mode-appropriate** clean result and stop: `fixer=self`
 ### 2. Review (3-lens panel at the profile's effort)
 
 Follow `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` end to end
-over `RANGE`: dispatch the parallel 3-lens reviewer panel (read-only
-`Task` subagents on `opus_model` — correctness, security, tests — each
+over `RANGE`: run the 3-lens reviewer panel (read-only, on the current
+model — correctness, security, tests — parallel subagents when the
+session has them, sequential inline lenses otherwise, each
 carrying the `profile`-mapped effort directive) and curate the
 high-confidence, **bounded** findings (concrete
 correctness / security / clear-quality; skip judgement-call refactors,

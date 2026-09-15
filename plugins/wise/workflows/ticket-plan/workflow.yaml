@@ -88,8 +88,11 @@ tuning:
       label: "Refine plan"
       default: { harness: claude, model: opus, effort: xhigh }
     - id: implement
-      label: "Implement"
+      label: "Implement: executes the plan's task waves as commits (code changes, the expensive part)"
       default: { harness: claude, model: opus, effort: xhigh }
+    - id: support
+      label: "Support: tracker detection, ticket fetch, related-item summary, plan presentation, branch setup, final summary (mechanical, no code changes)"
+      default: { harness: claude, model: sonnet, effort: medium }
 
 # All flow decisions are collected UP FRONT as inputs so the run can
 # proceed autonomously afterwards. Every mode keeps an `ask` escape hatch
@@ -142,7 +145,7 @@ step-select:
 steps:
   - id: detect-context
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       Identify which task-tracking system the input `{{ticket_id}}`
       points at, and capture the current git branch (no questions, no
@@ -189,7 +192,7 @@ steps:
 
   - id: ensure-access
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       Confirm this session can reach the **{{tracker_slug}}** tracker
       before fetching ticket `{{ticket_ref}}`.
@@ -229,7 +232,7 @@ steps:
 
   - id: fetch-ticket
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       First call the `wise_context` tool with key `ticket`. When it
       returns an entry with a `path`, Read that file and normalise from
@@ -316,7 +319,7 @@ steps:
 
   - id: analyze-related
     type: agent
-    model: sonnet
+    group: support
     description: "Related tickets & reference docs"
     prompt: |
       Read the normalised ticket at `{{ticket_path}}`. For every
@@ -627,7 +630,7 @@ steps:
 
   - id: present-plan
     type: agent
-    model: sonnet
+    group: support
     prompt: |
       Read the plan at `{{plan_path}}` and present it to the user for
       review; informational only, no decisions, no questions. Show:
@@ -687,7 +690,7 @@ steps:
 
   - id: setup
     type: agent
-    model: sonnet
+    group: support
     # Branch creation / checkout needs unattended git access.
     mode: full-access
     prompt: |
@@ -847,7 +850,7 @@ steps:
 
   - id: finalize
     type: agent
-    model: sonnet
+    group: support
     mcp: engine-only
     prompt: |
       Print the closing summary. Link the ticket only with the `url`

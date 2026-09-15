@@ -52,6 +52,17 @@ PHASES = (
     "watch",
     "cleanup",
 )
+# Which phases each units pipeline runs. `ticket` and `plan` own a branch
+# end to end; `pr` and `implement` attach to the checked-out branch.
+PIPELINE_PHASES = {
+    "ticket": PHASES,
+    "plan": PHASES,
+    "pr": ("claim", "watch", "cleanup"),
+    "implement": ("claim", "implement", "cleanup"),
+}
+PIPELINES = tuple(PIPELINE_PHASES)
+# Pipelines that work in the checkout the run starts in, never a new worktree.
+ATTACHED_PIPELINES = ("pr", "implement")
 
 PROFILE_LEVELS = ("low", "medium", "max")
 

@@ -1,131 +1,82 @@
 ---
 name: wise-pr-watch-auto
 description: >-
-  Autonomous variant of `/wise-pr-watch` — drive the current branch's PR
-  to merge in bulk rounds, with mandatory main-harness consent before
-  substitute review. Each round: one linear
-  2-minute poll until CI is terminal and every review bot that is going
-  to review the head (Copilot, CodeRabbit) has done so; gather every
-  failing check, every unresolved bot thread (outdated ones included),
-  every open Sonar issue; fix the whole set in one pass, resolve every
-  handled thread immediately, one commit, one push; wait one 2-minute
-  re-review window to see what the push triggered (the push IS the
-  trigger — no `@coderabbitai review` while a bot is auto-reviewing);
-  settle again. Converges on the first head with nothing actionable, or
-  after two nit-only rounds (remaining nits accepted and resolved, no
-  push), or at the round cap. Reads the base branch's rules up front
-  (thread-resolution rule, required approvals), re-reads the PR state at
-  every tick so a PR merged or closed from outside ends the run, and
-  keeps its state under the PR so a re-invocation resumes. When a bot is stuck,
-  offers wise's own substitute review through the main harness; a human comment
-  stands the run down. Merges (squash → merge-commit fallback, branch
-  protection respected). Invoked as `/wise-pr-watch-auto` (bare alias)
-  or `/wise:wise-pr-watch-auto` (canonical). Use when the user says
-  "watch the PR and fix it without asking", "auto-drive CI to green", or
-  types `/wise-pr-watch-auto`. For the interactive version use
-  `/wise-pr-watch`.
-argument-hint: "[<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max] [--on <harness>[:<model>[:<effort>]] | --on ask]"
-allowed-tools: Read, Edit, Write, Task, Bash(git:*), Bash(gh:*), Bash(python3:*), Bash(npm:*), Bash(make:*), Bash(vendor/bin/codecept:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(date:*), Bash(test:*), Bash(sleep:*), Bash(mkdir:*), Bash(touch:*), Bash(tail:*), Bash(rm:*), Bash(stat:*), Bash(chmod:*), Bash(id:*), Bash(mv:*), Bash(sed:*), Bash(paste:*), Bash(printf:*), Bash(bc:*), AskUserQuestion
+  Autonomous variant of `/wise-pr-watch` — drive the checked-out
+  branch's open PR to merge on the wise engine: the bundled `pr-watch`
+  workflow polls CI and the review bots (Copilot, CodeRabbit), fixes
+  what they raise, pushes, runs wise's own substitute review when a bot
+  is stuck (only if allowed at pre-flight), and merges once the PR is
+  green and quiet (branch protection respected). Pre-flight asks, once,
+  which harness, model and effort run each phase (watch, fix, review,
+  report); nothing prompts after launch. A human comment stands the run
+  down. Runs in the current checkout, never a worktree. Invoked as
+  `/wise-pr-watch-auto` (bare alias) or `/wise:wise-pr-watch-auto`
+  (canonical). Use when the user says "watch the PR and fix it without
+  asking", "auto-drive CI to green", or types `/wise-pr-watch-auto`.
+  For the interactive version use `/wise-pr-watch`.
+argument-hint: "[<max-fix-attempts>] [--minutes <n>]"
+allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Bash(git:*), Bash(gh:*), Bash(bash:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
 ---
 
-# /wise-pr-watch-auto — autonomous CI watch + bulk-fix loop
+# /wise-pr-watch-auto — conduct the `pr-watch` workflow
 
-Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
-for unavailable models or delegation routes, including in autonomous procedures.
+This skill is a thin conductor: it starts the bundled `pr-watch`
+workflow on the wise engine and follows the run. It has no model
+preference of its own — pre-flight asks harness, model and effort per
+phase — so the
+[model fallback](../../references/workflow-host-control.md#model-fallback)
+contract applies only to what the engine's pre-flight offers.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
-other questions in autonomous procedures. Substitute review consent below is mandatory.
+questions beyond the engine's pre-flight in this autonomous procedure.
 
 ## Why this skill exists
 
 `/wise-pr-watch` is a long interactive loop that walks review queues
-with the user. Routine watch and fix rounds run unattended.
-`/wise-pr-watch-auto` runs the same job as a **round loop** the Lead
-Architect persona drives alone:
-
-```
-settle → gather → bulk-fix → push → re-review window → (settle …) → merge
-```
-
-One push per round, every handled thread resolved before that push,
-every wait a linear 2-minute poll that re-reads the PR state and the
-human-comment gate. It ends when a settled head has nothing actionable,
-never at "the bot posted another nit".
+with the user. Routine watch and fix rounds run unattended. The
+unattended loop is engine code (the `pr` units pipeline: claim the
+checked-out branch's open PR, then the same watch / fix / push /
+substitute-review / merge loop `ticket-auto` runs after its PR is open).
+This skill exists so the loop can be started on its own, for a PR that
+already exists, with the same per-phase harness / model / effort choice
+every workflow gets at pre-flight — on any harness, not only Claude Code.
 
 Copilot and CodeRabbit are review *inputs*, not merge gates. When one is
-down the loop MUST ask through the main harness before starting wise's own
-substitute review (`review-fallback-auto.md`). Only an explicit selection to run
-the review permits it. Prefer GUI/TUI, with the shared text fallback when needed.
-Declining or an unavailable answer channel stops the watch without
-reviewing or merging.
+stuck the run may review the branch itself (one read-only 3-lens pass on
+the `review` group's model) only when the `substitute_review` pre-flight
+input says `yes`; on `no` a stuck bot ends the run as
+`all-green reason=review-consent-declined` without reviewing or merging.
+That question is the consent gate, asked once before launch.
 
 ## Arguments
 
 Read `$ARGUMENTS` and split into whitespace-separated tokens:
 
-- `--profile <low|medium|max>` — per-run override of the session
-  token-budget profile.
 - `--minutes <n>` — wall-clock budget for the whole run (default 120).
-  `n` must be an integer in `1..1440` (one minute to one day). The loop
-  stops with `exhausted reason=wall-clock` when it runs out.
+  `n` must be an integer in `1..1440`.
 - The first remaining token, if present, is `max_fix_attempts` — the
-  cap on commit-producing rounds. Ignore anything else.
-- A `--profile` / `--minutes` with no value, or a value out of range, is
-  an error — stop before the loop with the matching message:
+  cap on fix + push rounds (default 10). Must be a positive integer.
+- Anything else, a `--minutes` with no value, or a value out of range
+  is an error — stop before the run with the matching message:
 
   ```
-  Unknown --profile value: <value>
-  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max]
+  Unknown argument(s): <the extra tokens>
+  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]
   ```
 
   ```
   Unknown --minutes value: <value> (must be an integer 1-1440)
-  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>] [--profile low|medium|max]
+  Usage: /wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]
   ```
 
-Resolve `profile`: the argument if given, else the session profile via
-`${CLAUDE_PLUGIN_ROOT}/references/profile-read.md` (silent degrade to
-`medium`). The profile scales budget only — never gates, verdicts or
-merge rules:
-
-| profile | max_fix_attempts default | fixer tier | Opus model (`opus_model`) |
-|---|---|---|---|
-| `low` | 3 | prefer sonnet-grade focus | `claude-opus-4-8` (MUST — never Opus 5) |
-| `medium` | 10 | today's defaults | `opus` |
-| `max` | 10 | today's defaults | `opus` |
-
-An explicit `max_fix_attempts` always beats the profile's default.
-
-## Run on another harness (`--on`)
-
-If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
-`--on ask` / a bare `--on`), do NOT run the procedure below here. Strip
-the `--on` tokens (everything left is `SKILL_ARGS`), then read
-`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
-
-- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-pr-watch-auto/SKILL.md`
-- `SKILL_ARGS` = the remaining tokens
-- `TIMEOUT_S` = `(watch_minutes + 15) * 60` — the child's timeout must
-  outlast the loop's own wall-clock budget, or the dispatcher kills a
-  run that was about to finish.
-
-`--on ask` (or a bare `--on`) picks harness, model and effort through
-one composite `AskUserQuestion` before any child spawns. Substitute review
-consent is also mandatory, including in a dispatched run. A headless child
-must relay consent through Wise/the parent to the main harness, which uses its
-native UI or shared text fallback. Without that relay, stop with `review-consent-unavailable`;
-`--on` authorization does not authorize substitute review. While the child runs,
-tail its
-heartbeat instead of waiting blind:
-
-```bash
-tail -n 5 "${TMPDIR:-/tmp}/wise-pr-watch/<owner>/<repo>/<pr_number>/progress.log"
-```
-
-The reference relays the child's verdict line; §3 below applies to it.
+A given argument is passed as the matching workflow input
+(`max_fix_attempts`, `watch_minutes`) and that input's pre-flight
+question is not asked; an omitted one is asked (blank keeps the default).
+Which harness, model and effort run each phase is never an argument:
+pre-flight asks it.
 
 ## Procedure
 
@@ -133,81 +84,62 @@ The reference relays the child's verdict line; §3 below applies to it.
 
 ```bash
 git rev-parse --show-toplevel
-git rev-parse --abbrev-ref HEAD
-gh pr view --json number,url,state
+git symbolic-ref --quiet --short HEAD
+gh pr view --json number,url,state,baseRefName
 ```
 
-No PR → stop with a clear message pointing at `/wise-pr-create-auto`.
-PR not `OPEN` → report it and stop; there is nothing to watch.
+Detached HEAD or a protected branch (`main` / `master` / `release*`) →
+stop with a clear message. No PR → stop pointing at
+`/wise-pr-create-auto`. PR not `OPEN` → report it and stop; there is
+nothing to watch. Print the PR url and its base branch.
 
-### 2. Follow the shared fragment
+### 2. Conduct the `pr-watch` workflow
 
-Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/watch-pipelines-auto.md`
-and follow it end to end with `pr_number`, `pr_url`, `current_branch`,
-`project.path` (the toplevel), `max_fix_attempts`, `watch_minutes`,
-`profile`, `opus_model` (the table's last column), and
-`dispatch_mode=task` - prefer fresh native children for the bot-thread and
-Sonar handlers, returning only their verdict lines. If the prescribed model,
-role or `Task` tool is unavailable, use the shared GUI/TUI model-fallback gate
-to select a supported current-harness model and route before the handler runs.
-Do not stop merely because this client names its native spawn tool differently.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/wise-workflow-run/SKILL.md` and
+follow its §1 (init check), §2 (pre-flight), §3 (start), §4 (wait
+loop) and §5 (final report) with:
 
-Print the fragment's progress-log path on the first line of output, and
-— when the base branch requires approvals — say up front that this run
-will drive the PR to green but cannot merge it.
+- `workflow` = `pr-watch`, `cwd` = the git toplevel.
+- `answers` seeded with `input.max_fix_attempts` / `input.watch_minutes`
+  when the argument was given; everything else comes from the staged
+  pre-flight, put to the user exactly as that skill prescribes: the
+  `substitute_review` consent, the remaining inputs, then
+  `harness.<group>`, `permissions.<harness>`, `model.<group>` and
+  `effort.<group>` for the `watch`, `fix`, `review` and `support`
+  groups (the worktree question is locked to the current checkout).
+- `context` = `{}` unless the conversation already knows the ticket the
+  PR implements (then `ticket[]` as that skill describes).
+
+Say up front, before `wise_run`, when the base branch requires
+approvals: the run will drive the PR to green but cannot merge it.
 
 ### 3. Relay the verdict
 
-The fragment's final line is
-`WATCH-AUTO: <merged|merged-externally|closed|all-green|blocked|partial|exhausted|human-intervention> url=<url> rounds=<n> …`.
-Translate it into a short summary: whether the PR was merged (by this
-run or by someone else), how many rounds it took, what was fixed,
-accepted or left, and — for `all-green` / `blocked` / `partial` /
-`exhausted` / `human-intervention` — that the PR needs a human, with the
-`reason=` spelled out (`approval-required`, `behind`, `dirty`, a branch
-rule, `sonar-unchecked`, `review-fallback-failed`, `review-consent-declined`, `review-consent-unavailable`, `pr-changed`, `wall-clock`,
-`rounds`, `stuck-loop`). For `blocked` list the `items=` `file:line`
-references. Name any bot that could not review (`copilot=stuck`,
-`coderabbit=<bypassed|gave-up>`) or skipped a docs-only head
-(`coderabbit=skipped`), and when `review-fallback=ran` say wise reviewed
-the branch in its place and how many findings it applied.
-`converged=nits-accepted` means the last remaining minor comments were
-accepted as-is and resolved rather than fixed — say so.
+The `process` step's `units` row carries the outcome:
+`verdict` (`merged` | `all-green` | `blocked` | `partial` | `exhausted`
+| `human-intervention` | `failed` | `skipped`) and `reason`; the
+`report` step writes `<run-dir>/report.md`. Summarise: whether the PR
+was merged, how many watch passes and fix rounds it took, what was
+fixed, and — for anything but `merged` — that the PR needs a human,
+with the reason spelled out (`approval-required`, a branch rule,
+`review-consent-declined`, `wall-clock`, the fix cap, a bot item in the
+findings file, a human comment). Link the PR.
 
 ## Guardrails
 
-- MUST obtain explicit main-harness consent before every new substitute review,
-  including an inline or adversarial review. Follow the fallback fragment's
-  consent gate. Routine fixes remain autonomous; `--on ask` also permits its
-  pre-loop harness picker.
-- Never force-push, never `--no-verify`.
-- Every wait is a linear 2-minute poll through the fragment's `tick`:
-  PR state, human gate and wall-clock deadline at every tick. No
-  `--watch`, no multi-minute sleeps, no backoff.
-- The push is the review trigger. Never post `@coderabbitai review` on a
-  head younger than the grace period, on a docs-only head, on a
-  rate-limited CodeRabbit, on a bot that auto-reviews and already has a
-  footprint on the head, on a PR that is not open, or twice for one
-  head. Every trigger posted is deleted before the run ends.
-- One push per round; every handled thread resolved before it.
-- Merge only a fully resolved PR — CI green, every expected bot terminal
-  for the head, every stuck bot covered by a successful substitute
-  review, zero unresolved bot threads verified live, Sonar at zero or
-  proven absent, `mergeStateStatus` read live. Never force a merge or
-  override branch protection; a required approval is reported as
-  `all-green reason=approval-required`, never worked around.
-- Never merge a branch nothing reviewed.
-- Stand down the moment a human comments.
-- Stop cleanly at the round cap, the wall-clock budget and the
-  unchanged-head catch; converge on nits instead of chasing them.
-- State lives under `${TMPDIR:-/tmp}/wise-pr-watch/<owner>/<repo>/<pr>/`
-  (owner and repo as separate path segments, never joined — a joined
-  `owner-repo` string can collide across repos) and is removed only
-  when the PR is merged or closed, so a killed or re-invoked run
-  resumes its counters and trigger bookkeeping.
-- `Task` is granted for the `dispatch_mode=task` handlers (one bot-thread
-  subagent, one Sonar subagent per round) and the review fallback's
-  reviewer panel. Nothing else spawns subagents.
-- Never invoke another wise action skill — the fragment reads
-  `commit-from-fix.md` / `handle-bot-reviews-auto.md` /
-  `handle-sonar-issues-auto.md` / `review-fallback-auto.md` directly.
+- The only questions are the engine's pre-flight (rendered by this main
+  harness) and a gate the run opens; never answer one yourself and never
+  ask anything else mid-run.
+- Never execute a workflow step here: the engine's provider children run
+  the watch, fix and review phases. Never force-push, never `--no-verify`;
+  the engine's phases never do either.
+- The engine merges only a PR whose CI is green and whose bot reviews are
+  resolved or covered for `watch_stable_passes` consecutive passes
+  (squash, then merge commit); a required approval is reported as
+  `all-green`, never worked around. A human comment stands the run down.
+- Sonar issues are not part of the engine loop; use `/wise-pr-watch` for
+  a PR gated on Sonar.
+- Run state lives in the engine's run directory; `/wise-workflow-resume
+  <run_id>` continues an interrupted run.
+- Never invoke another wise action skill; the `wise-workflow-run`
+  procedure is read as the conductor routine, not invoked as a skill.

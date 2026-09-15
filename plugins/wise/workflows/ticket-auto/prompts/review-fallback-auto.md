@@ -43,11 +43,8 @@ the verdict — it reviews, commits, pushes, and reports.
 - (The substitute review is deliberately profile-INDEPENDENT in
   effort: one universal reviewer at `medium` effort, whatever the
   run's budget profile — see below. No `profile` input.)
-- `opus_model` — **optional** — the Opus model id the reviewer
-  dispatches on, passed straight through to the review pass: `opus`
-  (default) or `claude-opus-4-8`. MUST be `claude-opus-4-8` when the
-  session / run budget profile is `low` (`low` never dispatches Opus 5
-  — `code-review-pass.md`'s low-profile Opus rule).
+- (No model input. The reviewer runs on the current model; without a
+  subagent tool the universal pass runs inline - `code-review-pass.md`.)
 
 ## Procedure
 
@@ -94,8 +91,7 @@ required `base`, **`panel=universal`** (ONE reviewer subagent covering
 correctness, security, and test-coverage in a single read-only pass at
 `medium` effort — a substitute for a bot review of a branch that
 already passed the pre-push gate, so one universal reviewer is the
-right weight), `opus_model` (when supplied — `claude-opus-4-8` on a
-`low` run), plus `ticket_ref`, `plan_path`, and `config_prompt`
+right weight), plus `ticket_ref`, `plan_path`, and `config_prompt`
 when supplied. Verify `base` is non-empty first (see the context contract
 above) — a review of the wrong diff still satisfies the caller's merge
 gate, so this is the one input worth checking before the panel spins

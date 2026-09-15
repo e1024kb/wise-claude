@@ -215,6 +215,13 @@ def worktree_slug(branch: str) -> str:
 
 
 def make_unit(pipeline: str, item: str, cwd: str, run_dir: str, base: str = "") -> Json:
+    if pipeline == "pr":
+        branch = item.strip()
+        return {"ref": branch, "branch": branch, "worktree": cwd, "base": base}
+    if pipeline == "implement":
+        seed = os.path.abspath(os.path.join(cwd, item.strip()))
+        ref = plan_branch(seed)
+        return {"ref": ref, "branch": ref, "worktree": cwd, "base": base, "plan_path": seed}
     plan_path = os.path.abspath(os.path.join(cwd, item.strip())) if pipeline == "plan" else None
     ref = plan_branch(plan_path) if plan_path is not None else ticket_ref(item)
     branch = ref if plan_path is not None else ticket_branch(ref)

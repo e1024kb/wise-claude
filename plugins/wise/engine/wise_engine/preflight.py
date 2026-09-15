@@ -416,7 +416,13 @@ def worktree_default(definition: Json) -> str:
     )
 
 
+def worktree_locked(definition: Json) -> bool:
+    return definition.get("preflight", {}).get("lock-worktree") is True
+
+
 def worktree_answer(definition: Json, answers: Json) -> str | None:
+    if worktree_locked(definition):
+        return worktree_default(definition)
     value = answers.get("worktree", answers.get("input.worktree_mode"))
     return value if value in ("current", "new") else None
 

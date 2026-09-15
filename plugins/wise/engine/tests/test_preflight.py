@@ -268,6 +268,7 @@ def test_deselected_locked_and_unbound_groups():
         "model.build-plan",
         "model.refine-plan",
         "model.implement",
+        "model.support",
     ]
     assert not any(i.endswith(".presentation") for i in ids(stage))
     applied = p.apply_answers(
@@ -542,7 +543,10 @@ def test_complete_answers_and_selection():
     assert "effort.build-plan" in [q["id"] for q in done["questions"]]
     assert "model.implement" not in [q["id"] for q in done["questions"]]
     full = p.complete_answers(defn, ctx, MODES)
-    assert all(full["answers"][f"effort.{g}"] == "high" for g in groups(defn))
+    assert all(
+        full["answers"][f"effort.{g}"] == ("medium" if g == "support" else "high")
+        for g in groups(defn)
+    )
     steered = p.complete_answers(defn, ctx, {"harness.analyze-design": "codex"})
     assert steered["answers"]["model.analyze-design"] == "gpt-6-astra"
     assert steered["answers"]["effort.analyze-design"] == "high"
@@ -785,3 +789,13 @@ def test_branch_choice_accepts_free_text_in_forms_and_answers():
     assert _accepted_answer(question, {"input.base_branch": "  "}) is None
     strict = {**question, "allow_text": False}
     assert _accepted_answer(strict, {"input.base_branch": "release-26-9-0"}) is None
+
+
+@pytest.mark.parametrize("workflow", ["pr-watch", "impl-plan"])
+def test_lock_worktree_skips_the_worktree_question(workflow):
+    defn = load_and_validate({"path": str(ROOT / f"workflows/{workflow}/workflow.yaml")})["def"]
+    assert p.worktree_locked(defn)
+    assert "worktree" not in ids(p.build_questionary(defn))
+    assert p.build_questionary(defn)["questions"][0]["id"].startswith("input.")
+    assert p.apply_answers(defn, {"worktree": "new"})["worktree"] == "current"
+    assert p.apply_answers(defn, {"worktree": "new"})["inputs"]["worktree_mode"] == "current"

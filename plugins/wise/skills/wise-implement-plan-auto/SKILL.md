@@ -2,108 +2,110 @@
 name: wise-implement-plan-auto
 description: >-
   Autonomously implement a written implementation plan (a `PLAN-*.md`
-  produced by ticket-auto / ticket-plan) in the current git working
-  tree — the plan's task waves are phase gates, each task
-  in a wave is handed to a fresh-context executor agent running in
-  parallel, and every task lands as one atomic commit with per-task
-  verification (type-check / lint / tests). NO prompts. Invoked as
+  produced by ticket-auto / ticket-plan / wise-revise) on the checked-out
+  branch, on the wise engine: the bundled `impl-plan` workflow turns the
+  plan's task waves into atomic commits, each task tidied and validated,
+  nothing pushed. Pre-flight asks, once, which harness, model and effort
+  implement the plan; nothing prompts after launch. Invoked as
   `/wise-implement-plan-auto` (bare alias) or
   `/wise:wise-implement-plan-auto` (canonical). Use when the user says
   "implement the plan", "execute PLAN-*.md", "build out the plan
   autonomously", or types `/wise-implement-plan-auto`.
-argument-hint: "[<plan-file-path>] [--on <harness>[:<model>[:<effort>]] | --on ask]"
-allowed-tools: Read, Edit, Write, Task, Agent, TeamCreate, TeamDelete, SendMessage, Monitor, TaskCreate, TaskList, TaskGet, TaskUpdate, TaskOutput, TaskStop, TodoWrite, Bash(git:*), Bash(npm:*), Bash(make:*), Bash(go:*), Bash(python3:*), Bash(cd:*), Bash(bash:*), Bash(cat:*), Bash(head:*), Bash(grep:*), Bash(test:*), AskUserQuestion
+argument-hint: "[<plan-file-path>]"
+allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Bash(git:*), Bash(bash:*), Bash(cat:*), Bash(ls:*), Bash(mkdir:*), Bash(test:*)
 ---
 
-# /wise-implement-plan-auto — execute a plan, autonomously
+# /wise-implement-plan-auto — conduct the `impl-plan` workflow
 
-Before executing, follow [model fallback](../../references/workflow-host-control.md#model-fallback)
-for unavailable models or delegation routes, including in autonomous procedures.
+This skill is a thin conductor: it starts the bundled `impl-plan`
+workflow on the wise engine and follows the run. It has no model
+preference of its own — pre-flight asks harness, model and effort for
+the implementer — so the
+[model fallback](../../references/workflow-host-control.md#model-fallback)
+contract applies only to what the engine's pre-flight offers.
 
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
 Keep asynchronous prompts open until answered; this rule does not authorize
-questions in autonomous or otherwise prompt-free procedures.
+questions beyond the engine's pre-flight in this autonomous procedure.
 
 ## Why this skill exists
 
-`ticket-plan` and `ticket-auto` produce a `PLAN-*.md` but no skill
-*executes* one. `/wise-implement-plan-auto` is that executor — a
-phase-gated model: parse the plan's task waves, dispatch one fresh-context
-executor agent per task in parallel, commit each task atomically,
-verify as it goes. It is the reusable building block the `ticket-auto`
-workflow's implement phase follows.
+`ticket-plan`, `ticket-auto` and `/wise-revise` produce a `PLAN-*.md`;
+this skill executes one on the branch you already have checked out and
+stops before any push. The implement loop is engine code (the
+`implement` units pipeline: claim the checked-out branch, then the same
+implement phase `ticket-auto` runs — task waves, one atomic commit per
+task, per-task tidy and validation). This skill exists so that phase can
+run on its own, with the same harness / model / effort choice every
+workflow gets at pre-flight — on any harness. The full plan → PR
+pipeline is the `impl-plan-auto` workflow.
 
 ## Arguments
 
 Read `$ARGUMENTS`. The first whitespace-separated token, if present,
-is the path to the `PLAN-*.md` to implement. When absent, look for a
-single `PLAN-*.md` at the git toplevel and use it; if there are zero
-or several, stop and ask the user to name one.
+is the path to the `PLAN-*.md` to implement (relative to the repo root
+or absolute). When absent, look for a single `PLAN-*.md` at the git
+toplevel and under `docs/plans/`; use it when exactly one exists,
+otherwise leave the `plan` pre-flight question to the user. Anything
+after the first token is an error:
 
-## Run on another harness (`--on`)
-
-If `$ARGUMENTS` contains `--on <harness>[:<model>[:<effort>]]` (or
-`--on ask` / a bare `--on`), do
-NOT run the procedure below in this conversation. Strip the `--on`
-tokens (everything left is `SKILL_ARGS`), then read
-`${CLAUDE_PLUGIN_ROOT}/references/dispatch.md` and follow it with:
-
-- `SKILL_MD` = `${CLAUDE_PLUGIN_ROOT}/skills/wise-implement-plan-auto/SKILL.md`
-- `SKILL_ARGS` = the remaining tokens
-
-`--on ask` (or a bare `--on`) picks harness, model and effort through
-one composite `AskUserQuestion` before any child spawns — the ONE
-sanctioned prompt in this skill: it happens at invocation time, so the
-dispatched run itself stays decision-free.
-The reference probes the harness login, validates model and effort
-against the engine catalog, and runs the procedure as a headless child
-via `engine.sh dispatch --relay`. Follow its run, handle any required gates
-in the main harness, and relay the final result as specified by the shared
-dispatch reference. This does not add routine prompts to autonomous paths.
-Without `--on`, this section does not apply.
+```
+Unknown argument(s): <the extra tokens>
+Usage: /wise-implement-plan-auto [<plan-file-path>]
+```
 
 ## Procedure
 
-### 1. Resolve the worktree + plan
+### 1. Resolve the checkout + plan
 
 ```bash
 git rev-parse --show-toplevel
+git symbolic-ref --quiet --short HEAD
 ```
 
-Use the toplevel as `worktree`. Resolve `plan_path` from `$ARGUMENTS`
-(or the discovery rule above).
+Detached HEAD or a protected branch (`main` / `master` / `release*`) →
+stop with a clear message; implementation lands on the checked-out
+branch. Resolve the plan path from `$ARGUMENTS` (or the discovery rule
+above) and check the file exists.
 
-### 2. Follow the shared fragment
+### 2. Conduct the `impl-plan` workflow
 
-Read `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/implement-plan.md`
-and follow it end to end with `plan_path`, `worktree`, `project.kind`
-(infer from the worktree's manifest if unknown), and `SUPERVISE=yes`.
-The fragment processes waves in order, dispatches the wave's executors
-per task (persona: this skill's `agents/executor.md`) — **supervised**
-background teammates a leader loop nudges if one hangs or goes idle
-mid-task — then simplifies (per-task, scoped to the task's files via
-`references/simplify-pass.md`) and commits each task sequentially, and
-verifies per task. (To fall back to plain blocking `Task` executors,
-pass `SUPERVISE=no` / set `WISE_WORKER_*` env to tune the watchdog.)
+Read `${CLAUDE_PLUGIN_ROOT}/skills/wise-workflow-run/SKILL.md` and
+follow its §1 (init check), §2 (pre-flight), §3 (start), §4 (wait
+loop) and §5 (final report) with:
+
+- `workflow` = `impl-plan`, `cwd` = the git toplevel.
+- `answers` seeded with `input.plan` when resolved; everything else
+  comes from the staged pre-flight, put to the user exactly as that
+  skill prescribes: the `guidance` input, then `harness.<group>`,
+  `permissions.<harness>`, `model.<group>` and `effort.<group>` for the
+  `implement` and `support` groups (the worktree question is locked to
+  the current checkout).
+- `context` = `{guidance}` when the conversation carries operator
+  guidance for the implementation (libraries to prefer, files to avoid).
 
 ### 3. Relay the result
 
-The fragment's final line is
-`IMPLEMENT: waves=<w> tasks=<t> done=<d> failed=<f>`. Summarise for
-the user — waves run, tasks done, tasks failed (with which ones) —
-and remind them nothing was pushed (commit/push is a separate step).
+The `process` step's `units` row carries `verdict` (`all-green` |
+`failed` | `skipped`) and `reason` (`implemented: <done> of <tasks>
+tasks in <n> commits (failed <f>)` on success); the `report` step writes
+`<run-dir>/report.md`. Summarise waves run, tasks done, tasks failed
+(with which ones) and the commits, and remind the user nothing was
+pushed — `/wise-workflow-run code-review` then `/wise-pr-create` are the
+next steps.
 
 ## Guardrails
 
-- Never call `AskUserQuestion` mid-run — the only prompt is the
-  argument-resolution stop in §Arguments when the plan is ambiguous.
-- One atomic commit per task; never bundle tasks.
-- Executors edit files; only this skill simplifies (per-task, scoped)
-  and commits, serially — never let parallel subagents race the git
-  index. The heavier high-depth code-review branch gate is a separate,
-  later pipeline step, not this skill's job.
-- Never `git push` — that is the caller's step.
-- A failed task does not abort the run.
-- Never invoke another wise action skill.
+- The only questions are the engine's pre-flight (rendered by this main
+  harness) and a gate the run opens; never answer one yourself and never
+  ask anything else mid-run.
+- Never execute the implement phase here: the engine's provider child
+  runs it (parallel executor subagents when its harness can spawn them,
+  sequential inline tasks otherwise). One atomic commit per task; the
+  heavier code-review branch gate is a separate, later step.
+- Never `git push` — the engine's `implement` pipeline has no push phase.
+- A failed task does not abort the run; the verdict reports it.
+- Never invoke another wise action skill; the `wise-workflow-run`
+  procedure is read as the conductor routine, not invoked as a skill.

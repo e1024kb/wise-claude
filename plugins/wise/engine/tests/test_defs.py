@@ -2393,7 +2393,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "steps[0].pipeline",
-                    "message": "pipeline must be ticket | plan",
+                    "message": "pipeline must be ticket | plan | pr | implement",
                 }
             ]
         },
@@ -5319,6 +5319,8 @@ def test_bundled_and_v1_definitions():
         "ticket-auto": 5,
         "impl-plan-auto": 4,
         "code-review": 12,
+        "pr-watch": 3,
+        "impl-plan": 3,
     }
     items = list_defs(
         {"user_root": engine / "no-user", "bundled_root": engine.parent / "workflows"}

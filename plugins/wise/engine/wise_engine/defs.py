@@ -24,6 +24,7 @@ from .constants import (
     STEP_TYPES,
     TRIGGER_RULES,
     PHASES,
+    PIPELINES,
 )
 
 RESERVED_NAMES = frozenset(("list", "create", "run", "resume", "remove", "status"))
@@ -1175,8 +1176,8 @@ def _typed_step(
         return _agent(iss, step, p, base)
     key = "run" if kind == "bash" else "items" if kind == "units" else "message"
     ok = True
-    if kind == "units" and not _one_of(("ticket", "plan"), step.get("pipeline")):
-        iss.error(f"{p}.pipeline", "pipeline must be ticket | plan")
+    if kind == "units" and not _one_of(PIPELINES, step.get("pipeline")):
+        iss.error(f"{p}.pipeline", f"pipeline must be {' | '.join(PIPELINES)}")
         ok = False
     value = _required_string(iss, step, p, key)
     out = {**base, key: value or ""}
@@ -1228,7 +1229,7 @@ def _typed_step(
                     groups[phase] = gid
         out = {
             **base,
-            "pipeline": "plan" if step.get("pipeline") == "plan" else "ticket",
+            "pipeline": step["pipeline"] if step.get("pipeline") in PIPELINES else "ticket",
             "items": value or "",
             "groups": groups,
         }
@@ -1323,8 +1324,25 @@ def _preflight(iss: _Issues, raw: Any) -> dict[str, Any] | None:
     iss.unknown(
         raw,
         "preflight",
-        ("control-mode", "worktree", "permissions", "rename_session", "tuning", "step-select"),
+        (
+            "control-mode",
+            "worktree",
+            "lock-worktree",
+            "permissions",
+            "rename_session",
+            "tuning",
+            "step-select",
+        ),
     )
+    locked = raw.get("lock-worktree", MISSING)
+    if locked is not MISSING:
+        if isinstance(locked, bool):
+            out_locked = locked
+        else:
+            iss.error("preflight.lock-worktree", "lock-worktree must be a boolean")
+            out_locked = None
+    else:
+        out_locked = None
     for key in ("rename_session", "tuning", "step-select"):
         if key in raw:
             iss.error(
@@ -1333,6 +1351,8 @@ def _preflight(iss: _Issues, raw: Any) -> dict[str, Any] | None:
                 "drop it; v2 always builds the questionary from `tuning:` / `step-select:` and the harness renames sessions (D11)",
             )
     out: dict[str, Any] = {}
+    if out_locked is not None:
+        out["lock-worktree"] = out_locked
     cm = raw.get("control-mode", MISSING)
     if cm is not MISSING:
         if _one_of(("synchronous", "interactive"), cm):

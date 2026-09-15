@@ -54,7 +54,7 @@ watch); this workflow is the full pipeline around a plan file.
 flowchart TD
     A[preflight-checks<br/>bash - clean tree, gh auth, origin] --> B[split-plans<br/>bash - comma list -> JSON array of absolute paths plan_list]
     B --> D[process<br/>units pipeline plan - one unit per seed plan -> units rows]
-    D --> E[report<br/>agent sonnet - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
+    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
 ```
 
 Inside `process`, per plan file and in this order (branch = the file
@@ -66,19 +66,19 @@ name without `PLAN-` and `.md`, sanitised):
 | `worktree` | code | - | `<run-dir>/worktrees/<branch>` on the plan branch off the fetched `base_branch`. |
 | `plan` | model | `plan` | Reads the seed, checks drift against its `SOURCE_SHA`, re-audits the scope at HEAD, writes the refreshed plan to `<run-dir>/plans/PLAN-<ref>.md`. `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
-| `review` <-> `fix` | model | `review` / `implement` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
+| `review` <-> `fix` | model | `review` / `fix` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
 | `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body (links the plan), `gh pr edit --add-reviewer` for each login in `reviewers`. |
-| `watch` (+ `fix`, `push`) | model | `watch` / `implement` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
+| `watch` (+ `fix`, `push`) | model | `watch` / `fix` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
 | `cleanup` | code | - | Only on `merged`: remove the worktree and the local branch. |
 
 ## Pre-flight questions
 
 | Id | Kind | Default | Notes |
 |---|---|---|---|
-| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `review`, `watch`; `fix` follows `implement`); asked whenever another harness is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
+| `harness.<group>` | choice | `claude` | One per group (`plan`, `implement`, `fix`, `review`, `watch`, `support`), each labelled with what the model will do; asked whenever another harness is installed (a logged-out one is offered with its login command). Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
-| `model.<group>` | choice | `claude-opus-5` (`watch`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
-| `effort.<group>` | choice | `high` (`watch`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `model.<group>` | choice | `claude-opus-5` (`watch`, `support`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. |
+| `effort.<group>` | choice | `high` (`watch`, `support`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 | `input.base_branch` | choice (free text allowed) | the checked-out base branch, else the default branch | The branch every plan branch starts from and every PR targets: the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches. |
 | `input.plans` | text | - | Comma-separated `PLAN-*.md` paths; relative paths resolve against the repo root. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
@@ -95,8 +95,8 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 |---|---|---|
 | `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
 | `split-plans` | `bash` | Splits the `plans` input on commas and semicolons, trims, dedupes, resolves each path against the repo root, fails when a file is missing, emits a JSON array of absolute paths as `plan_list`. |
-| `process` | `units` | `pipeline: plan`, `items: {{plan_list}}`. Groups `plan`, `implement`, `review`, `fix -> implement`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per plan). |
-| `report` | `agent` (sonnet) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
+| `process` | `units` | `pipeline: plan`, `items: {{plan_list}}`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per plan). |
+| `report` | `agent` (`support` group) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
 
 ## Inputs
 

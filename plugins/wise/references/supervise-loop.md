@@ -20,6 +20,15 @@ so it cannot watch anything. Claude Code's `Task` has no timeout/heartbeat of
 its own (a hung subagent can hang the orchestrator indefinitely), so the
 supervision has to live here, at the orchestration layer.
 
+**Sessions without the team tools cannot run this loop.** A caller that
+receives `SUPERVISE=yes` on a session lacking `TeamCreate`, background
+`Agent`, `SendMessage` or `Monitor` (Codex, Cursor, Gemini, Grok, or a
+Claude child without them) degrades to `SUPERVISE=no`: log one line
+(`supervise: degraded to no (no team tools on this session)`), run the
+work without a watchdog, and never open a picker or stop for it. Under
+the workflow engine the run's `stale_after` policy (nudge, then kill the
+child) is the watchdog in that case.
+
 Background teammates have one behaviour that is the whole reason this routine
 is needed: **a teammate goes idle after every turn — that is normal, not an
 error — and an idle teammate waits forever unless someone messages it.**

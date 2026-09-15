@@ -68,9 +68,10 @@ Current actions (all standalone):
   Dispatches via `dispatch --relay`; gates relay back to the main harness.
 - `/wise-profile` — set the session's token-budget profile
   (`low|medium|max`, default `medium` = the standard behavior). Stored
-  per session; profile-sensitive skills (`wise-pr-watch-auto`)
-  read it via `references/profile-read.md` and
-  degrade silently to `medium`. Workflows never read it: the engine's
+  per session; profile-sensitive skills read it via
+  `references/profile-read.md` and degrade silently to `medium` (no
+  bundled skill is profile-sensitive today: `wise-pr-watch-auto`
+  conducts a workflow). Workflows never read it: the engine's
   pre-flight asks worktree, harness, per-provider permission floor, model and effort instead.
   Budget only — model tiers, optional-step scope, panel size, retry
   caps; NEVER correctness rules.
@@ -110,8 +111,14 @@ Current actions (all standalone):
   `/wise-pr-watch-auto`, `/wise-implement-plan-auto`,
   `/wise-simplify-auto` — the autonomous (`-auto`) building blocks:
   autonomous variants of the PR / implement /
-  quality steps, each a thin reader of a shared fragment or reference.
-  `/wise-pr-watch-auto` MUST obtain main-harness consent before substitute review.
+  quality steps. The PR-create, request-review and simplify ones are
+  thin readers of a shared fragment or reference; `/wise-pr-watch-auto`
+  and `/wise-implement-plan-auto` are thin conductors over the bundled
+  `pr-watch` / `impl-plan` workflows (the engine's `pr` / `implement`
+  units pipelines), so harness, model and effort are asked per phase at
+  pre-flight on every harness. `/wise-pr-watch-auto`'s consent for the
+  substitute review is the `substitute_review` pre-flight input; `no`
+  stands the run down on a stuck bot.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent on Claude Code, else the same cleanup inline
   per `references/simplify-instructions.md`) and the `code-review` workflow (the
@@ -228,7 +235,7 @@ plugins/wise/
 │   ├── branch-naming.md            # the ticket = branch-name rule
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── profile-read.md             # session token-budget profile read (silent degrade to medium); read by profile-sensitive skills
-│   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by wise-pr-watch(-auto), the pr/simplify/implement -auto skills
+│   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by the pr-create / request-review / simplify -auto skills and wise-exec-on-harness
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent or inline)
 │   ├── simplify-instructions.md    # harness-neutral cleanup contract the pass applies
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
@@ -273,10 +280,10 @@ plugins/wise/
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
     ├── wise-pr-create-auto/SKILL.md       # autonomous PR create (no prompts)
     ├── wise-pr-request-review-auto/SKILL.md  # autonomous Copilot attach (no prompts)
-    ├── wise-pr-watch-auto/SKILL.md        # CI watch + fix loop (main-harness consent before substitute review)
-    ├── wise-implement-plan-auto/          # autonomously implement a PLAN-*.md
+    ├── wise-pr-watch-auto/SKILL.md        # conductor of the pr-watch workflow (substitute-review consent asked at pre-flight)
+    ├── wise-implement-plan-auto/          # conductor of the impl-plan workflow
     │   ├── SKILL.md
-    │   └── agents/executor.md            # fresh-context per-task executor persona
+    │   └── agents/executor.md            # per-task executor persona read by implement-plan.md (subagent or inline)
     ├── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
     ├── wise-supervise/SKILL.md            # attach the watchdog loop to a running team of background agents
     ├── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
@@ -506,8 +513,9 @@ one-liners below are the rule, not the argument for it.
   its `prompts/*.md` fragments, update the workflow's `README.md` in
   the SAME commit — Flow mermaid, Steps table, Inputs/Outputs tables,
   and Related-links section must reflect the new shape.
-- **The unit pipelines are idempotent on resume.** `ticket-auto` and
-  `impl-plan-auto` are one `units` step; the loop is engine code
+- **The unit pipelines are idempotent on resume.** `ticket-auto`,
+  `impl-plan-auto`, `pr-watch` and `impl-plan` are one `units` step
+  each; the loop is engine code
   (`engine/wise_engine/units.py`, `engine/wise_engine/phases/`), not prose. Its `claim`
   phase must *ensure* (create, re-attach, or adopt) each unit's worktree
   from the per-unit ledger under `<run dir>/units/` plus live `git` /

@@ -52,19 +52,24 @@ through model fallback changes it. Effort is the normal budget knob:
 | **`medium`** (default) | 3 | `high` | — |
 | `max` | 3 | `high` | **verification pass** (below) |
 
-**Preferred reviewer model - the low-profile Opus rule.** Every reviewer
-`Task` (lens panel, universal panel, and the `max` verification pass)
-requests `model: <opus_model>` unless model fallback selected a replacement.
-The actual dispatch uses that approved replacement and its supported effort.
-For Opus, `opus_model` is the
-caller's context value, defaulting to `opus`. Under the **`low`**
-session / run budget profile `opus_model` MUST be `claude-opus-4-8` —
-**`low` never dispatches Opus 5**. The rule is keyed by the budget
-profile of the session / run (`references/profile-read.md` emits it
-as `PROFILE_OPUS_MODEL`; a workflow run records it as the
-`opus_model` output), NOT by the `profile` effort argument above —
-`ticket-auto` pins the gate's effort to `medium` and still runs its
-reviewers on Opus 4.8 when the run profile is `low`.
+**Model and route.** The pass pins no model: reviewers run on the
+**current model** - the tuning group the workflow pre-flight selected, or
+the session model of an interactive caller - and the
+[model fallback](workflow-host-control.md#model-fallback) picker never
+opens for it. Pick the route once per pass from the tools the session
+exposes:
+
+- **Fan out** when the session can dispatch a `Task` / `Agent` subagent:
+  the three reviewers run in parallel as fresh read-only subagents
+  inheriting the current model (an interactive Claude session that
+  chooses to pin Opus on them still follows the low-profile rule:
+  `low` never dispatches Opus 5, use `claude-opus-4-8`).
+- **Inline** otherwise (Codex, Cursor, Gemini and Grok children, or a
+  Claude child without `Task`): run the three lenses **sequentially in
+  the current context**, one lens at a time, each producing its own
+  findings list before the next starts, then curate. Do not ask which
+  route to use and do not shell out to any agent CLI. The lens count,
+  the read-only rule and the curation rules do not change.
 
 The effort directive is appended to each reviewer's prompt the same
 way workflow dispatch conveys effort (a prompt directive, best-effort).
@@ -95,12 +100,13 @@ that deliberately.)
    the commits about to be pushed (the caller supplies `base` / detects
    the default branch).
 
-2. **Dispatch the panel.** In a single message, dispatch the three
-   reviewer `Task` subagents **in parallel** (or the one universal
+2. **Run the panel.** Fan-out route: in a single message, dispatch the
+   three reviewer `Task` subagents **in parallel** (or the one universal
    reviewer under `panel=universal`), each **read-only**
-   (`subagent_type: "Explore"` is a good fit) and on `model: <opus_model>`
-   (`claude-opus-4-8` under `low` — see the rule above). Give each its lens, the
-   diff range, and the worktree. Each returns a list of findings —
+   (`subagent_type: "Explore"` is a good fit) on the current model.
+   Inline route: run the same three lenses one after another in this
+   context (one universal pass under `panel=universal`). Give each its
+   lens, the diff range, and the worktree. Each returns a list of findings —
    `file:line`, a one-line description, and a severity
    (critical / warning / info). Reviewers **report only — they never
    mutate the working tree.** No `Edit` / `Write`, and **no file-mutating
@@ -124,7 +130,8 @@ that deliberately.)
    `## Decisions Made` deliberately chose; note it as skipped.
 
 3b. **Verify (`max` profile only).** Dispatch one fresh read-only
-   subagent per kept finding (on `model: <opus_model>`) — in a single
+   subagent per kept finding (fan-out route; inline, re-check each
+   finding yourself in a separate pass) — in a single
    parallel message — each
    prompted to REFUTE its finding against the current code ("is this
    actually wrong as claimed? Default to refuted when the evidence is
@@ -138,9 +145,8 @@ that deliberately.)
 
 ## On failure
 
-Unavailable models or native agent routes enter model fallback before launch.
-Preserve fresh reviewers and the lens count. Only the substitute-review caller
-may offer its documented reduced-depth inline route, with explicit approval.
+A missing subagent tool selects the inline route above; it is not a
+failure and opens no picker. Preserve the lens count in both routes.
 If a launched panel errors, or applying fixes leaves the tree in a
 state `git status` (or a syntax check) reports as broken, treat it as a
 **hard failure**: do **not** retry or invent a recovery. Surface
