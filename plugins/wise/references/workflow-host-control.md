@@ -390,9 +390,11 @@ Apply this dispatch order for every question, without provider-specific exceptio
    Instead use the sequence below. If a Claude or another host's tool explicitly
    supports multi-select, use that control directly.
 4. Respect the host's question-count and option-count limits. Split batches and
-   paginate without dropping choices. When only one real option exists but the
-   picker requires two, offer `Use <label>` and `Cancel`; do not invent a second
-   engine value. A host-provided Skip/Other control is not automatically valid.
+   paginate without dropping choices; under an option cap follow the
+   [long option list rule](#long-option-lists) below. When only one real
+   option exists but the picker requires two, offer `Use <label>` and `Cancel`;
+   do not invent a second engine value. A host-provided Skip/Other control is
+   not automatically valid.
 5. Wait for an actual response using the lifecycle below. Map display labels to
    values, validate against the original question, then submit. Invalid free text,
    display acknowledgements, navigation, unanswered items, and cancellation must
@@ -423,30 +425,48 @@ For multi-select on a host with only single-choice pickers:
    never engine values. Cancellation or an unanswered item leaves the original
    question unanswered. Never treat cancellation as an empty selection.
 
-For a long single-choice list, use pages with clickable navigation within the
-host's option-count limit. Navigation does not answer the underlying question.
+### Long option lists
 
-Model questions (`model.<group>`, the `models` command, any model picker) are
-the usual long list. The engine returns every option: the predefined catalog
-first (`source: catalog`), then the models the installed harness reported
-(`source: harness`). Render them all, in the engine's order, with the engine's
-labels and descriptions, never with invented ones. Never reorder the list,
-never pick a "representative" subset, and never drop an entry silently. The
-catalog order is the page order: on a host that caps a question at four
-options, two first-page layouts exist and the host's affordances pick one:
+This rule applies to every single-choice question, engine or skill-local:
+`harness.<group>`, `model.<group>`, `effort.<group>`, `permissions.<harness>`,
+`input.<name>` enums, base-branch and worktree choices, the `/wise-profile`
+and `/wise-exec-on-harness` pickers, model fallback, and any picker a skill
+builds from a known list. Render every option, in the source's order, with the
+source's labels and descriptions, never with invented ones. Never reorder the
+list, never pick a "representative" subset, and never drop an entry silently.
 
-- Host with a custom-answer box (Claude Code's `AskUserQuestion`): the first
-  page is the first four engine entries exactly (for claude: Fable 5.1,
-  Opus 5, Opus 4.8, Sonnet 5); the remaining ids are named in the question
-  text so the box reaches them.
-- Option-only host (T3 Code among them): three entries plus `More models…` as
-  the fourth option; every later page holds three entries plus `Back` (and
-  `More models…` while entries remain). Never make `Other` the only route to
-  an engine option on a host that cannot render it.
+First find the host's real option cap and show as many options as it allows:
+Claude Code's `AskUserQuestion` takes at most four options per question, other
+hosts declare their own limit, and a host without a cap shows the whole list
+in one question. Only when the list is longer than the cap does the overflow
+layout apply, and the host's affordances pick one of two:
 
-The highlighted default stays on the first page. Mention the source in
-the description when the host shows one (`reported by the cursor harness`),
-not in the value.
+- Host with a custom-answer box (Claude Code's `AskUserQuestion` with its
+  `Other` field): the visible rows are the first `cap` entries exactly, in
+  source order. The question text names every option that is not a visible
+  row, by value, so the user can see the full set and type or paste one:
+  `Also available (type it in Other): cursor, gemini.` For a list far beyond
+  the cap, such as a harness-reported model catalog, still name every value;
+  a long question text is acceptable, a hidden option is not.
+- Option-only host (T3 Code among them): `cap - 1` entries plus `More…` as
+  the last option; every later page holds `cap - 2` entries plus `Back` (and
+  `More…` while entries remain). Navigation never answers the question, and
+  `Other` is never the only route to an option on a host that cannot render
+  it.
+
+The highlighted default stays on the first page. When the user types a value
+named in the question text, map it to the option exactly as if it had been
+clicked; validate any other text against the full list and re-ask on a miss.
+
+Harness pickers order their options claude, codex, cursor, grok, gemini, with
+a group's default harness first when the engine puts it there; the engine and
+the `auth` inventory already emit that order, keep it. Model pickers show the
+predefined catalog first (`source: catalog`), then the models the installed
+harness reported (`source: harness`); mention the source in the description
+when the host shows one (`reported by the cursor harness`), not in the value.
+For claude the first four catalog entries are Fable 5.1, Opus 5, Opus 4.8 and
+Sonnet 5, so on Claude Code they are the visible rows and the remaining ids
+go into the question text.
 When a skill asks a bounded contextual question without an engine questionary,
 provide concise choices for the known alternatives; use free text only for content
 that cannot reasonably be enumerated. Do not invent an exhaustive option set for

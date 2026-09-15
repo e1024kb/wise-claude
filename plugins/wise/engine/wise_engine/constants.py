@@ -33,7 +33,9 @@ EVENT_TYPES = (
     "warn",
 )
 
-HARNESSES = ("claude", "codex", "cursor", "gemini", "grok")
+# Picker order for every harness question and inventory: claude, codex,
+# cursor, grok, gemini. Do not sort it.
+HARNESSES = ("claude", "codex", "cursor", "grok", "gemini")
 
 MCP_POLICIES = ("inherit", "engine-only")
 

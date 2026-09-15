@@ -630,7 +630,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "tuning.groups[0].default.harness",
-                    "message": "harness must be one of claude | codex | cursor | gemini | grok",
+                    "message": "harness must be one of claude | codex | cursor | grok | gemini",
                 }
             ]
         },
@@ -684,7 +684,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "tuning.groups[0].fallback[0]",
-                    "message": "harness must be one of claude | codex | cursor | gemini | grok",
+                    "message": "harness must be one of claude | codex | cursor | grok | gemini",
                 }
             ]
         },
@@ -1656,7 +1656,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "steps[0].harness",
-                    "message": "harness must be one of claude | codex | cursor | gemini | grok",
+                    "message": "harness must be one of claude | codex | cursor | grok | gemini",
                 }
             ]
         },
@@ -1724,7 +1724,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "steps[0].fallback[0]",
-                    "message": "harness must be one of claude | codex | cursor | gemini | grok",
+                    "message": "harness must be one of claude | codex | cursor | grok | gemini",
                 }
             ]
         },

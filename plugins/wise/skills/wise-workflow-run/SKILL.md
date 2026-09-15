@@ -167,14 +167,20 @@ Render every unanswered provider permission question with all its options. Never
 replace the next provider's picker with "Use Auto too?" or reuse another provider's
 answer unless the user explicitly selected that mode for both providers.
 Render `choice` questions with options and `multi` questions with native
-multi-select or the shared clickable Include/Exclude sequence. A
-`model.<group>` question is rendered with every option the engine returned,
-in the engine's order and with the engine's labels; when the host caps
-options at four, use the shared first-page layout: with a custom-answer box
-(Claude Code) the first four entries plus the remaining ids named in the
-question text, on an option-only host three entries plus `More models…`
-paged with `Back`, never an entry left unreachable, following the
-[model list rule](../../references/workflow-host-control.md#native-controls-and-answer-mapping). Never turn a
+multi-select or the shared clickable Include/Exclude sequence. Every
+`choice` question (`harness.<group>`, `permissions.<harness>`,
+`model.<group>`, `effort.<group>`, enum inputs, worktree, base branch) is
+rendered with every option the engine returned, in the engine's order and
+with the engine's labels. Show as many options as the host allows; when the
+list exceeds the host's cap (four on Claude Code's `AskUserQuestion`), use
+the shared overflow layout: with a custom-answer box (Claude Code) the first
+`cap` entries as rows plus every remaining value named in the question text
+(`Also available (type it in Other): cursor, gemini.`), on an option-only
+host `cap - 1` entries plus `More…` paged with `Back`, never an entry left
+unreachable, following the
+[long option list rule](../../references/workflow-host-control.md#long-option-lists).
+Harness options arrive in the order claude, codex, cursor, grok, gemini (the
+group's default first); keep it. Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
 Codex Desktop currently advertises MCP elicitation but can immediately decline
 standard forms without rendering them, so use its native inline picker when that

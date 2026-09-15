@@ -63,7 +63,9 @@ run after correcting the cause when a failed step needs another attempt.
 - `paused` / `failed`: `wise_resume {run_id}` returns `{run_id,
   status}`. Print `Resuming <run_id> (<workflow>).`
 - `gated`: show `gate.message`, collect an explicit answer with `gate.options`
-  (free text when `allow_text`), `wise_answer {run_id, gate_id, value}`.
+  (free text when `allow_text`; beyond the host's option cap apply the
+  [long option list rule](../../references/workflow-host-control.md#long-option-lists)),
+  `wise_answer {run_id, gate_id, value}`.
 - `completed` / `cancelled`: say the run is terminal and stop.
 
 ## 3. Follow
