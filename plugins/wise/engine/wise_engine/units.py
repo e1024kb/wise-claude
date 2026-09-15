@@ -31,6 +31,7 @@ from .phases.model import (
 from .phases.pr import pr_phase
 from .phases.push import push_phase
 from .phases.request_review import request_review_phase
+from .phases.verify import commit_time_ms, verify_reviews
 from .phases.worktree import worktree_phase
 from .prompts.units.schemas import (
     MODEL_PHASES,
@@ -266,6 +267,11 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
         hooks["emit_phase"]("push")
         pushed = await runners["push"](ctx)
         hooks["fold"]("push", pushed)
+        if pushed["ok"]:
+            # The pushed head's age starts now: the verification request
+            # waits for an automatic review before asking for one.
+            watch["head_since"] = {"sha": await head_sha(ctx), "at": ctx["now"]()}
+            save()
         return pushed
 
     while True:
@@ -279,6 +285,12 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
                 {"watch": dict(watch)},
             )
         head = await head_sha(ctx)
+        if watch.get("head_since", {}).get("sha") != head:
+            # A head this run did not push (the initial one, or someone
+            # else's push): its commit time bounds when notices about it
+            # can have appeared.
+            watch["head_since"] = {"sha": head, "at": await commit_time_ms(ctx) or ctx["now"]()}
+            save()
         watch["passes"] += 1
         result = await runners["watch"](
             {
@@ -312,6 +324,18 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             fixed = await fix_and_push("ci" if output["ci"] == "red" else "bot-reviews")
             if not fixed["ok"]:
                 return fixed
+            await ctx["sleep"](poll_ms)
+            continue
+        # The fix batch is settled on this head: reconcile the review
+        # providers' state for it and request the one verification review
+        # the head still needs. A requested or running review holds the
+        # pass: neither covered nor stuck until it answers.
+        verification = await verify_reviews(ctx, watch, head, output)
+        save()
+        if verification["hold"]:
+            if watch["stable"] != 0:
+                watch["stable"] = 0
+                save()
             await ctx["sleep"](poll_ms)
             continue
         covered = output["bot_reviews"] == "resolved"
@@ -350,7 +374,7 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             watch["stable"] += 1
             save()
             if watch["stable"] >= stable_target:
-                merged = await merge_pr(ctx)
+                merged = await merge_pr(ctx, head)
                 if not merged["ok"]:
                     return fail(merged["reason"], "all-green", {"watch": dict(watch)})
                 ctx["log"](f"watch: merged #{js_string(ctx['unit']['pr']['number'])}")

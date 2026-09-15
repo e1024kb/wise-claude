@@ -265,12 +265,17 @@ hold off" short-circuits everything else).
 
 Before any queue runs, sweep the PR for review threads GitHub
 flagged as outdated (`isOutdated: true`) but that nobody marked
-resolved (`isResolved: false`). The handler-level classifiers
+resolved (`isResolved: false`). An outdated badge means the anchor
+moved, not that the finding is fixed: before resolving a thread, read
+the file it points at once and resolve only when the current code no
+longer shows the flagged concern. A thread whose concern still applies
+stays open and is counted in the chat line below as `<N> still
+apply`; the queue handlers skip outdated threads, so tell the user
+where those are. The handler-level classifiers
 in `handle-bot-reviews.md` §2 and `comment-surfaces.md` §2
-already filter outdated items out of the actionable lists —
-they're stale by construction (the lines they anchor to moved
-or were deleted, so the comment no longer applies to the
-current diff) — but pre-2.6.2 the workflow left them
+already filter outdated items out of the actionable lists
+(the lines they anchor to moved or were deleted), which says
+nothing about whether the concern is fixed, but pre-2.6.2 the workflow left them
 *unresolved* on GitHub, which produced the failure mode "PR
 ships with green CI but a pile of `Outdated` badges on the
 Conversation tab nobody cleaned up". Resolve them as a
@@ -367,6 +372,22 @@ all auto-resolve the thread on GitHub in Phase C; see
 
 #### 4c. CodeRabbit queue
 
+First make sure the current head has its verification review. Read
+`${CLAUDE_PLUGIN_ROOT}/references/pr/review-verification.md` and apply
+its §1 state table to the PR head: when the state is `silent` past the
+grace, `manual-required`, or `rate-limited` past the reset, and §2's
+conditions hold (CI not red, the previous queues' push landed, no
+request recorded for this head in `$SCRATCH/wise-pr-verify-<pr_number>`),
+post the one `@coderabbitai review` comment and record
+`<head> <comment-url> <time>` there. Then wait for the answer with the
+§1 poll (`gh pr checks --watch` returns when the CodeRabbit check run
+settles; re-read the state table on each return, at most 15 minutes):
+`completed` continues into the queue below on the new findings;
+`pending` / `requested` keep waiting; `skipped`, `failed`, `paused`,
+`absent` or no answer continue without a review and add
+`coderabbit-unverified` to the §7 markers. Never post twice for the
+same head, never on every poll.
+
 ```
 Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-bot-reviews.md
 ```
@@ -438,6 +459,8 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
    - a new **bot** review item arrived that a §4 queue classifier
      would surface (re-running §4 for the affected queues is the
      existing mechanism),
+   - a verification review requested in §4c is still `requested` or
+     `pending` for `STABLE_SHA` (the head is not verified yet),
    - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone
      pushed).
 5. **Dirty window** → `CLEAN_STREAK=0`, re-enter §1 (full poll →
@@ -503,6 +526,9 @@ WATCH: partial url=<url> accepted=<comma-separated-check-names>
 - The §5 stability loop hit `STABILITY_MAX_ROUNDS` without two
   consecutive clean windows (reviewers still active). Marker:
   `stability-capped`.
+- §4c could not get CodeRabbit's verification review of the final
+  head (skipped, failed, paused, rate-limited past the budget, or
+  unanswered). Marker: `coderabbit-unverified`.
 
 When emitting `partial`, `accepted` should include ALL
 applicable markers. Examples:

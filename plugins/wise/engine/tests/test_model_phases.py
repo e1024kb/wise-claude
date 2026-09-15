@@ -401,7 +401,11 @@ def test_merge_method_fallback(tmp_path, both, expected):
             )
         result = await run_units_step(fixture.input())
         assert result["outputs"]["units"][0]["verdict"] == expected
-        assert any(args[-1] == "--merge" for cmd, args, _ in fixture.calls if cmd == "gh")
+        merges = [
+            args for cmd, args, _ in fixture.calls if cmd == "gh" and args[:2] == ["pr", "merge"]
+        ]
+        assert any("--merge" in args for args in merges)
+        assert all(args[-2:] == ["--match-head-commit", fixture.head] for args in merges)
 
     asyncio.run(scenario())
 

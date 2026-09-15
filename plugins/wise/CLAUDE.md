@@ -118,7 +118,9 @@ Current actions (all standalone):
   units pipelines), so harness, model and effort are asked per phase at
   pre-flight on every harness. `/wise-pr-watch-auto`'s consent for the
   substitute review is the `substitute_review` pre-flight input; `no`
-  stands the run down on a stuck bot.
+  stands the run down on a stuck bot. The watch loop's one verification
+  request per pushed head (`phases/verify.py`) follows
+  `references/pr/review-verification.md`, as does `/wise-pr-watch`.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent on Claude Code, else the same cleanup inline
   per `references/simplify-instructions.md`) and the `code-review` workflow (the
@@ -472,6 +474,8 @@ one-liners below are the rule, not the argument for it.
   `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
   the `handle-*.md` queue handlers, `paged-bulk-mode.md`,
   the shared `comment-surfaces.md` / `sonar-fetch.md` fetch spines,
+  `review-verification.md` (the one-verification-review-per-head rule
+  the engine's watch loop and `/wise-pr-watch` share),
   `commit-from-fix.md`, read by the `wise-pr-*` skills and the
   `ticket-auto` workflow's `prompts/`) - has a single home there, addressed as
   `${CLAUDE_PLUGIN_ROOT}/references/<file>.md` and read at run time.
