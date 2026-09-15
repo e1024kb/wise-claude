@@ -25,7 +25,7 @@ def is_owned(ctx: Json) -> bool:
 async def attach_phase(ctx: Json) -> Json:
     """Claim for the `pr` and `implement` pipelines: bind to the checked-out branch."""
     unit, pipeline = ctx["unit"], ctx["config"]["pipeline"]
-    if pipeline == "implement" and not Path(unit.get("plan_path", "")).exists():
+    if pipeline == "implement" and not Path(unit.get("plan_path", "")).is_file():
         return fail(f"missing: plan file {unit.get('plan_path', '?')} not found")
     head = await git(ctx, ["symbolic-ref", "--quiet", "--short", "HEAD"])
     branch = head["stdout"].strip() if ok(head) else ""

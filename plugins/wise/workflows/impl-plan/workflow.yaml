@@ -46,12 +46,7 @@ steps:
     # unprotected branch before any child spawns.
     run: |
       set -eu
-      raw=$(mktemp)
-      trap 'rm -f "$raw"' EXIT
-      cat >"$raw" <<'WISE_PLAN'
-      {{plan}}
-      WISE_PLAN
-      item=$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <"$raw" | head -n 1)
+      item=$(printf '%s\n' "${WISE_PLAN-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1)
       if [ -z "$item" ]; then
         echo "ERROR: no plan file given." >&2
         exit 1
@@ -133,3 +128,4 @@ steps:
     outputs: [verdict, report_path]
     allowed_tools: ["Bash(git:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)"]
     depends_on: [process]
+    trigger-rule: all-done

@@ -1,6 +1,8 @@
 import subprocess
 
-from wise_engine.branches import branch_choices, is_base_branch
+import pytest
+
+from wise_engine.branches import branch_choices, is_base_branch, is_branch_name
 
 
 def git(cwd, *args):
@@ -33,6 +35,28 @@ def repo(tmp_path):
     clone = tmp_path / "clone"
     git(tmp_path, "clone", "-q", str(origin), str(clone))
     return clone
+
+
+@pytest.mark.parametrize(
+    "name, valid",
+    [
+        ("main", True),
+        ("release/2026.09", True),
+        ("feat/PROJ-1_x+y", True),
+        ("", False),
+        ("-rf", False),
+        ("main; rm -rf /", False),
+        ("a..b", False),
+        ("a//b", False),
+        ("a/.b", False),
+        ("a/", False),
+        ("a.lock", False),
+        ("a@{1}", False),
+        ("$(id)", False),
+    ],
+)
+def test_is_branch_name(name, valid):
+    assert is_branch_name(name) is valid
 
 
 def test_is_base_branch():

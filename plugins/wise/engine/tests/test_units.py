@@ -473,6 +473,7 @@ def test_implement_pipeline_runs_on_checked_out_branch(tmp_path):
         row = result["outputs"]["units"][0]
         assert row["verdict"] == "all-green" and row["unit"]["branch"] == "feat/PROJ-3"
         assert row["unit"]["plan_path"] == str(plan)
+        assert read_unit(str(fixture.run_dir), "feat/PROJ-3")["verdict"] == "all-green"
         assert fixture.counts == {"implement": 1}
         assert not [c for c in fixture.calls if c[0] == "gh" and c[1][:2] == ["pr", "create"]]
         assert not [c for c in fixture.calls if c[0] == "git" and c[1][0] == "push"]
@@ -524,5 +525,8 @@ def test_attached_pipelines_force_current_tree_and_input_cap_overrides():
     result = config_for(step, state)
     assert result["worktree_mode"] == "current"
     assert result["caps"] == {"max_fix_attempts": 3.0, "watch_minutes": 120}
-    state["inputs"]["watch_minutes"] = "soon"
-    assert config_for(step, state)["caps"]["watch_minutes"] == 120
+    for raw in ("soon", "inf", "-inf", "nan", "-1", "0", "1.5", "1441"):
+        state["inputs"]["watch_minutes"] = raw
+        assert config_for(step, state)["caps"]["watch_minutes"] == 120
+    state["inputs"]["watch_minutes"] = "1440"
+    assert config_for(step, state)["caps"]["watch_minutes"] == 1440.0

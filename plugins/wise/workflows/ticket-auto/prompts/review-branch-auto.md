@@ -20,8 +20,8 @@ commit.
 
 Prose form of the gate, read by the PR watcher's review fallback
 (`review-fallback-auto.md`); the standalone gate is the `code-review`
-workflow (`workflows/code-review/`). Routine work is decision-free; model
-unavailability is relayed to the main harness's model-fallback picker.
+workflow (`workflows/code-review/`). Routine work is decision-free: the
+reviewers run on the current model and no picker opens.
 
 ## Context the caller supplies
 
@@ -144,7 +144,7 @@ Emit, as the FINAL line — alone, no markdown, no backticks — per `fixer`:
 
 ## Guardrails
 
-- No routine questions. Relay required model-fallback choices to the main harness.
+- No routine questions, and no model-fallback picker: run on the current model.
 - Never `git push` — the caller's push step owns that.
 - This gate does ONE review pass per invocation and never iterates
   internally — in `fixer=self` that is one pass + one fix-apply + one

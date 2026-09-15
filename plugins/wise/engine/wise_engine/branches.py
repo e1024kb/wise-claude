@@ -10,11 +10,24 @@ from .spawn import clean_env
 Json = dict[str, Any]
 
 BASE_BRANCH_RE = re.compile(r"^(main|master|release.*)$")
+BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]*$")
 RELEASE_LIMIT = 5
 
 
 def is_base_branch(name: str) -> bool:
     return BASE_BRANCH_RE.match(name) is not None
+
+
+def is_branch_name(name: str) -> bool:
+    """A plain git branch name: safe to interpolate into a prompt or command unquoted."""
+    return (
+        BRANCH_NAME_RE.match(name) is not None
+        and ".." not in name
+        and "//" not in name
+        and "/." not in name
+        and not name.endswith(("/", ".", ".lock"))
+        and "@{" not in name
+    )
 
 
 def _git(cwd: str, args: list[str], env: Mapping[str, str] | None = None) -> str | None:

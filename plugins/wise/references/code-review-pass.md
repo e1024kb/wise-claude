@@ -1,9 +1,5 @@
 # code-review-pass — the canonical multi-agent branch review
 
-Before model-backed work, follow [model fallback](workflow-host-control.md#model-fallback).
-Unavailable models or delegation routes require a main-harness GUI/TUI selection,
-including in autonomous paths. Preserve the procedure's other gates and limits.
-
 Single source of truth for **how** the plugin runs its heavyweight
 branch gate. Read by:
 

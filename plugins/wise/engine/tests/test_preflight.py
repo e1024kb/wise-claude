@@ -695,6 +695,32 @@ def test_legacy_worktree_input_answer_remains_accepted():
     assert p.known_inputs(defn, {"worktree": "new"})["worktree_mode"] == "new"
 
 
+@pytest.mark.parametrize(
+    "value, invalid",
+    [("release/1.2", []), ("main; id", ["input.base_branch"]), ("", ["input.base_branch"])],
+)
+def test_branch_inputs_must_be_git_branch_names(value, invalid):
+    spec = {"inputs": [{"name": "base_branch", "prompt": "Base?", "options-from": "branches"}]}
+    assert p.invalid_choice_input_ids(spec, {"base_branch": value}) == invalid
+
+
+@pytest.mark.parametrize(
+    "value, invalid", [("", []), ("7", []), ("0", ["input.minutes"]), ("1441", ["input.minutes"])]
+)
+def test_text_inputs_are_checked_against_their_validate_regex(value, invalid):
+    spec = {
+        "inputs": [
+            {
+                "name": "minutes",
+                "prompt": "Minutes?",
+                "optional": True,
+                "validate": "^([1-9][0-9]{0,2}|1[0-3][0-9]{2}|14[0-3][0-9]|1440)?$",
+            }
+        ]
+    }
+    assert p.invalid_choice_input_ids(spec, {"minutes": value}) == invalid
+
+
 @pytest.mark.parametrize("key", ["worktree", "input.worktree_mode"])
 def test_invalid_worktree_answer_is_replaced_with_question(key):
     result = p.build_questionary(definition(), answers={key: "invalid"})

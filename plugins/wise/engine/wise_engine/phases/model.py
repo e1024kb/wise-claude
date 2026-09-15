@@ -10,6 +10,7 @@ from urllib.parse import quote
 from ..permissions import effective_mode, provider_permission
 from ..prompts.units.schemas import (
     MODEL_PHASES,
+    PIPELINE_MODEL_PHASES,
     PHASE_SCHEMAS,
     parse_plan,
     parse_implement,
@@ -147,7 +148,7 @@ def default_tuning(phase: str, profile: str) -> Json:
 
 def resolve_unit_phases(step: Json, tuning: Json, profile: str, env: Json | None = None) -> Json:
     out = {}
-    for phase in MODEL_PHASES:
+    for phase in PIPELINE_MODEL_PHASES.get(step.get("pipeline", "ticket"), MODEL_PHASES):
         gid = step["groups"].get(phase, step["groups"].get("implement") if phase == "fix" else None)
         default = (
             tuning.get(gid, default_tuning(phase, profile))

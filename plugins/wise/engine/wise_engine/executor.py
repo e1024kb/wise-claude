@@ -68,6 +68,7 @@ from .preflight import (
     invalid_worktree_answers,
     resolve_from_context,
     with_discovered_models,
+    worktree_locked,
 )
 from .pricing import price_usage
 from .protocol import RPC_INVALID_PARAMS, WAIT_DEFAULT_MS, WAIT_MAX_MS, WAIT_PROGRESS_MS
@@ -77,7 +78,7 @@ from .rpc import RpcError, domain_error
 from .scheduler import next_wave, JS_WHITESPACE
 from .spawn import clean_env
 from .steps.agent import headline, start_agent_step
-from .steps.bash import start_bash_step
+from .steps.bash import bash_step_env, start_bash_step
 from .steps.gate import APPROVAL_OPTIONS, build_gate, decide_gate, is_gate_step
 
 Json = dict[str, Any]
@@ -964,7 +965,13 @@ class Executor:
             live.emit(event)
             if step["type"] == "bash":
                 handle = await start_bash_step(
-                    step, dict(cwd=state["cwd"], parent_env=self.env, **self.timeout_opts())
+                    step,
+                    dict(
+                        cwd=state["cwd"],
+                        parent_env=self.env,
+                        step_env=bash_step_env(fresh),
+                        **self.timeout_opts(),
+                    ),
                 )
                 live.children[step_id] = handle
                 if live.stopped and handle.kill:
@@ -1621,7 +1628,11 @@ class Executor:
         harnesses = installed_harnesses(definition, self.get_adapter, self.env)
         questionary = await build_questionary_with_auth(
             definition,
-            {"harnesses": harnesses, "context": context, "branches": self.branches(cwd)},
+            {
+                "harnesses": harnesses,
+                "context": context,
+                "branches": await asyncio.to_thread(self.branches, cwd),
+            },
             answers,
             self.get_adapter,
         )
@@ -1650,7 +1661,11 @@ class Executor:
         seeded = {**given, **{f"input.{key}": value for key, value in explicit.items()}}
         ctx = await with_discovered_models(
             definition,
-            {"harnesses": harnesses, "context": context, "branches": self.branches(cwd)},
+            {
+                "harnesses": harnesses,
+                "context": context,
+                "branches": await asyncio.to_thread(self.branches, cwd),
+            },
             seeded,
             self.get_adapter,
         )
@@ -1723,7 +1738,7 @@ class Executor:
                     inputs[name] = value
         inputs["worktree_mode"] = applied["worktree"]
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
-        invalid_worktree = invalid_worktree_answers(seeded)
+        invalid_worktree = [] if worktree_locked(definition) else invalid_worktree_answers(seeded)
         missing = list(
             dict.fromkeys(
                 [question["id"] for question in unanswered]

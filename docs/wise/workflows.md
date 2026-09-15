@@ -265,9 +265,12 @@ then the repository default branch, then the five most recent `release*`
 branches (local and `origin/`), deduplicated. The default is the first
 option. The question carries `allow_text: true`, so the MCP form, the TUI and
 the conductor accept any other branch name as free text. Outside
-a git checkout the question falls back to plain text. The `units`
-pipelines read the `base_branch` input as the base every ticket branch
-is cut from and every PR targets.
+a git checkout the question falls back to plain text. The answer must be
+a plain git branch name (letters, digits, `.`, `_`, `/`, `+`, `-`, no `..`);
+anything else is rejected at pre-flight. The `ticket` and `plan` pipelines
+read the `base_branch` input as the base every ticket branch is cut from and
+every PR targets. The `pr` and `implement` pipelines attach to the checked-out
+branch and do not read it: an existing PR keeps its own base.
 
 `from-context` grammar: `guidance` \| `ticket[].ref` \| `ticket[].title`
 \| `ticket[].body` \| `ticket[].url` \| `links[]` \| `decisions.<key>`.
@@ -380,7 +383,11 @@ rate limits](#fallback-and-rate-limits)); `auth` fails the run.
   timeout: 15
 ```
 
-`bash -c <run>` in the run cwd under the clean child environment.
+`bash -c <run>` in the run cwd under the clean child environment, with
+every input and prior output also exported as `WISE_<NAME>` (upper-cased,
+non-alphanumerics to `_`): read values from those variables (`"$WISE_PLAN"`)
+rather than interpolating `{{name}}` into shell source, where a crafted
+value can break out of quotes or a here-document.
 Success is exit code 0 without timeout. `outputs`: the first name gets
 the whole trimmed stdout (1 MiB cap). Verdict: last non-empty stdout
 line, else `ok`; on failure `failed: <last stderr line or exit code>`.

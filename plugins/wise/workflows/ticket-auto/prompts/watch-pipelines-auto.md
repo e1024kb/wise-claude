@@ -469,13 +469,6 @@ supplied. Read its final line:
 - `REVIEW-FALLBACK: failed reason=<r>` → `FALLBACK_STATE=failed`; carry
   any `unpushed=<sha>` onto the verdict. §7 will not merge.
 
-For `model-fallback-declined`, `model-fallback-ui-unavailable` or
-`model-fallback-capability-unavailable` before a reviewer starts, clear
-`FALLBACK_SHA`, undo this invocation's `FALLBACK_RUNS` increment and stop with
-`partial reason=<same reason>`. Never count an unanswered model choice as a
-review or let it consume a review attempt. Handler model-fallback stops likewise
-leave the work pending and never enable merge.
-
 `save_state` after every change here.
 
 ### 2. Gather — everything open on this head, at once

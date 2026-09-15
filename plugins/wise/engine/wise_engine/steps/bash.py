@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +12,19 @@ from ..spawn import SpawnOptions, clean_env, spawn_clean
 from .agent import DEFAULT_STEP_TIMEOUT_MS, headline, utf16_length, utf16_slice
 
 STDERR_TAIL = 800
+ENV_NAME_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
+def bash_step_env(state: Json) -> dict[str, str]:
+    """Inputs and outputs as `WISE_<NAME>` variables: the safe way into a bash step."""
+    named = {**(state.get("inputs") or {}), **(state.get("outputs") or {})}
+    out: dict[str, str] = {}
+    for key, value in named.items():
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            out["WISE_" + ENV_NAME_RE.sub("_", key).upper()] = str(value)
+    return out
+
+
 STDOUT_CAP = 1024 * 1024
 Json = dict[str, Any]
 
@@ -43,7 +57,9 @@ async def start_bash_step(step: Json, opts: Json) -> BashHandle:
         "bash",
         ["-c", step["run"]],
         SpawnOptions(
-            cwd=opts["cwd"], env=clean_env(parent=opts.get("parent_env")), timeout_ms=timeout_ms
+            cwd=opts["cwd"],
+            env=clean_env(parent=opts.get("parent_env"), extra=opts.get("step_env")),
+            timeout_ms=timeout_ms,
         ),
     )
     proc.stdin.end()

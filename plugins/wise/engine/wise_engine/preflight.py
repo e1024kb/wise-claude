@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .branches import is_branch_name
 from .constants import HARNESSES, RUN_MODES
 from .models import catalog_model, default_effort, default_model, merged_catalog
 from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
@@ -52,15 +53,30 @@ def choice_input_preset(item: Json, context: Json | None = None) -> str | None:
 
 
 def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
+    """Inputs whose answer is outside its choices, or not a git branch name for branch inputs."""
     invalid = []
     for item in definition.get("inputs", []):
         values = input_choice_values(item)
         name = item["name"]
-        if values is None or name not in inputs:
+        if name not in inputs:
             continue
         value = inputs[name]
-        if not isinstance(value, str) or value not in values:
-            invalid.append(f"input.{name}")
+        if values is not None:
+            if not isinstance(value, str) or value not in values:
+                invalid.append(f"input.{name}")
+        elif item.get("options-from") == "branches":
+            if not isinstance(value, str) or not (
+                is_branch_name(value) or (value == "" and item.get("optional"))
+            ):
+                invalid.append(f"input.{name}")
+        elif item.get("validate") and not item.get("extract"):
+            from .defs import validate_input
+
+            if (
+                not isinstance(value, str)
+                or not validate_input(value, None, item["validate"])["ok"]
+            ):
+                invalid.append(f"input.{name}")
     return invalid
 
 

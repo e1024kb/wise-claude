@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import fcntl
 import time
 from collections import deque
@@ -51,6 +52,7 @@ __all__ = [
     "phase_key",
 ]
 DEFAULT_REVIEWERS = ["copilot-pull-request-reviewer"]
+CAP_MAX = {"watch_minutes": 1440}
 CAP_DEFAULTS = {
     "max_review_cycles": 2,
     "max_fix_attempts": 3,
@@ -86,15 +88,12 @@ def is_done(ledger: Json) -> bool:
 
 
 def _cap_overrides(step: Json, inputs: Json) -> Json:
-    """A workflow input named after a cap overrides it when it holds a number."""
+    """A workflow input named after a cap overrides it when it holds a positive integer in bounds."""
     out: Json = {}
     for name in step.get("caps", []):
         raw = str(inputs.get(name, "") or "").strip()
-        if raw:
-            try:
-                out[name] = float(raw)
-            except ValueError:
-                continue
+        if raw.isdigit() and 1 <= int(raw) <= CAP_MAX.get(name, math.inf):
+            out[name] = float(raw)
     return out
 
 
@@ -231,7 +230,10 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
         ctx["checkpoint"]({"watch": dict(watch)})
 
     started = ctx["now"]()
-    run_started = utc_now(datetime.fromtimestamp(started / 1000, timezone.utc))
+    if "started" not in watch:
+        watch["started"] = started
+        save()
+    run_started = utc_now(datetime.fromtimestamp(watch["started"] / 1000, timezone.utc))
     last = None
     hooks["emit_phase"]("watch")
 
@@ -419,6 +421,13 @@ async def _run_units_step(input: Json) -> Json:
         unit = make_unit(config["pipeline"], item, cwd, run_dir, config.get("base", ""))
         if config["worktree_mode"] == "current":
             unit["worktree"] = str(Path(cwd).resolve())
+        if config["pipeline"] == "implement":
+            # Key the ledger by the branch the claim will attach to, not the plan slug.
+            head = await execute(
+                "git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {"cwd": cwd, "env": env}
+            )
+            if ok(head) and head["stdout"].strip():
+                unit["branch"] = head["stdout"].strip()
 
         def log(line: str) -> None:
             lines.append(f"[{unit['ref']}] {line}")
