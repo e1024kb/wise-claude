@@ -21,6 +21,10 @@ from ..spawn import SpawnOptions, spawn_clean
 from ._common import arm_task, dumps, loads, rec, string
 from .gemini import compose_prompt
 
+# One ACP JSON-RPC frame is one stdout line; large tool results exceed the
+# 64 KiB asyncio default, so accept frames up to this bound before failing.
+ACP_FRAME_LIMIT = 64 * 1024 * 1024
+
 
 def prepare_resume(req: Json, env: Mapping[str, str]) -> str | None:
     resume = req.get("resume")
@@ -168,7 +172,12 @@ async def start_cursor_acp(
         proc = await spawn_clean(
             bin,
             [*argv, "acp"],
-            SpawnOptions(cwd=req["cwd"], env=env, timeout_ms=req["timeout_ms"]),
+            SpawnOptions(
+                cwd=req["cwd"],
+                env=env,
+                timeout_ms=req["timeout_ms"],
+                stdout_limit=ACP_FRAME_LIMIT,
+            ),
         )
     except BaseException:
         cleanup()

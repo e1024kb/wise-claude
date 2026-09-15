@@ -312,13 +312,13 @@ def test_spawn_failure_settles(tmp_path: Path, failure: str) -> None:
     asyncio.run(check())
 
 
-def test_stdout_readline_accepts_frames_over_default_limit(tmp_path: Path) -> None:
+def test_stdout_limit_raises_readline_bound(tmp_path: Path) -> None:
     async def check() -> None:
         size = 512 * 1024
         child = await spawn_clean(
             sys.executable,
             ["-c", f"import sys; sys.stdout.write('x' * {size} + '\\n'); sys.stdout.flush()"],
-            SpawnOptions(tmp_path, {}),
+            SpawnOptions(tmp_path, {}, stdout_limit=size * 2),
         )
         child.stdin.close()
         line, result = await asyncio.gather(child.stdout.readline(), child.exited)
@@ -326,3 +326,7 @@ def test_stdout_readline_accepts_frames_over_default_limit(tmp_path: Path) -> No
         assert result.code == 0
 
     asyncio.run(check())
+
+
+def test_default_stdout_limit_stays_bounded() -> None:
+    assert SpawnOptions(Path("."), {}).stdout_limit == 64 * 1024

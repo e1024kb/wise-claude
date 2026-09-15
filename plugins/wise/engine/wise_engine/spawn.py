@@ -6,7 +6,6 @@ import errno
 import os
 import re
 import signal
-import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -66,9 +65,6 @@ def clean_env(
     return result
 
 
-STDOUT_LIMIT = sys.maxsize
-
-
 @dataclass(frozen=True)
 class SpawnOptions:
     cwd: str | os.PathLike[str]
@@ -76,6 +72,9 @@ class SpawnOptions:
     timeout_ms: float = 0
     kill_grace_ms: float = 5_000
     stderr_cap: int = 64 * 1024
+    # Longest stdout line readline() accepts; also sets the read backpressure
+    # threshold, so keep it bounded. Line-framed protocols raise it explicitly.
+    stdout_limit: int = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -181,9 +180,7 @@ async def spawn_clean(cmd: str, args: Sequence[str], opts: SpawnOptions) -> Spaw
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            # Line-oriented readers (Cursor ACP frames) must not fail on the
-            # default 64 KiB StreamReader limit; large tool results exceed it.
-            limit=STDOUT_LIMIT,
+            limit=opts.stdout_limit,
         )
     except OSError as exc:
         failed: asyncio.Future[SpawnExit] = asyncio.get_running_loop().create_future()
