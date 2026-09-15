@@ -42,7 +42,7 @@ inputs:
 steps:
   - id: resolve-plan
     type: bash
-    # The plan must exist and the checkout must be on a named,
+    # The plan must exist and the checkout must be clean and on a named,
     # unprotected branch before any child spawns.
     run: |
       set -eu
@@ -69,6 +69,12 @@ steps:
           echo "ERROR: $branch is a protected branch; check out a feature branch first." >&2
           exit 1 ;;
       esac
+      # The implement phase commits on this checkout; unrelated local
+      # changes must never ride along.
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "ERROR: checkout at $(pwd) has uncommitted or untracked changes; stash or commit them, then re-run." >&2
+        exit 1
+      fi
       printf '%s\n' "$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
     outputs: [plan_path]
     timeout: 15

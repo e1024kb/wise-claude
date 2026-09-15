@@ -64,6 +64,7 @@ from .preflight import (
     complete_answers,
     input_choice_values,
     invalid_choice_input_ids,
+    invalid_model_answer_ids,
     invalid_provider_permission_answers,
     invalid_worktree_answers,
     resolve_from_context,
@@ -1739,6 +1740,9 @@ class Executor:
         inputs["worktree_mode"] = applied["worktree"]
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
         invalid_worktree = [] if worktree_locked(definition) else invalid_worktree_answers(seeded)
+        # An explicit model no catalog row backs (a harness-reported id whose
+        # listing failed this time) is re-asked, never swapped for the default.
+        invalid_models = invalid_model_answer_ids(definition, given, ctx.get("models"))
         missing = list(
             dict.fromkeys(
                 [question["id"] for question in unanswered]
@@ -1753,20 +1757,19 @@ class Executor:
                 ]
                 + invalid_inputs
                 + (["worktree"] if invalid_worktree else [])
+                + invalid_models
             )
         )
         if missing:
             questions = {question["id"]: question for question in completed["questions"]}
-            if invalid_inputs or invalid_worktree:
+            if invalid_inputs or invalid_worktree or invalid_models:
                 retry_answers = {
                     key: value
                     for key, value in answers.items()
-                    if key not in (*invalid_inputs, *invalid_worktree)
+                    if key not in (*invalid_inputs, *invalid_worktree, *invalid_models)
                 }
-                for question in build_questionary(
-                    definition, {"harnesses": harnesses, "context": context}, retry_answers
-                )["questions"]:
-                    if question["id"] in (*invalid_inputs, "worktree"):
+                for question in build_questionary(definition, ctx, retry_answers)["questions"]:
+                    if question["id"] in (*invalid_inputs, *invalid_models, "worktree"):
                         questions[question["id"]] = question
             raise domain_error(
                 "MISSING_ANSWERS",

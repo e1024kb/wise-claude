@@ -28,15 +28,16 @@ launch; pre-flight asks harness, model and effort for the implementer.
 
 - `/wise-init` completed at least once (Python 3.11+).
 - Run from inside the project's git repository on a named, unprotected
-  branch (`project-selection: current`); a detached HEAD or
-  `main` / `master` / `release*` stops `resolve-plan`.
+  branch (`project-selection: current`); a detached HEAD,
+  `main` / `master` / `release*` or uncommitted / untracked changes
+  stop `resolve-plan`.
 - Pre-flight asks for a permission floor once per selected provider.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    A[resolve-plan<br/>bash - plan exists, named unprotected branch -> plan_path] --> B[process<br/>units pipeline implement - claim the checkout, implement -> units row]
+    A[resolve-plan<br/>bash - plan exists, clean checkout on a named unprotected branch -> plan_path] --> B[process<br/>units pipeline implement - claim the checkout, implement -> units row]
     B --> C[report<br/>agent support - count the commits, write run-dir/report.md -> verdict, report_path]
 ```
 
@@ -66,7 +67,7 @@ implementation lands on the checked-out branch.
 
 | Step | Type | Purpose |
 |---|---|---|
-| `resolve-plan` | `bash` | Resolves the `plan` input to an absolute path, fails when the file is missing, refuses a detached HEAD and `main` / `master` / `release*`. Emits `plan_path`. |
+| `resolve-plan` | `bash` | Resolves the `plan` input to an absolute path, fails when the file is missing, refuses a detached HEAD, `main` / `master` / `release*` and a dirty checkout (`git status --porcelain` non-empty). Emits `plan_path`. |
 | `process` | `units` | `pipeline: implement`, `items: {{plan_path}}`. Group `implement`. Emits `units` (one row). |
 | `report` | `agent` (`support` group) | Renders the `units` row, counts the run's commits with `git log`, writes `<run-dir>/report.md` (plan, branch, waves and tasks done / failed, commits, next step per failed task, nothing pushed). Emits `verdict`, `report_path`. |
 

@@ -668,6 +668,24 @@ def chosen_harnesses(definition: Json, answers: Json) -> list[str]:
     return list(dict.fromkeys(chosen))
 
 
+def invalid_model_answer_ids(definition: Json, answers: Json, models: Json | None) -> list[str]:
+    """Explicit model answers that no catalog row (predefined or discovered) backs."""
+    invalid = []
+    for group in _groups(definition):
+        if group.get("locked"):
+            continue
+        key = f"model.{group['id']}"
+        wanted = _answer_string(answers.get(key))
+        if not wanted:
+            continue
+        harness = _answer_string(answers.get(f"harness.{group['id']}"))
+        if harness not in HARNESSES:
+            harness = _group_base(definition, group).get("harness", "claude")
+        if catalog_model(harness, wanted, (models or {}).get(harness)) is None:
+            invalid.append(key)
+    return invalid
+
+
 def model_stage_reached(definition: Json, ctx: Json, answers: Json) -> bool:
     if any(key.startswith("model.") for key in answers):
         return True

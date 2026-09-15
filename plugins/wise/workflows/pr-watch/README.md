@@ -32,8 +32,9 @@ pre-flight asks harness, model and effort per phase.
 
 - `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
 - Run from inside the project's git repository on the PR branch
-  (`project-selection: current`); a detached HEAD or a protected
-  branch (`main` / `master` / `release*`) stops `resolve-branch`.
+  (`project-selection: current`); a detached HEAD, a protected
+  branch (`main` / `master` / `release*`) or uncommitted / untracked
+  changes stop `resolve-branch`.
 - Pre-flight asks for a permission floor once per selected provider.
   `Auto` is recommended; `Bypass permissions` is available when the
   provider must run fully unsandboxed. A phase's stronger mode still wins.
@@ -42,7 +43,7 @@ pre-flight asks harness, model and effort per phase.
 
 ```mermaid
 flowchart TD
-    A[resolve-branch<br/>bash - gh auth, named unprotected branch -> branch] --> B[process<br/>units pipeline pr - claim the open PR, watch / fix / push / merge -> units row]
+    A[resolve-branch<br/>bash - gh auth, clean checkout on a named unprotected branch -> branch] --> B[process<br/>units pipeline pr - claim the open PR, watch / fix / push / merge -> units row]
     B --> C[report<br/>agent support - verify the PR live, write run-dir/report.md -> verdict, report_path]
 ```
 
@@ -79,7 +80,7 @@ Unit caps (`profiles.medium.caps`):
 
 | Step | Type | Purpose |
 |---|---|---|
-| `resolve-branch` | `bash` | `gh auth status`, the checked-out branch name; refuses a detached HEAD and `main` / `master` / `release*`. Emits `branch`. |
+| `resolve-branch` | `bash` | `gh auth status`, the checked-out branch name; refuses a detached HEAD, `main` / `master` / `release*` and a dirty checkout (`git status --porcelain` non-empty). Emits `branch`. |
 | `process` | `units` | `pipeline: pr`, `items: {{branch}}`. Groups `watch`, `fix`, `review`; caps from `profiles.medium` (overridden by the inputs of the same name); `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row). |
 | `report` | `agent` (`support` group) | Renders the `units` row, verifies the PR with `gh pr view`, writes `<run-dir>/report.md` (verdict and reason, passes and fix rounds, what was fixed, the next step for a human). Emits `verdict`, `report_path`. |
 

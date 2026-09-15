@@ -70,8 +70,8 @@ inputs:
 steps:
   - id: resolve-branch
     type: bash
-    # The checked-out branch is the unit. Protected branches and a
-    # detached HEAD stop the run before any child spawns.
+    # The checked-out branch is the unit. Protected branches, a detached
+    # HEAD and a dirty checkout stop the run before any child spawns.
     run: |
       set -eu
       gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
@@ -85,6 +85,12 @@ steps:
           echo "ERROR: $branch is a protected branch; check out the PR branch first." >&2
           exit 1 ;;
       esac
+      # The fix phase commits and pushes this checkout; unrelated local
+      # changes must never ride along.
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "ERROR: checkout at $(pwd) has uncommitted or untracked changes; stash or commit them, then re-run." >&2
+        exit 1
+      fi
       echo "$branch"
     outputs: [branch]
     timeout: 30

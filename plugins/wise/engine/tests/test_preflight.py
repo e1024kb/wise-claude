@@ -825,3 +825,16 @@ def test_lock_worktree_skips_the_worktree_question(workflow):
     assert p.build_questionary(defn)["questions"][0]["id"].startswith("input.")
     assert p.apply_answers(defn, {"worktree": "new"})["worktree"] == "current"
     assert p.apply_answers(defn, {"worktree": "new"})["inputs"]["worktree_mode"] == "current"
+
+
+def test_invalid_model_answer_ids_rejects_unbacked_explicit_models():
+    defn = definition()
+    group = next(iter(groups(defn)))
+    discovered = {"grok": [{"id": "grok-4.5", "label": "grok-4.5", "efforts": []}]}
+    answers = {f"harness.{group}": "grok", f"model.{group}": "grok-4.5"}
+    assert p.invalid_model_answer_ids(defn, answers, discovered) == []
+    # the same answer with the listing gone is invalid, never defaulted
+    assert p.invalid_model_answer_ids(defn, answers, {}) == [f"model.{group}"]
+    assert p.invalid_model_answer_ids(defn, answers, None) == [f"model.{group}"]
+    assert p.invalid_model_answer_ids(defn, {f"model.{group}": "opus"}, None) == []
+    assert p.invalid_model_answer_ids(defn, {f"model.{group}": ""}, None) == []
