@@ -47,11 +47,11 @@ def test_alias_and_effort_boundaries():
     assert catalog_model("grok", "grok-4.6")["id"] == "grok-4.6"
     assert [entry["id"] for entry in catalog_for("claude")] == [
         "claude-fable-5-1",
-        "claude-fable-5",
         "claude-opus-5",
         "claude-opus-4-8",
         "claude-sonnet-5",
         "claude-haiku-4-5",
+        "claude-fable-5",
     ]
 
 
@@ -107,6 +107,8 @@ def test_merged_catalog_keeps_catalog_first_then_sorted_unique_additions():
     ]
     assert merged == merged_catalog("cursor", list(reversed(discovered)) + discovered)
     assert [m["source"] for m in merged_catalog("cursor")] == ["catalog", "catalog"]
+    shouted = merged_catalog("cursor", [{"id": "COMPOSER-2.5"}, {"id": "Auto"}, {"id": "auto"}])
+    assert [(m["id"], m["source"]) for m in shouted[2:]] == [("Auto", "harness")]
     assert catalog_model("cursor", "auto") is None
     assert catalog_model("cursor", " AUTO ", discovered)["source"] == "harness"
     assert catalog_model("cursor", "composer-2.5", discovered)["source"] == "catalog"

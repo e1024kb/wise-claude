@@ -18,12 +18,6 @@ MODEL_CATALOG: dict[str, Any] = {
             "efforts": ["low", "medium", "high"],
         },
         {
-            "id": "claude-fable-5",
-            "label": "Fable 5",
-            "description": "previous Fable",
-            "efforts": ["low", "medium", "high"],
-        },
-        {
             "id": "claude-opus-5",
             "label": "Opus 5",
             "description": "current Opus",
@@ -46,6 +40,12 @@ MODEL_CATALOG: dict[str, Any] = {
             "label": "Haiku 4.5",
             "description": "cheap tier for simple steps",
             "efforts": ["medium"],
+        },
+        {
+            "id": "claude-fable-5",
+            "label": "Fable 5",
+            "description": "previous Fable",
+            "efforts": ["low", "medium", "high"],
         },
     ],
     "codex": [
@@ -174,12 +174,13 @@ def merged_catalog(
     harness: str, discovered: list[dict[str, Any]] | None = None
 ) -> list[dict[str, Any]]:
     rows = [{**model, "source": SOURCE_CATALOG} for model in catalog_for(harness)]
-    known = {model["id"] for model in rows}
+    known = {model["id"].casefold() for model in rows}
     extra: dict[str, dict[str, Any]] = {}
     for model in discovered or []:
-        if model["id"] in known or model["id"] in extra:
+        key = model["id"].casefold()
+        if key in known or key in extra:
             continue
-        extra[model["id"]] = {**model, "source": SOURCE_HARNESS}
+        extra[key] = {**model, "source": SOURCE_HARNESS}
     rows.extend(extra[key] for key in sorted(extra))
     return rows
 

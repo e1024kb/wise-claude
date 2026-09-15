@@ -430,13 +430,17 @@ Model questions (`model.<group>`, the `models` command, any model picker) are
 the usual long list. The engine returns every option: the predefined catalog
 first (`source: catalog`), then the models the installed harness reported
 (`source: harness`). Render them all, in the engine's order, with the engine's
-labels. Never trim the list to fit the picker, never pick a "representative"
-subset, and never rely on an Other/free-text box to reach an omitted model:
-several hosts (T3 Code among them) render no such box. With a four-option cap
-and a six-model catalog, show three models plus `More models…`, then the next
-three plus `Back`; the highlighted default stays on its own page. Mention the
-source in the description when the host shows one (`reported by the cursor
-harness`), not in the value.
+labels and descriptions, never with invented ones. Never reorder the list,
+never pick a "representative" subset, and never drop an entry silently. The
+catalog order is the page order: on a host that caps a question at four
+options (Claude Code's `AskUserQuestion`), the first page is the first four
+engine entries exactly (for claude: Fable 5.1, Opus 5, Opus 4.8, Sonnet 5).
+When more entries remain, name them by id in the question text so the host's
+Other/free-text box reaches them; on a host without such a box (T3 Code among
+them) replace the fourth slot with `More models…` and page the rest with
+`Back`. The highlighted default stays on the first page. Mention the source in
+the description when the host shows one (`reported by the cursor harness`),
+not in the value.
 When a skill asks a bounded contextual question without an engine questionary,
 provide concise choices for the known alternatives; use free text only for content
 that cannot reasonably be enumerated. Do not invent an exhaustive option set for

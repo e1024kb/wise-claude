@@ -191,9 +191,10 @@ reported, appended after them sorted by id). Never hardcode a model list.
   fallback with the actual alternatives from this catalog.
 - `--model` omitted or `ask`: single-choice picker `Which model on
   <harness>?`, header `Model`, every row as an option in catalog order (first
-  entry first), label + description; paginate past the host's option limit
-  (`More models…` / `Back`) rather than dropping rows, since a picker without
-  a free-text box leaves no other way to reach an omitted model.
+  entry first), label + description. Under a four-option cap the first four
+  rows are the page; name the remaining ids in the question text for the
+  host's Other box, or paginate (`More models…` / `Back`) where no such box
+  exists, rather than dropping rows.
 - `--effort` given: must be in the chosen model's `efforts`; otherwise print
   `Model <id> takes <efforts>, not <effort>.` and ask the effort picker below
   restricted to that model's list. Never silently clamp.

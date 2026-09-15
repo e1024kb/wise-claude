@@ -698,9 +698,10 @@ one effort. A stage with one possible value is settled silently; every
 other stage MUST be answered. A locked group asks nothing and runs its
 default.
 
-The predefined catalog (2026-09-15): claude `claude-fable-5-1`,
-`claude-fable-5`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
-`claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium); codex
+The predefined catalog (2026-09-15), in picker order: claude
+`claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
+`claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
+(low, medium, high); the first four are the page a four-option host shows; codex
 `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low, medium, high);
 cursor `cursor-grok-4.6-high`, `composer-2.5` (no effort flag); grok
 `grok-4.6`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
