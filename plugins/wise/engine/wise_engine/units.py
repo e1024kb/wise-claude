@@ -334,7 +334,9 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
                 if not substitute["ok"]:
                     return fail(f"substitute review failed: {substitute['reason']}", "all-green")
                 review = parse_review(substitute.get("output"))
-                if review and review["verdict"] == "changes-requested":
+                if review is None:
+                    return fail("substitute review: unusable structured output", "all-green")
+                if review["verdict"] == "changes-requested":
                     fixed = await fix_and_push("review")
                     if not fixed["ok"]:
                         return fixed

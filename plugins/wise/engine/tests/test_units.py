@@ -411,6 +411,7 @@ def test_pr_pipeline_watches_checked_out_branch_in_place(tmp_path):
     async def scenario():
         fixture = ModelFixture(tmp_path)
         _on_branch(fixture, "feat/x")
+        fixture.remote.add("develop")
         fixture.pr = {
             "number": 7,
             "url": "https://github.invalid/a/r/pull/7",

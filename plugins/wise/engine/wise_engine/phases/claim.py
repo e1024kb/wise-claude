@@ -2,6 +2,7 @@ from pathlib import Path
 
 from ..constants import ATTACHED_PIPELINES
 from .common import (
+    NETWORK_CMD_TIMEOUT_MS,
     Json,
     base_ref,
     fail,
@@ -51,9 +52,13 @@ async def attach_phase(ctx: Json) -> Json:
     else:
         attached["base"] = unit["base"] or await resolve_base(ctx)
         ctx["log"](f"claim: implementing on {branch} (base {attached['base']})")
-    # The PR's base is authoritative even before it is fetched; a local-only
-    # base resolves to its local ref.
-    attached["base_ref"] = await base_ref(ctx, attached["base"]) or f"origin/{attached['base']}"
+    # Fetch the base so the diff range exists even in a shallow or
+    # single-branch checkout; a local-only base resolves to its local ref.
+    await git(ctx, ["fetch", "origin", attached["base"]], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS})
+    ref = await base_ref(ctx, attached["base"])
+    if ref is None:
+        return fail(f"claim: base {attached['base']} exists neither on origin nor locally")
+    attached["base_ref"] = ref
     return pass_({"unit": attached, "cursors": {**ctx["ledger"]["cursors"], "claim": OWNED}})
 
 

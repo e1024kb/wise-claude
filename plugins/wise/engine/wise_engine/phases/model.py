@@ -232,6 +232,7 @@ def base_vars(ctx: Json) -> Json:
         else unit.get("ticket_ref", unit["ref"]),
         "branch": unit["branch"],
         "base": unit["base"] or "main",
+        "base_ref": unit_base_ref(unit),
         "worktree": unit["worktree"],
         "run.dir": ctx["run_dir"],
         "project.path": ctx["cwd"],
@@ -418,12 +419,13 @@ def _extra(run: Json) -> Json:
     }
 
 
-async def _commit_count(ctx: Json, span: str) -> float:
+async def _commit_count(ctx: Json, span: str) -> float | None:
+    """Commits in `span`, or None when git cannot resolve it (never a silent zero)."""
     result = await git(ctx, ["rev-list", "--count", span], {"cwd": ctx["unit"]["worktree"]})
     try:
-        return float(result["stdout"].strip()) if ok(result) else 0
+        return float(result["stdout"].strip()) if ok(result) else None
     except ValueError:
-        return 0
+        return None
 
 
 async def head_sha(ctx: Json) -> str:
@@ -488,6 +490,8 @@ async def implement_phase(ctx: Json) -> Json:
             f"implement: no plan file ({plan_path if plan_path is not None else 'none recorded'})"
         )
     before = await _commit_count(ctx, _branch_range(ctx))
+    if before is None:
+        return fail(f"implement: cannot resolve the base range {_branch_range(ctx)}")
     run = await _run_child(
         ctx,
         "implement",
@@ -502,7 +506,7 @@ async def implement_phase(ctx: Json) -> Json:
     output = parse_implement(run["outcome"].get("json"))
     if output is None:
         return fail("implement: unusable structured output", patch=cursors, extra=extra)
-    commits = await _commit_count(ctx, _branch_range(ctx)) - before
+    commits = (await _commit_count(ctx, _branch_range(ctx)) or 0) - before
     if output["done"] == 0:
         return fail("implement: done=0", patch=cursors, extra=extra)
     if commits <= 0:
@@ -526,7 +530,10 @@ async def review_phase(ctx: Json) -> Json:
     request = ctx.get("review", {"shape": "panel", "cycle": 1})
     findings = Path(findings_path(ctx))
     findings.parent.mkdir(parents=True, exist_ok=True)
-    if await _commit_count(ctx, _branch_range(ctx)) == 0:
+    ahead = await _commit_count(ctx, _branch_range(ctx))
+    if ahead is None:
+        return fail(f"review: cannot resolve the base range {_branch_range(ctx)}")
+    if ahead == 0:
         ctx["log"]("review: nothing to review (no commits ahead of the base)")
         findings.write_text("")
         return pass_(extra={"output": {"findings": 0, "blocking": 0, "verdict": "approve"}})
@@ -608,7 +615,7 @@ async def fix_phase(ctx: Json) -> Json:
     output = parse_fix(run["outcome"].get("json"))
     if output is None:
         return fail("fix: unusable structured output", patch=cursors, extra=extra)
-    commits = await _commit_count(ctx, f"{before}..HEAD") if before else output["commits"]
+    commits = (await _commit_count(ctx, f"{before}..HEAD") or 0) if before else output["commits"]
     ctx["log"](
         f"fix({request['source']}): fixed={output['fixed']} skipped={output['skipped']} commits={js_string(commits)}"
     )
