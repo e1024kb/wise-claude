@@ -693,21 +693,23 @@ def model_stage_reached(definition: Json, ctx: Json, answers: Json) -> bool:
     return not any(question["id"].startswith(EARLIER_STAGES) for question in questions)
 
 
-async def with_discovered_models(definition: Json, ctx: Json, answers: Json, lookup: Any) -> Json:
+async def with_discovered_models(
+    definition: Json, ctx: Json, answers: Json, lookup: Any, cache: Json | None = None
+) -> Json:
     if "models" in ctx or not model_stage_reached(definition, ctx, answers):
         return ctx
     from .models import discover_models
 
     harnesses = chosen_harnesses(definition, answers)
-    return {**ctx, "models": await discover_models(harnesses, lookup)}
+    return {**ctx, "models": await discover_models(harnesses, lookup, cache)}
 
 
 async def build_questionary_with_auth(
-    definition: Json, ctx: Json, answers: Json, lookup: Any
+    definition: Json, ctx: Json, answers: Json, lookup: Any, cache: Json | None = None
 ) -> Json:
     from .auth import logged_out_harnesses
 
-    ctx = await with_discovered_models(definition, ctx, answers, lookup)
+    ctx = await with_discovered_models(definition, ctx, answers, lookup, cache)
     questionary = build_questionary(definition, ctx, answers)
     group_ids = [
         question["id"][len("harness.") :]

@@ -287,6 +287,9 @@ class Executor:
         self.project_of = self.opts.get("detect_project", detect_project)
         self.requires_of = self.opts.get("probe_requires", probe_requires)
         self.ledger = ledger_handlers(rt)
+        # Harness model listings, probed once per daemon and reused by every
+        # cumulative pre-flight page and the final run() validation.
+        self.model_cache: Json = {}
         self.channel_opts = self.opts.get("channel", {})
         self.timers = self.channel_opts.get("timers") or real_timers()
         self.channel = (
@@ -1636,6 +1639,7 @@ class Executor:
             },
             answers,
             self.get_adapter,
+            self.model_cache,
         )
         return dict(
             workflow=located["name"],
@@ -1669,6 +1673,7 @@ class Executor:
             },
             seeded,
             self.get_adapter,
+            self.model_cache,
         )
         completed = complete_answers(definition, ctx, seeded)
         answers = completed["answers"]

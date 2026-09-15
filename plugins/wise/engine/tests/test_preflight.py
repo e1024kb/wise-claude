@@ -838,3 +838,33 @@ def test_invalid_model_answer_ids_rejects_unbacked_explicit_models():
     assert p.invalid_model_answer_ids(defn, answers, None) == [f"model.{group}"]
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": "opus"}, None) == []
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": ""}, None) == []
+
+
+def test_discover_models_cache_reuses_rows_and_survives_a_failed_listing():
+    from wise_engine.models import discover_models
+
+    class Adapter:
+        def __init__(self, rows, fail=False):
+            self.rows, self.fail, self.listed = rows, fail, 0
+
+        async def list_models(self):
+            self.listed += 1
+            if self.fail:
+                raise RuntimeError("listing timed out")
+            return self.rows
+
+    rows = [dict(id="grok-4.5", label="grok-4.5", description="", efforts=[])]
+    adapter = Adapter(rows)
+    cache = {}
+
+    async def run():
+        assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
+        assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
+        assert adapter.listed == 1
+        # a later transient failure keeps the rows the first page discovered
+        adapter.fail = True
+        assert await discover_models(["grok"], lambda _h: adapter, cache) == {"grok": rows}
+        assert await discover_models(["grok"], lambda _h: adapter) == {}
+        assert adapter.listed == 2
+
+    asyncio.run(run())
