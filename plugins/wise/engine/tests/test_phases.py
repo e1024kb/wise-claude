@@ -52,6 +52,10 @@ class PhaseFixture:
         self.pr = None
         self.reviewers = []
         self.failures = {}
+        # `gh api` responses by path prefix (value or callable(args) -> result);
+        # unknown paths answer an empty list, check runs an empty set.
+        self.api = {}
+        self.comments = []
         unit = make_unit("ticket", "PROJ-1", str(self.repo), str(self.run_dir))
         ledger = {
             "unit": unit,
@@ -154,8 +158,24 @@ class PhaseFixture:
                 self.remote.add(args[-1])
             return command_result()
         if cmd == "gh":
+            if args[0] == "api":
+                path = args[1]
+                for prefix, value in self.api.items():
+                    if path.startswith(prefix):
+                        return value(args) if callable(value) else command_result(json.dumps(value))
+                if "/check-runs" in path:
+                    return command_result(json.dumps({"total_count": 0, "check_runs": []}))
+                return command_result("[]")
+            if args[:2] == ["pr", "comment"]:
+                self.comments.append(args[-1])
+                number = self.pr["number"] if self.pr else 0
+                return command_result(
+                    f"https://github.invalid/a/r/pull/{number}#issuecomment-{900 + len(self.comments)}\n"
+                )
             if args[:2] == ["repo", "view"]:
-                return command_result(json.dumps({"defaultBranchRef": {"name": "main"}}))
+                return command_result(
+                    json.dumps({"defaultBranchRef": {"name": "main"}, "nameWithOwner": "a/r"})
+                )
             if args[:2] == ["pr", "list"]:
                 return command_result(
                     json.dumps([self.pr] if self.pr and self.pr["state"] == "MERGED" else [])
@@ -167,7 +187,11 @@ class PhaseFixture:
                             {"reviewRequests": [{"login": value} for value in self.reviewers]}
                         )
                     )
-                return command_result(json.dumps(self.pr)) if self.pr else command_result(code=1)
+                if not self.pr:
+                    return command_result(code=1)
+                if "headRefOid" in args[-1]:
+                    return command_result(json.dumps({**self.pr, "headRefOid": self.head}))
+                return command_result(json.dumps(self.pr))
             if args[:2] == ["pr", "create"]:
                 self.pr = {"number": 5, "url": "https://github.invalid/a/r/pull/5", "state": "OPEN"}
                 return command_result(self.pr["url"] + "\n")
