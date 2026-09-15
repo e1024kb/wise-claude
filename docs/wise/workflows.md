@@ -1051,7 +1051,15 @@ A cap applies only when the step lists it in `caps` and
 pass: `merged` -> `merged`; human comment or `needs-human` ->
 `human-intervention`;
 `blocked` -> `blocked`; red CI or open bot reviews -> fix and push (a
-fix without a commit -> `partial`); a requested bot silent for 15
+fix without a commit -> `partial`); after the batch is pushed the
+engine reconciles each review provider's state for the head
+(`phases/verify.py`, rules in `references/pr/review-verification.md`)
+and posts one `@coderabbitai review` per head when CodeRabbit has a
+footprint on the PR but nothing for this head (2-minute grace for an
+automatic review; at once when CodeRabbit says automatic reviews are
+off; again after a rate-limit reset, at most 3 per head), holding the
+pass while the request is unanswered (15 minutes) or the review runs;
+a requested bot silent for 15
 minutes on the same head -> one substitute universal review per head;
 stable target reached -> `gh pr merge --squash` (then `--merge` when
 squash is disallowed) -> `merged`, else `all-green`.

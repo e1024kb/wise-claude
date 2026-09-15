@@ -130,7 +130,10 @@ steps:
       blocked | partial | exhausted | human-intervention | failed |
       skipped), reason, review.converged and review.cycles. The ledger
       {{run.dir}}/units/<branch>.json carries the watch counters
-      (passes, fix_attempts, stable) and usage.
+      (passes, fix_attempts, stable), the verification requests per
+      head (`watch.verification.<provider>.<head>`: state, attempts,
+      comment id) and usage. Report a skipped, failed, rate-limited or
+      unanswered verification as such, never as a completed review.
 
       The run's token usage, as JSON the engine folded: `total`, `by_pool`
       (subscription, api-key), `by_harness`, `by_step`.

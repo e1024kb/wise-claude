@@ -44,7 +44,12 @@ This skill exists so the loop can be started on its own, for a PR that
 already exists, with the same per-phase harness / model / effort choice
 every workflow gets at pre-flight — on any harness, not only Claude Code.
 
-Copilot and CodeRabbit are review *inputs*, not merge gates. When one is
+Copilot and CodeRabbit are review *inputs*, not merge gates. After a
+fix batch is pushed the engine requests one CodeRabbit verification
+review of the new head when CodeRabbit is on the PR but has not reviewed
+that head (repositories with automatic incremental reviews off), never
+one per push and never twice for a head; the rules are
+`references/pr/review-verification.md`. When a bot is
 stuck the run may review the branch itself (one read-only 3-lens pass on
 the `review` group's model) only when the `substitute_review` pre-flight
 input says `yes`; on `no` a stuck bot ends the run as
