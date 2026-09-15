@@ -65,16 +65,21 @@ provider fully unsandboxed. A step's stronger mode still wins.
 - Run from inside the project's git repository —
   `project-selection: current` auto-detects the project from cwd.
 - `/wise-init` completed at least once.
-- No tracker plugin needs to be pre-installed — the `ensure-access`
-  step probes for a tracker MCP / CLI at run time and proposes install
-  options (or a manual-paste fallback) when none is found.
+- Ticket access is settled before the run: the conductor fetches the
+  ticket into run context ahead of every pre-flight question, and the
+  `ensure-access` / `require-access` pair re-checks first thing in the
+  run and stops it, with the fix, when the ticket is still unreachable.
+  No tracker plugin needs to be pre-installed; a granted CLI (`gh`,
+  `glab`, `linear`, `jira`) or a public URL is probed when the
+  conductor did not supply the body.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    T[detect-context<br/>agent - tracker + ref + current branch] --> X[ensure-access<br/>agent - probe / propose access via wise_ask]
-    X --> A[fetch-ticket<br/>agent - fetch + normalise + classify type → research/ticket.md]
+    T[detect-context<br/>agent - tracker + ref + current branch] --> X[ensure-access<br/>agent - context body, else probe a granted CLI / public URL -> access, detail]
+    X --> RA[require-access<br/>bash - stop the run when access is blocked]
+    RA --> A[fetch-ticket<br/>agent - fetch + normalise + classify type → research/ticket.md]
     A --> C[analyze-design<br/>agent - design-spec summary → research/design.md]
     A --> D[analyze-related<br/>agent - linked items + docs → research/related.md]
     A --> RCx[research-context<br/>agent - grill multi-source sweep → research/dossier.md]
@@ -96,6 +101,10 @@ flowchart TD
     S -->|implement=no| FN
     IM --> FN[finalize<br/>agent - summary + next-step, branched on implement_choice]
 ```
+
+The conductor fetches the ticket before the first pre-flight question
+(`wise-workflow-run` §1b), so a missing tracker channel surfaces before
+any picker, not mid-run.
 
 No questions fire mid-run unless a flow mode asked for them: with
 `gap_mode=defaults` the `gap-analysis` gate records its open questions
@@ -191,7 +200,8 @@ until `setup`).
 | Step | Type | Purpose |
 |---|---|---|
 | `detect-context` | `agent` | Identifies the tracker from the input URL/id (host map, WebSearch fallback) and reads the current git branch; emits tracker slug + bare ticket ref + current branch. |
-| `ensure-access` | `agent` | Probes for a tracker MCP / CLI; when none is found, web-searches for options and proposes installs (or a manual-paste fallback) through the child `wise_ask` channel. Emits `access`. |
+| `ensure-access` | `agent` | Reads `wise_context("ticket")` first (the conductor's fetched body); otherwise probes a granted CLI or a public URL for the detected tracker. Never asks. Emits `access` (`ok` / `blocked`) and `detail`. `support` tuning group. |
+| `require-access` | `bash` | Fails the run with `detail` when `access` is not `ok`: the safeguard runs before the research wave, so nobody waits through a run to learn the ticket was unreachable. |
 | `fetch-ticket` | `agent` | Fetches the ticket via the established access (or normalises the `ticket` entry of the run context when the conductor already passed the body), writes the tracker-agnostic shape to `<run-dir>/research/ticket.md`, and classifies it as frontend / backend / fullstack / other. Emits `ticket_path` + `ticket_type`. |
 | `analyze-design` | `agent` | Design-spec summary (layout / states / responsive) from any design links, written to `<run-dir>/research/design.md`. Replies `NO-DESIGN` for backend tickets or when there are none. Acts as the `ux-designer` role; `evidence` tuning group (`opus / high`). |
 | `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `support` tuning group. |

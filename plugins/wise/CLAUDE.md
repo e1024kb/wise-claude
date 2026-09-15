@@ -553,10 +553,12 @@ one-liners below are the rule, not the argument for it.
   - Open-ended deps — where the workflow or skill cannot know up
     front *which* tool the user needs — are probed and proposed
     dynamically. The `ticket-plan` / `ticket-auto` workflows are
-    the reference case: they work with any task tracker, so they
-    detect the tracker, probe for a matching MCP / CLI, and
-    web-search + propose install options when none is found, rather
-    than pre-declaring a specific tracker plugin.
+    the reference case: they work with any task tracker, so the
+    conductor fetches every ticket through the session's channels
+    before the first pre-flight question, and the run's
+    `ensure-access` step re-checks first thing and fails closed with
+    the fix (no mid-run install proposals or questions), rather than
+    pre-declaring a specific tracker plugin.
   See CONTRIBUTING.md [§2.2](../../CONTRIBUTING.md#22-bundled-tooling-convention) for the full convention.
 
 ---

@@ -400,9 +400,10 @@ is deliberately NOT declared in `plugin.json` `dependencies:` — a
 marketplace-qualified dependency silently breaks wise loading in the
 Claude desktop app (CONTRIBUTING §2.3 has the full story). The
 `ticket-plan` / `ticket-auto` workflows work with any task tracker, so
-instead of pre-declaring a tracker plugin they detect the tracker at
-run time, probe for a matching MCP / CLI, and web-search + propose
-install options when none is found. If the `code-simplifier` agent is
+instead of pre-declaring a tracker plugin the conductor fetches every
+ticket through this session's channels before the first pre-flight
+question, and the run's `ensure-access` step re-checks first thing and
+stops the run with the fix when a ticket is still unreachable. If the `code-simplifier` agent is
 absent (Codex, Cursor, Gemini and Grok children never have it), the
 simplify pass runs the same cleanup inline on the current model per
 `references/simplify-instructions.md`; no step blocks on the missing

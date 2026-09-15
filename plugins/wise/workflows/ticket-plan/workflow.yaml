@@ -47,9 +47,11 @@ project-selection: current
 #
 # No `requires:` block: tracker-agnostic. The conductor fetches the
 # ticket before the run (its body lands in <run dir>/context/tickets/);
-# `ensure-access` only probes for a tracker MCP / CLI when that did not
-# happen, and proposes install options when none is found, rather than
-# declaring a fixed tracker plugin up front.
+# `ensure-access` only probes for a granted CLI or a public URL when
+# that did not happen, and `require-access` stops the run, first thing,
+# when the ticket is still unreachable: no mid-run install proposals,
+# no `wise_ask`, no waiting through the research to learn the ticket
+# could not be fetched.
 preflight:
   control-mode: interactive
   worktree: current
@@ -194,41 +196,65 @@ steps:
     type: agent
     group: support
     prompt: |
-      Confirm this session can reach the **{{tracker_slug}}** tracker
-      before fetching ticket `{{ticket_ref}}`.
+      Confirm this run can fetch the real content of ticket
+      `{{ticket_ref}}` on the **{{tracker_slug}}** tracker before any
+      research starts. The run never plans from an id alone. Ask the
+      user nothing: the conductor already had its chance before the
+      run, and a blocked result stops the run with the fix.
 
       First call the `wise_context` tool with key `ticket`. When it
       returns an entry with a `path` (the conductor fetched the ticket
       into that file) or a `body`, access is `ok`, stop here, probe
       nothing.
 
-      Otherwise probe for an integration: a tracker MCP tool (you have
-      the same MCP servers as the `claude` CLI; read-shaped tools are
-      granted without a prompt), or a CLI (`command -v gh`, `command -v
-      glab`, etc.).
+      Otherwise probe for a granted channel that actually returns the
+      ticket: a tracker MCP tool (you have the same MCP servers as the
+      `claude` CLI; read-shaped tools are granted without a prompt), a
+      CLI (`command -v gh`, `command -v glab`, `command -v linear`,
+      `command -v jira`; e.g. `gh issue view <id>`), or `WebFetch` on a
+      public URL. A login page, a 401/403 or an empty body is not
+      access.
 
-      - If an MCP or CLI is available -> access is `ok`.
-      - If nothing is available -> run a WebSearch for
-        "{{tracker_slug}} Claude Code MCP server" and
-        "{{tracker_slug}} CLI", then ask the user through the
-        `wise_ask` tool with one option per researched install path
-        (exact command in the option text, marked as an unverified
-        suggestion), a `Paste the ticket manually` option, and
-        `Abort`. After an out-of-band install, re-probe. When access
-        works (or the user chose manual paste), access is `ok`; on
-        abort it is `abort`.
+      Reachable: `access` = `ok`, `detail` = the channel that works.
+      Unreachable: `access` = `blocked`, `detail` = the tracker, the
+      channels tried and the fix (install and log in to its CLI, make
+      the URL public, or let the conductor fetch the ticket into run
+      context before the run), then "fix tracker access and re-run
+      /wise-workflow-run ticket-plan".
 
-      Return the field directly as the structured result (no wrapping,
-      no JSON-in-a-string): `access` = `ok` or `abort`.
+      Return the fields directly (no wrapping, no JSON-in-a-string):
+      access, detail.
     schema:
       type: object
       properties:
-        access: { type: string, enum: [ok, abort] }
-      required: [access]
+        access: { type: string, enum: [ok, blocked] }
+        detail: { type: string }
+      required: [access, detail]
       additionalProperties: false
-    outputs: [access]
-    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebSearch"]
+    outputs: [access, detail]
+    allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebFetch"]
     depends_on: [detect-context]
+
+  - id: require-access
+    type: bash
+    # The safeguard: a ticket nobody can fetch fails the run here, before
+    # the research wave, with the fix in the error.
+    run: |
+      set -eu
+      raw=$(mktemp)
+      trap 'rm -f "$raw"' EXIT
+      cat >"$raw" <<'WISE_ACCESS'
+      {{detail}}
+      WISE_ACCESS
+      if [ "{{access}}" != "ok" ]; then
+        printf 'ERROR: ticket unreachable:\n' >&2
+        cat "$raw" >&2
+        exit 1
+      fi
+      echo ok
+    outputs: [access_checked]
+    timeout: 15
+    depends_on: [ensure-access]
 
   - id: fetch-ticket
     type: agent
@@ -283,7 +309,7 @@ steps:
       additionalProperties: false
     outputs: [ticket_path, ticket_type]
     allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(git:*)", "Bash(mkdir:*)", "Bash(test:*)"]
-    depends_on: [ensure-access]
+    depends_on: [require-access]
 
   - id: analyze-design
     type: agent
