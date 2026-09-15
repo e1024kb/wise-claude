@@ -6,6 +6,7 @@ import errno
 import os
 import re
 import signal
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -63,6 +64,9 @@ def clean_env(
     # Explicit request variables override inherited values, including blocked names.
     result.update(extra or {})
     return result
+
+
+STDOUT_LIMIT = sys.maxsize
 
 
 @dataclass(frozen=True)
@@ -177,6 +181,9 @@ async def spawn_clean(cmd: str, args: Sequence[str], opts: SpawnOptions) -> Spaw
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # Line-oriented readers (Cursor ACP frames) must not fail on the
+            # default 64 KiB StreamReader limit; large tool results exceed it.
+            limit=STDOUT_LIMIT,
         )
     except OSError as exc:
         failed: asyncio.Future[SpawnExit] = asyncio.get_running_loop().create_future()

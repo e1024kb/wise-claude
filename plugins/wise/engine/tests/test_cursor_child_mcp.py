@@ -47,6 +47,8 @@ for line in sys.stdin:
   emit({'method':'session/update','params':{'update':{'sessionUpdate':'tool_call','toolCallId':'read','title':'Read','kind':'read','rawInput':{'path':'source.py'}}}})
   emit({'id':'permission','method':'session/request_permission','params':{'toolCall':{'toolCallId':'tool','title':'`git push`','kind':'execute'},'options':[{'optionId':'yes','kind':'allow_once'},{'optionId':'no','kind':'reject_once'}]}})
   record({'permission_reply':json.loads(sys.stdin.readline())})
+  if os.environ.get('BIG'):
+   emit({'method':'session/update','params':{'sessionId':'session-fixture','update':{'sessionUpdate':'tool_call_update','toolCallId':'read','content':[{'type':'content','content':{'type':'text','text':'y'*int(os.environ['BIG'])}}]}}})
   emit({'method':'session/update','params':{'sessionId':'session-fixture','update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'{"ok":true}'}}}})
   result={'stopReason':os.environ.get('STOP','end_turn')}
  else:result={}
@@ -142,6 +144,18 @@ async def test_acp_child_connects_without_token_argv_and_cleans_up(tmp_path: Pat
     assert tracker.snapshot()["tool"] == "Read"
     assert tracker.snapshot()["text"] == '{"ok":true}'
     assert handle.snapshot()["tool_calls"] == 1
+
+
+@pytest.mark.anyio
+async def test_acp_frames_over_64kib_do_not_abort_the_child(tmp_path: Path) -> None:
+    req, executable, capture = fixture(tmp_path)
+    req["env"]["BIG"] = str(512 * 1024)
+    events = []
+    handle = await cursor.start_cursor(req, events.append, bin=str(executable))
+    result = await handle.done
+    assert result["exit"] == "ok", result
+    assert result["json"] == {"ok": True}
+    assert max(len(event["line"]) for event in events) > 512 * 1024
 
 
 @pytest.mark.anyio
