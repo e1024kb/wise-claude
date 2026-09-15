@@ -102,7 +102,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 | Name | Required | Description |
 |---|---|---|
-| `base_branch` | yes | The branch plan branches are cut from and PRs target (always `origin/<base_branch>`; a branch origin does not have stops the unit at `worktree`, since a PR cannot target it). Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
+| `base_branch` | yes | The branch plan branches are cut from and PRs target (always `origin/<base_branch>`, so the branch must exist on `origin`; a branch that exists only locally stops the unit at `worktree` because a PR cannot target it - push it to origin, then re-run). Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 | `plans` | yes | Comma-separated `PLAN-*.md` paths, relative to the repo root or absolute. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
