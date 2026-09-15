@@ -506,7 +506,14 @@ async def implement_phase(ctx: Json) -> Json:
     output = parse_implement(run["outcome"].get("json"))
     if output is None:
         return fail("implement: unusable structured output", patch=cursors, extra=extra)
-    commits = (await _commit_count(ctx, _branch_range(ctx)) or 0) - before
+    after = await _commit_count(ctx, _branch_range(ctx))
+    if after is None:
+        return fail(
+            f"implement: cannot resolve the base range {_branch_range(ctx)} after the agent ran",
+            patch=cursors,
+            extra=extra,
+        )
+    commits = after - before
     if output["done"] == 0:
         return fail("implement: done=0", patch=cursors, extra=extra)
     if commits <= 0:
@@ -615,7 +622,11 @@ async def fix_phase(ctx: Json) -> Json:
     output = parse_fix(run["outcome"].get("json"))
     if output is None:
         return fail("fix: unusable structured output", patch=cursors, extra=extra)
-    commits = (await _commit_count(ctx, f"{before}..HEAD") or 0) if before else output["commits"]
+    commits = await _commit_count(ctx, f"{before}..HEAD") if before else output["commits"]
+    if commits is None:
+        return fail(
+            f"fix: cannot resolve {before}..HEAD after the agent ran", patch=cursors, extra=extra
+        )
     ctx["log"](
         f"fix({request['source']}): fixed={output['fixed']} skipped={output['skipped']} commits={js_string(commits)}"
     )

@@ -433,14 +433,17 @@ first (`source: catalog`), then the models the installed harness reported
 labels and descriptions, never with invented ones. Never reorder the list,
 never pick a "representative" subset, and never drop an entry silently. The
 catalog order is the page order: on a host that caps a question at four
-options (Claude Code's `AskUserQuestion`), the first page is the first four
-engine entries exactly (for claude: Fable 5.1, Opus 5, Opus 4.8, Sonnet 5).
-When more entries remain: on a host whose picker renders a custom-answer box
-(Claude Code), name the remaining ids in the question text so that box reaches
-them; on an option-only host (T3 Code among them) that box does not exist, so
-pagination is mandatory: the fourth slot becomes `More models…` and every
-remaining entry is a clickable option on a later page with `Back`. Never make
-`Other` the only route to an engine option on a host that cannot render it.
+options, two first-page layouts exist and the host's affordances pick one:
+
+- Host with a custom-answer box (Claude Code's `AskUserQuestion`): the first
+  page is the first four engine entries exactly (for claude: Fable 5.1,
+  Opus 5, Opus 4.8, Sonnet 5); the remaining ids are named in the question
+  text so the box reaches them.
+- Option-only host (T3 Code among them): three entries plus `More models…` as
+  the fourth option; every later page holds three entries plus `Back` (and
+  `More models…` while entries remain). Never make `Other` the only route to
+  an engine option on a host that cannot render it.
+
 The highlighted default stays on the first page. Mention the source in
 the description when the host shows one (`reported by the cursor harness`),
 not in the value.

@@ -170,10 +170,10 @@ Render `choice` questions with options and `multi` questions with native
 multi-select or the shared clickable Include/Exclude sequence. A
 `model.<group>` question is rendered with every option the engine returned,
 in the engine's order and with the engine's labels; when the host caps
-options at four, the first page is the first four entries exactly; the
-remaining ids are named in the question text for the Other box where the
-host renders one, and on an option-only host they are paged as clickable
-options (`More models…` / `Back`), never left unreachable, following the
+options at four, use the shared first-page layout: with a custom-answer box
+(Claude Code) the first four entries plus the remaining ids named in the
+question text, on an option-only host three entries plus `More models…`
+paged with `Back`, never an entry left unreachable, following the
 [model list rule](../../references/workflow-host-control.md#native-controls-and-answer-mapping). Never turn a
 selection into a text-only prompt merely because this host lacks multi-select.
 Codex Desktop currently advertises MCP elicitation but can immediately decline
