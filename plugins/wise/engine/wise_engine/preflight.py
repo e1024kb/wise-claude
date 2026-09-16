@@ -508,9 +508,17 @@ def build_questionary(
     optional = optional_step_ids(definition)
     if optional:
         push(_step_select_question(definition, optional))
+    selected = _answer_list(answers.get("step-select"))
+    enabled = enabled_step_ids(definition, selected)
     for item in list_inputs(definition):
         if item["name"] == "worktree_mode":
             continue
+        if "needs-steps" in item:
+            # Asked only once step-select is settled and one of its steps runs.
+            if optional and selected is None:
+                continue
+            if not set(item["needs-steps"]) & enabled:
+                continue
         if item.get("options-from") == "branches":
             push(_branch_input_question(item, ctx.get("branches")))
             continue
@@ -536,7 +544,6 @@ def build_questionary(
             q["default"] = preset
         push(q)
     result = {"questions": questions, "defaults": defaults}
-    selected = _answer_list(answers.get("step-select"))
     if optional and selected is None:
         return result
     scope = {"inputs": known_inputs(definition, answers, ctx.get("context")), "answers": answers}
@@ -597,10 +604,13 @@ def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> J
             value.pop("effort", None)
         tuning[group["id"]] = value
     inputs = {}
+    enabled = enabled_step_ids(definition, _answer_list(answers.get("step-select")))
     for item in definition.get("inputs", []):
         if item["name"] == "worktree_mode":
             continue
         input_value = _answer_string(answers.get(f"input.{item['name']}"))
+        if "needs-steps" in item and not set(item["needs-steps"]) & enabled:
+            input_value = None
         if input_value is None:
             input_value = item.get("default")
         if input_value is not None:
@@ -612,7 +622,7 @@ def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> J
         worktree=worktree,
         tuning=tuning,
         provider_permissions=provider_permissions(answers),
-        enabled_steps=enabled_step_ids(definition, _answer_list(answers.get("step-select"))),
+        enabled_steps=enabled,
         inputs=inputs,
         caps=dict(definition.get("profiles", {}).get(PROFILE_DEFAULT, {}).get("caps", {})),
     )

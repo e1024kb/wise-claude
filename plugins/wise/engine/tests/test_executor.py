@@ -1076,6 +1076,60 @@ def test_inferred_choice_runtime_precedence(
 
 
 @pytest.mark.parametrize(
+    "selected,answers,inputs,expected",
+    [
+        (["gap"], {"input.gap_mode": "ask"}, {}, "ask"),
+        ([], {"input.gap_mode": "ask"}, {}, "defaults"),
+        ([], {}, {"gap_mode": "ask"}, "defaults"),
+    ],
+)
+def test_run_restores_default_for_deselected_needs_steps_input(
+    tmp_path, selected, answers, inputs, expected
+):
+    definitions = tmp_path / "definitions"
+    definitions.mkdir()
+    (definitions / "needs-steps.yaml").write_text(
+        "version: 2\n"
+        "name: needs-steps\n"
+        "inputs:\n"
+        "  - name: gap_mode\n"
+        "    prompt: Gap mode?\n"
+        "    default: defaults\n"
+        '    validate: "^(defaults|ask)$"\n'
+        "    needs-steps: [gap]\n"
+        "step-select:\n"
+        "  prompt: Which stages?\n"
+        "  optional: [gap]\n"
+        "steps:\n"
+        "  - id: gap\n"
+        "    type: bash\n"
+        '    run: echo "{{gap_mode}}"\n'
+        "  - id: only\n"
+        "    type: bash\n"
+        '    run: echo "{{gap_mode}}"\n'
+    )
+
+    async def scenario():
+        rig = Rig(tmp_path, roots={"user_root": str(definitions), "bundled_root": str(BUNDLED)})
+        try:
+            run = await rig.executor.run(
+                {
+                    "workflow": "needs-steps",
+                    "cwd": rig.cwd,
+                    "answers": {"worktree": "current", "step-select": selected, **answers},
+                    "inputs": inputs,
+                },
+                rig.ctx,
+            )
+            state = await rig.status(run["run_id"], "completed")
+            assert state["inputs"]["gap_mode"] == expected
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
     "default,answers,context,inputs",
     [
         (None, {"input.mode": "invalid"}, {}, {}),

@@ -1715,12 +1715,22 @@ class Executor:
                 f"workflow requires {', '.join(required['missing'])}; install them and retry",
                 {"missing": required["missing"]},
             )
+        # An input whose needs-steps are all deselected keeps the default
+        # apply_answers restored; explicit and answered values are stale.
+        skipped = {
+            item["name"]
+            for item in definition.get("inputs", [])
+            if "needs-steps" in item and not set(item["needs-steps"]) & applied["enabled_steps"]
+        }
+        explicit = {key: value for key, value in explicit.items() if key not in skipped}
         inputs = {**applied["inputs"], **explicit}
         for item in definition.get("inputs", []):
             name = item["name"]
             answer_id = f"input.{name}"
             if name == "worktree_mode":
                 inputs[name] = applied["worktree"]
+                continue
+            if name in skipped:
                 continue
             if input_choice_values(item) is not None:
                 if name in explicit:

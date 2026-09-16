@@ -57,16 +57,6 @@
       "label": "Which ticket? (paste a URL, or an id like PROJ-123 / ENG-45 / #678)"
     },
     {
-      "id": "input.gap_mode",
-      "kind": "choice",
-      "label": "If the gap analysis finds open questions? (defaults: proceed on the stated defaults, recorded as assumptions | ask: pause so I can answer inline)",
-      "options": [
-        { "value": "defaults", "label": "defaults" },
-        { "value": "ask", "label": "ask" }
-      ],
-      "default": "defaults"
-    },
-    {
       "id": "input.review_mode",
       "kind": "choice",
       "label": "Review the plan before setup? (auto: accept the plan as presented | ask: pause for my comments, one refine pass)",
@@ -112,7 +102,6 @@
       "research-context",
       "gap-analysis"
     ],
-    "input.gap_mode": "defaults",
     "input.review_mode": "auto",
     "input.branch_mode": "auto",
     "input.implement_mode": "plan-only"

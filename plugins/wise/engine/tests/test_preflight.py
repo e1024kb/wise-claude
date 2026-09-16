@@ -69,9 +69,14 @@ def test_bundled_snapshot():
 def test_stage_order_and_explicit_answers():
     defn = definition()
     ready = {"harnesses": ["claude", "codex", "cursor", "grok", "gemini"]}
-    assert ids(p.build_questionary(defn, ready)) == ["worktree", "step-select", *INPUTS]
+    assert ids(p.build_questionary(defn, ready)) == [
+        "worktree",
+        "step-select",
+        *(i for i in INPUTS if i != "input.gap_mode"),
+    ]
     answer = {"worktree": "current", "step-select": OPTIONAL, **MODES}
     stage = p.build_questionary(defn, ready, answer)
+    assert "input.gap_mode" in ids(stage)
     assert [i for i in ids(stage) if not i.startswith("input.")] == [
         f"harness.{g}" for g in groups(defn)
     ]
@@ -475,6 +480,42 @@ def test_multi_form_uses_boolean_fields_for_broad_host_support():
     assert _accepted_answer(question, {"step-select.0": True}) is None
 
 
+def test_needs_steps_input_follows_step_select():
+    defn = definition()
+    assert "input.gap_mode" not in ids(p.build_questionary(defn))
+    others = [s for s in OPTIONAL if s != "gap-analysis"]
+    skipped = p.build_questionary(defn, {}, {"step-select": others})
+    assert "input.gap_mode" not in ids(skipped)
+    asked = p.build_questionary(defn, {}, {"step-select": ["gap-analysis"]})
+    assert "input.gap_mode" in ids(asked)
+    done = p.complete_answers(defn, {}, {"step-select": others, **AUTO})
+    assert "input.gap_mode" not in done["answers"]
+    assert p.apply_answers(defn, done["answers"])["inputs"]["gap_mode"] == "defaults"
+    stale = {**done["answers"], "input.gap_mode": "ask"}
+    assert p.apply_answers(defn, stale)["inputs"]["gap_mode"] == "defaults"
+
+
+def test_needs_steps_must_name_optional_steps_and_have_default(tmp_path):
+    source = (ROOT / "workflows/ticket-plan/workflow.yaml").read_text()
+    bad_step = tmp_path / "bad-step.yaml"
+    bad_step.write_text(source.replace("needs-steps: [gap-analysis]", "needs-steps: [build-plan]"))
+    issues = load_and_validate({"path": str(bad_step)})["issues"]
+    assert any(i["path"] == "inputs[1].needs-steps" for i in issues)
+    no_default = tmp_path / "no-default.yaml"
+    no_default.write_text(source.replace("    default: defaults\n", "", 1))
+    issues = load_and_validate({"path": str(no_default)})["issues"]
+    assert any(i["path"] == "inputs[1].needs-steps" for i in issues)
+    empty = tmp_path / "empty-optional.yaml"
+    empty.write_text(
+        source.replace(
+            "optional: [analyze-design, analyze-related, research-context, gap-analysis]",
+            "optional: []",
+        )
+    )
+    issues = load_and_validate({"path": str(empty)})["issues"]
+    assert any(i["path"] == "inputs[1].needs-steps" for i in issues)
+
+
 def test_all_bundled_enum_inputs_are_choices():
     workflows = [
         ROOT / "workflows/ticket-plan/workflow.yaml",
@@ -484,7 +525,8 @@ def test_all_bundled_enum_inputs_are_choices():
     for workflow in workflows:
         result = load_and_validate({"path": str(workflow)})
         assert "def" in result, result
-        questions.extend(p.build_questionary(result["def"])["questions"])
+        answers = {"step-select": p.optional_step_ids(result["def"])}
+        questions.extend(p.build_questionary(result["def"], {}, answers)["questions"])
 
     choices = {
         q["id"]: q for q in questions if q["id"].startswith("input.") and q["kind"] == "choice"

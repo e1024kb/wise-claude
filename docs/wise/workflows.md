@@ -256,7 +256,17 @@ inputs:
   - name: base_branch
     prompt: "Base branch?"
     options-from: branches           # choice list computed from the checkout; free text allowed
+  - name: gap_mode
+    default: defaults
+    validate: "^(defaults|ask)$"
+    needs-steps: [gap-analysis]      # asked only when step-select keeps one of these steps
 ```
+
+`needs-steps` lists optional `step-select` steps. Pre-flight asks the input
+after the step-select answer, and only when at least one listed step stays
+selected. Otherwise the input is not asked and its `default:` applies. Each
+listed id must be a step-select optional step, and the input needs a
+`default:` or `optional: true`.
 
 `options-from: branches` renders the question as a choice whose options
 the engine reads from the checkout it pre-flights in (`engine/wise_engine/branches.py`):
@@ -694,7 +704,7 @@ empty. An answered question is never repeated.
 | `effort.<group>` | `choice` | the chosen model's efforts | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
 `worktree` is always the first question. `step-select` and `input.<name>` follow
-after it. The tuning stages wait for the `step-select` answer (which steps
+after it. An input with `needs-steps` waits for the `step-select` answer. The tuning stages wait for the `step-select` answer (which steps
 run decides which groups matter) and are asked only for the groups a
 step that will run binds (`group:` on an agent step, a `units` phase).
 A step will run when `step-select` keeps it and its `when:` is not

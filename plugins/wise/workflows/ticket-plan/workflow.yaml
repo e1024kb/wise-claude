@@ -110,6 +110,7 @@ inputs:
     prompt: "If the gap analysis finds open questions? (defaults: proceed on the stated defaults, recorded as assumptions | ask: pause so I can answer inline)"
     default: defaults
     validate: "^(defaults|ask)$"
+    needs-steps: [gap-analysis]
   - name: review_mode
     prompt: "Review the plan before setup? (auto: accept the plan as presented | ask: pause for my comments, one refine pass)"
     default: auto
@@ -139,7 +140,8 @@ inputs:
 # finalize) are not listed: the workflow is meaningless without them.
 # `resolve-gaps` is not listed either: it follows gap-analysis through
 # its `when:` (an unset `readiness` never equals 'gaps'), so deselecting
-# gap-analysis silently drops the gap questions too.
+# gap-analysis silently drops the gap questions too, and `gap_mode`
+# (`needs-steps: [gap-analysis]`) is not asked at pre-flight.
 step-select:
   prompt: "Which research stages should run?"
   optional: [analyze-design, analyze-related, research-context, gap-analysis]
