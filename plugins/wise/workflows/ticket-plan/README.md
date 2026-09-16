@@ -184,7 +184,7 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
 - **Flow modes** (choice inputs inferred from strict literal `validate:`
-  regexes, defaults pre-filled) - `gap_mode` (**defaults** / ask), `review_mode`
+  regexes, defaults pre-filled) - `gap_mode` (**defaults** / ask, asked only when gap analysis is selected), `review_mode`
   (**auto** / ask), `worktree_mode` (**current** / new), `branch_mode` (**auto** / current / ask), and
   `implement_mode` (**plan-only** / now / ask). The bolded defaults
   make the run autonomous after launch; any mode set to `ask`

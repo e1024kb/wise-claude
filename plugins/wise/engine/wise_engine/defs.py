@@ -842,6 +842,7 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 "extract",
                 "options",
                 "options-from",
+                "needs-steps",
             ),
         )
         name = entry.get("name", MISSING)
@@ -913,6 +914,12 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                     f"{p}.options-from",
                     f"options-from {js_json(source)} must be one of {' | '.join(OPTIONS_SOURCES)}",
                 )
+        if "needs-steps" in entry:
+            steps = entry["needs-steps"]
+            if _strings(steps) and steps:
+                item["needs-steps"] = list(steps)
+            else:
+                iss.error(f"{p}.needs-steps", "needs-steps must be a non-empty list of step ids")
         out.append(item)
     return out
 
@@ -1458,6 +1465,21 @@ def validate_def(raw: Any, path: str) -> dict[str, Any]:
     inputs = _inputs(iss, raw.get("inputs", MISSING))
     steps = _steps(iss, raw.get("steps", MISSING), group_ids, cap_names)
     step_select = _step_select(iss, raw.get("step-select", MISSING), {s["id"] for s in steps})
+    selectable = set(
+        (step_select or {}).get("optional") or [s["id"] for s in steps if s.get("optional") is True]
+    )
+    for i, item in enumerate(inputs):
+        if "needs-steps" not in item:
+            continue
+        p = f"inputs[{i}].needs-steps"
+        for ident in item["needs-steps"]:
+            if ident not in selectable:
+                iss.error(p, f"step {js_json(ident)} is not an optional step-select step")
+        if item.get("default") is None and not item.get("optional"):
+            iss.error(
+                p,
+                "an input with needs-steps needs a `default:` or `optional: true` for runs that skip it",
+            )
     if any(issue["level"] == "error" for issue in iss.list):
         return {"issues": iss.list}
     definition = {"version": 2, "name": name, "steps": steps}

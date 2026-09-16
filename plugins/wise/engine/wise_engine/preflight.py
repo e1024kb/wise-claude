@@ -508,9 +508,17 @@ def build_questionary(
     optional = optional_step_ids(definition)
     if optional:
         push(_step_select_question(definition, optional))
+    selected = _answer_list(answers.get("step-select"))
+    enabled = enabled_step_ids(definition, selected)
     for item in list_inputs(definition):
         if item["name"] == "worktree_mode":
             continue
+        if "needs-steps" in item:
+            # Asked only once step-select is settled and one of its steps runs.
+            if optional and selected is None:
+                continue
+            if not set(item["needs-steps"]) & enabled:
+                continue
         if item.get("options-from") == "branches":
             push(_branch_input_question(item, ctx.get("branches")))
             continue
@@ -536,7 +544,6 @@ def build_questionary(
             q["default"] = preset
         push(q)
     result = {"questions": questions, "defaults": defaults}
-    selected = _answer_list(answers.get("step-select"))
     if optional and selected is None:
         return result
     scope = {"inputs": known_inputs(definition, answers, ctx.get("context")), "answers": answers}
