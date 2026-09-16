@@ -57,17 +57,19 @@ deleted, reset or overwritten.
 Compute `target_branch` from `ticket_ref` per the table above, then:
 
 ```bash
-# on a clean tree: resume your own branch, else create the first free name
-if [ "$(git rev-parse --abbrev-ref HEAD)" = "$target_branch" ]; then
-  :
-else
-  candidate="$target_branch"; n=1
-  while git show-ref --verify --quiet "refs/heads/$candidate" \
-     || git ls-remote --exit-code --heads origin "$candidate" >/dev/null 2>&1; do
-    n=$((n + 1)); candidate="$target_branch-$n"
-  done
-  git checkout -b "$candidate"
-fi
+# on a clean tree: resume your own branch (suffixed or not), else create
+# the first free name
+case "$(git rev-parse --abbrev-ref HEAD)" in
+  "$target_branch" | "$target_branch"-[0-9]*)
+    : ;;
+  *)
+    candidate="$target_branch"; n=1
+    while git show-ref --verify --quiet "refs/heads/$candidate" \
+       || git ls-remote --exit-code --heads origin "$candidate" >/dev/null 2>&1; do
+      n=$((n + 1)); candidate="$target_branch-$n"
+    done
+    git checkout -b "$candidate" ;;
+esac
 ```
 
 The worktree *directory* name (e.g. `<project>.wise-ticket-<ref>`) is a path, not

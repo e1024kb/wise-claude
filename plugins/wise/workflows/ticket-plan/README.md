@@ -250,7 +250,7 @@ The five mode inputs are choice inputs inferred from a strict literal
 `validate:` regex over the allowed values; `base_branch` is a choice
 computed from the checkout. Each also accepts its value positionally in
 declared order, e.g. `/wise-workflow-run ticket-plan PROJ-1
-defaults auto current auto main now`.
+defaults auto current auto now main`.
 
 ## Outputs
 
