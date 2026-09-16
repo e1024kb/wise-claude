@@ -604,10 +604,13 @@ def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> J
             value.pop("effort", None)
         tuning[group["id"]] = value
     inputs = {}
+    enabled = enabled_step_ids(definition, _answer_list(answers.get("step-select")))
     for item in definition.get("inputs", []):
         if item["name"] == "worktree_mode":
             continue
         input_value = _answer_string(answers.get(f"input.{item['name']}"))
+        if "needs-steps" in item and not set(item["needs-steps"]) & enabled:
+            input_value = None
         if input_value is None:
             input_value = item.get("default")
         if input_value is not None:
@@ -619,7 +622,7 @@ def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> J
         worktree=worktree,
         tuning=tuning,
         provider_permissions=provider_permissions(answers),
-        enabled_steps=enabled_step_ids(definition, _answer_list(answers.get("step-select"))),
+        enabled_steps=enabled,
         inputs=inputs,
         caps=dict(definition.get("profiles", {}).get(PROFILE_DEFAULT, {}).get("caps", {})),
     )

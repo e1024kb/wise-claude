@@ -491,6 +491,8 @@ def test_needs_steps_input_follows_step_select():
     done = p.complete_answers(defn, {}, {"step-select": others, **AUTO})
     assert "input.gap_mode" not in done["answers"]
     assert p.apply_answers(defn, done["answers"])["inputs"]["gap_mode"] == "defaults"
+    stale = {**done["answers"], "input.gap_mode": "ask"}
+    assert p.apply_answers(defn, stale)["inputs"]["gap_mode"] == "defaults"
 
 
 def test_needs_steps_must_name_optional_steps_and_have_default(tmp_path):
@@ -502,6 +504,15 @@ def test_needs_steps_must_name_optional_steps_and_have_default(tmp_path):
     no_default = tmp_path / "no-default.yaml"
     no_default.write_text(source.replace("    default: defaults\n", "", 1))
     issues = load_and_validate({"path": str(no_default)})["issues"]
+    assert any(i["path"] == "inputs[1].needs-steps" for i in issues)
+    empty = tmp_path / "empty-optional.yaml"
+    empty.write_text(
+        source.replace(
+            "optional: [analyze-design, analyze-related, research-context, gap-analysis]",
+            "optional: []",
+        )
+    )
+    issues = load_and_validate({"path": str(empty)})["issues"]
     assert any(i["path"] == "inputs[1].needs-steps" for i in issues)
 
 

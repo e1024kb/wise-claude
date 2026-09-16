@@ -1465,8 +1465,9 @@ def validate_def(raw: Any, path: str) -> dict[str, Any]:
     inputs = _inputs(iss, raw.get("inputs", MISSING))
     steps = _steps(iss, raw.get("steps", MISSING), group_ids, cap_names)
     step_select = _step_select(iss, raw.get("step-select", MISSING), {s["id"] for s in steps})
+    declared = (step_select or {}).get("optional")
     selectable = set(
-        (step_select or {}).get("optional") or [s["id"] for s in steps if s.get("optional") is True]
+        declared if declared is not None else [s["id"] for s in steps if s.get("optional") is True]
     )
     for i, item in enumerate(inputs):
         if "needs-steps" not in item:
