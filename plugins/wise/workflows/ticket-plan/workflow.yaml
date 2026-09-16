@@ -123,14 +123,14 @@ inputs:
     prompt: "Branch handling at setup? (auto: ticket branch off the base branch, dirty tree refused | current: stay on the current branch | ask: ask me at setup)"
     default: auto
     validate: "^(auto|current|ask)$"
-  - name: base_branch
-    prompt: "Base branch for the ticket branch and its PR? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
-    options-from: branches
   - name: implement_mode
     prompt: "Implement the plan after setup? (plan-only: stop after setup | now: implement autonomously | ask: ask me once the plan and branch are settled)"
     default: plan-only
     validate: "^(plan-only|now|ask)$"
 
+  - name: base_branch
+    prompt: "Base branch for the ticket branch and its PR? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
+    options-from: branches
 # Optional stages the pre-flight step-select question offers as one
 # multi-select (labels come from each step's `description:`). A
 # deselected step is pre-marked `skipped` before the first wave; the
@@ -736,6 +736,19 @@ steps:
       Call this `target_branch`. The branch at run start was
       `{{current_branch}}`; re-read the current branch with
       `git -C "{{project.path}}" rev-parse --abbrev-ref HEAD`.
+
+      A branch this run does not already own is never reused. Before any
+      checkout or worktree add in `auto` mode (or `Switch` in ask mode),
+      resolve the free name: if the current checkout, or a worktree at
+      this run's work_path, is already on target_branch or on
+      `<target_branch>-N`, that branch is this run's (a resume): keep it.
+      Otherwise, while target_branch exists locally
+      (`git show-ref --verify --quiet refs/heads/<name>`), on origin
+      (`git ls-remote --exit-code --heads origin <name>`), or in
+      `git worktree list --porcelain`, try `<target_branch>-2`,
+      `<target_branch>-3`, ... and take the first free name as
+      target_branch. Say which name was taken and which one this run
+      uses. Never delete, reset or overwrite the existing branch.
 
       The ticket ref is IMMUTABLE here: the plan file, its heading, and
       target_branch all derive from `{{ticket_ref}}`, so setup never

@@ -243,8 +243,8 @@ defaults at dispatch. See
 | `review_mode` | yes | `auto` (default - accept the plan as presented) / `ask` (pause at `review-comments` for one refine pass). |
 | `worktree_mode` | yes | Asked immediately before branch handling: `current` (default) uses the current tree; `new` creates a separate worktree at `<run-dir>/worktrees/<ticket-branch>`. Staying on the current branch with a new worktree uses a detached checkout at the source HEAD for plan-only work. Implementation requires a named branch. |
 | `branch_mode` | yes | `auto` (default - create/switch the ticket branch off `base_branch`, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
-| `base_branch` | yes | The branch new ticket branches start from (`origin/<base_branch>` when it exists on origin, else the local branch). Options come from the checkout (`options-from: branches`): the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches; free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 | `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
+| `base_branch` | yes | The branch new ticket branches start from (`origin/<base_branch>` when it exists on origin, else the local branch). Options come from the checkout (`options-from: branches`): the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches; free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 
 The five mode inputs are choice inputs inferred from a strict literal
 `validate:` regex over the allowed values; `base_branch` is a choice

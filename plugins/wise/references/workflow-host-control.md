@@ -356,7 +356,7 @@ For a host exposing the current `request_user_input_async` string-options schema
 render the permission question as:
 
 ```json
-{"questions":[{"title":"Which minimum permission mode should Claude use for supporting workflow steps?","options":["Auto (recommended): workspace-scoped execution","Approval required: headless requests may be denied","Bypass permissions: no provider permission checks or sandbox"]}]}
+{"questions":[{"title":"Which minimum permission mode should Claude use for supporting workflow steps?","options":["Bypass permissions: no provider permission checks or sandbox","Auto (default): workspace-scoped execution","Approval required: headless requests may be denied"]}]}
 ```
 
 Repeat the full picker for every unanswered `permissions.<harness>` returned by
@@ -389,9 +389,15 @@ Apply this dispatch order for every question, without provider-specific exceptio
    offer the original items as one single-choice question for a multi-select task.
    Instead use the sequence below. If a Claude or another host's tool explicitly
    supports multi-select, use that control directly.
-4. Respect the host's question-count and option-count limits. Split batches and
-   paginate without dropping choices; under an option cap follow the
-   [long option list rule](#long-option-lists) below. When only one real
+4. Render the engine's `pages` as they come: one form per page, pages in
+   order, the questions of a page in the page's order, never merged with
+   another page, never split unless the host's question cap forces it (then
+   split at the same point every time: the first `cap` questions, then the
+   rest). Number pages `Page N` across the whole pre-flight in the header or
+   title, so the same page carries the same number in every run of that
+   workflow. Respect the host's option-count limits without dropping choices;
+   under an option cap follow the [long option list rule](#long-option-lists)
+   below. When only one real
    option exists but the picker requires two, offer `Use <label>` and `Cancel`;
    do not invent a second engine value. A host-provided Skip/Other control is
    not automatically valid.
@@ -434,6 +440,11 @@ and `/wise-exec-on-harness` pickers, model fallback, and any picker a skill
 builds from a known list. Render every option, in the source's order, with the
 source's labels and descriptions, never with invented ones. Never reorder the
 list, never pick a "representative" subset, and never drop an entry silently.
+The default is the option whose label ends in ` (default)`; it keeps its slot.
+Never move it first, never add `(Recommended)` or any other marker of your
+own, whatever the host's picker tool suggests about recommended options: the
+fixed slot is what lets the user answer the same page the same way across
+parallel sessions without reading it again.
 
 First find the host's real option cap and show as many options as it allows:
 Claude Code's `AskUserQuestion` takes at most four options per question, other
@@ -460,9 +471,14 @@ clicked; validate any other text against the full list and re-ask on a miss.
 
 Harness pickers order their options claude, codex, cursor, grok, gemini, with
 a group's default harness first when the engine puts it there; the engine and
-the `auth` inventory already emit that order, keep it. Model pickers show the
-predefined catalog first (`source: catalog`), then the models the installed
-harness reported (`source: harness`); mention the source in the description
+the `auth` inventory already emit that order, keep it. Permission pickers
+order theirs Bypass permissions, Auto, Approval required, and the engine asks
+one per provider in the harness order above. Effort pickers order theirs
+medium, high, xhigh, low, max. Model pickers show the
+predefined catalog first (`source: catalog`, hand-ordered: for claude Fable
+5.1, Opus 5, Opus 4.8, Sonnet 5, Haiku 4.5, Fable 5), then the models the
+installed harness reported (`source: harness`) in the harness's own order;
+mention the source in the description
 when the host shows one (`reported by the cursor harness`), not in the value.
 For claude the first four catalog entries are Fable 5.1, Opus 5, Opus 4.8 and
 Sonnet 5, so on Claude Code they are the visible rows and the remaining ids

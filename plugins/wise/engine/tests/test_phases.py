@@ -326,15 +326,31 @@ def test_claim_ownership_and_conflicts(tmp_path):
         fixture.calls.clear()
         assert (await fixture.phase(claim_phase))["ok"] and fixture.calls == []
         fixture.ctx["ledger"]["cursors"].clear()
+        # A taken branch, wherever it lives, moves the unit to the first free
+        # `<branch>-N`; the worktree path follows, the ledger key does not.
         fixture.remote.add("PROJ-1")
-        assert (await fixture.phase(claim_phase))["verdict"] == "skipped"
+        result = await fixture.phase(claim_phase)
+        assert result["ok"] and fixture.ctx["unit"]["branch"] == "PROJ-1-2"
+        assert fixture.ctx["unit"]["worktree"].endswith("/worktrees/PROJ-1-2")
+        assert fixture.ctx["unit"]["ref"] == "PROJ-1"
+        fixture.ctx["ledger"]["cursors"].clear()
+        fixture.ctx["unit"] = fixture.ctx["ledger"]["unit"] = make_unit(
+            "ticket", "PROJ-1", str(fixture.repo), str(fixture.run_dir)
+        )
         fixture.remote.clear()
-        fixture.branches.add("PROJ-1")
-        assert "local branch" in (await fixture.phase(claim_phase))["reason"]
+        fixture.branches.update({"PROJ-1", "PROJ-1-2"})
+        fixture.trees["/elsewhere"] = "PROJ-1-3"
+        assert (await fixture.phase(claim_phase))["ok"]
+        assert fixture.ctx["unit"]["branch"] == "PROJ-1-4"
+        fixture.ctx["ledger"]["cursors"].clear()
+        fixture.ctx["unit"] = fixture.ctx["ledger"]["unit"] = make_unit(
+            "ticket", "PROJ-1", str(fixture.repo), str(fixture.run_dir)
+        )
         fixture.branches.clear()
-        fixture.trees["/elsewhere"] = "PROJ-1"
-        assert "a worktree" in (await fixture.phase(claim_phase))["reason"]
         fixture.trees.clear()
+        fixture.failures[("git", "ls-remote")] = command_result(code=128)
+        assert "origin unreachable" in (await fixture.phase(claim_phase))["reason"]
+        fixture.failures.pop(("git", "ls-remote"))
         fixture.pr = {"number": 5, "url": "https://github.invalid/pr/5", "state": "MERGED"}
         assert (await fixture.phase(claim_phase))["verdict"] == "merged"
         fixture.ctx["config"]["pipeline"] = "plan"

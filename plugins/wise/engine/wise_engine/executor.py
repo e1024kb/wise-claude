@@ -1645,6 +1645,7 @@ class Executor:
             workflow=located["name"],
             version=definition["version"],
             questions=questionary["questions"],
+            pages=questionary.get("pages", []),
             defaults=questionary["defaults"],
             requires_missing=self.requires_of(definition)["missing"],
         )

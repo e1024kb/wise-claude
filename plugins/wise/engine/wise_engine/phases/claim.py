@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from ..constants import ATTACHED_PIPELINES
@@ -14,10 +15,38 @@ from .common import (
     pass_,
     remote_branch_exists,
     resolve_base,
+    worktree_slug,
 )
 from .pr import view_pr
 
 OWNED = "owned"
+# How many `<branch>-N` names a fresh unit tries before giving up.
+BRANCH_SUFFIX_LIMIT = 20
+
+
+async def _branch_taken(ctx: Json, branch: str) -> bool | None:
+    """True when the branch exists on origin, locally, or in a registered
+    worktree; None when origin is unreachable."""
+    remote = await remote_branch_exists(ctx, branch)
+    if remote is None:
+        return None
+    if remote or await local_branch_exists(ctx, branch):
+        return True
+    result = await git(ctx, ["worktree", "list", "--porcelain"])
+    return ok(result) and f"\nbranch refs/heads/{branch}\n" in result["stdout"]
+
+
+async def free_branch(ctx: Json, wanted: str) -> str | None:
+    """`wanted` when nothing holds it, else the first free `<wanted>-N` (N from
+    2); None when origin is unreachable or every candidate is taken."""
+    for n in range(1, BRANCH_SUFFIX_LIMIT + 1):
+        candidate = wanted if n == 1 else f"{wanted}-{n}"
+        taken = await _branch_taken(ctx, candidate)
+        if taken is None:
+            return None
+        if not taken:
+            return candidate
+    return None
 
 
 def is_owned(ctx: Json) -> bool:
@@ -101,15 +130,21 @@ async def claim_phase(ctx: Json) -> Json:
     ):
         pr = {"number": rows[0]["number"], "url": rows[0]["url"]}
         return fail(f"pr-merged: #{pr['number']}", "merged", {"unit": {**with_base, "pr": pr}})
-    remote = await remote_branch_exists(ctx, unit["branch"])
-    if remote is None:
-        return fail("claim: origin unreachable (git ls-remote failed)")
-    if remote:
-        return fail(f"already-claimed: origin/{unit['branch']} exists", "skipped")
-    if await local_branch_exists(ctx, unit["branch"]):
-        return fail(f"already-claimed: local branch {unit['branch']} exists", "skipped")
-    result = await git(ctx, ["worktree", "list", "--porcelain"])
-    if ok(result) and f"\nbranch refs/heads/{unit['branch']}\n" in result["stdout"]:
-        return fail(f"already-claimed: a worktree is on {unit['branch']}", "skipped")
-    ctx["log"](f"claim: {unit['ref']} -> {unit['branch']} (base {base})")
+    # A branch another run, a person, or a stale checkout already holds is
+    # never reused: the unit takes the first free `<branch>-N` instead.
+    branch = await free_branch(ctx, unit["branch"])
+    if branch is None:
+        taken = await remote_branch_exists(ctx, unit["branch"])
+        if taken is None:
+            return fail("claim: origin unreachable (git ls-remote failed)")
+        return fail(
+            f"already-claimed: {unit['branch']} and {BRANCH_SUFFIX_LIMIT - 1} suffixed names exist",
+            "skipped",
+        )
+    if branch != unit["branch"]:
+        ctx["log"](f"claim: {unit['branch']} already exists, using {branch}")
+        with_base["branch"] = branch
+        if os.path.abspath(with_base["worktree"]) != os.path.abspath(ctx["cwd"]):
+            with_base["worktree"] = os.path.join(ctx["run_dir"], "worktrees", worktree_slug(branch))
+    ctx["log"](f"claim: {unit['ref']} -> {branch} (base {base})")
     return pass_({"unit": with_base, "cursors": {**ctx["ledger"]["cursors"], "claim": OWNED}})

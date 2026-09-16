@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from .branches import is_branch_name
-from .constants import HARNESSES, RUN_MODES
+from .constants import EFFORT_PICKER_ORDER, GROUP_ORDER, HARNESSES, RUN_MODES, SHARED_INPUTS
 from .models import catalog_model, default_effort, default_model, merged_catalog
 from .scheduler import JS_WHITESPACE, evaluate_when_partial, when_conditions
 
@@ -13,6 +13,70 @@ Json = dict[str, Any]
 PROFILE_DEFAULT = "medium"
 
 PLAIN_ALTERNATION_RE = re.compile(r"\^\(([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+)\)\$")
+
+DEFAULT_MARK = " (default)"
+PAGE_SIZE = 4
+
+
+def canonical_groups(groups: list[Json]) -> list[Json]:
+    """Tuning groups in the order every workflow asks them: workflow-specific
+    groups first in their declared order, then the shared ones in GROUP_ORDER."""
+    rank = {gid: i for i, gid in enumerate(GROUP_ORDER)}
+    return sorted(groups, key=lambda g: rank.get(g["id"], -1))
+
+
+def canonical_inputs(items: list[Json]) -> list[Json]:
+    """Inputs in the order every workflow asks them: workflow-specific inputs
+    first in their declared order, then the shared ones in SHARED_INPUTS."""
+    rank = {name: i for i, name in enumerate(SHARED_INPUTS)}
+    return sorted(items, key=lambda item: rank.get(item["name"], -1))
+
+
+def effort_options(efforts: list[str]) -> list[str]:
+    return [e for e in EFFORT_PICKER_ORDER if e in efforts]
+
+
+def mark_default(question: Json) -> Json:
+    """Append the default marker to the default option's label. The option list
+    itself never moves: the same question shows the same rows every run."""
+    if question.get("kind") != "choice" or "default" not in question:
+        return question
+    options = [
+        {**o, "label": o["label"] + DEFAULT_MARK}
+        if o.get("value") == question["default"] and not o["label"].endswith(DEFAULT_MARK)
+        else o
+        for o in question.get("options", [])
+    ]
+    return {**question, "options": options}
+
+
+def paginate(questions: list[Json]) -> list[list[str]]:
+    """Fixed pages for the questions of one preflight call: at most PAGE_SIZE
+    per page, stage boundaries never straddled, so a page's composition depends
+    only on the workflow and the answers so far, never on the host."""
+    pages: list[list[str]] = []
+    current: list[str] = []
+    current_stage = None
+    for q in questions:
+        stage = _stage_of(q["id"])
+        if current and (stage != current_stage or len(current) >= PAGE_SIZE):
+            pages.append(current)
+            current = []
+        current.append(q["id"])
+        current_stage = stage
+    if current:
+        pages.append(current)
+    return pages
+
+
+def _stage_of(qid: str) -> str:
+    if qid.startswith("harness."):
+        return "harness"
+    if qid.startswith("permissions."):
+        return "permissions"
+    if qid.startswith(("model.", "effort.")):
+        return "tuning"
+    return "inputs"
 
 
 def _input_options(validate: Any) -> list[Json] | None:
@@ -95,7 +159,7 @@ def _answer_list(value: Any) -> list[str] | None:
 
 
 def _groups(definition: Json) -> list[Json]:
-    return definition.get("tuning", {}).get("groups", [])
+    return canonical_groups(definition.get("tuning", {}).get("groups", []))
 
 
 def _group_base(definition: Json, group: Json) -> Json:
@@ -194,7 +258,7 @@ def _stage_group(
                 id=f"effort.{group['id']}",
                 kind="choice",
                 label=f"Effort for {model['label']}: {label}?",
-                options=[dict(value=e, label=e) for e in model["efforts"]],
+                options=[dict(value=e, label=e) for e in effort_options(model["efforts"])],
                 default=default_effort(model, base.get("effort")),
             )
         )
@@ -235,19 +299,19 @@ def _permission_question(definition: Json, harness: str) -> Json:
         label=f"Minimum permissions for {harness}?",
         options=[
             dict(
+                value="full-access",
+                label="Bypass permissions",
+                description="run this provider without its permission checks or sandbox",
+            ),
+            dict(
                 value="auto",
-                label="Auto (recommended)",
+                label="Auto",
                 description="workspace-scoped automatic execution; higher step requirements still win",
             ),
             dict(
                 value="approval-required",
                 label="Approval required",
                 description="keep restrictive step modes; headless permission requests may be denied",
-            ),
-            dict(
-                value="full-access",
-                label="Bypass permissions",
-                description="run this provider without its permission checks or sandbox",
             ),
         ],
         default=permission_default(definition),
@@ -301,7 +365,8 @@ def active_harnesses(
                         add(h)
             for h in step.get("fallback", []):
                 add(h)
-    return out
+    # One permission question per provider, always in the picker order.
+    return sorted(out, key=HARNESSES.index)
 
 
 def provider_permissions(answers: Json) -> Json:
@@ -497,12 +562,14 @@ def build_questionary(
     def push(q):
         if q["id"] in answers:
             return
+        q = mark_default(q)
         questions.append(q)
         if "default" in q:
             defaults[q["id"]] = q["default"]
 
     if worktree_answer(definition, answers) is None:
-        question = _worktree_question(definition)
+        # Asked again when the given answer is invalid, so not through push.
+        question = mark_default(_worktree_question(definition))
         questions.append(question)
         defaults[question["id"]] = question["default"]
     optional = optional_step_ids(definition)
@@ -510,7 +577,7 @@ def build_questionary(
         push(_step_select_question(definition, optional))
     selected = _answer_list(answers.get("step-select"))
     enabled = enabled_step_ids(definition, selected)
-    for item in list_inputs(definition):
+    for item in canonical_inputs(list_inputs(definition)):
         if item["name"] == "worktree_mode":
             continue
         if "needs-steps" in item:
@@ -543,9 +610,9 @@ def build_questionary(
         if preset is not None:
             q["default"] = preset
         push(q)
-    result = {"questions": questions, "defaults": defaults}
+    result: Json = {"questions": questions, "defaults": defaults}
     if optional and selected is None:
-        return result
+        return _paged(result)
     scope = {"inputs": known_inputs(definition, answers, ctx.get("context")), "answers": answers}
     enabled = enabled_step_ids(definition, selected)
     active = active_group_ids(definition, enabled, scope)
@@ -558,27 +625,38 @@ def build_questionary(
         if "question" in stage:
             push(stage["question"])
     if any(q["id"].startswith("harness.") for q in questions):
-        return result
+        return _paged(result)
     if _legacy_permission_answer(answers) is None:
         for h in active_harnesses(
             definition, enabled, active, answers, ctx.get("harnesses"), scope
         ):
             push(_permission_question(definition, h))
     if any(q["id"].startswith("permissions.") for q in questions):
-        return result
+        return _paged(result)
+    # Model and effort run as a chain, group by group: the first page asks
+    # the first group's model; every next page asks the previous group's
+    # effort (its options depend on the model just chosen) together with the
+    # next group's model; the last page asks the last group's effort alone.
     for group in _groups(definition):
         if group.get("locked") or group["id"] not in active:
             continue
-        for q in _stage_group(
+        stage = _stage_group(
             definition,
             group,
             answers,
             ctx.get("harnesses"),
             ctx.get("logged_out"),
             ctx.get("models"),
-        )["questions"]:
+        )
+        for q in stage["questions"]:
             push(q)
-    return result
+        if any(q["id"].startswith("model.") for q in stage["questions"]):
+            break
+    return _paged(result)
+
+
+def _paged(result: Json) -> Json:
+    return {**result, "pages": paginate(result["questions"])}
 
 
 def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> Json:
