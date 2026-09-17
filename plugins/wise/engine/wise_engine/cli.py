@@ -273,6 +273,7 @@ async def cmd_preflight(parsed: Json, io: Io) -> int:
         "workflow": located["name"],
         "version": definition["version"],
         "questions": questionary["questions"],
+        "pages": questionary.get("pages", []),
         "defaults": questionary["defaults"],
         "requires_missing": probe_requires(definition)["missing"],
         "warnings": [issue for issue in issues if issue["level"] == "warning"],

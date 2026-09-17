@@ -2,6 +2,17 @@ AUTH_MODES = ("subscription", "api-key")
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
+# Picker order for every effort question. Do not sort it.
+EFFORT_PICKER_ORDER = ("medium", "high", "xhigh", "low", "max")
+
+# Picker order for the tuning groups every workflow shares; a group not
+# listed here is workflow-specific and is asked before these, in its
+# declared order.
+GROUP_ORDER = ("plan", "implement", "fix", "review", "watch", "support")
+
+# Inputs every workflow shares, asked after the workflow-specific ones.
+SHARED_INPUTS = ("base_branch", "guidance")
+
 ERROR_CODES = (
     "WORKFLOW_NOT_FOUND",
     "WORKFLOW_INVALID",

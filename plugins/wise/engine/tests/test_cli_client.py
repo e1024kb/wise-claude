@@ -29,7 +29,7 @@ QUESTIONS = [
         "kind": "choice",
         "label": "Minimum permissions?",
         "options": [
-            {"value": "auto", "label": "Auto (recommended)"},
+            {"value": "auto", "label": "Auto (default)"},
             {"value": "approval-required", "label": "Approval required"},
         ],
         "default": "auto",

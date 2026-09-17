@@ -27,15 +27,15 @@ preflight:
 # one for the fixes and the substitute review.
 tuning:
   groups:
-    - id: watch
-      label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state, writes the findings file (cheap, frequent)"
-      default: { harness: claude, model: sonnet, effort: medium }
     - id: fix
       label: "Fix pass: applies CI failures, bot review threads and substitute-review findings as commits (code changes)"
       default: { harness: claude, model: opus, effort: high }
     - id: review
       label: "Substitute review: one read-only 3-lens review when a review bot is stuck (correctness, security, tests)"
       default: { harness: claude, model: opus, effort: high }
+    - id: watch
+      label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state, writes the findings file (cheap, frequent)"
+      default: { harness: claude, model: sonnet, effort: medium }
     - id: support
       label: "Support: the end-of-run report (mechanical, no code changes)"
       default: { harness: claude, model: sonnet, effort: medium }

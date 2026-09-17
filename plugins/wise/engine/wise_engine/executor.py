@@ -59,7 +59,6 @@ from .paths import cwd_slug, ENGINE_ROOT
 from .permissions import effective_mode, provider_permission
 from .preflight import (
     apply_answers,
-    build_questionary,
     choice_input_preset,
     complete_answers,
     input_choice_values,
@@ -67,6 +66,7 @@ from .preflight import (
     invalid_model_answer_ids,
     invalid_provider_permission_answers,
     invalid_worktree_answers,
+    retry_questions,
     resolve_from_context,
     with_discovered_models,
     worktree_locked,
@@ -1645,6 +1645,7 @@ class Executor:
             workflow=located["name"],
             version=definition["version"],
             questions=questionary["questions"],
+            pages=questionary.get("pages", []),
             defaults=questionary["defaults"],
             requires_missing=self.requires_of(definition)["missing"],
         )
@@ -1783,9 +1784,10 @@ class Executor:
                     for key, value in answers.items()
                     if key not in (*invalid_inputs, *invalid_worktree, *invalid_models)
                 }
-                for question in build_questionary(definition, ctx, retry_answers)["questions"]:
-                    if question["id"] in (*invalid_inputs, *invalid_models, "worktree"):
-                        questions[question["id"]] = question
+                for question in retry_questions(
+                    definition, ctx, retry_answers, [*invalid_inputs, *invalid_models, "worktree"]
+                ):
+                    questions[question["id"]] = question
             raise domain_error(
                 "MISSING_ANSWERS",
                 f"pre-flight questions left unanswered (ask them, never default them): {', '.join(missing)}",

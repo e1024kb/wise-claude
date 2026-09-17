@@ -132,12 +132,26 @@ harness runs the group (`harness.<group>`, asked whenever more than one
 is installed; a logged-out one is offered with its login command in the
 option). Once all harness choices are settled, it asks
 `permissions.<harness>` once per selected or fallback provider
-(`Auto` recommended, `Approval required`, or `Bypass permissions`), then
-which model that harness offers (`model.<group>`: every predefined catalog
-entry first, then every extra model the installed harness reported, each
-option tagged `source: catalog|harness`), then the effort that model takes
-(`effort.<group>`). Each accepted form unlocks the next stage.
+(`Bypass permissions`, `Auto`, `Approval required`; one question per
+provider in the order claude, codex, cursor, grok, gemini), then model and
+effort as a chain, group by group: the first group's `model.<group>` alone
+(every predefined catalog entry first, then every extra model the installed
+harness reported, each option tagged `source: catalog|harness`), then on every
+next page the previous group's `effort.<group>` (options in the order medium,
+high, xhigh, low, max) together with the next group's `model.<group>`, and
+the last group's `effort.<group>` alone. Groups come in a fixed order: the
+workflow's own groups first, then `plan`, `implement`, `fix`, `review`,
+`watch`, `support`. Each accepted form unlocks the next stage.
 An answered question is never returned twice.
+
+Every `wise_preflight` response carries `pages`: the returned question ids
+grouped into the pages to render, at most four each, never straddling a
+stage. Render exactly one `AskUserQuestion` call per page, pages in order,
+questions in the page's order; never merge pages, never regroup them. Count
+pages across the whole pre-flight and put `Page N` in each question's
+header, so page 3 of ticket-auto holds the same questions in every run. The
+default option carries ` (default)` in its label and stays in its slot: never
+move it first and never add a `(Recommended)` marker of your own.
 
 The main harness conductor owns all user interaction. Provider children and
 nested agents may request an answer through `wise_ask`, but they never open a
@@ -250,8 +264,9 @@ Ticket ids are markdown links when a URL is known.
 
 ## 5. Final report
 
-Compact table from the collected events: step | verdict | harness and
-model | tokens, then the run totals, then
+Compact table from the collected events: step | verdict | harness, model
+and effort (from `step.started`; `-` when the step ran without an effort
+flag) | tokens, then the run totals, then
 `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" report <run_id>` for usage
 by pool and harness plus per-step verdicts and unit summaries.
 On `run.failed`: print `status` and `error` from `wise_status

@@ -95,17 +95,18 @@ def test_parse_model_listings():
     assert parse_model_listing("codex", GROK_LISTING) == []
 
 
-def test_merged_catalog_keeps_catalog_first_then_sorted_unique_additions():
+def test_merged_catalog_keeps_catalog_first_then_reported_unique_additions():
     discovered = parse_model_listing("cursor", CURSOR_LISTING)
     merged = merged_catalog("cursor", discovered)
     assert [(m["id"], m["source"]) for m in merged] == [
         ("cursor-grok-4.6-high", "catalog"),
         ("composer-2.5", "catalog"),
         ("auto", "harness"),
-        ("claude-opus-5-thinking-high", "harness"),
         ("gpt-5.3-codex-low", "harness"),
+        ("claude-opus-5-thinking-high", "harness"),
     ]
-    assert merged == merged_catalog("cursor", list(reversed(discovered)) + discovered)
+    # extras keep the harness's own order; a repeated id keeps its first slot
+    assert merged == merged_catalog("cursor", discovered + list(reversed(discovered)))
     assert [m["source"] for m in merged_catalog("cursor")] == ["catalog", "catalog"]
     shouted = merged_catalog("cursor", [{"id": "COMPOSER-2.5"}, {"id": "Auto"}, {"id": "auto"}])
     assert [(m["id"], m["source"]) for m in shouted[2:]] == [("Auto", "harness")]

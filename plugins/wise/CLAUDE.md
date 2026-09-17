@@ -439,7 +439,8 @@ one-liners below are the rule, not the argument for it.
   workflows run at `medium`) is `engine/wise_engine/resolve.py`; the model
   catalog pre-flight offers is `engine/wise_engine/models.py` (the predefined
   rows always come first; models an installed harness reports through its
-  listing command are appended sorted by id, never substituted). Keep
+  listing command are appended in the order the harness listed them, never
+  substituted). Keep
   `AGENTS.md`'s catalog table in sync with `agents/*.md`, the same way
   workflow READMEs stay in sync with YAML.
 - **Provider permissions are floors, not overrides.** Pre-flight asks

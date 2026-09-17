@@ -188,7 +188,7 @@ Cancellation stops the skill with nothing dispatched:
 Use the chosen harness's catalog from §3 (or read it now when `--on` was
 given). Rows: `id`, `label`, `efforts`, `description`, `source` (`catalog`
 for the predefined entries, `harness` for models the installed harness
-reported, appended after them sorted by id). Never hardcode a model list.
+reported, appended after them in the harness's own order). Never hardcode a model list.
 
 - `--model` given: match it against the catalog rows (`dispatch` accepts an
   uncatalogued id and warns; keep that warning for the final report). A

@@ -76,8 +76,8 @@ Inside `process`, per ticket and in this order:
 
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
-| `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a foreign worktree or branch is skipped. |
-| `worktree` | code | - | Selected current tree or `<run-dir>/worktrees/<branch>` on branch `<ticket-ref>` off the fetched `base_branch`. |
+| `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a branch that already exists locally, on origin or in a worktree moves the unit to the first free `<branch>-N` (N from 2), never reused, never touched. |
+| `worktree` | code | - | Selected current tree or `<run-dir>/worktrees/<branch>` on the branch `claim` selected (`<ticket-ref>` or its free `<ticket-ref>-N`) off the fetched `base_branch`. |
 | `plan` | model | `plan` | Reads the ticket (context body first, else the tracker), audits the worktree, writes `<run-dir>/plans/PLAN-<ref>.md`. `no-access` or `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `fix` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |

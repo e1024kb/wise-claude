@@ -80,12 +80,12 @@ inputs:
     prompt: "Where should ticket branches run? (current: current tree, tickets run sequentially | new: new worktree per ticket)"
     default: new
     validate: "^(current|new)$"
-  - name: base_branch
-    prompt: "Base branch for the ticket branches and their PRs? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
-    options-from: branches
   - name: tickets
     prompt: "Which tickets? Comma-separated URLs or ids (PROJ-1, PROJ-2, https://linear.app/acme/issue/ENG-9). No spaces when passed positionally."
     from-context: ticket[].ref
+  - name: base_branch
+    prompt: "Base branch for the ticket branches and their PRs? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
+    options-from: branches
   - name: guidance
     prompt: "Optional guidance for this run: skills or libraries to prefer, guidelines, files to avoid. Blank = none."
     optional: true

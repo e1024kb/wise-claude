@@ -41,17 +41,35 @@ is **run-scoped, not ticket-scoped** — it's keyed on the run ULID and exists t
 isolate a workflow run's edits, not to track a ticket. It is intentionally
 exempt from this rule and keeps its `wise/` prefix.
 
+## The other exception — a taken branch gets a numeric suffix
+
+A fresh run never reuses a branch it does not own. When `target_branch`
+already exists locally, on `origin`, or in a registered worktree, the run
+takes the first free `<target_branch>-N` with `N` counting from 2
+(`PROJ-777-2`, `PROJ-777-3`, ...) and says so. A run that resumes keeps the
+branch it created, suffixed or not. The engine's unit pipelines do this in
+`claim` (`engine/wise_engine/phases/claim.py`, `free_branch`); ticket-plan's
+`setup` step follows the same rule in prose. The existing branch is never
+deleted, reset or overwritten.
+
 ## For implementers
 
 Compute `target_branch` from `ticket_ref` per the table above, then:
 
 ```bash
-# create or switch, idempotently, on a clean tree
-if git rev-parse --verify --quiet "$target_branch" >/dev/null; then
-  git checkout "$target_branch"
-else
-  git checkout -b "$target_branch"
-fi
+# on a clean tree: resume your own branch (suffixed or not), else create
+# the first free name
+case "$(git rev-parse --abbrev-ref HEAD)" in
+  "$target_branch" | "$target_branch"-[0-9]*)
+    : ;;
+  *)
+    candidate="$target_branch"; n=1
+    while git show-ref --verify --quiet "refs/heads/$candidate" \
+       || git ls-remote --exit-code --heads origin "$candidate" >/dev/null 2>&1; do
+      n=$((n + 1)); candidate="$target_branch-$n"
+    done
+    git checkout -b "$candidate" ;;
+esac
 ```
 
 The worktree *directory* name (e.g. `<project>.wise-ticket-<ref>`) is a path, not

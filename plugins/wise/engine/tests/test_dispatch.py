@@ -67,10 +67,10 @@ def test_models_appends_harness_reported_rows_deterministically(tmp_path):
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
     reported = [
-        dict(id="grok-4.5", label="grok-4.5", description="reported", efforts=[]),
+        dict(id="grok-5", label="grok-5", description="reported", efforts=[]),
         dict(id="grok-4.6", label="dup of catalog", description="reported", efforts=[]),
         dict(id="grok-4.4", label="grok-4.4", description="reported", efforts=[]),
-        dict(id="grok-4.5", label="dup", description="reported", efforts=[]),
+        dict(id="grok-5", label="dup", description="reported", efforts=[]),
     ]
     adapters = {
         "grok": ListingAdapter("grok", "grok", reported),
@@ -81,19 +81,21 @@ def test_models_appends_harness_reported_rows_deterministically(tmp_path):
     io, out, _ = output()
     assert asyncio.run(cmd_models(["grok", "cursor", "codex"], {}, io, env, adapters.get)) == 0
     rows = json.loads("".join(out))
+    # catalog first, then the extras in the order the harness listed them
     assert [(r["id"], r["source"]) for r in rows if r["harness"] == "grok"] == [
         ("grok-4.6", "catalog"),
+        ("grok-4.5", "catalog"),
+        ("grok-5", "harness"),
         ("grok-4.4", "harness"),
-        ("grok-4.5", "harness"),
     ]
-    assert next(r for r in rows if r["id"] == "grok-4.5")["label"] == "grok-4.5"
+    assert next(r for r in rows if r["id"] == "grok-5")["label"] == "grok-5"
     assert adapters["grok"].calls == 1
     assert adapters["cursor"].calls == 0, "cursor-agent is not on PATH"
     assert adapters["codex"].calls == 0
     assert all(r["source"] == "catalog" for r in rows if r["harness"] != "grok")
     out.clear()
     assert asyncio.run(cmd_models(["grok"], {"catalog-only": True}, io, env, adapters.get)) == 0
-    assert [r["id"] for r in json.loads("".join(out))] == ["grok-4.6"]
+    assert [r["id"] for r in json.loads("".join(out))] == ["grok-4.6", "grok-4.5"]
     assert adapters["grok"].calls == 1
 
 

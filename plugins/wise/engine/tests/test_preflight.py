@@ -18,8 +18,8 @@ INPUTS = [
     "input.gap_mode",
     "input.review_mode",
     "input.branch_mode",
-    "input.base_branch",
     "input.implement_mode",
+    "input.base_branch",
 ]
 MODES = {"input.review_mode": "ask", "input.implement_mode": "now"}
 AUTO = {"worktree": "current", "permissions.claude": "auto"}
@@ -105,15 +105,20 @@ def test_stage_order_and_explicit_answers():
     permission = next(q for q in stage["questions"] if q["id"] == "permissions.codex")
     assert permission["default"] == "auto"
     assert [o["value"] for o in permission["options"]] == [
+        "full-access",
         "auto",
         "approval-required",
-        "full-access",
+    ]
+    assert [o["label"] for o in permission["options"]] == [
+        "Bypass permissions",
+        "Auto (default)",
+        "Approval required",
     ]
     answer.update({"permissions.codex": "auto", **AUTO})
+    # Model and effort are a chain: the first page asks the first group's
+    # model alone, every next page the previous effort plus the next model.
     stage = p.build_questionary(defn, ready, answer)
-    assert [i for i in ids(stage) if not i.startswith("input.")] == [
-        f"model.{g}" for g in groups(defn)
-    ]
+    assert [i for i in ids(stage) if not i.startswith("input.")] == ["model.analyze-design"]
     codex = next(q for q in stage["questions"] if q["id"] == "model.analyze-design")
     assert codex["default"] == "gpt-6-astra"
     assert [o["value"] for o in codex["options"]] == [
@@ -122,21 +127,30 @@ def test_stage_order_and_explicit_answers():
         "gpt-5.6-luna",
         "gpt-5.5",
     ]
-    answer.update({f"model.{g}": "claude-haiku-4-5" for g in groups(defn)})
+    assert codex["options"][0]["label"] == "GPT-6 Astra (default)"
     answer["model.analyze-design"] = "gpt-5.6-luna"
     stage = p.build_questionary(defn, ready, answer)
-    assert [i for i in ids(stage) if not i.startswith("input.")] == ["effort.analyze-design"]
+    assert [i for i in ids(stage) if not i.startswith("input.")] == [
+        "effort.analyze-design",
+        "model.research-context",
+    ]
+    assert stage["pages"][-1] == ["effort.analyze-design", "model.research-context"]
     eq = next(q for q in stage["questions"] if q["id"] == "effort.analyze-design")
     assert eq["default"] == "high" and eq["label"] == "Effort for GPT-5.6 Luna: Design spec?"
+    assert [o["value"] for o in eq["options"]] == ["medium", "high", "low"]
+    assert eq["options"][1]["label"] == "high (default)"
     answer["effort.analyze-design"] = "medium"
-    assert ids(p.build_questionary(defn, ready, answer)) == [i for i in INPUTS if i not in MODES]
+    answer.update({f"model.{g}": "claude-haiku-4-5" for g in groups(defn)[1:]})
+    stage = p.build_questionary(defn, ready, answer)
+    assert [i for i in ids(stage) if not i.startswith("input.")] == []
+    assert ids(stage) == [i for i in INPUTS if i not in MODES]
 
 
 def test_model_options_carry_source_and_accept_harness_reported_models():
     defn = definition()
     base = {"worktree": "current", "step-select": OPTIONAL, **MODES, **AUTO}
     reported = [
-        dict(id="grok-4.5", label="grok-4.5", description="reported", efforts=[]),
+        dict(id="grok-5", label="grok-5", description="reported", efforts=[]),
         dict(id="grok-4.6", label="dup", description="reported", efforts=[]),
     ]
     ctx = {"harnesses": ["grok"], "models": {"grok": reported}}
@@ -145,19 +159,20 @@ def test_model_options_carry_source_and_accept_harness_reported_models():
     question = next(q for q in stage["questions"] if q["id"] == "model.analyze-design")
     assert [(o["value"], o["source"]) for o in question["options"]] == [
         ("grok-4.6", "catalog"),
-        ("grok-4.5", "harness"),
+        ("grok-4.5", "catalog"),
+        ("grok-5", "harness"),
     ]
     assert question["default"] == "grok-4.6"
-    # without the discovery the single-entry grok catalog asks nothing
+    # without the discovery the two-entry grok catalog still asks
     silent = p.build_questionary(defn, {"harnesses": ["grok"]}, answer)
-    assert not any(q["id"].startswith("model.") for q in silent["questions"])
-    answer.update({f"model.{g}": "grok-4.5" for g in groups(defn)})
+    assert [o["value"] for o in silent["questions"][-1]["options"]] == ["grok-4.6", "grok-4.5"]
+    answer.update({f"model.{g}": "grok-5" for g in groups(defn)})
     assert not any(
         q["id"].startswith(("model.", "effort."))
         for q in p.build_questionary(defn, ctx, answer)["questions"]
     )
     applied = p.apply_answers(defn, answer, ctx)
-    assert applied["tuning"]["analyze-design"] == dict(harness="grok", model="grok-4.5")
+    assert applied["tuning"]["analyze-design"] == dict(harness="grok", model="grok-5")
     # the same answer without the discovery context is not a known model
     assert p.apply_answers(defn, answer)["tuning"]["analyze-design"] == dict(
         harness="grok", model="grok-4.6"
@@ -238,9 +253,7 @@ def test_questionary_with_auth_discovers_models_once():
 def test_single_harness_skips_question(ctx):
     defn = definition()
     result = p.build_questionary(defn, ctx, {"step-select": OPTIONAL, **MODES, **AUTO})
-    assert [i for i in ids(result) if not i.startswith("input.")] == [
-        f"model.{g}" for g in groups(defn)
-    ]
+    assert [i for i in ids(result) if not i.startswith("input.")] == ["model.analyze-design"]
 
 
 def test_known_inputs_filter_groups():
@@ -254,16 +267,15 @@ def test_known_inputs_filter_groups():
         implement_mode="plan-only",
     )
     assert p.known_inputs(defn, {}, {"ticket": [{"ref": "TEST-1"}]})["ticket_id"] == "TEST-1"
+    settled = {f"model.{g}": "claude-opus-5" for g in groups(defn)}
     for mode, active in [("ask", True), ("auto", False)]:
-        assert (
-            "model.refine-plan"
-            in ids(p.build_questionary(defn, {}, {**base, "input.review_mode": mode}))
-        ) == active
+        answers = {**base, **settled, "input.review_mode": mode}
+        answers.pop("model.refine-plan")
+        assert ("model.refine-plan" in ids(p.build_questionary(defn, {}, answers))) == active
     for mode, active in [("plan-only", False), ("now", True), ("ask", True)]:
-        assert (
-            "model.implement"
-            in ids(p.build_questionary(defn, {}, {**base, "input.implement_mode": mode}))
-        ) == active
+        answers = {**base, **settled, "input.implement_mode": mode}
+        answers.pop("model.implement")
+        assert ("model.implement" in ids(p.build_questionary(defn, {}, answers))) == active
     enabled = p.enabled_step_ids(defn, OPTIONAL)
     assert p.active_group_ids(defn, enabled, {"inputs": {}, "answers": {}}) == set(groups(defn))
     next(s for s in defn["steps"] if s["id"] == "implement")["when"] = "implement_mode =="
@@ -274,13 +286,24 @@ def test_known_inputs_filter_groups():
 
 def test_deselected_locked_and_unbound_groups():
     defn = extended()
-    stage = p.build_questionary(defn, {}, {"step-select": ["analyze-related"], **MODES, **AUTO})
-    assert [i for i in ids(stage) if not i.startswith("input.")] == [
-        "model.codebase-audit",
-        "model.build-plan",
-        "model.refine-plan",
-        "model.implement",
-        "model.support",
+    answers = {"step-select": ["analyze-related"], **MODES, **AUTO}
+    asked = []
+    for _ in range(8):
+        stage = p.build_questionary(defn, {}, answers)
+        tuning = [i for i in ids(stage) if i.startswith(("model.", "effort."))]
+        if not tuning:
+            break
+        asked.append(tuning)
+        for q in stage["questions"]:
+            if q["id"] in tuning:
+                answers[q["id"]] = q["default"]
+    assert asked == [
+        ["model.codebase-audit"],
+        ["effort.codebase-audit", "model.build-plan"],
+        ["effort.build-plan", "model.refine-plan"],
+        ["effort.refine-plan", "model.implement"],
+        ["effort.implement", "model.support"],
+        ["effort.support"],
     ]
     assert not any(i.endswith(".presentation") for i in ids(stage))
     applied = p.apply_answers(
@@ -351,7 +374,10 @@ def test_plain_alternation_inputs_are_choices_and_keep_validation():
         "id": "input.mode",
         "kind": "choice",
         "label": "Mode?",
-        "options": [{"value": "auto", "label": "auto"}, {"value": "ask", "label": "ask"}],
+        "options": [
+            {"value": "auto", "label": "auto (default)"},
+            {"value": "ask", "label": "ask"},
+        ],
         "default": "auto",
     }
     assert all(
@@ -384,18 +410,19 @@ def test_optional_plain_alternation_has_clickable_empty_choice(default, expected
     )
     assert question["kind"] == "choice"
     assert question["default"] == expected_default
+    mark = " (default)"
     assert question["options"] == [
-        {"value": "yes", "label": "yes"},
+        {"value": "yes", "label": "yes" + (mark if expected_default == "yes" else "")},
         {"value": "no", "label": "no"},
-        {"value": "", "label": "Leave unset"},
+        {"value": "", "label": "Leave unset" + (mark if expected_default == "" else "")},
     ]
     assert question_form_schema(question)["properties"]["input.mode"] == {
         "type": "string",
         "title": "Mode?",
         "oneOf": [
-            {"const": "yes", "title": "yes"},
+            {"const": "yes", "title": "yes" + (mark if expected_default == "yes" else "")},
             {"const": "no", "title": "no"},
-            {"const": "", "title": "Leave unset"},
+            {"const": "", "title": "Leave unset" + (mark if expected_default == "" else "")},
         ],
         "default": expected_default,
     }
@@ -654,9 +681,10 @@ def test_permissions_and_fallbacks():
             ]
         },
     }
+    # every provider a running step may use, in picker order, not step order
     assert p.active_harnesses(defn, {"a", "u"}, {"g", "r"}, {}) == [
-        "codex",
         "claude",
+        "codex",
         "cursor",
         "grok",
         "gemini",
@@ -879,14 +907,30 @@ def test_lock_worktree_skips_the_worktree_question(workflow):
 def test_invalid_model_answer_ids_rejects_unbacked_explicit_models():
     defn = definition()
     group = next(iter(groups(defn)))
-    discovered = {"grok": [{"id": "grok-4.5", "label": "grok-4.5", "efforts": []}]}
-    answers = {f"harness.{group}": "grok", f"model.{group}": "grok-4.5"}
+    discovered = {"grok": [{"id": "grok-5", "label": "grok-5", "efforts": []}]}
+    answers = {f"harness.{group}": "grok", f"model.{group}": "grok-5"}
     assert p.invalid_model_answer_ids(defn, answers, discovered) == []
     # the same answer with the listing gone is invalid, never defaulted
     assert p.invalid_model_answer_ids(defn, answers, {}) == [f"model.{group}"]
     assert p.invalid_model_answer_ids(defn, answers, None) == [f"model.{group}"]
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": "opus"}, None) == []
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": ""}, None) == []
+
+
+def test_retry_questions_collects_every_invalid_model_question():
+    defn = definition()
+    first, second = groups(defn)[:2]
+    ctx = {"harnesses": ["claude"], "models": {}}
+    answered = p.complete_answers(defn, ctx, {"worktree": "current"})["answers"]
+    given = {**answered, f"model.{first}": "bogus-1", f"model.{second}": "bogus-2"}
+    invalid = p.invalid_model_answer_ids(defn, given, None)
+    assert invalid == [f"model.{first}", f"model.{second}"]
+    retry = {key: value for key, value in given.items() if key not in invalid}
+    # A single rebuild stops at the first model page; the retry path must
+    # carry a question for every invalid id, not only the first.
+    single = [key for key in ids(p.build_questionary(defn, ctx, retry)) if key.startswith("model.")]
+    assert single == [f"model.{first}"]
+    assert [q["id"] for q in p.retry_questions(defn, ctx, retry, invalid)] == invalid
 
 
 def test_discover_models_cache_reuses_rows_and_survives_a_failed_listing():
@@ -923,3 +967,39 @@ def test_discover_models_cache_reuses_rows_and_survives_a_failed_listing():
             assert first.listed == 1 and negative == {"grok": []}
 
     asyncio.run(run())
+
+
+BUNDLED = sorted(path.parent.name for path in (ROOT / "workflows").glob("*/workflow.yaml"))
+
+
+@pytest.mark.parametrize("workflow", BUNDLED)
+def test_bundled_workflows_declare_the_canonical_question_order(workflow):
+    """The YAML order is the asked order: shared groups and inputs sit last, in
+    the fixed picker order, so the same page holds the same questions across
+    workflows and runs."""
+    defn = load_and_validate({"path": str(ROOT / f"workflows/{workflow}/workflow.yaml")})["def"]
+    declared_groups = defn.get("tuning", {}).get("groups", [])
+    assert [g["id"] for g in declared_groups] == [
+        g["id"] for g in p.canonical_groups(declared_groups)
+    ]
+    declared_inputs = defn.get("inputs", [])
+    assert [i["name"] for i in declared_inputs] == [
+        i["name"] for i in p.canonical_inputs(declared_inputs)
+    ]
+
+
+def test_pages_hold_at_most_four_questions_and_never_straddle_a_stage():
+    defn = definition()
+    ready = {"harnesses": ["claude", "codex", "cursor", "grok", "gemini"]}
+    first = p.build_questionary(defn, ready)
+    assert first["pages"] == [
+        ["worktree", "step-select", "input.ticket_id", "input.review_mode"],
+        ["input.branch_mode", "input.implement_mode", "input.base_branch"],
+    ]
+    answers = {"worktree": "current", "step-select": OPTIONAL, **MODES}
+    stage = p.build_questionary(defn, ready, answers)
+    harness = [i for i in ids(stage) if i.startswith("harness.")]
+    inputs = [i for i in ids(stage) if i.startswith("input.")]
+    chunks = lambda items: [items[i : i + 4] for i in range(0, len(items), 4)]  # noqa: E731
+    assert len(harness) == 8 and stage["pages"] == chunks(inputs) + chunks(harness)
+    assert all(len(page) <= p.PAGE_SIZE for page in stage["pages"])

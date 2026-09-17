@@ -89,7 +89,8 @@ MODEL_CATALOG: dict[str, Any] = {
         },
     ],
     "grok": [
-        {"id": "grok-4.6", "label": "Grok 4.6", "description": "xAI current model", "efforts": []}
+        {"id": "grok-4.6", "label": "Grok 4.6", "description": "xAI current model", "efforts": []},
+        {"id": "grok-4.5", "label": "Grok 4.5", "description": "previous xAI model", "efforts": []},
     ],
     "gemini": [
         {
@@ -181,7 +182,9 @@ def merged_catalog(
         if key in known or key in extra:
             continue
         extra[key] = {**model, "source": SOURCE_HARNESS}
-    rows.extend(extra[key] for key in sorted(extra))
+    # Harness-reported extras follow the catalog in the order the harness
+    # listed them; the catalog itself is the hand-ordered part.
+    rows.extend(extra.values())
     return rows
 
 
