@@ -917,6 +917,22 @@ def test_invalid_model_answer_ids_rejects_unbacked_explicit_models():
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": ""}, None) == []
 
 
+def test_retry_questions_collects_every_invalid_model_question():
+    defn = definition()
+    first, second = groups(defn)[:2]
+    ctx = {"harnesses": ["claude"], "models": {}}
+    answered = p.complete_answers(defn, ctx, {"worktree": "current"})["answers"]
+    given = {**answered, f"model.{first}": "bogus-1", f"model.{second}": "bogus-2"}
+    invalid = p.invalid_model_answer_ids(defn, given, None)
+    assert invalid == [f"model.{first}", f"model.{second}"]
+    retry = {key: value for key, value in given.items() if key not in invalid}
+    # A single rebuild stops at the first model page; the retry path must
+    # carry a question for every invalid id, not only the first.
+    single = [key for key in ids(p.build_questionary(defn, ctx, retry)) if key.startswith("model.")]
+    assert single == [f"model.{first}"]
+    assert [q["id"] for q in p.retry_questions(defn, ctx, retry, invalid)] == invalid
+
+
 def test_discover_models_cache_reuses_rows_and_survives_a_failed_listing():
     from wise_engine.models import discover_models
 

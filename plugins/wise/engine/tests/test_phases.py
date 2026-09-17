@@ -351,6 +351,21 @@ def test_claim_ownership_and_conflicts(tmp_path):
         fixture.failures[("git", "ls-remote")] = command_result(code=128)
         assert "origin unreachable" in (await fixture.phase(claim_phase))["reason"]
         fixture.failures.pop(("git", "ls-remote"))
+        # A probe that fails once and then recovers is still "unreachable",
+        # never "every suffixed name is taken".
+        execute, probes = fixture.ctx["exec"], []
+
+        async def flaky(cmd, args, opts):
+            if cmd == "git" and args[0] == "ls-remote":
+                probes.append(args[-1])
+                if len(probes) == 1:
+                    return command_result(code=128)
+            return await execute(cmd, args, opts)
+
+        fixture.ctx["exec"] = flaky
+        result = await fixture.phase(claim_phase)
+        assert "origin unreachable" in result["reason"] and probes == ["PROJ-1"]
+        fixture.ctx["exec"] = execute
         fixture.pr = {"number": 5, "url": "https://github.invalid/pr/5", "state": "MERGED"}
         assert (await fixture.phase(claim_phase))["verdict"] == "merged"
         fixture.ctx["config"]["pipeline"] = "plan"

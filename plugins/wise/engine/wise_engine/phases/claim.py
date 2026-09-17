@@ -36,14 +36,19 @@ async def _branch_taken(ctx: Json, branch: str) -> bool | None:
     return ok(result) and f"\nbranch refs/heads/{branch}\n" in result["stdout"]
 
 
+class OriginUnreachable(Exception):
+    """`git ls-remote` against origin failed while probing a branch name."""
+
+
 async def free_branch(ctx: Json, wanted: str) -> str | None:
     """`wanted` when nothing holds it, else the first free `<wanted>-N` (N from
-    2); None when origin is unreachable or every candidate is taken."""
+    2); None when every candidate is taken. Raises OriginUnreachable when a
+    probe fails, so a transient failure never reads as "all names taken"."""
     for n in range(1, BRANCH_SUFFIX_LIMIT + 1):
         candidate = wanted if n == 1 else f"{wanted}-{n}"
         taken = await _branch_taken(ctx, candidate)
         if taken is None:
-            return None
+            raise OriginUnreachable(candidate)
         if not taken:
             return candidate
     return None
@@ -132,11 +137,11 @@ async def claim_phase(ctx: Json) -> Json:
         return fail(f"pr-merged: #{pr['number']}", "merged", {"unit": {**with_base, "pr": pr}})
     # A branch another run, a person, or a stale checkout already holds is
     # never reused: the unit takes the first free `<branch>-N` instead.
-    branch = await free_branch(ctx, unit["branch"])
+    try:
+        branch = await free_branch(ctx, unit["branch"])
+    except OriginUnreachable:
+        return fail("claim: origin unreachable (git ls-remote failed)")
     if branch is None:
-        taken = await remote_branch_exists(ctx, unit["branch"])
-        if taken is None:
-            return fail("claim: origin unreachable (git ls-remote failed)")
         return fail(
             f"already-claimed: {unit['branch']} and {BRANCH_SUFFIX_LIMIT - 1} suffixed names exist",
             "skipped",

@@ -659,6 +659,33 @@ def _paged(result: Json) -> Json:
     return {**result, "pages": paginate(result["questions"])}
 
 
+def retry_questions(definition: Json, ctx: Json, answers: Json, wanted: list[str]) -> list[Json]:
+    """The questions for every `wanted` id, rebuilt on top of `answers`.
+
+    Model questions come one group per page, so a found model is answered by
+    its default before the next rebuild until every wanted model is seen."""
+    found: dict[str, Json] = {}
+    pending = set(wanted)
+    answers = dict(answers)
+    for _ in range(len(wanted) + 1):
+        for question in build_questionary(definition, ctx, answers)["questions"]:
+            if question["id"] in pending:
+                found[question["id"]] = question
+                pending.discard(question["id"])
+        if not pending:
+            break
+        fillable = [
+            key
+            for key, question in found.items()
+            if key.startswith("model.") and key not in answers and "default" in question
+        ]
+        if not fillable:
+            break
+        for key in fillable:
+            answers[key] = found[key]["default"]
+    return list(found.values())
+
+
 def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> Json:
     tuning = {}
     models = (ctx or {}).get("models")
