@@ -74,7 +74,7 @@ flowchart TD
     B --> C[ensure-access<br/>agent support - context first, probe each tracker -> access, detail]
     C -->|access = ok| D[process<br/>units pipeline ticket - one unit per ticket -> units rows]
     C -->|access = blocked| E
-    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
+    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, no_pr, report_path]
 ```
 
 Inside `process`, per ticket and in this order:

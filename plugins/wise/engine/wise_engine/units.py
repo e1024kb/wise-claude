@@ -568,30 +568,47 @@ async def _run_units_step(input: Json) -> Json:
         for phase in PIPELINE_PHASES[config["pipeline"]]:
             if input.get("signal") is not None and input["signal"].is_set():
                 break
-            if (
-                stopped
-                and phase != "cleanup"
-                or not _should_run(phase, resume_phase)
-                or phase == "fix"
-            ):
-                continue
             remote = config.get("remote", GITHUB_DEFAULT)
             skips = (
                 NO_GITHUB_SKIPS.get(remote["kind"], ())
                 if config["pipeline"] in ("ticket", "plan")
                 else ()
             )
-            if phase in skips:
+            # The GitHub-phase skip is decided by the detected remote, not the
+            # resume cursor, so handle it before `_should_run`. Otherwise a unit
+            # whose remote changed to none/other on resume filters out the
+            # already-persisted `pr` phase and finishes `failed: no verdict
+            # recorded` instead of a truthful verdict.
+            if phase in skips and not stopped:
                 log(f"{phase}: skipped, no GitHub remote")
-                if phase == "pr":
-                    ledger["verdict"] = "no-pr"
-                    ledger["reason"] = no_pr_reason(
-                        remote, ledger["unit"]["branch"], ledger["unit"]["worktree"]
+                if phase == "pr" and "verdict" not in ledger:
+                    pr_opened = resume_phase in PHASES and PHASES.index("pr") <= PHASES.index(
+                        resume_phase
                     )
+                    if pr_opened:
+                        # A PR was opened on an earlier GitHub run; the remote is
+                        # no longer GitHub, so there is nothing left to do.
+                        ledger["verdict"] = "skipped"
+                        ledger["reason"] = (
+                            "no-github-remote: origin is no longer GitHub; the PR for "
+                            f"{ledger['unit']['branch']} was already opened"
+                        )
+                    else:
+                        ledger["verdict"] = "no-pr"
+                        ledger["reason"] = no_pr_reason(
+                            remote, ledger["unit"]["branch"], ledger["unit"]["worktree"]
+                        )
                     # Do not advance last_phase to `pr`: leaving it at the last
                     # completed phase lets a resume (after a GitHub `origin` is
                     # added) re-enter `pr` instead of skipping past it.
                     persist()
+                continue
+            if (
+                stopped
+                and phase != "cleanup"
+                or not _should_run(phase, resume_phase)
+                or phase == "fix"
+            ):
                 continue
             ctx = make_ctx()
             try:

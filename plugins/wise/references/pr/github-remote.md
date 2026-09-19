@@ -36,12 +36,14 @@ rest=${origin#*://}     # drop any scheme://
 rest=${rest%%/*}        # cut the authority at the first /
 rest=${rest##*@}        # drop any user[:token]@
 host=${rest%%:*}        # drop any :port or scp-style :path
+host=$(printf '%s' "$host" | tr 'A-Z' 'a-z')   # match the classify literals
 ```
 
 This handles the scp-like form too: `git@github.com:a/b.git` has no
 `://`, so `%%/*` leaves `git@github.com:a`, `##*@` leaves `github.com:a`,
 and `%%:*` leaves `github.com`. A local path (`/srv/r.git`) yields an
-empty host.
+empty host. Lowercase the host before classifying so an upper-case URL
+(`https://GITHUB.COM/a/b`) still matches the GitHub literals below.
 
 ### 3. Classify
 
@@ -64,12 +66,17 @@ the `gh auth status --hostname` rule above.
   table below and stop, successfully. Never ask a question; never call
   `gh pr`.
 
-`<no 'origin' remote | origin is <host>>` below means: print
-`no 'origin' remote` for `none`, or `origin is <host>` for `other`.
+`<where>` below means: print `no 'origin' remote` for `none`; for `other`
+print `origin is <host>` when the host is non-empty, or `origin is a local
+path` when it is empty (a local-path remote, e.g. `/srv/r.git`).
+
+The `create` line names the current branch. Resolve it first with
+`git rev-parse --abbrev-ref HEAD` so the `<branch>` placeholder is filled
+(this check may run before the skill has otherwise resolved the branch).
 
 | Skill | Line |
 |---|---|
-| create | `No GitHub remote (<no 'origin' remote \| origin is <host>>): no PR opened. Commits stay on <branch>.` (for `other`, append ` Push with git and open the merge request on <host>.`) |
-| reviewers | `No GitHub remote (<no 'origin' remote \| origin is <host>>): no PR to add reviewers to.` |
-| request review | `No GitHub remote (<no 'origin' remote \| origin is <host>>): no PR to request a bot review on.` |
-| watch | `No GitHub remote (<no 'origin' remote \| origin is <host>>): no PR or GitHub checks to watch.` |
+| create | `No GitHub remote (<where>): no PR opened. Commits stay on <branch>.` (for `other` with a non-empty host, append ` Push with git and open the merge request on <host>.`) |
+| reviewers | `No GitHub remote (<where>): no PR to add reviewers to.` |
+| request review | `No GitHub remote (<where>): no PR to request a bot review on.` |
+| watch | `No GitHub remote (<where>): no PR or GitHub checks to watch.` |

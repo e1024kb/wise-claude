@@ -58,7 +58,7 @@ watch); this workflow is the full pipeline around a plan file.
 flowchart TD
     A[preflight-checks<br/>bash - clean tree, classify origin, gh auth only for a GitHub origin] --> B[split-plans<br/>bash - comma list -> JSON array of absolute paths plan_list]
     B --> D[process<br/>units pipeline plan - one unit per seed plan -> units rows]
-    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
+    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, no_pr, report_path]
 ```
 
 Inside `process`, per plan file and in this order (branch = the file

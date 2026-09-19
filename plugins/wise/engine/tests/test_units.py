@@ -618,6 +618,36 @@ def test_resume_across_remote_change(tmp_path):
     asyncio.run(scenario())
 
 
+def test_resume_after_pr_when_remote_drops_github(tmp_path):
+    # A unit that opened its PR on an earlier GitHub run, resumed after the
+    # remote is no longer GitHub, ends `skipped` (not `failed: no verdict`).
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = None
+        unit = make_unit("ticket", "PROJ-1", str(fixture.repo), str(fixture.run_dir), "main")
+        Path(unit["worktree"]).mkdir(parents=True, exist_ok=True)
+        fixture.trees[unit["worktree"]] = "PROJ-1"
+        fixture.branches.add("PROJ-1")
+        write_unit(
+            fixture.run_dir,
+            "PROJ-1",
+            {
+                "unit": {**unit, "base_ref": "origin/main"},
+                "last_phase": "pr",
+                "cleaned": False,
+                "cursors": {"claim": "owned", "worktree": "includes-done"},
+                "usage": empty_usage(),
+                "caps": {},
+            },
+        )
+        result = await run_units_step(fixture.input())
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "skipped"
+        assert "already opened" in row["reason"]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("origin", [None, "git@gitlab.com:a/r.git"])
 def test_pr_pipeline_without_github_remote_is_skipped(tmp_path, origin):
     async def scenario():

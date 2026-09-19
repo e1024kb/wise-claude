@@ -105,6 +105,22 @@ steps:
         echo "REMOTE: none (no 'origin' remote); units commit locally, no push, PR or watch."
       else
         rest=${origin#*://}; rest=${rest%%/*}; rest=${rest##*@}; host=${rest%%:*}
+        host=$(printf '%s' "$host" | tr 'A-Z' 'a-z')
+        # Resolve an SSH host alias (scp-style or ssh:// URL) to its real
+        # hostname so an alias mapping to a GitHub host is classified as
+        # GitHub (matches wise_engine/phases/remote.py). No connection is made;
+        # known GitHub hosts need no lookup.
+        case "$origin" in
+          ssh://*|git+ssh://*) is_ssh=yes ;;
+          *://*) is_ssh=no ;;
+          *:*) is_ssh=yes ;;
+          *) is_ssh=no ;;
+        esac
+        case "$host" in github.com|www.github.com|ssh.github.com|*.ghe.com) is_ssh=no ;; esac
+        if [ "$is_ssh" = yes ] && [ -n "$host" ] && command -v ssh >/dev/null 2>&1; then
+          resolved=$(ssh -G "$host" 2>/dev/null | awk 'tolower($1)=="hostname"{print $2; exit}')
+          [ -n "$resolved" ] && host=$(printf '%s' "$resolved" | tr 'A-Z' 'a-z')
+        fi
         case "$host" in
           github.com|www.github.com|ssh.github.com|*.ghe.com) github=yes ;;
           "") github=no ;;

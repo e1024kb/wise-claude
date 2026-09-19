@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from .common import Json, ok, run
+from .common import Json, err_text, ok, run
 
 GITHUB_HOSTS = ("github.com", "www.github.com", "ssh.github.com")
 GITHUB_DEFAULT: Json = {"kind": "github", "host": ""}
@@ -79,13 +79,27 @@ async def detect_remote(ctx: Json) -> Json:
     result = await ctx["exec"](
         "git", ["remote", "get-url", "origin"], {"cwd": ctx["cwd"], "env": ctx["env"]}
     )
-    url = result["stdout"].strip() if ok(result) else ""
+    if ok(result):
+        url = result["stdout"].strip()
+    elif result.get("timed_out") or "error" in result or result["code"] == 128:
+        # A timeout, spawn failure, or `not a git repository` (128) is a
+        # detection failure, not a confirmed missing origin. Do not silently
+        # skip the GitHub phases for those: assume GitHub so push/pr still run
+        # (and fail loudly if the remote is truly unusable). Git reports a
+        # genuinely absent origin with a non-zero exit that is none of these.
+        ctx["log"](f"remote: could not classify origin ({err_text(result, 120)}); assuming GitHub")
+        return {"kind": "github", "host": ""}
+    else:
+        url = ""
     if not url:
         remote = {"kind": "none", "host": ""}
         ctx["log"](skip_line(remote))
         return remote
     host = remote_host(url)
-    if host and "." not in host and is_ssh_style(url):
+    # Resolve an SSH host alias to its real hostname, unless it is already a
+    # known GitHub host (which never needs a lookup). This covers dotted
+    # aliases such as `github.work` that map to `github.com` in ~/.ssh/config.
+    if host and is_ssh_style(url) and host not in GITHUB_HOSTS and not host.endswith(".ghe.com"):
         host = await _resolve_alias(ctx, host)
     if not host:
         remote = {"kind": "other", "host": ""}
@@ -133,8 +147,7 @@ def no_pr_reason(remote: Json, branch: str, worktree: str) -> str:
     host = remote["host"]
     if not host:
         return (
-            f"no-github-remote: origin is a local path, not GitHub; {branch} "
-            f"pushed, no PR opened"
+            f"no-github-remote: origin is a local path, not GitHub; {branch} pushed, no PR opened"
         )
     return (
         f"no-github-remote: origin is {host}, not GitHub; {branch} pushed, "
