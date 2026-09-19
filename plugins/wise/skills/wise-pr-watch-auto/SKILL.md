@@ -86,6 +86,14 @@ pre-flight asks it.
 
 ## Procedure
 
+### 0. GitHub remote check
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/github-remote.md` and run its
+check first, before launching the `pr-watch` workflow (so no pre-flight
+runs). If the outcome is `none` or `other`, print the single
+watch-variant line from its table and stop successfully; never call
+`gh pr`. Only continue when the outcome is `github`.
+
 ### 1. Verify a PR exists for the current branch
 
 ```bash
@@ -133,6 +141,9 @@ findings file, a human comment). Link the PR.
 
 ## Guardrails
 
+- Without a GitHub remote, print the one-line notice from
+  `references/pr/github-remote.md` and stop; never launch the workflow
+  and never call `gh pr`.
 - The only questions are the engine's pre-flight (rendered by this main
   harness) and a gate the run opens; never answer one yourself and never
   ask anything else mid-run.

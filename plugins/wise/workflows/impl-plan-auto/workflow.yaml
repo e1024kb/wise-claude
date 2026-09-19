@@ -10,7 +10,9 @@ description: >-
   once the PR is green and quiet. No prompts after launch. One worktree
   + branch + PR per plan file; a merged PR loses its worktree and local
   branch, anything else stays open for a human with the worktree kept
-  for inspection.
+  for inspection. The push / PR / watch half runs only with a GitHub
+  `origin`: with no origin each unit commits locally, with a non-GitHub
+  origin it pushes but opens no PR (verdict `no-pr`), worktree kept.
 author: e1024kb
 
 project-selection: current
@@ -93,8 +95,44 @@ steps:
         echo "ERROR: base repo at $(pwd) has uncommitted changes; stash or commit them, then re-run." >&2
         exit 1
       fi
-      gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
-      git remote get-url origin >/dev/null 2>&1 || { echo "ERROR: no 'origin' remote." >&2; exit 1; }
+      # The PR half of each unit runs only against a GitHub `origin`. Classify
+      # it here (host only; never echo the URL, which may embed credentials)
+      # and require `gh auth` only when it is GitHub. No origin: units commit
+      # locally. Non-GitHub origin: units push but open no PR. The engine
+      # (wise_engine/phases/remote.py) applies the same rules for the skips.
+      origin=$(git remote get-url origin 2>/dev/null || true)
+      if [ -z "$origin" ]; then
+        echo "REMOTE: none (no 'origin' remote); units commit locally, no push, PR or watch."
+      else
+        rest=${origin#*://}; rest=${rest%%/*}; rest=${rest##*@}; host=${rest%%:*}
+        host=$(printf '%s' "$host" | tr 'A-Z' 'a-z')
+        # Resolve an SSH host alias (scp-style or ssh:// URL) to its real
+        # hostname so an alias mapping to a GitHub host is classified as
+        # GitHub (matches wise_engine/phases/remote.py). No connection is made;
+        # known GitHub hosts need no lookup.
+        case "$origin" in
+          ssh://*|git+ssh://*) is_ssh=yes ;;
+          *://*) is_ssh=no ;;
+          *:*) is_ssh=yes ;;
+          *) is_ssh=no ;;
+        esac
+        case "$host" in github.com|www.github.com|ssh.github.com|*.ghe.com) is_ssh=no ;; esac
+        if [ "$is_ssh" = yes ] && [ -n "$host" ] && command -v ssh >/dev/null 2>&1; then
+          resolved=$(ssh -G "$host" 2>/dev/null | awk 'tolower($1)=="hostname"{print $2; exit}')
+          [ -n "$resolved" ] && host=$(printf '%s' "$resolved" | tr 'A-Z' 'a-z')
+        fi
+        case "$host" in
+          github.com|www.github.com|ssh.github.com|*.ghe.com) github=yes ;;
+          "") github=no ;;
+          *) if command -v gh >/dev/null 2>&1 && gh auth status --hostname "$host" >/dev/null 2>&1; then github=yes; else github=no; fi ;;
+        esac
+        if [ "$github" = yes ]; then
+          gh auth status --hostname "$host" >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated for $host; run 'gh auth login'." >&2; exit 1; }
+          echo "REMOTE: GitHub ($host)"
+        else
+          echo "REMOTE: ${host:-local path}, not GitHub; units push to origin but open no PR."
+        fi
+      fi
       echo "PREFLIGHT: ok"
     timeout: 30
     depends_on: []
@@ -183,8 +221,11 @@ steps:
 
       Per row: unit.ref, unit.branch, unit.worktree, unit.plan_path
       (the seed), unit.pr.url, verdict (merged | all-green | blocked |
-      partial | exhausted | human-intervention | failed | skipped),
-      reason, review.converged and review.cycles, cleaned. The ledger
+      partial | exhausted | human-intervention | failed | skipped |
+      no-pr), reason, review.converged and review.cycles, cleaned. A
+      `no-pr` verdict means the project has no GitHub remote: the branch
+      is committed locally (no origin) or pushed to a non-GitHub origin,
+      and no PR was opened. The ledger
       {{run.dir}}/units/<branch>.json carries more per unit:
       last_phase, blueprint, the refreshed plan_path, watch counters,
       usage.
@@ -205,7 +246,9 @@ steps:
       Write {{run.dir}}/report.md with: a table (seed plan, branch, PR,
       verdict, reason); for each unit not merged, why and the next step
       (the BLUEPRINT path for `plan-insufficient-context`, the PR for a
-      human to finish, the ledger for a failure); the
+      human to finish, the ledger for a failure; for `no-pr`, "branch
+      <b> (local | pushed to <host>), worktree <path>: open a PR/MR
+      manually or add a GitHub `origin` and resume"); the
       `git worktree remove <path>` command for each unit whose
       `cleaned` is false; the run's usage totals from the JSON above and
       the token usage per unit from the ledgers.
@@ -213,17 +256,18 @@ steps:
       once, no praise.
 
       Return the fields directly, no wrapping: merged, open, failed,
-      report_path.
+      no_pr, report_path.
     schema:
       type: object
       properties:
         merged: { type: integer }
         open: { type: integer }
         failed: { type: integer }
+        no_pr: { type: integer }
         report_path: { type: string }
-      required: [merged, open, failed, report_path]
+      required: [merged, open, failed, no_pr, report_path]
       additionalProperties: false
-    outputs: [merged, open, failed, report_path]
+    outputs: [merged, open, failed, no_pr, report_path]
     allowed_tools: ["Bash(gh:*)", "Bash(git:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)"]
     depends_on: [process]
     trigger-rule: all-done

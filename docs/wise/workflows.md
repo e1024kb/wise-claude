@@ -464,7 +464,8 @@ pipelines](#unit-pipelines).
 | `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (sessions never cross harnesses, so a fixer on another one starts clean); `fresh` (default) starts each child clean. |
 
 Outputs: `{units: UnitRow[]}` (`{{units}}` renders the rows as JSON).
-Verdict: `units=N merged=N open=N failed=N skipped=N`.
+Verdict: `units=N merged=N open=N failed=N skipped=N`, plus ` no-pr=N`
+when any unit ends `no-pr` (see [No GitHub remote](#no-github-remote)).
 
 ### `trigger-rule`
 
@@ -1037,6 +1038,45 @@ hold one checkout lock across all steps and open questions. Another current-tree
 run cannot use that checkout until the run ends and its children have exited.
 Resuming a run reacquires the lock before scheduling work.
 
+### No GitHub remote
+
+Before any unit runs, `_run_units_step` classifies the `origin` remote
+once (`phases/remote.py`, `detect_remote`) and stores it on
+`config["remote"] = {kind, host}`, logging one line:
+
+- `remote: origin is GitHub (<host>)` - `kind: github`.
+- `remote: no origin remote; push, pr, request-review and watch are skipped` - `kind: none`.
+- `remote: origin is <host>, not GitHub; pr, request-review and watch are skipped` - `kind: other`.
+
+`github` is `github.com` / `www.github.com` / `ssh.github.com`, any
+`*.ghe.com`, or a host `gh auth status --hostname <host>` accepts (a
+GHES the user is logged into). An SSH host alias is resolved with
+`ssh -G` first. The URL is never logged (it can embed credentials); only
+the host is. Phases read the result via `remote_of(ctx)`, which defaults
+to `github`, so a direct phase test or an older caller keeps today's
+behavior. Resume re-detects, so adding a GitHub `origin` and resuming
+continues into `push` / `pr`.
+
+For the branch-owning pipelines (`ticket`, `plan`) the units loop skips
+phases by kind:
+
+| Kind | Phases skipped | Result |
+|---|---|---|
+| `github` | none | full pipeline |
+| `other` | `pr`, `request-review`, `watch` | branch pushed to origin, no PR; verdict `no-pr` |
+| `none` | `push`, `pr`, `request-review`, `watch` | branch committed locally, no push; verdict `no-pr` |
+
+`claim` and `worktree` adjust too: with `none`, `claim` skips the
+`gh pr list` merged probe and the `git ls-remote` "taken" probe (local
+branch / worktree only), and `worktree` skips `git fetch origin` and
+accepts a local-only base (the "push it to origin first" refusal is
+`github`-only because only a GitHub PR needs the base on origin).
+`resolve_base` calls `gh repo view` only for `github`, else falls back
+to `origin/HEAD`, then local `main` / `master`. The `pr` pipeline's
+`claim` ends the unit `skipped` (`no-github-remote: ...`) before any
+`gh pr view`. Each `no-pr` unit keeps its worktree; the step summary
+appends ` no-pr=N`.
+
 ### Model phases
 
 | Phase | Mode | Default timeout | Pinned default when no group | Pre-granted tools |
@@ -1090,7 +1130,8 @@ stable target reached -> `gh pr merge --squash` (then `--merge` when
 squash is disallowed) -> `merged`, else `all-green`.
 
 Verdicts: `merged` \| `all-green` \| `blocked` \| `partial` \|
-`exhausted` \| `human-intervention` \| `failed` \| `skipped`. Only
+`exhausted` \| `human-intervention` \| `failed` \| `skipped` \| `no-pr`
+(no GitHub remote; see [No GitHub remote](#no-github-remote)). Only
 `merged` removes the worktree; every other verdict keeps it for a human.
 On resume `claim` and `worktree` re-run, other completed phases are
 skipped, a unit with a verdict is skipped.

@@ -39,9 +39,13 @@ watch); this workflow is the full pipeline around a plan file.
 ## Prerequisites
 
 - `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
+  `gh` auth is required only when `origin` is a GitHub remote.
 - Run from inside the project's git repository (`project-selection:
-  current`); the base working tree must be clean and have an `origin`
-  remote (`preflight-checks` refuses otherwise).
+  current`); the base working tree must be clean (`preflight-checks`
+  refuses otherwise). An `origin` remote is optional: with a GitHub
+  `origin` the full push / PR / watch half runs; with no origin each
+  unit commits locally; with a non-GitHub origin each unit pushes but
+  opens no PR (verdict `no-pr`).
 - Pre-flight asks for a permission floor once per selected provider.
   `Auto` is recommended; `Bypass permissions` is available when the
   provider must run fully unsandboxed. A phase's stronger mode still wins.
@@ -52,9 +56,9 @@ watch); this workflow is the full pipeline around a plan file.
 
 ```mermaid
 flowchart TD
-    A[preflight-checks<br/>bash - clean tree, gh auth, origin] --> B[split-plans<br/>bash - comma list -> JSON array of absolute paths plan_list]
+    A[preflight-checks<br/>bash - clean tree, classify origin, gh auth only for a GitHub origin] --> B[split-plans<br/>bash - comma list -> JSON array of absolute paths plan_list]
     B --> D[process<br/>units pipeline plan - one unit per seed plan -> units rows]
-    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, report_path]
+    D --> E[report<br/>agent support - verify PRs, write run-dir/report.md -> merged, open, failed, no_pr, report_path]
 ```
 
 Inside `process`, per plan file and in this order (branch = the file
@@ -62,14 +66,25 @@ name without `PLAN-` and `.md`, sanitised):
 
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
-| `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a branch that already exists locally, on origin or in a worktree moves the unit to the first free `<branch>-N` (N from 2), never reused, never touched. |
-| `worktree` | code | - | `<run-dir>/worktrees/<branch>` on the plan branch off the fetched `base_branch`. |
+| `claim` | code | - | Idempotent ownership: a ledger under `<run-dir>/units/` marks the unit ours; a branch that already exists locally, on origin or in a worktree moves the unit to the first free `<branch>-N` (N from 2), never reused, never touched. With no origin remote the "taken" probe is local-only (no `git ls-remote`). |
+| `worktree` | code | - | `<run-dir>/worktrees/<branch>` on the plan branch off the fetched `base_branch`. With no origin remote the fetch is skipped and a local-only base is accepted (no PR targets it). |
 | `plan` | model | `plan` | Reads the seed, checks drift against its `SOURCE_SHA`, re-audits the scope at HEAD, writes the refreshed plan to `<run-dir>/plans/PLAN-<ref>.md`. `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `fix` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
-| `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body (links the plan), `gh pr edit --add-reviewer` for each login in `reviewers`. |
+| `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body (links the plan), `gh pr edit --add-reviewer` for each login in `reviewers`. Skipped without a GitHub remote: `none` skips push too, `other` still pushes; the unit ends `no-pr`. |
 | `watch` (+ `fix`, `push`) | model | `watch` / `fix` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
 | `cleanup` | code | - | Only on `merged`: remove the worktree and the local branch. |
+
+### No GitHub remote
+
+The engine classifies `origin` once per run (logged as one `remote:`
+line) and adjusts the pipeline: with **no `origin`** (`none`) `push`,
+`pr`, `request-review` and `watch` are skipped and the branch keeps its
+commits locally; with a **non-GitHub `origin`** (`other`) the branch is
+pushed and only `pr`, `request-review` and `watch` are skipped. Either
+way the unit ends `no-pr` with its worktree kept (only `merged` removes
+it), and the step summary appends ` no-pr=N`. Add a GitHub `origin` and
+resume to continue into `push` / `pr`.
 
 ## Pre-flight questions
 
@@ -93,17 +108,17 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
 | Step | Type | Purpose |
 |---|---|---|
-| `preflight-checks` | `bash` | Clean base tree, `gh auth status`, `origin` remote. |
+| `preflight-checks` | `bash` | Clean base tree; classify `origin` (host only) and require `gh auth status` only for a GitHub origin. Logs `REMOTE: ...`. |
 | `split-plans` | `bash` | Splits the `plans` input on commas and semicolons, trims, dedupes, resolves each path against the repo root, fails when a file is missing, emits a JSON array of absolute paths as `plan_list`. |
 | `process` | `units` | `pipeline: plan`, `items: {{plan_list}}`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per plan). |
-| `report` | `agent` (`support` group) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `report_path`. |
+| `report` | `agent` (`support` group) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `no_pr`, `report_path`. |
 
 ## Inputs
 
 | Name | Required | Description |
 |---|---|---|
 | `plans` | yes | Comma-separated `PLAN-*.md` paths, relative to the repo root or absolute. |
-| `base_branch` | yes | The branch plan branches are cut from and PRs target (always `origin/<base_branch>`, so the branch must exist on `origin`; a branch that exists only locally stops the unit at `worktree` because a PR cannot target it - push it to origin, then re-run). Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
+| `base_branch` | yes | The branch plan branches are cut from and PRs target. With a GitHub `origin` it resolves to `origin/<base_branch>`, so the branch must exist on `origin`; a branch that exists only locally stops the unit at `worktree` because a PR cannot target it - push it to origin, then re-run. Without a GitHub remote no PR is opened, so a local-only base is accepted. Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 
 ## Outputs
@@ -111,8 +126,8 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 | Name | Source | Content |
 |---|---|---|
 | `plan_list` | `split-plans` | JSON array of absolute seed plan paths, the `units` items. |
-| `units` | `process` | `UnitRow[]`: `unit` (ref, branch, worktree, base, plan_path = the seed, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review` (converged, cycles), `cleaned`. Full ledgers under `<run-dir>/units/<branch>.json`, the refreshed plans under `<run-dir>/plans/`. |
-| `merged`, `open`, `failed`, `report_path` | `report` | Counts and the report file. |
+| `units` | `process` | `UnitRow[]`: `unit` (ref, branch, worktree, base, plan_path = the seed, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`, `no-pr`), `reason`, `review` (converged, cycles), `cleaned`. `no-pr` = no GitHub remote (committed locally or pushed to a non-GitHub origin, no PR). Full ledgers under `<run-dir>/units/<branch>.json`, the refreshed plans under `<run-dir>/plans/`. |
+| `merged`, `open`, `failed`, `no_pr`, `report_path` | `report` | Counts and the report file. |
 
 ## Examples
 

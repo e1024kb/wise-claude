@@ -74,7 +74,41 @@ steps:
     # HEAD and a dirty checkout stop the run before any child spawns.
     run: |
       set -eu
-      gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
+      # `gh auth` is required only against a GitHub `origin`. Classify it here
+      # (host only; never echo the URL, which may embed credentials). Without a
+      # GitHub remote the engine's `pr` unit ends `skipped` (no-github-remote);
+      # this step still resolves the branch so the run reaches that verdict.
+      origin=$(git remote get-url origin 2>/dev/null || true)
+      github=no
+      if [ -n "$origin" ]; then
+        rest=${origin#*://}; rest=${rest%%/*}; rest=${rest##*@}; host=${rest%%:*}
+        host=$(printf '%s' "$host" | tr 'A-Z' 'a-z')
+        # Resolve an SSH host alias (scp-style or ssh:// URL) to its real
+        # hostname so an alias mapping to a GitHub host is classified as
+        # GitHub (matches wise_engine/phases/remote.py). No connection is made;
+        # known GitHub hosts need no lookup.
+        case "$origin" in
+          ssh://*|git+ssh://*) is_ssh=yes ;;
+          *://*) is_ssh=no ;;
+          *:*) is_ssh=yes ;;
+          *) is_ssh=no ;;
+        esac
+        case "$host" in github.com|www.github.com|ssh.github.com|*.ghe.com) is_ssh=no ;; esac
+        if [ "$is_ssh" = yes ] && [ -n "$host" ] && command -v ssh >/dev/null 2>&1; then
+          resolved=$(ssh -G "$host" 2>/dev/null | awk 'tolower($1)=="hostname"{print $2; exit}')
+          [ -n "$resolved" ] && host=$(printf '%s' "$resolved" | tr 'A-Z' 'a-z')
+        fi
+        case "$host" in
+          github.com|www.github.com|ssh.github.com|*.ghe.com) github=yes ;;
+          "") github=no ;;
+          *) if command -v gh >/dev/null 2>&1 && gh auth status --hostname "$host" >/dev/null 2>&1; then github=yes; else github=no; fi ;;
+        esac
+      fi
+      if [ "$github" = yes ]; then
+        gh auth status --hostname "$host" >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated for $host; run 'gh auth login'." >&2; exit 1; }
+      else
+        echo "REMOTE: ${host:-none}, not GitHub; the PR unit will be skipped (no-github-remote)." >&2
+      fi
       branch=$(git symbolic-ref --quiet --short HEAD || true)
       if [ -z "$branch" ]; then
         echo "ERROR: detached HEAD; check out the PR branch first." >&2
@@ -128,7 +162,10 @@ steps:
 
       Fields: unit.branch, unit.pr.url, verdict (merged | all-green |
       blocked | partial | exhausted | human-intervention | failed |
-      skipped), reason, review.converged and review.cycles. The ledger
+      skipped), reason, review.converged and review.cycles. A `skipped`
+      verdict whose reason starts with `no-github-remote` means the repo
+      has no GitHub remote, so there was no PR or checks to watch. The
+      ledger
       {{run.dir}}/units/<branch>.json carries the watch counters
       (passes, fix_attempts, stable), the verification requests per
       head (`watch.verification.<provider>.<head>`: state, attempts,

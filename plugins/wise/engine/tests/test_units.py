@@ -514,6 +514,169 @@ def test_declined_substitute_review_stands_down_on_a_stuck_bot(tmp_path):
     asyncio.run(scenario())
 
 
+def _no_gh_pr(fixture):
+    return not any(c[0] == "gh" and c[1][:1] == ["pr"] for c in fixture.calls)
+
+
+def test_ticket_pipeline_no_origin_ends_no_pr(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = None
+        result = await run_units_step(fixture.input())
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "no-pr"
+        assert row["reason"].startswith("no-github-remote: no origin remote")
+        assert row["cleaned"] is False
+        assert not any(c[0] == "git" and c[1][0] == "push" for c in fixture.calls)
+        assert not any(c[0] == "gh" for c in fixture.calls)
+        assert result["verdict"].endswith(" no-pr=1")
+        assert Path(row["unit"]["worktree"]).exists()
+
+    asyncio.run(scenario())
+
+
+def test_ticket_pipeline_non_github_origin_pushes_then_no_pr(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = "git@gitlab.com:a/r.git"
+        result = await run_units_step(fixture.input())
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "no-pr"
+        assert "gitlab.com" in row["reason"] and "git@gitlab.com" not in row["reason"]
+        assert any(c[0] == "git" and c[1][0] == "push" for c in fixture.calls)
+        assert _no_gh_pr(fixture)
+
+    asyncio.run(scenario())
+
+
+def test_plan_pipeline_no_origin_ends_no_pr(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = None
+        plan = fixture.repo / "PLAN-real.md"
+        plan.write_text("# Plan\n1. do it\n")
+        fixture.step.update({"pipeline": "plan", "items": str(plan)})
+        result = await run_units_step(fixture.input(items=[str(plan)]))
+        assert result["outputs"]["units"][0]["verdict"] == "no-pr"
+
+    asyncio.run(scenario())
+
+
+def test_current_tree_no_origin_accepts_local_base_and_ends_no_pr(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = None
+        fixture.branches.add("main")
+        # No origin/main: the base resolves to the local branch, accepted
+        # because no GitHub PR is opened against it.
+        fixture.failures[("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main")] = (
+            command_result("", code=1)
+        )
+        state = {**fixture.state, "inputs": {"worktree_mode": "current", "base_branch": "main"}}
+        result = await run_units_step(fixture.input(state=state))
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "no-pr"
+        assert Path(row["unit"]["worktree"]).resolve() == fixture.repo.resolve()
+
+    asyncio.run(scenario())
+
+
+def test_resume_across_remote_change(tmp_path):
+    async def saved_at_review(fixture):
+        unit = make_unit("ticket", "PROJ-1", str(fixture.repo), str(fixture.run_dir), "main")
+        Path(unit["worktree"]).mkdir(parents=True, exist_ok=True)
+        fixture.trees[unit["worktree"]] = "PROJ-1"
+        fixture.branches.add("PROJ-1")
+        write_unit(
+            fixture.run_dir,
+            "PROJ-1",
+            {
+                "unit": {**unit, "base_ref": "origin/main"},
+                "last_phase": "review",
+                "cleaned": False,
+                "cursors": {"claim": "owned", "worktree": "includes-done"},
+                "usage": empty_usage(),
+                "caps": {},
+            },
+        )
+
+    async def scenario():
+        (tmp_path / "none").mkdir()
+        (tmp_path / "gh").mkdir()
+        none_fixture = ModelFixture(tmp_path / "none")
+        none_fixture.origin_url = None
+        await saved_at_review(none_fixture)
+        result = await run_units_step(none_fixture.input())
+        assert result["outputs"]["units"][0]["verdict"] == "no-pr"
+        assert not any(c[0] == "git" and c[1][0] == "push" for c in none_fixture.calls)
+
+        gh_fixture = ModelFixture(tmp_path / "gh")
+        await saved_at_review(gh_fixture)
+        await run_units_step(gh_fixture.input())
+        assert any(c[0] == "git" and c[1][0] == "push" for c in gh_fixture.calls)
+
+    asyncio.run(scenario())
+
+
+def test_resume_after_pr_when_remote_drops_github(tmp_path):
+    # A unit that opened its PR on an earlier GitHub run, resumed after the
+    # remote is no longer GitHub, ends `skipped` (not `failed: no verdict`).
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = None
+        unit = make_unit("ticket", "PROJ-1", str(fixture.repo), str(fixture.run_dir), "main")
+        Path(unit["worktree"]).mkdir(parents=True, exist_ok=True)
+        fixture.trees[unit["worktree"]] = "PROJ-1"
+        fixture.branches.add("PROJ-1")
+        write_unit(
+            fixture.run_dir,
+            "PROJ-1",
+            {
+                "unit": {**unit, "base_ref": "origin/main"},
+                "last_phase": "pr",
+                "cleaned": False,
+                "cursors": {"claim": "owned", "worktree": "includes-done"},
+                "usage": empty_usage(),
+                "caps": {},
+            },
+        )
+        result = await run_units_step(fixture.input())
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "skipped"
+        assert "already opened" in row["reason"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("origin", [None, "git@gitlab.com:a/r.git"])
+def test_pr_pipeline_without_github_remote_is_skipped(tmp_path, origin):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = origin
+        _on_branch(fixture, "feat/x")
+        fixture.step.update({"pipeline": "pr", "items": "feat/x", "groups": {}, "caps": []})
+        result = await run_units_step(fixture.input(items=["feat/x"]))
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] == "skipped"
+        assert row["reason"].startswith("no-github-remote:")
+        assert not any(c[0] == "gh" and c[1][:2] == ["pr", "view"] for c in fixture.calls)
+
+    asyncio.run(scenario())
+
+
+def test_ticket_pipeline_ghes_origin_takes_github_path(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.origin_url = "https://ghes.corp.example/a/r.git"
+        fixture.gh_hosts.add("ghes.corp.example")
+        result = await run_units_step(fixture.input())
+        row = result["outputs"]["units"][0]
+        assert row["verdict"] != "no-pr"
+        assert any(c[0] == "git" and c[1][0] == "push" for c in fixture.calls)
+
+    asyncio.run(scenario())
+
+
 def test_attached_pipelines_force_current_tree_and_input_cap_overrides():
     step = {"pipeline": "pr", "groups": {}, "caps": ["max_fix_attempts", "watch_minutes"]}
     state = {

@@ -30,6 +30,7 @@ from .phases.model import (
 )
 from .phases.pr import pr_phase
 from .phases.push import push_phase
+from .phases.remote import GITHUB_DEFAULT, detect_remote, no_pr_reason
 from .phases.request_review import request_review_phase
 from .phases.verify import commit_time_ms, verify_reviews
 from .phases.worktree import worktree_phase
@@ -52,6 +53,13 @@ __all__ = [
     "phase_key",
 ]
 DEFAULT_REVIEWERS = ["copilot-pull-request-reviewer"]
+# Phases skipped, per detected remote kind, for the branch-owning pipelines
+# (`ticket` / `plan`). `none`: nothing to push to, so no push either. `other`:
+# the branch is pushed to origin, only the GitHub steps are skipped.
+NO_GITHUB_SKIPS = {
+    "none": ("push", "pr", "request-review", "watch"),
+    "other": ("pr", "request-review", "watch"),
+}
 # Finite ceilings for every overrideable cap, checked before the float conversion.
 CAP_MAX = {
     "max_review_cycles": 100,
@@ -185,7 +193,9 @@ def _summarize(rows: list[Json]) -> str:
     )
     failed = sum(row.get("verdict") in ("failed", "exhausted", None) for row in rows)
     skipped = sum(row.get("verdict") == "skipped" for row in rows)
-    return f"units={len(rows)} merged={merged} open={opened} failed={failed} skipped={skipped}"
+    no_pr = sum(row.get("verdict") == "no-pr" for row in rows)
+    summary = f"units={len(rows)} merged={merged} open={opened} failed={failed} skipped={skipped}"
+    return summary + (f" no-pr={no_pr}" if no_pr else "")
 
 
 async def review_fix_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
@@ -558,6 +568,41 @@ async def _run_units_step(input: Json) -> Json:
         for phase in PIPELINE_PHASES[config["pipeline"]]:
             if input.get("signal") is not None and input["signal"].is_set():
                 break
+            remote = config.get("remote", GITHUB_DEFAULT)
+            skips = (
+                NO_GITHUB_SKIPS.get(remote["kind"], ())
+                if config["pipeline"] in ("ticket", "plan")
+                else ()
+            )
+            # The GitHub-phase skip is decided by the detected remote, not the
+            # resume cursor, so handle it before `_should_run`. Otherwise a unit
+            # whose remote changed to none/other on resume filters out the
+            # already-persisted `pr` phase and finishes `failed: no verdict
+            # recorded` instead of a truthful verdict.
+            if phase in skips and not stopped:
+                log(f"{phase}: skipped, no GitHub remote")
+                if phase == "pr" and "verdict" not in ledger:
+                    pr_opened = resume_phase in PHASES and PHASES.index("pr") <= PHASES.index(
+                        resume_phase
+                    )
+                    if pr_opened:
+                        # A PR was opened on an earlier GitHub run; the remote is
+                        # no longer GitHub, so there is nothing left to do.
+                        ledger["verdict"] = "skipped"
+                        ledger["reason"] = (
+                            "no-github-remote: origin is no longer GitHub; the PR for "
+                            f"{ledger['unit']['branch']} was already opened"
+                        )
+                    else:
+                        ledger["verdict"] = "no-pr"
+                        ledger["reason"] = no_pr_reason(
+                            remote, ledger["unit"]["branch"], ledger["unit"]["worktree"]
+                        )
+                    # Do not advance last_phase to `pr`: leaving it at the last
+                    # completed phase lets a resume (after a GitHub `origin` is
+                    # added) re-enter `pr` instead of skipping past it.
+                    persist()
+                continue
             if (
                 stopped
                 and phase != "cleanup"
@@ -618,6 +663,21 @@ async def _run_units_step(input: Json) -> Json:
         else:
             seen.add(branch)
             items.append(item)
+
+    def _pending(item: str) -> bool:
+        existing = read_unit(run_dir, make_unit(config["pipeline"], item, cwd, run_dir)["branch"])
+        return existing is None or not is_done(existing)
+
+    # Classify origin once, before any unit, and log the one detection line.
+    # Skip it when every unit is already done (nothing would read it), so a
+    # done-resume stays a pure no-op. `resolve_base` and the phase skips read
+    # the result via `config["remote"]`; direct phase tests default to github.
+    if any(_pending(item) for item in items):
+        config["remote"] = await detect_remote(
+            {"cwd": cwd, "env": env, "exec": execute, "log": lines.append}
+        )
+    else:
+        config["remote"] = GITHUB_DEFAULT
     queue = deque(items)
     rows: list[Json] = []
 

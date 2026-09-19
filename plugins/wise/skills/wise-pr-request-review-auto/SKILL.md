@@ -62,7 +62,17 @@ in the main harness, and relay the final result as specified by the shared
 dispatch reference. This does not add routine prompts to autonomous paths.
 Without `--on`, this section does not apply.
 
+Before dispatching, run the §0 GitHub remote check here first, so no
+child is spawned for a repository with no GitHub remote.
+
 ## Procedure
+
+### 0. GitHub remote check
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/github-remote.md` and run its
+check first. If the outcome is `none` or `other`, print the single
+request-review-variant line from its table and stop successfully; never
+call `gh pr`. Only continue when the outcome is `github`.
 
 ### 1. Verify a PR exists for the current branch
 
@@ -91,6 +101,8 @@ out-of-credits / rate-limit states.
 
 ## Guardrails
 
+- Without a GitHub remote, print the one-line notice from
+  `references/pr/github-remote.md` and stop; never call `gh pr`.
 - Never call `AskUserQuestion` mid-run — the one exception is the
   `--on ask` harness/model/effort pick, before dispatch.
 - Never block on a Copilot-attach or CodeRabbit-trigger failure —

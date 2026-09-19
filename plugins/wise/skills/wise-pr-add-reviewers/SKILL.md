@@ -56,6 +56,13 @@ fails with a clean error (`command not found`, or `gh: auth status:
 not logged in`) and Claude surfaces that to the user with a
 pointer at `/wise-init`.
 
+### 0. GitHub remote check
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/github-remote.md` and run its
+check first. If the outcome is `none` or `other`, print the single
+reviewers-variant line from its table and stop successfully; never call
+`gh pr`. Only continue when the outcome is `github`.
+
 ### 1. Verify a PR exists for this branch
 
 ```bash
@@ -161,6 +168,8 @@ Watch pipelines + comments with:
 - This is a **standalone slash-command skill**, independent of the
   `/wise` natural-language helper. It reads a shared prompt fragment
   but does NOT invoke other wise action skills.
+- Without a GitHub remote, print the one-line notice from
+  `references/pr/github-remote.md` and stop; never call `gh pr`.
 - Never create a PR here — bail with the pointer at
   `/wise-pr-create` if the branch has no open PR.
 - Never remove a reviewer the user didn't ask to remove. The
