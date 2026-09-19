@@ -588,7 +588,9 @@ async def _run_units_step(input: Json) -> Json:
                     ledger["reason"] = no_pr_reason(
                         remote, ledger["unit"]["branch"], ledger["unit"]["worktree"]
                     )
-                    ledger["last_phase"] = phase
+                    # Do not advance last_phase to `pr`: leaving it at the last
+                    # completed phase lets a resume (after a GitHub `origin` is
+                    # added) re-enter `pr` instead of skipping past it.
                     persist()
                 continue
             ctx = make_ctx()

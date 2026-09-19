@@ -130,7 +130,12 @@ def no_pr_reason(remote: Json, branch: str, worktree: str) -> str:
             f"no-github-remote: no origin remote; {branch} committed locally in "
             f"{worktree}, no PR opened"
         )
-    host = remote["host"] or "a local path"
+    host = remote["host"]
+    if not host:
+        return (
+            f"no-github-remote: origin is a local path, not GitHub; {branch} "
+            f"pushed, no PR opened"
+        )
     return (
         f"no-github-remote: origin is {host}, not GitHub; {branch} pushed, "
         f"no PR opened (open a merge request on {host})"

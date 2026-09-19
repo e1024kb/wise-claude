@@ -89,7 +89,7 @@ steps:
         esac
       fi
       if [ "$github" = yes ]; then
-        gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
+        gh auth status --hostname "$host" >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated for $host; run 'gh auth login'." >&2; exit 1; }
       else
         echo "REMOTE: ${host:-none}, not GitHub; the PR unit will be skipped (no-github-remote)." >&2
       fi

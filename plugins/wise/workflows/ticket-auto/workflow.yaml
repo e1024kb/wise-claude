@@ -122,7 +122,7 @@ steps:
           *) if command -v gh >/dev/null 2>&1 && gh auth status --hostname "$host" >/dev/null 2>&1; then github=yes; else github=no; fi ;;
         esac
         if [ "$github" = yes ]; then
-          gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; run 'gh auth login'." >&2; exit 1; }
+          gh auth status --hostname "$host" >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated for $host; run 'gh auth login'." >&2; exit 1; }
           echo "REMOTE: GitHub ($host)"
         else
           echo "REMOTE: ${host:-local path}, not GitHub; units push to origin but open no PR."
