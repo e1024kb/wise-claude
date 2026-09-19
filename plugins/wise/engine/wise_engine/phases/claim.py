@@ -18,6 +18,7 @@ from .common import (
     worktree_slug,
 )
 from .pr import view_pr
+from .remote import remote_of, watch_skip_reason
 
 OWNED = "owned"
 # How many `<branch>-N` names a fresh unit tries before giving up.
@@ -27,9 +28,14 @@ BRANCH_SUFFIX_LIMIT = 20
 async def _branch_taken(ctx: Json, branch: str) -> bool | None:
     """True when the branch exists on origin, locally, or in a registered
     worktree; None when origin is unreachable."""
-    remote = await remote_branch_exists(ctx, branch)
-    if remote is None:
-        return None
+    # Without an origin remote a branch is "taken" only when it exists
+    # locally or in a worktree; never probe a remote that is not there.
+    if remote_of(ctx)["kind"] == "none":
+        remote: bool | None = False
+    else:
+        remote = await remote_branch_exists(ctx, branch)
+        if remote is None:
+            return None
     if remote or await local_branch_exists(ctx, branch):
         return True
     result = await git(ctx, ["worktree", "list", "--porcelain"])
@@ -73,6 +79,9 @@ async def attach_phase(ctx: Json) -> Json:
         return fail(f"claim: expected branch {unit['branch']}, the checkout is on {branch}")
     attached = {**unit, "branch": branch, "worktree": str(Path(ctx["cwd"]).resolve())}
     if pipeline == "pr":
+        remote = remote_of(ctx)
+        if remote["kind"] != "github":
+            return fail(watch_skip_reason(remote), "skipped")
         pr = await view_pr(ctx, branch)
         if pr is None:
             return fail(f"claim: no pull request for {branch}; create one first")
@@ -88,7 +97,11 @@ async def attach_phase(ctx: Json) -> Json:
         ctx["log"](f"claim: implementing on {branch} (base {attached['base']})")
     # Fetch the base so the diff range exists even in a shallow or
     # single-branch checkout; a local-only base resolves to its local ref.
-    await git(ctx, ["fetch", "origin", attached["base"]], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS})
+    # Without an origin remote there is nothing to fetch.
+    if remote_of(ctx)["kind"] != "none":
+        await git(
+            ctx, ["fetch", "origin", attached["base"]], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS}
+        )
     ref = await base_ref(ctx, attached["base"])
     if ref is None:
         return fail(f"claim: base {attached['base']} exists neither on origin nor locally")
@@ -109,32 +122,34 @@ async def claim_phase(ctx: Json) -> Json:
     if is_owned(ctx):
         ctx["log"](f"claim: {unit['ref']} owned by this run (resume)")
         return pass_({"unit": with_base})
-    rows = json_of(
-        await gh(
-            ctx,
-            [
-                "pr",
-                "list",
-                "--head",
-                unit["branch"],
-                "--state",
-                "merged",
-                "--json",
-                "number,url",
-                "--limit",
-                "1",
-            ],
+    # The merged-PR probe only makes sense against a GitHub origin.
+    if remote_of(ctx)["kind"] == "github":
+        rows = json_of(
+            await gh(
+                ctx,
+                [
+                    "pr",
+                    "list",
+                    "--head",
+                    unit["branch"],
+                    "--state",
+                    "merged",
+                    "--json",
+                    "number,url",
+                    "--limit",
+                    "1",
+                ],
+            )
         )
-    )
-    if (
-        isinstance(rows, list)
-        and rows
-        and isinstance(rows[0], dict)
-        and type(rows[0].get("number")) in (int, float)
-        and isinstance(rows[0].get("url"), str)
-    ):
-        pr = {"number": rows[0]["number"], "url": rows[0]["url"]}
-        return fail(f"pr-merged: #{pr['number']}", "merged", {"unit": {**with_base, "pr": pr}})
+        if (
+            isinstance(rows, list)
+            and rows
+            and isinstance(rows[0], dict)
+            and type(rows[0].get("number")) in (int, float)
+            and isinstance(rows[0].get("url"), str)
+        ):
+            pr = {"number": rows[0]["number"], "url": rows[0]["url"]}
+            return fail(f"pr-merged: #{pr['number']}", "merged", {"unit": {**with_base, "pr": pr}})
     # A branch another run, a person, or a stale checkout already holds is
     # never reused: the unit takes the first free `<branch>-N` instead.
     try:

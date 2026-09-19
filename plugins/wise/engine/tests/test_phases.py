@@ -46,6 +46,11 @@ class PhaseFixture:
         self.logs = []
         self.branches = set()
         self.remote = set()
+        # Remote detection inputs: origin URL (None -> no origin), the hosts
+        # `gh auth status --hostname` accepts, and `ssh -G` alias resolutions.
+        self.origin_url = "https://github.com/a/r.git"
+        self.gh_hosts = set()
+        self.ssh_hosts = {}
         self.trees = {}
         self.commits = 0
         self.head = "head-0"
@@ -112,6 +117,10 @@ class PhaseFixture:
             if (cmd, *args[: len(prefix) - 1]) == prefix:
                 return result
         if cmd == "git":
+            if args[:3] == ["remote", "get-url", "origin"]:
+                if self.origin_url is None:
+                    return command_result(code=1)
+                return command_result(self.origin_url + "\n")
             if args[0] == "ls-remote":
                 return command_result("sha refs/heads/x\n" if args[-1] in self.remote else "")
             if args[0] == "show-ref":
@@ -157,7 +166,15 @@ class PhaseFixture:
             if args[0] == "push":
                 self.remote.add(args[-1])
             return command_result()
+        if cmd == "ssh":
+            if args[0] == "-G":
+                resolved = self.ssh_hosts.get(args[1])
+                return command_result(f"hostname {resolved}\n" if resolved else "")
+            return command_result()
         if cmd == "gh":
+            if args[:2] == ["auth", "status"]:
+                host = args[args.index("--hostname") + 1] if "--hostname" in args else ""
+                return command_result(code=0 if host in self.gh_hosts else 1)
             if args[0] == "api":
                 path = args[1]
                 for prefix, value in self.api.items():
@@ -540,6 +557,49 @@ def test_base_branch_must_exist_on_origin(tmp_path):
         )
         result = await worktree_phase(fixture.ctx)
         assert not result["ok"] and "neither on origin nor locally" in result["reason"]
+
+    asyncio.run(scenario())
+
+
+def test_claim_no_origin_is_not_unreachable(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        fixture.origin_url = None
+        fixture.ctx["config"]["remote"] = {"kind": "none", "host": ""}
+        fixture.failures[("git", "ls-remote")] = command_result(code=128)
+        result = await fixture.phase(claim_phase)
+        assert result["ok"] and fixture.ctx["unit"]["branch"] == "PROJ-1"
+        assert not any(cmd == "gh" for cmd, _, _ in fixture.calls)
+
+    asyncio.run(scenario())
+
+
+def test_worktree_other_remote_accepts_local_only_base(tmp_path):
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        fixture.ctx["config"]["remote"] = {"kind": "other", "host": "gitlab.com"}
+        fixture.ctx["unit"].update(worktree=str(fixture.repo), base="main")
+        fixture.branches.add("main")
+        fixture.failures[("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main")] = (
+            command_result("", code=1)
+        )
+        result = await worktree_phase(fixture.ctx)
+        assert result["ok"] and result["patch"]["unit"]["base_ref"] == "main"
+
+    asyncio.run(scenario())
+
+
+def test_resolve_base_no_origin_falls_back_to_local_master(tmp_path):
+    from wise_engine.phases.common import resolve_base
+
+    async def scenario():
+        fixture = PhaseFixture(tmp_path)
+        fixture.ctx["config"]["remote"] = {"kind": "none", "host": ""}
+        fixture.branches.add("master")
+        fixture.failures[("git", "symbolic-ref", "--short")] = command_result(code=1)
+        base = await resolve_base(fixture.ctx)
+        assert base == "master"
+        assert not any(cmd == "gh" for cmd, _, _ in fixture.calls)
 
     asyncio.run(scenario())
 

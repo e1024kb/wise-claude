@@ -160,17 +160,27 @@ async def remote_branch_exists(ctx: Json, branch: str) -> bool | None:
 async def resolve_base(ctx: Json) -> str:
     if ctx["config"].get("base"):
         return ctx["config"]["base"]
-    parsed = json_of(await gh(ctx, ["repo", "view", "--json", "defaultBranchRef"]))
-    name = (
-        parsed.get("defaultBranchRef", {}).get("name")
-        if isinstance(parsed, dict) and isinstance(parsed.get("defaultBranchRef"), dict)
-        else None
-    )
-    if isinstance(name, str) and name:
-        return name
+    # `gh repo view` only works against a GitHub origin; without one the base is
+    # the local `origin/HEAD`, then a local `main` / `master`. `remote.py` reads
+    # `config["remote"]`; read it inline here to avoid an import cycle.
+    if ctx["config"].get("remote", {}).get("kind", "github") == "github":
+        parsed = json_of(await gh(ctx, ["repo", "view", "--json", "defaultBranchRef"]))
+        name = (
+            parsed.get("defaultBranchRef", {}).get("name")
+            if isinstance(parsed, dict) and isinstance(parsed.get("defaultBranchRef"), dict)
+            else None
+        )
+        if isinstance(name, str) and name:
+            return name
     result = await git(ctx, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
     short = result["stdout"].strip().removeprefix("origin/")
-    return short if ok(result) and short else "main"
+    if ok(result) and short:
+        return short
+    if await local_branch_exists(ctx, "main"):
+        return "main"
+    if await local_branch_exists(ctx, "master"):
+        return "master"
+    return "main"
 
 
 def sanitize_ref(value: str) -> str:
