@@ -828,15 +828,37 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(
     )
     assert result.returncode == expected
     if mode == "new":
-        assert "PREFLIGHT: ok" in result.stdout
+        # `/unused` is a local-path (non-GitHub) origin: no gh auth needed.
+        assert "PREFLIGHT: ok" in result.stdout and "not GitHub" in result.stdout
         assert subprocess.check_output(["git", "status", "--porcelain"], cwd=tmp_path)
-        unauthenticated = subprocess.run(
+        local_unauth = subprocess.run(
             ["bash", "-c", "gh() { return 1; }\n" + script],
             cwd=tmp_path,
             capture_output=True,
             text=True,
         )
-        assert unauthenticated.returncode == 1 and "not authenticated" in unauthenticated.stderr
+        assert local_unauth.returncode == 0 and "PREFLIGHT: ok" in local_unauth.stdout
+        # A GitHub origin requires gh auth.
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", "https://github.com/a/b.git"],
+            cwd=tmp_path,
+            check=True,
+        )
+        gh_unauth = subprocess.run(
+            ["bash", "-c", "gh() { return 1; }\n" + script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert gh_unauth.returncode == 1 and "not authenticated" in gh_unauth.stderr
+        gh_auth = subprocess.run(
+            ["bash", "-c", "gh() { return 0; }\n" + script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert gh_auth.returncode == 0 and "REMOTE: GitHub" in gh_auth.stdout
+        # No origin: units commit locally, no gh needed.
         subprocess.run(["git", "remote", "remove", "origin"], cwd=tmp_path, check=True)
         no_origin = subprocess.run(
             ["bash", "-c", "gh() { return 0; }\n" + script],
@@ -844,7 +866,7 @@ def test_ticket_auto_preflight_allows_dirty_source_only_for_new_tree(
             capture_output=True,
             text=True,
         )
-        assert no_origin.returncode == 1 and "no 'origin'" in no_origin.stderr
+        assert no_origin.returncode == 0 and "REMOTE: none" in no_origin.stdout
     else:
         assert "uncommitted or untracked changes" in result.stderr
 
