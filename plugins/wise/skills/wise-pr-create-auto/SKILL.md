@@ -61,7 +61,17 @@ in the main harness, and relay the final result as specified by the shared
 dispatch reference. This does not add routine prompts to autonomous paths.
 Without `--on`, this section does not apply.
 
+Before dispatching, run the §0 GitHub remote check here first, so no
+child is spawned for a repository with no GitHub remote.
+
 ## Procedure
+
+### 0. GitHub remote check
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/github-remote.md` and run its
+check first. If the outcome is `none` or `other`, print the single
+create-variant line from its table and stop successfully; never call
+`gh pr`. Only continue when the outcome is `github`.
 
 ### 1. Resolve the project + branch
 
@@ -91,6 +101,8 @@ as the next step.
 
 ## Guardrails
 
+- Without a GitHub remote, print the one-line notice from
+  `references/pr/github-remote.md` and stop; never call `gh pr`.
 - Never call `AskUserQuestion` mid-run — the one exception is the
   `--on ask` pick before dispatch; this skill is the autonomous variant
   by definition.

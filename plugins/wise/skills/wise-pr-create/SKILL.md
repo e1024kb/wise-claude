@@ -67,6 +67,13 @@ Skipping the pre-flight makes the skill faster on the hot path
 and removes a coupling between wise-pr-* and the workflow engine's
 registry.
 
+### 0. GitHub remote check
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr/github-remote.md` and run its
+check first. If the outcome is `none` or `other`, print the single
+create-variant line from its table and stop successfully; never call
+`gh pr`. Only continue to §1 when the outcome is `github`.
+
 ### 1. Detect PR state
 
 ```bash
@@ -211,6 +218,8 @@ Watch pipelines + comments with:
   from `${CLAUDE_PLUGIN_ROOT}/references/pr/` but does NOT invoke
   workflow steps or other wise action skills (that's reserved for
   `workflow-run` / `workflow-resume`).
+- Without a GitHub remote, print the one-line notice from
+  `references/pr/github-remote.md` and stop; never call `gh pr`.
 - Never attach reviewers here — `/wise-pr-add-reviewers` owns that.
 - Never start a watch loop here — `/wise-pr-watch` owns that.
 - Never force-push, amend, rebase, or otherwise modify the
