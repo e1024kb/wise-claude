@@ -31,6 +31,8 @@ pre-flight asks harness, model and effort per phase.
 ## Prerequisites
 
 - `/wise-init` completed at least once (Python 3.11+, gh CLI + auth).
+  A GitHub `origin` is required to watch anything: with no GitHub remote
+  the `pr` unit ends `skipped` (`no-github-remote`), nothing to watch.
 - Run from inside the project's git repository on the PR branch
   (`project-selection: current`); a detached HEAD, a protected
   branch (`main` / `master` / `release*`) or uncommitted / untracked
@@ -43,7 +45,7 @@ pre-flight asks harness, model and effort per phase.
 
 ```mermaid
 flowchart TD
-    A[resolve-branch<br/>bash - gh auth, clean checkout on a named unprotected branch -> branch] --> B[process<br/>units pipeline pr - claim the open PR, watch / fix / push / merge -> units row]
+    A[resolve-branch<br/>bash - classify origin, gh auth only for a GitHub origin, clean checkout on a named unprotected branch -> branch] --> B[process<br/>units pipeline pr - claim the open PR, watch / fix / push / merge -> units row]
     B --> C[report<br/>agent support - verify the PR live, write run-dir/report.md -> verdict, report_path]
 ```
 
@@ -51,7 +53,7 @@ Inside `process`, for the checked-out branch and in this order:
 
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
-| `claim` | code | - | Binds to the checkout: named unprotected branch, matching the item, with an open PR (`MERGED` -> verdict `merged`, closed -> `skipped`). Base from the PR. |
+| `claim` | code | - | Binds to the checkout: named unprotected branch, matching the item, with an open PR (`MERGED` -> verdict `merged`, closed -> `skipped`). Base from the PR. No GitHub remote -> verdict `skipped` (`no-github-remote`) before any `gh pr view`. |
 | `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); after the push the engine reconciles CodeRabbit's state for the new head (reviews bound to the head, its check run, notices and trigger comments created after the head appeared) and, when the head is silent past a 2-minute grace or CodeRabbit says automatic reviews are off, posts one `@coderabbitai review` per head (`references/pr/review-verification.md`; ledger `watch.verification`), holding the merge while the request is unanswered or the review runs; a stuck bot gets the substitute review once per head when `substitute_review` is `yes`, else the run stands down (`all-green reason=review-consent-declined`); a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
 | `cleanup` | code | - | Always keeps the current tree and branch. |
 
@@ -80,7 +82,7 @@ Unit caps (`profiles.medium.caps`):
 
 | Step | Type | Purpose |
 |---|---|---|
-| `resolve-branch` | `bash` | `gh auth status`, the checked-out branch name; refuses a detached HEAD, `main` / `master` / `release*` and a dirty checkout (`git status --porcelain` non-empty). Emits `branch`. |
+| `resolve-branch` | `bash` | Classifies `origin` (host only) and runs `gh auth status` only for a GitHub origin; resolves the checked-out branch name; refuses a detached HEAD, `main` / `master` / `release*` and a dirty checkout (`git status --porcelain` non-empty). Emits `branch`. |
 | `process` | `units` | `pipeline: pr`, `items: {{branch}}`. Groups `watch`, `fix`, `review`; caps from `profiles.medium` (overridden by the inputs of the same name); `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row). |
 | `report` | `agent` (`support` group) | Renders the `units` row, verifies the PR with `gh pr view`, writes `<run-dir>/report.md` (verdict and reason, passes and fix rounds, what was fixed, the verification requests per head from the ledger's `watch.verification`, the next step for a human). Emits `verdict`, `report_path`. |
 
@@ -97,7 +99,7 @@ Unit caps (`profiles.medium.caps`):
 | Name | Source | Content |
 |---|---|---|
 | `branch` | `resolve-branch` | The checked-out branch, the `units` item. |
-| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. Ledger under `<run-dir>/units/<branch>.json`; its `watch.verification.<provider>.<head>` records the verification requests for the 5 most recent heads (state, attempts, comment id, retry time). |
+| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. A `skipped` whose reason starts with `no-github-remote` means the repo has no GitHub remote (nothing to watch). Ledger under `<run-dir>/units/<branch>.json`; its `watch.verification.<provider>.<head>` records the verification requests for the 5 most recent heads (state, attempts, comment id, retry time). |
 | `verdict`, `report_path` | `report` | The verdict and the report file. |
 
 ## Examples
