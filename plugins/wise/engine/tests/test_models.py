@@ -40,8 +40,10 @@ def test_alias_and_effort_boundaries():
     assert default_effort({"efforts": ["medium", "xhigh"]}, "low") == "medium"
     assert default_effort({"efforts": ["medium", "xhigh"]}, "bogus") == "medium"
     assert [entry["id"] for entry in catalog_for("cursor")] == [
+        "grok-4.7-high-fast",
+        "grok-4.7-high",
+        "cursor-grok-4.6-high-fast",
         "cursor-grok-4.6-high",
-        "composer-2.5",
     ]
     assert catalog_model("cursor", "grok-4.6") is None
     assert catalog_model("grok", "grok-4.6")["id"] == "grok-4.6"
@@ -59,7 +61,7 @@ CURSOR_LISTING = """Available models
 
 auto - Auto (default)
 gpt-5.3-codex-low - Codex 5.3 Low
-composer-2.5 - Composer 2.5
+cursor-grok-4.6-high - Cursor Grok 4.6
 claude-opus-5-thinking-high - Claude Opus 5 1M Thinking
 not a model line
 bad id! - Broken
@@ -81,7 +83,7 @@ def test_parse_model_listings():
     assert [(m["id"], m["label"]) for m in cursor] == [
         ("auto", "Auto (default)"),
         ("gpt-5.3-codex-low", "Codex 5.3 Low"),
-        ("composer-2.5", "Composer 2.5"),
+        ("cursor-grok-4.6-high", "Cursor Grok 4.6"),
         ("claude-opus-5-thinking-high", "Claude Opus 5 1M Thinking"),
     ]
     assert all(m["efforts"] == [] and "cursor" in m["description"] for m in cursor)
@@ -99,22 +101,26 @@ def test_merged_catalog_keeps_catalog_first_then_reported_unique_additions():
     discovered = parse_model_listing("cursor", CURSOR_LISTING)
     merged = merged_catalog("cursor", discovered)
     assert [(m["id"], m["source"]) for m in merged] == [
+        ("grok-4.7-high-fast", "catalog"),
+        ("grok-4.7-high", "catalog"),
+        ("cursor-grok-4.6-high-fast", "catalog"),
         ("cursor-grok-4.6-high", "catalog"),
-        ("composer-2.5", "catalog"),
         ("auto", "harness"),
         ("gpt-5.3-codex-low", "harness"),
         ("claude-opus-5-thinking-high", "harness"),
     ]
     # extras keep the harness's own order; a repeated id keeps its first slot
     assert merged == merged_catalog("cursor", discovered + list(reversed(discovered)))
-    assert [m["source"] for m in merged_catalog("cursor")] == ["catalog", "catalog"]
-    shouted = merged_catalog("cursor", [{"id": "COMPOSER-2.5"}, {"id": "Auto"}, {"id": "auto"}])
-    assert [(m["id"], m["source"]) for m in shouted[2:]] == [("Auto", "harness")]
+    assert [m["source"] for m in merged_catalog("cursor")] == ["catalog"] * 4
+    shouted = merged_catalog(
+        "cursor", [{"id": "CURSOR-GROK-4.6-HIGH"}, {"id": "Auto"}, {"id": "auto"}]
+    )
+    assert [(m["id"], m["source"]) for m in shouted[4:]] == [("Auto", "harness")]
     assert catalog_model("cursor", "auto") is None
     assert catalog_model("cursor", " AUTO ", discovered)["source"] == "harness"
-    assert catalog_model("cursor", "composer-2.5", discovered)["source"] == "catalog"
+    assert catalog_model("cursor", "cursor-grok-4.6-high", discovered)["source"] == "catalog"
     assert default_model("cursor", "auto", discovered)["id"] == "auto"
-    assert default_model("cursor", "missing", discovered)["id"] == "cursor-grok-4.6-high"
+    assert default_model("cursor", "missing", discovered)["id"] == "grok-4.7-high-fast"
 
 
 def test_discover_models_skips_missing_adapters_and_failures():

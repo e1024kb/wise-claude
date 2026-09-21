@@ -76,15 +76,27 @@ MODEL_CATALOG: dict[str, Any] = {
     ],
     "cursor": [
         {
-            "id": "cursor-grok-4.6-high",
-            "label": "Cursor Grok 4.6 High",
-            "description": "Cursor's frontier model for complex agentic work",
+            "id": "grok-4.7-high-fast",
+            "label": "Grok 4.7 High Fast",
+            "description": "SpaceXAI's most powerful model, fast mode",
             "efforts": [],
         },
         {
-            "id": "composer-2.5",
-            "label": "Composer 2.5",
-            "description": "Cursor's fast, cost-efficient coding model",
+            "id": "grok-4.7-high",
+            "label": "Grok 4.7 High",
+            "description": "SpaceXAI's most powerful model",
+            "efforts": [],
+        },
+        {
+            "id": "cursor-grok-4.6-high-fast",
+            "label": "Cursor Grok 4.6 High Fast",
+            "description": "previous Cursor Grok, fast mode",
+            "efforts": [],
+        },
+        {
+            "id": "cursor-grok-4.6-high",
+            "label": "Cursor Grok 4.6 High",
+            "description": "previous Cursor Grok",
             "efforts": [],
         },
     ],
