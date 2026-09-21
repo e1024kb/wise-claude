@@ -737,13 +737,14 @@ the workflow and the answers so far, so the same page holds the same
 questions on every run. Option lists never move: the default option carries
 the ` (default)` marker in its label and stays in its fixed slot.
 
-The predefined catalog (2026-09-17), in picker order: claude
+The predefined catalog (2026-09-21), in picker order: claude
 `claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
 `claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
 (low, medium, high); the first four are the rows a four-option host shows, the
 rest are named in the question text; codex
 `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low, medium, high);
-cursor `cursor-grok-4.6-high`, `composer-2.5` (no effort flag); grok
+cursor `grok-4.7-high-fast`, `grok-4.7-high`, `cursor-grok-4.6-high-fast`,
+`cursor-grok-4.6-high` (no effort flag); grok
 `grok-4.6`, `grok-4.5`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
 The predefined entries are always offered. On top of them, once the model
