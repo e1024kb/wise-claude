@@ -15,7 +15,6 @@ MODEL_EFFORT_SUPPORT = {family: set(EFFORTS) for family in ("opus", "fable", "so
 MODEL_EFFORT_SUPPORT["haiku"] = set()
 MODEL_EFFORT_CEILING = {
     "opus": "high",
-    "claude-opus-5": "high",
     "claude-opus-5-5": "high",
     "claude-opus-4-8": "xhigh",
 }
