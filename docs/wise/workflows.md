@@ -738,8 +738,8 @@ questions on every run. Option lists never move: the default option carries
 the ` (default)` marker in its label and stays in its fixed slot.
 
 `claude-opus-5-5` (the `opus` alias, and the catalog default for claude)
-requires Claude Code 2.1.280 or newer. Older builds reject the id with
-`[claude-code:unrecognized_model]`; pin `claude-opus-4-8` on such a host.
+needs a Claude Code build that recognises the id. Older builds may reject
+it; pin `claude-opus-4-8` on such a host.
 
 The predefined catalog (2026-09-22), in picker order: claude
 `claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-4-8` (low, medium, high),
