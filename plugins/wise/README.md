@@ -230,7 +230,8 @@ questionary offers; **budget profiles** (`low` / `medium` / `max`, the
 pipelines read. Models resolve through a retired-id table, a capability
 clamp and a policy ceiling (Opus 5.5 tops out at `high`; override with
 `WISE_EFFORT_CEILING`); under `low` every Opus-family pin resolves to
-`claude-opus-4-8`. Children run under the vendor's subscription login
+`claude-opus-4-8`. Opus 5.5 needs Claude Code 2.1.280 or newer; older
+builds reject the id, so pin `claude-opus-4-8` there. Children run under the vendor's subscription login
 unless a step says `auth: api-key`.
 
 **Full reference** - the v2 schema, step-type semantics, the `when`

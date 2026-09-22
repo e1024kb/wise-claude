@@ -53,7 +53,8 @@ current-harness model is recorded separately from `PROFILE_OPUS_MODEL`.
 - **When executing on Opus, `PROFILE_OPUS_MODEL` is the only Opus model id a consumer
   may dispatch.** It is `opus` (the alias — the latest Opus, Opus 5.5) at
   `medium` / `max` and `claude-opus-4-8` at `low`: under the `low`
-  profile wise NEVER dispatches Opus 5.5. Wherever a consumer's mapping
+  profile wise NEVER dispatches Opus 5.5 (a capability policy, not a
+  cost saving). Wherever a consumer's mapping
   table says "opus" for a `Task` `model:` (a reviewer, a planner, a
   fixer, a verification pass), pass `$PROFILE_OPUS_MODEL`, never the
   literal alias. Sonnet / haiku tiers are unaffected. Workflow runs

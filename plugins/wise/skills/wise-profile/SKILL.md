@@ -43,7 +43,7 @@ table; `medium` = the plugin's standard behavior):
 
 | level | meaning |
 |---|---|
-| `low` | cheapest run that keeps every gate: sonnet tiers for research / implementation (planning/authoring stay on Opus — **Opus 4.8, never Opus 5.5**: a MUST rule, see below), minimal optional research, solo leads instead of panels, low retry caps |
+| `low` | cheapest run that keeps every gate: sonnet tiers for research / implementation (planning/authoring stay on Opus — **Opus 4.8, never Opus 5.5**: a capability policy, not a price cut, see below), minimal optional research, solo leads instead of panels, low retry caps |
 | `medium` | the standard defaults (set this to undo a `low`/`max`) |
 | `max` | everything on: opus tiers across phases, full research, review findings adversarially verified before apply |
 
@@ -53,7 +53,10 @@ rules. Commit conventions, dirty-tree refusals, review gates, and
 push refusals are identical across levels.
 
 **The low-profile Opus rule (MUST).** Under `low`, wise NEVER
-dispatches Opus 5.5. Every Opus-tier dispatch — planning / authoring
+dispatches Opus 5.5. This is a capability policy, not a cost saving:
+Opus 4.8 is not cheaper per token than Opus 5.5, but it accepts
+`xhigh` effort and runs on Claude Code builds older than 2.1.280, so a
+`low` run stays dispatchable on any host. Every Opus-tier dispatch — planning / authoring
 steps, the review-gate panel, the fixer, the PR watcher's fallback
 reviewer — runs on `claude-opus-4-8` instead. Sonnet-tier dispatches
 are unaffected. The engine enforces it on every model resolved under

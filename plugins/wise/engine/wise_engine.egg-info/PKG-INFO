@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: wise-engine
+Version: 0.0.0
+Requires-Python: >=3.11
+Requires-Dist: mcp==2.2.0
+Requires-Dist: anyio==4.15.1
+Requires-Dist: jsonschema==4.26.0
+Requires-Dist: ruamel.yaml==0.19.1
+Requires-Dist: python-ulid==3.1.0
+Requires-Dist: regex==2026.9.10
+Requires-Dist: tomlkit==0.15.1
+Provides-Extra: dev
+Requires-Dist: pytest==8.4.2; extra == "dev"
+Requires-Dist: ruff==0.13.0; extra == "dev"
+Requires-Dist: mypy==1.18.1; extra == "dev"

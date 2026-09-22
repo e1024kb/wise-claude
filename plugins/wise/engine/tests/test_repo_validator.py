@@ -261,3 +261,20 @@ def test_version_badge_reports_missing_plugin_version(validator, tmp_path):
     errors: list[str] = []
     validator.check_version_badge(errors)
     assert len(errors) == 1 and "cannot read plugin version" in errors[0]
+
+
+def test_version_badge_rejects_multiple_badges(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    badge = "![version](https://img.shields.io/badge/version-5.16.0-blue)\n"
+    write(tmp_path, "README.md", badge * 2)
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "expected one version badge, found 2" in errors[0]
+
+
+def test_version_badge_reports_readme_read_error(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    (tmp_path / "README.md").mkdir()
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "could not read file" in errors[0]
