@@ -13,7 +13,12 @@ from .yaml_compat import js_string, parse_yaml
 EFFORT_ORDER = EFFORTS
 MODEL_EFFORT_SUPPORT = {family: set(EFFORTS) for family in ("opus", "fable", "sonnet")}
 MODEL_EFFORT_SUPPORT["haiku"] = set()
-MODEL_EFFORT_CEILING = {"opus": "high", "claude-opus-5-5": "high", "claude-opus-4-8": "xhigh"}
+MODEL_EFFORT_CEILING = {
+    "opus": "high",
+    "claude-opus-5": "high",
+    "claude-opus-5-5": "high",
+    "claude-opus-4-8": "xhigh",
+}
 LOW_PROFILE_OPUS_MODEL = "claude-opus-4-8"
 MODEL_TIER_NEXT = {"fable": "opus", "opus": "sonnet", "sonnet": "haiku", "haiku": "sonnet"}
 RETIRED_MODELS = {

@@ -24,7 +24,7 @@ PLUGIN_ROOT_REF_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s'\"`)]+)")
 WORKFLOW_DIR_REF_RE = re.compile(r"\{\{workflow\.dir\}\}/prompts/([^\s'\"`)]+)")
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-VERSION_BADGE_RE = re.compile(r"img\.shields\.io/badge/version-([^-\s)]+)-")
+VERSION_BADGE_RE = re.compile(r"img\.shields\.io/badge/version-(.+?)-blue")
 
 # References to files a skill writes at runtime (not shipped in the
 # repo, so they never exist on disk here) rather than a static asset
@@ -461,6 +461,8 @@ def check_version_badge(errors: list[str]) -> None:
     try:
         version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
     except (OSError, json.JSONDecodeError, AttributeError):
+        version = None
+    if not version:
         errors.append(f"{manifest.relative_to(REPO_ROOT)}: cannot read plugin version")
         return
     try:
@@ -468,11 +470,13 @@ def check_version_badge(errors: list[str]) -> None:
     except OSError as exc:
         errors.append(f"README.md: could not read file ({exc})")
         return
-    if len(badges) != 1:
-        errors.append(f"README.md: expected one version badge, found {len(badges)}")
-    elif badges[0] != version:
+    # shields.io escapes a literal "-" in badge text as "--".
+    values = [badge.replace("--", "-") for badge in badges]
+    if len(values) != 1:
+        errors.append(f"README.md: expected one version badge, found {len(values)}")
+    elif values[0] != version:
         errors.append(
-            f"README.md: version badge {badges[0]!r} != plugin.json version {version!r}"
+            f"README.md: version badge {values[0]!r} != plugin.json version {version!r}"
         )
 
 
