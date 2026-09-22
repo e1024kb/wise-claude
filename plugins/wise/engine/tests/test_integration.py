@@ -38,7 +38,7 @@ def test_explicit_low_profile_rule_and_default_opus_resolution():
     result = resolve_model_dict(LOW_PROFILE_OPUS_MODEL, "high", "low")
     assert result["model"] == LOW_PROFILE_OPUS_MODEL
     assert "reason" not in result
-    assert resolve_model_dict("claude-opus-5", "high", "medium")["model"] == "claude-opus-5"
+    assert resolve_model_dict("claude-opus-5-5", "high", "medium")["model"] == "claude-opus-5-5"
 
 
 @pytest.mark.parametrize("name", BUNDLED)
@@ -50,8 +50,8 @@ def test_bundled_groups_use_catalog_models(name):
         ids = {model["id"] for model in catalog_for(tuning.get("harness", "claude"))}
         assert tuning.get("model") in ids
         assert (
-            not re.match(r"^(opus|claude-opus-5)", tuning["model"])
-            or tuning["model"] == "claude-opus-5"
+            not re.match(r"^(opus|claude-opus-5-5)", tuning["model"])
+            or tuning["model"] == "claude-opus-5-5"
         )
     for tuning in applied["tuning"].values():
         result = resolve_model_dict(
@@ -86,7 +86,7 @@ def test_bundled_unit_phase_models_and_caps(name):
     step = next(step for step in definition["steps"] if step["id"] == "process")
     phases = resolve_unit_phases(step, applied["tuning"], applied["profile"], {})
     for phase in ("plan", "implement", "review", "fix"):
-        assert phases[phase]["model"] == "claude-opus-5"
+        assert phases[phase]["model"] == "claude-opus-5-5"
     assert phases["watch"]["model"] == "claude-sonnet-5"
     assert all(cap in applied["caps"] for cap in step["caps"])
 

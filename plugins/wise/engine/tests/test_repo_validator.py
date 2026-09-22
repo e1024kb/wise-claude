@@ -221,3 +221,73 @@ def test_document_catalog_and_source_checks_are_retained(validator, tmp_path):
     errors = []
     validator.check_marketplace_sources(errors)
     assert len(errors) == 1 and "SHA-pinned" in errors[0]
+
+
+def test_readme_version_badge_matches_plugin_version(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    badge = "![version](https://img.shields.io/badge/version-{}-blue)\n"
+    write(tmp_path, "README.md", badge.format("5.16.0"))
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert errors == []
+    write(tmp_path, "README.md", badge.format("4.0.0"))
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "'4.0.0' != plugin.json version '5.16.0'" in errors[0]
+    write(tmp_path, "README.md", "# no badge\n")
+    errors = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "expected one version badge, found 0" in errors[0]
+
+
+def test_version_badge_accepts_escaped_prerelease(validator, tmp_path):
+    write(
+        tmp_path,
+        "plugins/wise/.claude-plugin/plugin.json",
+        json.dumps({"version": "5.17.0-rc.1"}),
+    )
+    write(
+        tmp_path,
+        "README.md",
+        "![version](https://img.shields.io/badge/version-5.17.0--rc.1-blue)\n",
+    )
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert errors == []
+
+
+def test_version_badge_ignores_bare_url_and_code_sample(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    write(
+        tmp_path,
+        "README.md",
+        "https://img.shields.io/badge/version-4.0.0-blue\n"
+        "`![version](https://img.shields.io/badge/version-3.0.0-blue`\n",
+    )
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "expected one version badge, found 0" in errors[0]
+
+
+def test_version_badge_reports_missing_plugin_version(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({}))
+    write(tmp_path, "README.md", "![version](https://img.shields.io/badge/version-5.16.0-blue)\n")
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "cannot read plugin version" in errors[0]
+
+
+def test_version_badge_rejects_multiple_badges(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    badge = "![version](https://img.shields.io/badge/version-5.16.0-blue)\n"
+    write(tmp_path, "README.md", badge * 2)
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "expected one version badge, found 2" in errors[0]
+
+
+def test_version_badge_reports_readme_read_error(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    (tmp_path / "README.md").mkdir()
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "could not read file" in errors[0]

@@ -31,8 +31,8 @@ project-selection: current
 #   - watch+fix → wise:software-engineer (sonnet)
 # At the step level `report` → wise:qa-engineer; `assemble-team`
 # stays a plain run-start declaration of the roster team + config binding.
-# Model tiering (opus = the latest Opus, Opus 5): opus at high for
-# planning (Opus 5's policy ceiling — authored xhigh resolves to high;
+# Model tiering (opus = the latest Opus, Opus 5.5): opus at high for
+# planning (Opus 5.5's policy ceiling — authored xhigh resolves to high;
 # see docs/wise/workflows.md § Effort ceilings), opus at high for the
 # hands-on engineering (implement / fix /
 # executors) and review brains; sonnet for the watch+fix CI conductor and

@@ -52,6 +52,9 @@ Keep harness-specific instructions in that harness's configuration file.
 
 - Keep `plugins/wise/.claude-plugin/plugin.json` as the plugin version source.
   Follow CONTRIBUTING's versioning rules when changing shipped plugin files.
+- MUST: every plugin version bump updates the version badge in the root
+  `README.md` (`badge/version-<x.y.z>-blue`) to the same version in the same
+  change. `scripts/validate_repo.py` fails when they differ.
 - Keep workflow READMEs synchronized with their YAML and prompts. When editing
   `plugins/wise/agents/<name>.md`, update the plugin agent index in the same
   change. Role cards, not a duplicated roster, are the source of truth.

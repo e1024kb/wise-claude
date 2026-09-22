@@ -59,7 +59,7 @@ exposes:
   the three reviewers run in parallel as fresh read-only subagents
   inheriting the current model (an interactive Claude session that
   chooses to pin Opus on them still follows the low-profile rule:
-  `low` never dispatches Opus 5, use `claude-opus-4-8`).
+  `low` never dispatches Opus 5.5, use `claude-opus-4-8`).
 - **Inline** otherwise (Codex, Cursor, Gemini and Grok children, or a
   Claude child without `Task`): run the three lenses **sequentially in
   the current context**, one lens at a time, each producing its own
@@ -70,7 +70,7 @@ exposes:
 The effort directive is appended to each reviewer's prompt the same
 way workflow dispatch conveys effort (a prompt directive, best-effort).
 `max` deliberately does NOT reach for a higher effort word — `xhigh`
-clamps to `high` under Opus 5's policy ceiling, so it would be a
+clamps to `high` under Opus 5.5's policy ceiling, so it would be a
 no-op; instead `max` buys a **verification pass**, a real extra
 dispatch (step 3b below): after curation, each kept finding gets one
 adversarial re-check by a fresh read-only subagent prompted to REFUTE

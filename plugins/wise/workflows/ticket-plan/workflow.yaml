@@ -63,9 +63,9 @@ preflight:
 # from the engine's catalog, then effort). A step binds via `group:`; a
 # step that pins `model:` itself is not tunable (the mechanical sonnet
 # steps below, where an override buys nothing).
-# Model tiering (opus = the latest Opus, Opus 5): the plan-authoring
+# Model tiering (opus = the latest Opus, Opus 5.5): the plan-authoring
 # steps (gap-analysis, build-plan, refine-plan, implement) default to
-# opus at `effort: xhigh`, which Opus 5's policy ceiling resolves to
+# opus at `effort: xhigh`, which Opus 5.5's policy ceiling resolves to
 # `high` (see docs/wise/workflows.md, Effort ceilings); the evidence
 # steps (analyze-design, research-context, codebase-audit) default to
 # opus at `effort: high`; sonnet for every other step.

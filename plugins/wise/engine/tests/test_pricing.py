@@ -15,7 +15,7 @@ def usage(**over):
 @pytest.mark.parametrize(
     "harness,model,expected",
     [
-        ("claude", "opus", "claude-opus-5"),
+        ("claude", "opus", "claude-opus-5-5"),
         ("claude", "Sonnet", "claude-sonnet-5"),
         ("claude", "haiku", "claude-haiku-4-5"),
         ("claude", "claude-opus-4-8-20260401", "claude-opus-4-8"),
@@ -36,6 +36,10 @@ def test_price_table():
         assert 0 <= price["cache_read"] <= price["input"]
         assert price["cache_write"] >= 0
     assert price_for("claude", "haiku") == dict(input=1, output=5, cache_read=0.1, cache_write=1.25)
+    assert price_for("claude", "opus") == dict(input=4, output=20, cache_read=0.2, cache_write=5)
+    assert price_for("claude", "claude-opus-4-8") == dict(
+        input=5, output=25, cache_read=0.5, cache_write=6.25
+    )
     for harness, model in [
         ("claude", "inherit"),
         ("gemini", "gemini-2.5-pro"),

@@ -43,7 +43,7 @@ table; `medium` = the plugin's standard behavior):
 
 | level | meaning |
 |---|---|
-| `low` | cheapest run that keeps every gate: sonnet tiers for research / implementation (planning/authoring stay on Opus — **Opus 4.8, never Opus 5**: a MUST rule, see below), minimal optional research, solo leads instead of panels, low retry caps |
+| `low` | cheapest run that keeps every gate: sonnet tiers for research / implementation (planning/authoring stay on Opus — **Opus 4.8, never Opus 5.5**: a capability policy, not a price cut, see below), minimal optional research, solo leads instead of panels, low retry caps |
 | `medium` | the standard defaults (set this to undo a `low`/`max`) |
 | `max` | everything on: opus tiers across phases, full research, review findings adversarially verified before apply |
 
@@ -53,7 +53,10 @@ rules. Commit conventions, dirty-tree refusals, review gates, and
 push refusals are identical across levels.
 
 **The low-profile Opus rule (MUST).** Under `low`, wise NEVER
-dispatches Opus 5. Every Opus-tier dispatch — planning / authoring
+dispatches Opus 5.5. This is a capability policy, not a cost saving:
+Opus 4.8 is not cheaper per token than Opus 5.5, but it accepts
+`xhigh` effort, so a `low` run stays dispatchable on any host.
+Every Opus-tier dispatch — planning / authoring
 steps, the review-gate panel, the fixer, the PR watcher's fallback
 reviewer — runs on `claude-opus-4-8` instead. Sonnet-tier dispatches
 are unaffected. The engine enforces it on every model resolved under
@@ -92,7 +95,7 @@ available, then ask ONE question:
   1. `medium (Recommended)` — "The standard defaults — full quality,
      standard cost. Pick this to reset a low/max session."
   2. `low` — "Cheapest run that keeps every gate: sonnet tiers
-     (planning/authoring stay on Opus 4.8 — never Opus 5), minimal
+     (planning/authoring stay on Opus 4.8 — never Opus 5.5), minimal
      optional research, solo leads, medium-effort reviews, low retry
      caps. Correctness rules unchanged."
   3. `max` — "Everything on: opus across phases, full research,
@@ -126,7 +129,7 @@ printf '%s\n' "<level>" > "$d/$sid.tmp.$$" && mv "$d/$sid.tmp.$$" "$d/$sid"
 ### 4. Confirm
 
 Tell the user in one line what is now active and what it affects,
-e.g. `Profile low set for this session — sonnet tiers for research / implementation (planning/authoring on Opus 4.8, never Opus 5), minimal research, solo leads, medium-effort reviews. Reset with /wise-profile medium.`
+e.g. `Profile low set for this session — sonnet tiers for research / implementation (planning/authoring on Opus 4.8, never Opus 5.5), minimal research, solo leads, medium-effort reviews. Reset with /wise-profile medium.`
 
 Your response's FINAL line MUST be exactly, on its own line:
 

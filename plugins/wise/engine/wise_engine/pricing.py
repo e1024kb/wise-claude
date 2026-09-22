@@ -9,6 +9,7 @@ from .models import CLAUDE_ALIASES
 PRICES: dict[str, Any] = {
     "claude-fable-5-1": {"input": 10, "output": 50, "cache_read": 0.25, "cache_write": 12.5},
     "claude-fable-5": {"input": 10, "output": 50, "cache_read": 1, "cache_write": 12.5},
+    "claude-opus-5-5": {"input": 4, "output": 20, "cache_read": 0.2, "cache_write": 5},
     "claude-opus-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25},
     "claude-opus-4-8": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25},
     "claude-opus-4-7": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25},

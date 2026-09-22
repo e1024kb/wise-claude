@@ -34,7 +34,7 @@ preflight:
   # never weaken a phase that explicitly needs full-access.
 
 # One question per group, `fix` included. Model
-# tiering (opus = the latest Opus, Opus 5): opus at high for plan,
+# tiering (opus = the latest Opus, Opus 5.5): opus at high for plan,
 # implement, fix and the review gate; sonnet for the watch pass and support.
 tuning:
   groups:

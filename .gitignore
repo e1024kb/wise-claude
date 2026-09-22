@@ -3,3 +3,5 @@
 /.idea
 /.remember/
 __pycache__/
+*.egg-info/
+plugins/wise/engine/uv.lock
