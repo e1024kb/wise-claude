@@ -940,6 +940,8 @@ def test_invalid_model_answer_ids_rejects_unbacked_explicit_models():
     assert p.invalid_model_answer_ids(defn, answers, {}) == [f"model.{group}"]
     assert p.invalid_model_answer_ids(defn, answers, None) == [f"model.{group}"]
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": "opus"}, None) == []
+    # a typed-only model is accepted though no picker lists it
+    assert p.invalid_model_answer_ids(defn, {f"model.{group}": "claude-opus-5"}, None) == []
     assert p.invalid_model_answer_ids(defn, {f"model.{group}": ""}, None) == []
 
 

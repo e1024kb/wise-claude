@@ -751,6 +751,9 @@ cursor `grok-4.7-high-fast`, `grok-4.7-high`, `cursor-grok-4.6-high-fast`,
 `cursor-grok-4.6-high` (no effort flag); grok
 `grok-4.6`, `grok-4.5`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
+`claude-opus-5` (low, medium, high) is typed-only: no picker lists it, but a
+model answer or pin that names it is accepted.
+
 The predefined entries are always offered. On top of them, once the model
 stage is reached, the engine asks the harness chosen for each tuning group for
 its live model list when that harness has a listing command

@@ -120,6 +120,18 @@ MODEL_CATALOG: dict[str, Any] = {
     ],
 }
 
+# Accepted when typed as a model answer or pin, never listed as a picker option.
+TYPED_ONLY_CATALOG: dict[str, Any] = {
+    "claude": [
+        {
+            "id": "claude-opus-5",
+            "label": "Opus 5",
+            "description": "previous Opus, accepted when typed",
+            "efforts": ["low", "medium", "high"],
+        },
+    ],
+}
+
 CLAUDE_ALIASES: dict[str, Any] = {
     "fable": "claude-fable-5-1",
     "opus": "claude-opus-5-5",
@@ -209,6 +221,7 @@ def catalog_model(
     if harness == "claude":
         key = CLAUDE_ALIASES.get(key, key)
     catalog = merged_catalog(harness, discovered) if discovered else catalog_for(harness)
+    catalog = [*catalog, *TYPED_ONLY_CATALOG.get(harness, [])]
     return next((model for model in catalog if model["id"].lower() == key), None)
 
 

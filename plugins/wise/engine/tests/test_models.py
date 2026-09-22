@@ -36,6 +36,8 @@ def test_catalog_defaults_and_lookup(harness):
 def test_alias_and_effort_boundaries():
     assert catalog_model("claude", " Opus ")["id"] == "claude-opus-5-5"
     assert catalog_model("codex", "opus") is None
+    assert catalog_model("claude", "claude-opus-5")["label"] == "Opus 5"
+    assert "claude-opus-5" not in [entry["id"] for entry in merged_catalog("claude")]
     assert default_effort({"efforts": ["medium", "xhigh"]}, "high") == "medium"
     assert default_effort({"efforts": ["medium", "xhigh"]}, "low") == "medium"
     assert default_effort({"efforts": ["medium", "xhigh"]}, "bogus") == "medium"
