@@ -15,7 +15,7 @@ def usage(**over):
 @pytest.mark.parametrize(
     "harness,model,expected",
     [
-        ("claude", "opus", "claude-opus-5"),
+        ("claude", "opus", "claude-opus-5-5"),
         ("claude", "Sonnet", "claude-sonnet-5"),
         ("claude", "haiku", "claude-haiku-4-5"),
         ("claude", "claude-opus-4-8-20260401", "claude-opus-4-8"),

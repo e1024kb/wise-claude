@@ -28,7 +28,7 @@ level="$(cat "${XDG_DATA_HOME:-$HOME/.local/share}/wise/profile/${sid:-none}" 2>
 # substitution strips trailing newlines, and the case guard rejects
 # anything else anyway
 case "$level" in low|medium|max) ;; *) level=medium ;; esac
-# Low-profile Opus rule (MUST): `low` never dispatches Opus 5.
+# Low-profile Opus rule (MUST): `low` never dispatches Opus 5.5.
 case "$level" in low) opus_model=claude-opus-4-8 ;; *) opus_model=opus ;; esac
 echo "PROFILE_LEVEL=$level"
 echo "PROFILE_OPUS_MODEL=$opus_model"
@@ -43,7 +43,7 @@ falls through to `medium` like everything else.
 
 These mappings select the preferred model, not an implicit cross-harness
 substitution. If unavailable, use the shared model-fallback picker. Preserve
-the low-profile exclusion of Opus 5 when constructing options; an approved
+the low-profile exclusion of Opus 5.5 when constructing options; an approved
 current-harness model is recorded separately from `PROFILE_OPUS_MODEL`.
 
 - `PROFILE_LEVEL` scales **token budget only**: model tiers, optional
@@ -51,9 +51,9 @@ current-harness model is recorded separately from `PROFILE_OPUS_MODEL`.
   Each consuming skill owns its concrete mapping table — this fragment
   never prescribes one, with ONE exception, the low-profile Opus rule:
 - **When executing on Opus, `PROFILE_OPUS_MODEL` is the only Opus model id a consumer
-  may dispatch.** It is `opus` (the alias — the latest Opus, Opus 5) at
+  may dispatch.** It is `opus` (the alias — the latest Opus, Opus 5.5) at
   `medium` / `max` and `claude-opus-4-8` at `low`: under the `low`
-  profile wise NEVER dispatches Opus 5. Wherever a consumer's mapping
+  profile wise NEVER dispatches Opus 5.5. Wherever a consumer's mapping
   table says "opus" for a `Task` `model:` (a reviewer, a planner, a
   fixer, a verification pass), pass `$PROFILE_OPUS_MODEL`, never the
   literal alias. Sonnet / haiku tiers are unaffected. Workflow runs

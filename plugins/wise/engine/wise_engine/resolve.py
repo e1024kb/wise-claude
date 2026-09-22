@@ -13,7 +13,7 @@ from .yaml_compat import js_string, parse_yaml
 EFFORT_ORDER = EFFORTS
 MODEL_EFFORT_SUPPORT = {family: set(EFFORTS) for family in ("opus", "fable", "sonnet")}
 MODEL_EFFORT_SUPPORT["haiku"] = set()
-MODEL_EFFORT_CEILING = {"opus": "high", "claude-opus-5": "high", "claude-opus-4-8": "xhigh"}
+MODEL_EFFORT_CEILING = {"opus": "high", "claude-opus-5-5": "high", "claude-opus-4-8": "xhigh"}
 LOW_PROFILE_OPUS_MODEL = "claude-opus-4-8"
 MODEL_TIER_NEXT = {"fable": "opus", "opus": "sonnet", "sonnet": "haiku", "haiku": "sonnet"}
 RETIRED_MODELS = {
@@ -134,7 +134,7 @@ def resolve_model_dict(
     if profile.strip().lower() == "low":
         low = low_profile_model(model, family)
         if low:
-            reasons.append(f"low profile: {model}→{low} (Opus 5 is never used at low)")
+            reasons.append(f"low profile: {model}→{low} (Opus 5.5 is never used at low)")
             model = low
     eff_out, changed = downmap_effort(family, eff, options.get("effort_support"))
     if changed:

@@ -177,8 +177,8 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   `Bypass permissions` available), then asks which model from the
   engine's catalog for that harness, then the effort that model takes. Every one of these questions goes to the
   user; the run refuses to start on a skipped one. Defaults:
-  `claude-opus-5 / high` for all seven (the authoring four declare
-  `xhigh`, which Opus 5's ceiling resolves to `high`);
+  `claude-opus-5-5 / high` for all seven (the authoring four declare
+  `xhigh`, which Opus 5.5's ceiling resolves to `high`);
   `claude-sonnet-5 / medium` for `support`.
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
@@ -207,7 +207,7 @@ until `setup`).
 | `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `support` tuning group. |
 | `research-context` | `agent` | The grill multi-source sweep ([`grill/research-sources.md`](../../references/grill/research-sources.md)): harvests the lexicon of unresolved terms, probes every reachable channel (tracker comments + screenshots, wiki, Slack, Drive, design, codebase + git history, web), works the channel families under bounded search rules, and builds the Context Dossier (incl. the People map and sources-unavailable list) - persisted to `<run-dir>/research/dossier.md` (the file is the channel: `gap-analysis` and `build-plan` Read it; the step's structured result carries `dossier_path` / `lexicon` / `sources_unavailable`). `evidence` tuning group (`opus / high`). |
 | `codebase-audit` | `agent` | Type-routed "reuse first" audit - UI layer for frontend, API/data/service layer for backend, both for fullstack - written to `<run-dir>/research/audit.md`. Acts as `software-engineer` covering the `architect` lens; `evidence` tuning group (`opus / high`). |
-| `gap-analysis` | `agent` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory; the paste-ready per-person question blocks are printed inline only when `gap_mode=ask` (on `defaults` only the blueprint path + per-person counts are printed - nobody would answer mid-run). Also writes the scorecard to `<run-dir>/research/gap-scorecard.md`. Emits `readiness` + `open_questions`. Acts as `architect`; `authoring` tuning group (`opus / xhigh`, resolved to `high` under Opus 5's policy ceiling). |
+| `gap-analysis` | `agent` | Scores the ten dimensions of [`grill/gap-analysis.md`](../../references/grill/gap-analysis.md) against the dossier file at `<run-dir>/research/dossier.md` (supplementing thin sections with its own Read/Grep of the project) and prints the scorecard. On GAPS, writes `BLUEPRINT-<ref>.md` ([`grill/blueprint-format.md`](../../references/grill/blueprint-format.md)) into the run directory; the paste-ready per-person question blocks are printed inline only when `gap_mode=ask` (on `defaults` only the blueprint path + per-person counts are printed - nobody would answer mid-run). Also writes the scorecard to `<run-dir>/research/gap-scorecard.md`. Emits `readiness` + `open_questions`. Acts as `architect`; `authoring` tuning group (`opus / xhigh`, resolved to `high` under Opus 5.5's policy ceiling). |
 | `resolve-gaps` | `ask` | `when: readiness == 'gaps' && gap_mode == 'ask'` - free-text: answer any of the surfaced questions inline, or skip to proceed on the stated defaults (each recorded as a `default-accepted` assumption). Interrupt + `/wise-workflow-resume` to take the questions to the team instead. With `gap_mode=defaults` this never fires. |
 | `build-plan` | `agent` | Cross-functional planning pass: reads the research files (ticket, design, related, dossier, audit, gap scorecard; missing ones skipped), folds in `gap_answers` (answered = CLEAR evidence; unanswered = default-accepted assumptions; updates the blueprint's Clarifications log when one exists), and makes every decision autonomously (with rationale), then writes `PLAN-<ref>.md` into the run directory; emits its path as `plan_path`. Acts as `architect` covering the product-manager / software-engineer / qa-engineer lenses; `authoring` tuning group. |
 | `present-plan` | `agent` | Informational - surfaces the plan-file path + Summary, Design Notes, Decisions Made, Testing, and Validation sections for review. |
@@ -223,9 +223,9 @@ teams): `analyze-design` acts as `ux-designer`, `codebase-audit` as
 `build-plan` / `refine-plan` as `architect` (build-plan also covers
 the product-manager / software-engineer / qa-engineer lenses).
 
-**Model tiering** (`opus` = the latest Opus, Opus 5) comes from the
+**Model tiering** (`opus` = the latest Opus, Opus 5.5) comes from the
 seven per-step tuning groups: `gap-analysis`, `build-plan`,
-`refine-plan` and `implement` default to `opus / xhigh`, which Opus 5's
+`refine-plan` and `implement` default to `opus / xhigh`, which Opus 5.5's
 policy ceiling resolves to `high` (see
 [Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings));
 `analyze-design`, `research-context` and `codebase-audit` default to

@@ -228,7 +228,7 @@ or a separate worktree. Every `agent` step and every `units` phase binds to a **
 questionary offers; **budget profiles** (`low` / `medium` / `max`, the
 `/wise-profile` vocabulary) override groups and set the caps the
 pipelines read. Models resolve through a retired-id table, a capability
-clamp and a policy ceiling (Opus 5 tops out at `high`; override with
+clamp and a policy ceiling (Opus 5.5 tops out at `high`; override with
 `WISE_EFFORT_CEILING`); under `low` every Opus-family pin resolves to
 `claude-opus-4-8`. Children run under the vendor's subscription login
 unless a step says `auth: api-key`.

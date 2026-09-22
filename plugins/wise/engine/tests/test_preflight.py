@@ -183,7 +183,7 @@ def test_model_options_carry_source_and_accept_harness_reported_models():
     question = next(q for q in claude["questions"] if q["id"] == "model.analyze-design")
     assert [o["value"] for o in question["options"]] == [
         "claude-fable-5-1",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "claude-opus-4-8",
         "claude-sonnet-5",
         "claude-haiku-4-5",
@@ -267,7 +267,7 @@ def test_known_inputs_filter_groups():
         implement_mode="plan-only",
     )
     assert p.known_inputs(defn, {}, {"ticket": [{"ref": "TEST-1"}]})["ticket_id"] == "TEST-1"
-    settled = {f"model.{g}": "claude-opus-5" for g in groups(defn)}
+    settled = {f"model.{g}": "claude-opus-5-5" for g in groups(defn)}
     for mode, active in [("ask", True), ("auto", False)]:
         answers = {**base, **settled, "input.review_mode": mode}
         answers.pop("model.refine-plan")
@@ -308,12 +308,16 @@ def test_deselected_locked_and_unbound_groups():
     assert not any(i.endswith(".presentation") for i in ids(stage))
     applied = p.apply_answers(
         defn,
-        {"step-select": [], "model.presentation": "claude-opus-5", "harness.presentation": "codex"},
+        {
+            "step-select": [],
+            "model.presentation": "claude-opus-5-5",
+            "harness.presentation": "codex",
+        },
     )
     assert applied["tuning"]["presentation"] == dict(harness="claude", model="sonnet", effort="low")
     assert "analyze-design" not in applied["enabled_steps"]
     assert applied["tuning"]["analyze-design"] == dict(
-        harness="claude", model="claude-opus-5", effort="high"
+        harness="claude", model="claude-opus-5-5", effort="high"
     )
     plain = {
         "steps": [{"id": "a", "type": "agent", "prompt": "x", "group": "g"}],
@@ -575,14 +579,14 @@ def test_all_bundled_enum_inputs_are_choices():
 @pytest.mark.parametrize(
     "answer,expected",
     [
-        ({}, dict(harness="claude", model="claude-opus-5", effort="high")),
+        ({}, dict(harness="claude", model="claude-opus-5-5", effort="high")),
         (
             {"harness.analyze-design": "codex"},
             dict(harness="codex", model="gpt-6-astra", effort="high"),
         ),
         (
             {"harness.analyze-design": "bard"},
-            dict(harness="claude", model="claude-opus-5", effort="high"),
+            dict(harness="claude", model="claude-opus-5-5", effort="high"),
         ),
         ({"harness.analyze-design": "grok"}, dict(harness="grok", model="grok-4.6")),
         (
@@ -596,7 +600,7 @@ def test_all_bundled_enum_inputs_are_choices():
         ),
         (
             {"model.analyze-design": "gpt-5.5", "effort.analyze-design": "ultra"},
-            dict(harness="claude", model="claude-opus-5", effort="high"),
+            dict(harness="claude", model="claude-opus-5-5", effort="high"),
         ),
         (
             {"model.analyze-design": "haiku"},

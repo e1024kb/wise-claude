@@ -34,7 +34,7 @@ def test_catalog_defaults_and_lookup(harness):
 
 
 def test_alias_and_effort_boundaries():
-    assert catalog_model("claude", " Opus ")["id"] == "claude-opus-5"
+    assert catalog_model("claude", " Opus ")["id"] == "claude-opus-5-5"
     assert catalog_model("codex", "opus") is None
     assert default_effort({"efforts": ["medium", "xhigh"]}, "high") == "medium"
     assert default_effort({"efforts": ["medium", "xhigh"]}, "low") == "medium"
@@ -49,7 +49,7 @@ def test_alias_and_effort_boundaries():
     assert catalog_model("grok", "grok-4.6")["id"] == "grok-4.6"
     assert [entry["id"] for entry in catalog_for("claude")] == [
         "claude-fable-5-1",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "claude-opus-4-8",
         "claude-sonnet-5",
         "claude-haiku-4-5",
@@ -62,7 +62,7 @@ CURSOR_LISTING = """Available models
 auto - Auto (default)
 gpt-5.3-codex-low - Codex 5.3 Low
 cursor-grok-4.6-high - Cursor Grok 4.6
-claude-opus-5-thinking-high - Claude Opus 5 1M Thinking
+claude-opus-5-5-thinking-high - Claude Opus 5.5 1M Thinking
 not a model line
 bad id! - Broken
 """
@@ -84,7 +84,7 @@ def test_parse_model_listings():
         ("auto", "Auto (default)"),
         ("gpt-5.3-codex-low", "Codex 5.3 Low"),
         ("cursor-grok-4.6-high", "Cursor Grok 4.6"),
-        ("claude-opus-5-thinking-high", "Claude Opus 5 1M Thinking"),
+        ("claude-opus-5-5-thinking-high", "Claude Opus 5.5 1M Thinking"),
     ]
     assert all(m["efforts"] == [] and "cursor" in m["description"] for m in cursor)
     grok = parse_model_listing("grok", GROK_LISTING)
@@ -107,7 +107,7 @@ def test_merged_catalog_keeps_catalog_first_then_reported_unique_additions():
         ("cursor-grok-4.6-high", "catalog"),
         ("auto", "harness"),
         ("gpt-5.3-codex-low", "harness"),
-        ("claude-opus-5-thinking-high", "harness"),
+        ("claude-opus-5-5-thinking-high", "harness"),
     ]
     # extras keep the harness's own order; a repeated id keeps its first slot
     assert merged == merged_catalog("cursor", discovered + list(reversed(discovered)))

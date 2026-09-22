@@ -18,8 +18,8 @@ MODEL_CATALOG: dict[str, Any] = {
             "efforts": ["low", "medium", "high"],
         },
         {
-            "id": "claude-opus-5",
-            "label": "Opus 5",
+            "id": "claude-opus-5-5",
+            "label": "Opus 5.5",
             "description": "current Opus",
             "efforts": ["low", "medium", "high"],
         },
@@ -122,7 +122,7 @@ MODEL_CATALOG: dict[str, Any] = {
 
 CLAUDE_ALIASES: dict[str, Any] = {
     "fable": "claude-fable-5-1",
-    "opus": "claude-opus-5",
+    "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5",
 }

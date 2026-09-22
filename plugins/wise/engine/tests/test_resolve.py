@@ -36,12 +36,12 @@ def resolve(model, effort="", profile="", **opts):
         ("opus", "max", "high"),
         ("opus", "high", "high"),
         ("opus", "low", "low"),
-        ("claude-opus-5", "xhigh", "high"),
-        ("claude-opus-5-20260401", "xhigh", "high"),
-        ("claude-opus-50-20270101", "xhigh", "xhigh"),
-        ("claude-opus-5-1", "xhigh", "xhigh"),
-        ("claude-opus-5-1-20270101", "xhigh", "xhigh"),
-        ("claude-opus-5-2026040", "xhigh", "xhigh"),
+        ("claude-opus-5-5", "xhigh", "high"),
+        ("claude-opus-5-5-20260901", "xhigh", "high"),
+        ("claude-opus-5-50-20270101", "xhigh", "xhigh"),
+        ("claude-opus-5-5-1", "xhigh", "xhigh"),
+        ("claude-opus-5-5-1-20270101", "xhigh", "xhigh"),
+        ("claude-opus-5-5-2026090", "xhigh", "xhigh"),
         ("claude-opus-4-8", "xhigh", "xhigh"),
         ("claude-opus-4-8", "max", "xhigh"),
         ("claude-opus-4-7", "xhigh", "xhigh"),
@@ -58,9 +58,9 @@ def test_ceiling_table(model, effort, expected):
 
 
 def test_clamp_reasons_and_snapshot_rules():
-    assert is_snapshot_of("claude-opus-5-20260401", "claude-opus-5")
-    for value in ("claude-opus-50-20270101", "claude-opus-5-1", "claude-opus-5"):
-        assert not is_snapshot_of(value, "claude-opus-5")
+    assert is_snapshot_of("claude-opus-5-5-20260901", "claude-opus-5-5")
+    for value in ("claude-opus-5-50-20270101", "claude-opus-5-5-1", "claude-opus-5-5"):
+        assert not is_snapshot_of(value, "claude-opus-5-5")
     assert "reason" not in resolve("opus", "high")
     assert "policy ceiling" in resolve("opus", "xhigh")["reason"]
     assert "no effort control" in resolve("haiku", "xhigh")["reason"]
@@ -80,12 +80,12 @@ def test_clamp_reasons_and_snapshot_rules():
     [
         ("off", "opus", "max"),
         ("opus=xhigh", "opus", "xhigh"),
-        ("opus=xhigh", "claude-opus-5", "high"),
-        ("claude-opus-5=medium", "claude-opus-5", "medium"),
+        ("opus=xhigh", "claude-opus-5-5", "high"),
+        ("claude-opus-5-5=medium", "claude-opus-5-5", "medium"),
         ("opus=off", "opus", "max"),
         ("opus=none", "opus", "max"),
         ("opus=", "opus", "max"),
-        ("opus=off", "claude-opus-5", "high"),
+        ("opus=off", "claude-opus-5-5", "high"),
         ("sonnet=medium", "sonnet", "medium"),
         ("junk", "opus", "high"),
         ("opus=turbo", "opus", "high"),
@@ -112,8 +112,8 @@ def test_env_table_fresh_and_longest_snapshot():
     "pin",
     [
         "opus",
-        "claude-opus-5",
-        "claude-opus-5-20260401",
+        "claude-opus-5-5",
+        "claude-opus-5-5-20260901",
         "claude-opus-4-7",
         "claude-opus-4-20250514",
     ],

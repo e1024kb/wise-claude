@@ -569,10 +569,10 @@ grok, gemini.
    callers that pass `low`.
 3. Capability clamp (`MODEL_EFFORT_SUPPORT`): `opus`, `fable`, `sonnet`
    take every effort; `haiku` has none, the effort is dropped.
-4. Policy ceiling (`MODEL_EFFORT_CEILING`): `opus` and `claude-opus-5`
+4. Policy ceiling (`MODEL_EFFORT_CEILING`): `opus` and `claude-opus-5-5`
    (dated snapshots `-YYYYMMDD` included) cap at `high`;
    `claude-opus-4-8` caps at `xhigh`; anything else has no ceiling.
-   Override with `WISE_EFFORT_CEILING="opus=xhigh,claude-opus-5=medium"`,
+   Override with `WISE_EFFORT_CEILING="opus=xhigh,claude-opus-5-5=medium"`,
    `"<model>=off"`, or bare `off`. Unparseable pairs are ignored.
 
 `model: inherit` (or no pin) omits `--model`, the child uses its own
@@ -737,8 +737,8 @@ the workflow and the answers so far, so the same page holds the same
 questions on every run. Option lists never move: the default option carries
 the ` (default)` marker in its label and stays in its fixed slot.
 
-The predefined catalog (2026-09-21), in picker order: claude
-`claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8` (low, medium, high),
+The predefined catalog (2026-09-22), in picker order: claude
+`claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-4-8` (low, medium, high),
 `claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
 (low, medium, high); the first four are the rows a four-option host shows, the
 rest are named in the question text; codex

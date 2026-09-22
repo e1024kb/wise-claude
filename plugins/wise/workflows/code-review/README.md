@@ -87,7 +87,7 @@ curate the reports that were available.
 Pre-flight asks one multi-select over the optional `verify` pass
 (selected by default) and the inputs below first; then, per tuning
 group a selected step uses (`correctness`, `security`, `tests`,
-`curate`, `verify`, `fix`; all default to `claude-opus-5 / high`),
+`curate`, `verify`, `fix`; all default to `claude-opus-5-5 / high`),
 which harness runs it when more than one is installed, then which model
 from the engine's catalog for that harness, then the effort that model
 takes. Every question is put to the user; deselecting `verify` drops
