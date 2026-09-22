@@ -24,6 +24,7 @@ PLUGIN_ROOT_REF_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s'\"`)]+)")
 WORKFLOW_DIR_REF_RE = re.compile(r"\{\{workflow\.dir\}\}/prompts/([^\s'\"`)]+)")
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+VERSION_BADGE_RE = re.compile(r"img\.shields\.io/badge/version-([^-\s)]+)-")
 
 # References to files a skill writes at runtime (not shipped in the
 # repo, so they never exist on disk here) rather than a static asset
@@ -454,6 +455,27 @@ def check_marketplace_sources(errors: list[str]) -> None:
             )
 
 
+def check_version_badge(errors: list[str]) -> None:
+    manifest = REPO_ROOT / WISE_PLUGIN_DIR / ".claude-plugin/plugin.json"
+    readme = REPO_ROOT / "README.md"
+    try:
+        version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        errors.append(f"{manifest.relative_to(REPO_ROOT)}: cannot read plugin version")
+        return
+    try:
+        badges = VERSION_BADGE_RE.findall(readme.read_text(encoding="utf-8"))
+    except OSError as exc:
+        errors.append(f"README.md: could not read file ({exc})")
+        return
+    if len(badges) != 1:
+        errors.append(f"README.md: expected one version badge, found {len(badges)}")
+    elif badges[0] != version:
+        errors.append(
+            f"README.md: version badge {badges[0]!r} != plugin.json version {version!r}"
+        )
+
+
 def check_question_lifecycle(errors: list[str]) -> None:
     skills_dir = REPO_ROOT / WISE_PLUGIN_DIR / "skills"
     target = "../../references/workflow-host-control.md#keep-asynchronous-questions-open"
@@ -502,11 +524,13 @@ def main() -> int:
     ref_errors: list[str] = []
     source_errors: list[str] = []
     question_errors: list[str] = []
+    badge_errors: list[str] = []
 
     check_json_manifests(json_errors)
     check_doc_references(ref_errors)
     check_marketplace_sources(source_errors)
     check_question_lifecycle(question_errors)
+    check_version_badge(badge_errors)
 
     try:
         definitions, resolution = _load_engine_modules()
@@ -529,6 +553,7 @@ def main() -> int:
         ("doc cross-references", ref_errors),
         ("marketplace source pins", source_errors),
         ("question lifecycle coverage", question_errors),
+        ("README version badge", badge_errors),
     ]
 
     all_errors = [e for _, errs in sections for e in errs]

@@ -221,3 +221,19 @@ def test_document_catalog_and_source_checks_are_retained(validator, tmp_path):
     errors = []
     validator.check_marketplace_sources(errors)
     assert len(errors) == 1 and "SHA-pinned" in errors[0]
+
+
+def test_readme_version_badge_matches_plugin_version(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    badge = "![version](https://img.shields.io/badge/version-{}-blue)\n"
+    write(tmp_path, "README.md", badge.format("5.16.0"))
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert errors == []
+    write(tmp_path, "README.md", badge.format("4.0.0"))
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "'4.0.0' != plugin.json version '5.16.0'" in errors[0]
+    write(tmp_path, "README.md", "# no badge\n")
+    errors = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "expected one version badge, found 0" in errors[0]

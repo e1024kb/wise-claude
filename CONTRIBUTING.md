@@ -662,6 +662,7 @@ Bump the `version` in the same PR as the change it describes.
 [`README.md`](./README.md) (`badge/version-<x.y.z>-blue`) to the new
 `plugin.json` version, in the same change. The badge is the first thing
 readers see; a stale badge misreports the release.
+`scripts/validate_repo.py` fails when the two differ.
 
 There is no separate changelog file — the git history is the record.
 Feature docs describe the *current* behaviour; don't sprinkle
