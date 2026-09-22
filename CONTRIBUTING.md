@@ -656,9 +656,15 @@ Per-plugin semver for the `wise` plugin:
 - **Major (`x.0.0`)** — breaking changes: removed skills, renamed or
   removed skills, changed CLI invocation form.
 
-Bump the `version` in the same PR as the change it describes. There is
-no separate changelog file — the git history is the record. Feature
-docs describe the *current* behaviour; don't sprinkle
+Bump the `version` in the same PR as the change it describes.
+
+**MUST:** every bump also updates the version badge in the root
+[`README.md`](./README.md) (`badge/version-<x.y.z>-blue`) to the new
+`plugin.json` version, in the same change. The badge is the first thing
+readers see; a stale badge misreports the release.
+
+There is no separate changelog file — the git history is the record.
+Feature docs describe the *current* behaviour; don't sprinkle
 `wise X.Y.Z introduced …` into the rest of the docs.
 
 ---
