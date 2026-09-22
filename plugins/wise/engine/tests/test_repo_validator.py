@@ -255,6 +255,19 @@ def test_version_badge_accepts_escaped_prerelease(validator, tmp_path):
     assert errors == []
 
 
+def test_version_badge_ignores_bare_url_and_code_sample(validator, tmp_path):
+    write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({"version": "5.16.0"}))
+    write(
+        tmp_path,
+        "README.md",
+        "https://img.shields.io/badge/version-4.0.0-blue\n"
+        "`![version](https://img.shields.io/badge/version-3.0.0-blue`\n",
+    )
+    errors: list[str] = []
+    validator.check_version_badge(errors)
+    assert len(errors) == 1 and "expected one version badge, found 0" in errors[0]
+
+
 def test_version_badge_reports_missing_plugin_version(validator, tmp_path):
     write(tmp_path, "plugins/wise/.claude-plugin/plugin.json", json.dumps({}))
     write(tmp_path, "README.md", "![version](https://img.shields.io/badge/version-5.16.0-blue)\n")

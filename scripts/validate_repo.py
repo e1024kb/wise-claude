@@ -24,7 +24,9 @@ PLUGIN_ROOT_REF_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s'\"`)]+)")
 WORKFLOW_DIR_REF_RE = re.compile(r"\{\{workflow\.dir\}\}/prompts/([^\s'\"`)]+)")
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-VERSION_BADGE_RE = re.compile(r"img\.shields\.io/badge/version-(.+?)-blue")
+VERSION_BADGE_RE = re.compile(
+    r"!\[version\]\(https://img\.shields\.io/badge/version-(.+?)-blue\)"
+)
 
 # References to files a skill writes at runtime (not shipped in the
 # repo, so they never exist on disk here) rather than a static asset

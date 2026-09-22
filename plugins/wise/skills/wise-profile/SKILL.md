@@ -55,8 +55,8 @@ push refusals are identical across levels.
 **The low-profile Opus rule (MUST).** Under `low`, wise NEVER
 dispatches Opus 5.5. This is a capability policy, not a cost saving:
 Opus 4.8 is not cheaper per token than Opus 5.5, but it accepts
-`xhigh` effort and runs on Claude Code builds older than 2.1.280, so a
-`low` run stays dispatchable on any host. Every Opus-tier dispatch — planning / authoring
+`xhigh` effort, so a `low` run stays dispatchable on any host.
+Every Opus-tier dispatch — planning / authoring
 steps, the review-gate panel, the fixer, the PR watcher's fallback
 reviewer — runs on `claude-opus-4-8` instead. Sonnet-tier dispatches
 are unaffected. The engine enforces it on every model resolved under
