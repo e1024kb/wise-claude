@@ -173,6 +173,9 @@ engine builds the questionary from the definition's `tuning:` /
 `step-select:` / `inputs:` blocks and the conductor asks it in stages,
 stage selection and inputs first, harnesses and provider permissions next, then model tuning:
 
+- **Tuning scope** - `single` runs every step on one harness, model and
+  effort (asked once as `harness.all`, `model.all`, `effort.all`);
+  `per-group` (default) asks them per group as described under Tuning.
 - **Stage selection** - one multi-select over the optional research
   stages: design analysis, related tickets & docs, deep-dive sweep,
   gap analysis (the `resolve-gaps` question follows gap analysis on

@@ -3535,6 +3535,25 @@ VALIDATION_CASES = [
         },
     ),
     (
+        "preflight: test_get_tuning_reserved_group_id",
+        {
+            "version": 2,
+            "name": "t",
+            "description": "d",
+            "steps": [{"id": "a", "type": "agent", "prompt": "x", "depends_on": []}],
+            "tuning": {"groups": [{"id": "all", "default": {}}]},
+        },
+        {
+            "issues": [
+                {
+                    "level": "error",
+                    "path": "tuning.groups[0].id",
+                    "message": 'tuning group id "all" is reserved',
+                }
+            ]
+        },
+    ),
+    (
         "preflight: test_get_step_select_empty_when_absent",
         {
             "version": 2,

@@ -63,7 +63,8 @@ caps concurrent harness children). `pick-next` then parks the run as
 an `ask` gate, `approve-summary` as an `approval` gate; in
 `synchronous` control mode both are answered automatically.
 
-Pre-flight asks, per tuning group (`classify`, `summarize`; both default
+Before any of this, `tuning-scope` asks whether one harness, model and effort run every step (`single`: asked once as `harness.all`, `model.all`, `effort.all`) or each group is chosen separately (`per-group`, the default).
+With `per-group`, pre-flight asks, per tuning group (`classify`, `summarize`; both default
 to `claude-haiku-4-5`, `summarize` with `codex` as fallback harness),
 which harness runs it when more than one is logged in, then which model
 from the engine's catalog, then the effort that model takes. It also asks

@@ -434,7 +434,7 @@ For multi-select on a host with only single-choice pickers:
 ### Long option lists
 
 This rule applies to every single-choice question, engine or skill-local:
-`harness.<group>`, `model.<group>`, `effort.<group>`, `permissions.<harness>`,
+`tuning-scope`, `harness.<group>`, `model.<group>`, `effort.<group>`, `permissions.<harness>`,
 `input.<name>` enums, base-branch and worktree choices, the `/wise-profile`
 and `/wise-exec-on-harness` pickers, model fallback, and any picker a skill
 builds from a known list. Render every option, in the source's order, with the

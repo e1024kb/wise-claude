@@ -19,6 +19,24 @@
       "default": "current"
     },
     {
+      "id": "tuning-scope",
+      "kind": "choice",
+      "label": "How should harness, model and effort be chosen?",
+      "options": [
+        {
+          "value": "single",
+          "label": "One choice for all step groups",
+          "description": "pick one harness, model and effort for every tunable step group; locked groups and step pins keep theirs"
+        },
+        {
+          "value": "per-group",
+          "label": "Per step group (default)",
+          "description": "pick harness, model and effort for each step group"
+        }
+      ],
+      "default": "per-group"
+    },
+    {
       "id": "step-select",
       "kind": "multi",
       "label": "Which research stages should run?",
@@ -120,6 +138,7 @@
   ],
   "defaults": {
     "worktree": "current",
+    "tuning-scope": "per-group",
     "step-select": [
       "analyze-design",
       "analyze-related",
@@ -133,11 +152,12 @@
   "pages": [
     [
       "worktree",
+      "tuning-scope",
       "step-select",
-      "input.ticket_id",
-      "input.review_mode"
+      "input.ticket_id"
     ],
     [
+      "input.review_mode",
       "input.branch_mode",
       "input.implement_mode",
       "input.base_branch"

@@ -258,6 +258,11 @@ def _tuning(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
         if gid in seen:
             iss.error(f"{p}.id", f"duplicate tuning group id {js_json(gid)}")
             continue
+        if gid == "all":
+            # `harness.all` / `model.all` / `effort.all` answer every group
+            # of a single-scope run.
+            iss.error(f"{p}.id", 'tuning group id "all" is reserved')
+            continue
         seen.add(gid)
         if "steps" in group:
             iss.error(

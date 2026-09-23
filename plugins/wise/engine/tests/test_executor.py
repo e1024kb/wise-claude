@@ -364,6 +364,46 @@ def test_invalid_worktree_answer_never_falls_back_to_default(tmp_path, answers):
     asyncio.run(scenario())
 
 
+def test_invalid_tuning_scope_answer_is_asked_again(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "scope-definitions"
+        definitions.mkdir()
+        (definitions / "scope.yaml").write_text(
+            "version: 2\n"
+            "name: scope\n"
+            "tuning:\n"
+            "  groups:\n"
+            "    - id: plan\n"
+            "      default: {harness: claude, model: opus, effort: high}\n"
+            "    - id: implement\n"
+            "      default: {harness: claude, model: opus, effort: high}\n"
+            "steps:\n"
+            "  - id: verify\n"
+            "    type: bash\n"
+            "    run: 'true'\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "scope",
+                        "cwd": rig.cwd,
+                        "answers": {"worktree": "current", "tuning-scope": "bogus"},
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["missing"] == ["tuning-scope"]
+            assert [q["id"] for q in error.value.data["questions"]] == ["tuning-scope"]
+            assert rig.rt.list_run_dirs() == []
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 def test_invalid_input_retry_preserves_context_default(tmp_path):
     async def scenario():
         rig = Rig(tmp_path)

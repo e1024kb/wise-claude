@@ -139,8 +139,11 @@ The main harness still owns the interaction. Pass the completed answers to
   stops collection.
 
 The questionary is staged. The first form asks `worktree` (current checkout or
-separate worktree), then `step-select` (which optional steps run) and the
-`input.<name>` questions. Once
+separate worktree), then `tuning-scope` (one harness, model and effort for
+every step, or a choice per step group; asked only when more than one group
+is tunable), then `step-select` (which optional steps run) and the
+`input.<name>` questions. With `tuning-scope: single` every tuning stage
+below comes once, as `harness.all`, `model.all` and `effort.all`. Once
 `step-select` is answered the tuning stages follow, for every group a
 step that will run uses (selected, and not ruled out by a `when:` the
 inputs already settle, such as `implement_mode: plan-only`): which
@@ -175,7 +178,7 @@ GUI, TUI, terminal prompt, or ordinary chat questionnaire themselves. Render
 every resulting gate in this main harness and return the answer with
 `wise_answer`.
 
-MUST: every `worktree`, `step-select`, `input.<name>`, `harness.<group>`,
+MUST: every `worktree`, `tuning-scope`, `step-select`, `input.<name>`, `harness.<group>`,
 `permissions.<harness>`, `model.<group>` and `effort.<group>` question the engine
 returns is put to the user. Never
 answer one yourself, including a permission question; never take its default to save a call, never
@@ -199,7 +202,7 @@ answer unless the user explicitly selected that mode for both providers.
 Render `choice` questions with options and `multi` questions with native
 multi-select or the shared clickable Include/Exclude sequence. Every
 `choice` question (`harness.<group>`, `permissions.<harness>`,
-`model.<group>`, `effort.<group>`, enum inputs, worktree, base branch) is
+`model.<group>`, `effort.<group>`, `tuning-scope`, enum inputs, worktree, base branch) is
 rendered with every option the engine returned, in the engine's order and
 with the engine's labels. Show as many options as the host allows; when the
 list exceeds the host's cap (four on Claude Code's `AskUserQuestion`), use
