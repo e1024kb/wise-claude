@@ -402,6 +402,52 @@ def test_invalid_input_retry_preserves_context_default(tmp_path):
     asyncio.run(scenario())
 
 
+def test_parallel_children_in_the_current_tree_are_rejected_at_preflight(tmp_path):
+    async def scenario():
+        rig = Rig(tmp_path)
+        definitions = tmp_path / "fanout-definitions"
+        definitions.mkdir()
+        (definitions / "fanout.yaml").write_text(
+            "version: 2\n"
+            "name: fanout\n"
+            "inputs:\n"
+            "  - name: tickets\n"
+            "    prompt: Tickets?\n"
+            "  - name: concurrency\n"
+            "    prompt: Concurrency?\n"
+            "    default: '2'\n"
+            "    validate: '^(1|2|3|4)$'\n"
+            "    needs-fanout: tickets\n"
+            "steps:\n"
+            "  - id: verify\n"
+            "    type: bash\n"
+            "    run: 'true'\n"
+        )
+        rig.executor.roots["user_root"] = str(definitions)
+        try:
+            with pytest.raises(RpcError) as error:
+                await rig.executor.run(
+                    {
+                        "workflow": "fanout",
+                        "cwd": rig.cwd,
+                        "answers": {
+                            "worktree": "current",
+                            "input.tickets": "A-1, B-2",
+                            "input.concurrency": "2",
+                        },
+                    },
+                    rig.ctx,
+                )
+            assert domain_code(error.value) == "MISSING_ANSWERS"
+            assert error.value.data["missing"] == ["input.concurrency"]
+            assert error.value.data["questions"][0]["default"] == "1"
+            assert rig.rt.list_run_dirs() == []
+        finally:
+            await rig.close()
+
+    asyncio.run(scenario())
+
+
 def test_shared_worktree_answer_reaches_workflow_managed_input(tmp_path):
     async def scenario():
         rig = Rig(tmp_path)

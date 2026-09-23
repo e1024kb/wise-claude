@@ -16,6 +16,7 @@ from .common import (
     pass_,
     ticket_context,
     unit_base_ref,
+    unit_key,
 )
 
 TITLE_MAX = 90
@@ -213,7 +214,7 @@ async def pr_phase(ctx: Json) -> Json:
     ctx["log"](f"pr: body from {template or 'the compact default'}")
     directory = Path(ctx["run_dir"]) / "units"
     directory.mkdir(parents=True, exist_ok=True)
-    body_path = directory / (quote(unit["branch"], safe="~!*'()") + ".pr-body.md")
+    body_path = directory / (quote(unit_key(unit), safe="~!*'()") + ".pr-body.md")
     body_path.write_text(body)
     if existing:
         edit = await gh(

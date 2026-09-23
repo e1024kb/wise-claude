@@ -14,6 +14,7 @@ PIPELINE_MODEL_PHASES = {
     "plan": MODEL_PHASES,
     "pr": ["review", "fix", "watch"],
     "implement": ["implement"],
+    "ticket-plan": ["plan"],
 }
 
 PHASE_SCHEMAS = {

@@ -79,6 +79,22 @@ A ticket this session cannot fetch (no MCP, no CLI, a login page, a
 the ticket text`, `Fix access and retry`, `Abort`, before the
 pre-flight starts. Never start a run with a ticket that has no body.
 
+An epic or parent work item (a Linear parent issue with sub-issues or a
+Linear project, a Jira epic, a GitHub issue with sub-issues or a task
+list) is accepted wherever a ticket is, mixed with plain tickets. For a
+workflow that fans out (`ticket-auto`, `ticket-plan`), expand it here:
+list its children recursively (sub-issues of sub-issues included), fetch
+each child like any ticket, and record per child `state`, `parent`,
+`blocked_by` (the tracker's blocked-by / blocks relations, plus an order
+the epic body states explicitly) and `repo` when the child names a
+repository other than this one. Give the epic entry `children` (the child
+refs). Print the resolved list before the first pre-flight question, one
+line per child: ref, state, blockers, repo; say which children are
+skipped because they are Done, Canceled or Duplicate. No open child:
+say so and stop, no run starts. The run's `expand-tickets` step repeats
+the expansion against the tracker and the engine re-checks state, so a
+stale list never runs a closed child.
+
 When the ticket is not known yet because a pre-flight input names it
 (`input.ticket_id`, `input.tickets`), run this check right after that
 input stage is answered and before the tuning stages (harness,
@@ -209,7 +225,11 @@ Never answer one for the user or drop it to save a call.
 
 Build `context`: `ticket[]` as `{ref, title, body, url}` (the bodies
 fetched in §1b), `guidance` (operator text), `decisions` settled here,
-`links`. The engine writes each body to
+`links`. An expanded epic adds its children as `ticket[]` entries with
+`state`, `parent`, `blocked_by` and `repo` when known, and the epic entry
+carries `children`; pass the same context to every `wise_preflight` call,
+which asks the fan-out inputs (`concurrency`, `on_child_failure`) only
+when a ticket has children or the tickets input holds more than one ref. The engine writes each body to
 `<run dir>/context/tickets/<ref>.md` at run creation and hands children
 `{ref, title, url, path}`; they `Read` the file when they need it, so
 the body rides to the engine once and never into a prompt. Never paste

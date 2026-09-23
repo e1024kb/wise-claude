@@ -235,6 +235,7 @@ plugins/wise/
 ├── references/                     # cross-skill shared prose (addressed as ${CLAUDE_PLUGIN_ROOT}/references/<file>.md)
 │   ├── subject-drafting.md         # Conventional-Commits scope / type / subject rules
 │   ├── branch-naming.md            # the ticket = branch-name rule
+│   ├── epic-expansion.md           # epic -> child item specs (DAG edges, serialize keys, repo); read by the ticket-auto / ticket-plan expand-tickets steps
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── profile-read.md             # session token-budget profile read (silent degrade to medium); read by profile-sensitive skills
 │   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by the pr-create / request-review / simplify -auto skills and wise-exec-on-harness
@@ -526,7 +527,10 @@ one-liners below are the rule, not the argument for it.
   from the per-unit ledger under `<run dir>/units/` plus live `git` /
   `gh` probes - never reintroduce a collide-and-fail `git worktree add
   -b`. Live state is the source of truth; the ledger is a hint; a
-  worktree or branch the run did not claim is skipped, never adopted.
+  worktree or branch the run did not claim is skipped, never adopted,
+  with one exception: an open same-repo PR on the unit's branch (or a
+  `<branch>-N`) authored by the `gh` user is adopted and resumed at the
+  watch loop, so a re-run never opens a duplicate PR.
   `.worktreeinclude` files are carried over once per worktree
   (`includes-done` ledger key). Phase prompts live under
   `engine/wise_engine/prompts/units/`; change a rule there, never in a workflow.

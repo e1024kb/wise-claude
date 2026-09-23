@@ -32,6 +32,10 @@ STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 CAP_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 INPUT_NAME_RE = CAP_RE
+# Input keys that tie a question to fan-out: `needs-fanout` asks it only
+# when the named input fans out (several refs, or an epic in context),
+# `unless-fanout` only when it does not.
+FANOUT_KEYS = ("needs-fanout", "unless-fanout")
 FROM_CONTEXT_RE = re.compile(
     r"^(guidance|ticket\[\]\.(ref|title|body|url)|links\[\]|decisions\.[A-Za-z0-9_-]+)$"
 )
@@ -843,6 +847,8 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 "options",
                 "options-from",
                 "needs-steps",
+                "needs-fanout",
+                "unless-fanout",
             ),
         )
         name = entry.get("name", MISSING)
@@ -920,6 +926,13 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 item["needs-steps"] = list(steps)
             else:
                 iss.error(f"{p}.needs-steps", "needs-steps must be a non-empty list of step ids")
+        for key in FANOUT_KEYS:
+            if key in entry:
+                value = entry[key]
+                if isinstance(value, str) and INPUT_NAME_RE.search(value):
+                    item[key] = value
+                else:
+                    iss.error(f"{p}.{key}", f"{key} must name another input")
         out.append(item)
     return out
 
@@ -1481,6 +1494,21 @@ def validate_def(raw: Any, path: str) -> dict[str, Any]:
                 p,
                 "an input with needs-steps needs a `default:` or `optional: true` for runs that skip it",
             )
+    input_names = {item["name"] for item in inputs}
+    for i, item in enumerate(inputs):
+        keys = [key for key in FANOUT_KEYS if key in item]
+        if len(keys) > 1:
+            iss.error(f"inputs[{i}]", "an input takes needs-fanout or unless-fanout, not both")
+        for key in keys:
+            p = f"inputs[{i}].{key}"
+            source = item[key]
+            if source == item["name"] or source not in input_names:
+                iss.error(p, f"input {js_json(source)} is not another declared input")
+            if item.get("default") is None and not item.get("optional"):
+                iss.error(
+                    p,
+                    f"an input with {key} needs a `default:` or `optional: true` for the runs that skip it",
+                )
     if any(issue["level"] == "error" for issue in iss.list):
         return {"issues": iss.list}
     definition = {"version": 2, "name": name, "steps": steps}

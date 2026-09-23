@@ -33,6 +33,10 @@ own prompt, so steps hand results to each other through files under
 the run directory (`research/*.md`, `plans/*.md`) and through the
 structured outputs their `schema:` declares.
 
+An epic or parent work item (or several comma-separated refs) plans
+every open child in one run under one pre-flight questionary. See
+[Epic runs](#epic-runs).
+
 ## When to use
 
 - You've been assigned a ticket (Jira, Linear, GitHub / GitLab Issues,
@@ -43,6 +47,9 @@ structured outputs their `schema:` declares.
   surfaced explicitly.
 - The ticket has parent / linked tickets / reference docs you'd
   otherwise skim and forget.
+- An epic whose children should each get a plan, with one index that
+  orders them and names the files, migration numbers and contracts they
+  share.
 
 Pre-flight asks for a permission floor once per selected provider. `Auto`
 is recommended; choose `Bypass permissions` when the workflow needs the
@@ -80,6 +87,10 @@ flowchart TD
     T[detect-context<br/>agent - tracker + ref + current branch] --> X[ensure-access<br/>agent - context body, else probe a granted CLI / public URL -> access, detail]
     X --> RA[require-access<br/>bash - stop the run when access is blocked]
     RA --> A[fetch-ticket<br/>agent - fetch + normalise + classify type → research/ticket.md]
+    RA --> EX[expand-tickets<br/>agent - epic -> open children, blocked-by edges, repo -> items, fanout]
+    EX --> RI[require-items<br/>bash - log the resolved list, stop on an empty expansion]
+    RI -->|fanout = no| G
+    RI -->|fanout = yes| PC
     A --> C[analyze-design<br/>agent - design-spec summary → research/design.md]
     A --> D[analyze-related<br/>agent - linked items + docs → research/related.md]
     A --> RCx[research-context<br/>agent - grill multi-source sweep → research/dossier.md]
@@ -100,7 +111,17 @@ flowchart TD
     S -->|implement=yes| IM[implement<br/>agent - run implement-plan.md: parallel executors, one commit/task]
     S -->|implement=no| FN
     IM --> FN[finalize<br/>agent - summary + next-step, branched on implement_choice]
+    C --> PC[plan-children<br/>units pipeline ticket-plan - per child: branch, PLAN-&lt;child&gt;.md from the shared research]
+    D --> PC
+    RCx --> PC
+    E --> PC
+    PC --> EI[epic-index<br/>agent - PLAN-&lt;epic&gt;.md: children, order, conflicts]
 ```
+
+With `fanout = no` (one plain ticket) `plan-children` and `epic-index`
+are skipped and the single-ticket path runs as before. With `fanout =
+yes` `gap-analysis`, `build-plan`, `setup` and `finalize` are skipped
+(`when: fanout != 'yes'`), and everything after them follows.
 
 The conductor fetches the ticket before the first pre-flight question
 (`wise-workflow-run` §1b), so a missing tracker channel surfaces before
@@ -190,6 +211,38 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   make the run autonomous after launch; any mode set to `ask`
   restores exactly that mid-run question.
 
+### Epic runs
+
+`expand-tickets` follows
+[`references/epic-expansion.md`](../../references/epic-expansion.md): an
+epic or parent becomes its open children (recursively; Done, Canceled
+and Duplicate dropped) with `blocked-by` edges, `serialize` keys and a
+target repository. Research is shared: the four research steps run once,
+on the epic, and every child plan reads `<run-dir>/research/` instead of
+repeating the sweep; each child researches only its own ticket and the
+code it touches. The rejected alternative, a research wave per child,
+multiplies the most expensive wave by the child count and sweeps the same
+wiki, Slack and codebase each time.
+
+`plan-children` is a `units` step with the `ticket-plan` pipeline:
+`claim` (the child's branch, or none with `branch_mode: current`),
+`worktree` (with `worktree_mode: new`), `plan` (the `build-plan` tuning
+group; `PLAN-<child>.md` in `<run-dir>/plans/`, with a `## Cross-child
+notes` section) and `cleanup` (keeps the branch). A child waits for its
+blockers' plans; a failed blocker marks its dependents `blocked`; up to
+`concurrency` children plan at once (the current tree: one); children
+sharing a `serialize` key never overlap. Epic runs are autonomous by
+construction: `gap_mode`, `review_mode` and `implement_mode` are not
+asked and keep `defaults`, `auto` and `plan-only`; `branch_mode: ask`
+settles on `auto`.
+
+`epic-index` writes `<run-dir>/plans/PLAN-<epic>.md`: one row per child
+(ref, repo, verdict `plan-written` / `blocked` / `failed` / `skipped`,
+plan link, branch, notes), the dependency order to implement in, and the
+cross-child conflicts (shared files, migration or ADR numbers, shared
+contracts) with a resolution each. Nothing is written to the tracker.
+`/wise-workflow-run ticket-auto <epic>` then implements the children.
+
 The four analysis steps share `depends_on: [fetch-ticket]`, so they
 run as one parallel wave — typically the longest wave of the run — on
 the current branch (the analysis is read-only; no branch is created
@@ -202,6 +255,8 @@ until `setup`).
 | `detect-context` | `agent` | Identifies the tracker from the input URL/id (host map, WebSearch fallback) and reads the current git branch; emits tracker slug + bare ticket ref + current branch. |
 | `ensure-access` | `agent` | Reads `wise_context("ticket")` first (the conductor's fetched body); otherwise probes a granted CLI or a public URL for the detected tracker. Never asks. Emits `access` (`ok` / `blocked`) and `detail`. `support` tuning group. |
 | `require-access` | `bash` | Fails the run with `detail` when `access` is not `ok`: the safeguard runs before the research wave, so nobody waits through a run to learn the ticket was unreachable. |
+| `expand-tickets` | `agent` | Follows `references/epic-expansion.md` on `ticket_id`. Emits `items`, `item_count`, `fanout` (`yes` / `no`), `expansion`, `resolved`, `expansion_detail`. `support` tuning group. |
+| `require-items` | `bash` | Prints the resolved list; fails the run when the expansion is blocked or no open ticket is left. |
 | `fetch-ticket` | `agent` | Fetches the ticket via the established access (or normalises the `ticket` entry of the run context when the conductor already passed the body), writes the tracker-agnostic shape to `<run-dir>/research/ticket.md`, and classifies it as frontend / backend / fullstack / other. Emits `ticket_path` + `ticket_type`. |
 | `analyze-design` | `agent` | Design-spec summary (layout / states / responsive) from any design links, written to `<run-dir>/research/design.md`. Replies `NO-DESIGN` for backend tickets or when there are none. Acts as the `ux-designer` role; `evidence` tuning group (`opus / high`). |
 | `analyze-related` | `agent` | Fetches linked / parent tickets + reference docs into `<run-dir>/research/related.md`. Replies `NO-RELATED` when empty. `support` tuning group. |
@@ -216,6 +271,8 @@ until `setup`).
 | `setup` | `agent` | Acts on the pre-flight `worktree_mode` / `branch_mode` / `implement_mode`: creates the ticket branch off the pre-flight `base_branch` or switches to it automatically (`auto`, dirty-tree refused before any source-tree checkout), stays put (`current`), or asks through `wise_ask` (create / switch / stay; the base is already settled) for the pieces left on `ask`. The ticket ref is immutable at this point - a wrong ref means a fresh run, not a rename. With no `ask` modes it asks nothing and acts silently. `support` tuning group, `mode: full-access` for the git operations. Emits `work_path` + `work_branch` + `work_head` + `implement_choice`. |
 | `implement` | `agent` | `when: implement_choice == 'yes'` - runs the shared `implement-plan.md` procedure on the work branch: each task wave's tasks run by parallel executor subagents when the harness can spawn them, sequentially inline otherwise; one atomic commit per task, no push. `implement` tuning group, `mode: full-access`. Emits the `impl_*` tallies. |
 | `finalize` | `agent` | Closing summary (branch, plan path), branched on `implement_choice`: when it implemented, points at `/wise-workflow-run code-review` + `/wise-pr-create`; otherwise the `/wise-implement-plan-auto <plan_path>` / save-for-later pointer. |
+| `plan-children` | `units` | `when: fanout == 'yes'`, `pipeline: ticket-plan`, `items: {{items}}`, `groups: {plan: build-plan}`, `trigger-rule: none-failed` over the research steps. One autonomous plan per child in dependency order. Emits `units` (verdict `plan-written`, `blocked`, `failed` or `skipped` per child). |
+| `epic-index` | `agent` | `when: fanout == 'yes'`, `trigger-rule: all-done`. Writes `PLAN-<epic>.md` (children, order, conflicts) and prints the children table. `build-plan` tuning group. Emits `index_path`, `planned`, `blocked`, `failed`, `skipped`. |
 
 Roles are folded into each prompt (v2 has no roster routing or agent
 teams): `analyze-design` acts as `ux-designer`, `codebase-audit` as
@@ -239,11 +296,14 @@ defaults at dispatch. See
 | Name | Required | Description |
 |---|---|---|
 | `ticket_id` | yes | A ticket URL (`https://acme.atlassian.net/browse/PROJ-1`, `https://linear.app/acme/issue/ENG-45`, …) or a bare id (`PROJ-123`, `ENG-45`, `#678`). Pre-filled from the run context (`ticket[].ref`) when the conductor already knows the ticket. `detect-context` resolves the tracker and the bare ref from it. |
-| `gap_mode` | yes | `defaults` (default - open gap questions proceed on their stated defaults, recorded as assumptions) / `ask` (pause at `resolve-gaps`). |
-| `review_mode` | yes | `auto` (default - accept the plan as presented) / `ask` (pause at `review-comments` for one refine pass). |
+| `gap_mode` | yes | `defaults` (default - open gap questions proceed on their stated defaults, recorded as assumptions) / `ask` (pause at `resolve-gaps`). Not asked in an epic run (`unless-fanout`). |
+| `review_mode` | yes | `auto` (default - accept the plan as presented) / `ask` (pause at `review-comments` for one refine pass). Not asked in an epic run. |
 | `worktree_mode` | yes | Asked immediately before branch handling: `current` (default) uses the current tree; `new` creates a separate worktree at `<run-dir>/worktrees/<ticket-branch>`. Staying on the current branch with a new worktree uses a detached checkout at the source HEAD for plan-only work. Implementation requires a named branch. |
 | `branch_mode` | yes | `auto` (default - create/switch the ticket branch off `base_branch`, no questions) / `current` (stay on the current branch) / `ask` (composite setup questionnaire). |
-| `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). |
+| `implement_mode` | yes | `plan-only` (default - stop after setup) / `now` (implement autonomously after setup) / `ask` (ask once the plan and branch are settled). Not asked in an epic run. |
+| `concurrency` | no | `1`-`4`, default `2` (`1` offered in the current tree): children planned at once. Asked only for an epic run; an answer above `1` with the current tree is rejected and asked again. |
+| `on_child_failure` | no | `continue` (default) or `stop`. Asked only for an epic run. |
+| `repo_paths` | no | `owner/name=/abs/path` pairs for children in other repositories. Asked only for an epic run. |
 | `base_branch` | yes | The branch new ticket branches start from (`origin/<base_branch>` when it exists on origin, else the local branch). Options come from the checkout (`options-from: branches`): the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches; free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 
 The five mode inputs are choice inputs inferred from a strict literal
@@ -271,6 +331,9 @@ defaults auto current auto now main`.
 | `work_branch` | `setup` | The branch the run ended on. |
 | `implement_choice` | `setup` | `yes` / `no`, resolved from `implement_mode` (or the setup questionnaire when that mode was `ask`); gates the `implement` step and branches `finalize`. |
 | `impl_waves` / `impl_tasks` / `impl_done` / `impl_failed` | `implement` | Implementation tallies (set only when `implement` ran). |
+| `items` / `item_count` / `fanout` / `expansion` / `resolved` / `expansion_detail` | `expand-tickets` | The child item specs and the expansion summary; `fanout` gates the single-ticket and the epic path. |
+| `units` | `plan-children` | One row per child: unit (ref, branch, worktree), verdict, reason (`plan: <path>`), `blocked_by` on a held-back child. |
+| `index_path` / `planned` / `blocked` / `failed` / `skipped` | `epic-index` | The epic index and its counts. |
 
 The plan file lives at `<run-dir>/plans/PLAN-<ref>.md` (beside
 `state.json`, off the project tree), so it persists with the run and
@@ -293,6 +356,11 @@ record. `/wise-workflow-status <run-ulid>` shows `plan_path`.
 # the review question to keep the old comment-and-refine pause, or
 # "Implement right away" to go ticket → plan → implemented branch in
 # one unattended run.
+
+/wise-workflow-run ticket-plan ENG-100
+# ENG-100 is a Linear parent issue: the research runs once on it, then
+# every open sub-issue gets its own PLAN-<ref>.md and branch, and
+# PLAN-ENG-100.md indexes them.
 ```
 
 ## Related
@@ -300,6 +368,8 @@ record. `/wise-workflow-status <run-ulid>` shows `plan_path`.
 - [Definition YAML](./workflow.yaml)
 - [`branch-naming.md`](../../references/branch-naming.md) — the ticket =
   branch rule `setup` follows.
+- [`epic-expansion.md`](../../references/epic-expansion.md) - the
+  expansion routine `expand-tickets` follows.
 - [`wise-estimation`](../../skills/wise-estimation/SKILL.md) — SP
   estimation reference consumed by `build-plan`.
 - [`grill/research-sources.md`](../../references/grill/research-sources.md) /

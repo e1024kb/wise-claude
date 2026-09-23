@@ -236,6 +236,13 @@ def plan_branch(plan_path: str) -> str:
     return "plan-" + (slug or "0") if not slug or re.fullmatch(r"[0-9]+", slug) else slug
 
 
+def unit_key(unit: Json) -> str:
+    """The unit's ledger key: its branch, prefixed by the repository for a
+    child that targets another checkout (two repos may share a branch name)."""
+    key = unit.get("key")
+    return key if isinstance(key, str) and key else unit["branch"]
+
+
 def worktree_slug(branch: str) -> str:
     return sanitize_ref(branch) or "unit"
 

@@ -264,6 +264,9 @@ def test_known_inputs_filter_groups():
         worktree_mode="current",
         branch_mode="auto",
         implement_mode="plan-only",
+        concurrency="2",
+        on_child_failure="continue",
+        repo_paths="",
     )
     assert p.known_inputs(defn, {}, {"ticket": [{"ref": "TEST-1"}]})["ticket_id"] == "TEST-1"
     settled = {f"model.{g}": "claude-opus-5-5" for g in groups(defn)}
@@ -652,6 +655,8 @@ def test_complete_answers_and_selection():
         worktree_mode="current",
         branch_mode="auto",
         implement_mode="plan-only",
+        concurrency="2",
+        on_child_failure="continue",
     )
 
 
