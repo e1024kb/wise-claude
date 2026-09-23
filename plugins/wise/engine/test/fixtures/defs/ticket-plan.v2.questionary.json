@@ -25,8 +25,8 @@
       "options": [
         {
           "value": "single",
-          "label": "Same for every step",
-          "description": "pick one harness, model and effort for the whole workflow"
+          "label": "One choice for all step groups",
+          "description": "pick one harness, model and effort for every tunable step group; locked groups and step pins keep theirs"
         },
         {
           "value": "per-group",

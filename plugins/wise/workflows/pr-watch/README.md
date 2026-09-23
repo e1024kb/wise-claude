@@ -64,7 +64,7 @@ Inside `process`, for the checked-out branch and in this order:
 | `input.substitute_review` | choice | `yes` | The consent gate, asked once: may the run review the branch itself (one read-only 3-lens pass on the `review` group's model) when a bot is stuck? `no` stands the run down on a stuck bot. |
 | `input.max_fix_attempts` | text | `""` (cap 10) | Fix + push rounds before standing down; overrides the cap when given. Skipped when `/wise-pr-watch-auto <n>` supplied it. |
 | `input.watch_minutes` | text | `""` (cap 120) | Wall-clock budget in minutes; overrides the cap when given. Skipped when `--minutes <n>` supplied it. |
-| `tuning-scope` | choice | `per-group` | Asked first after `worktree`: `single` asks harness, model and effort once (`harness.all`, `model.all`, `effort.all`) for every group, `per-group` asks them per group as below. |
+| `tuning-scope` | choice | `per-group` | Asked first (the worktree is locked): `single` asks harness, model and effort once (`harness.all`, `model.all`, `effort.all`) for every group, `per-group` asks them per group as below. |
 | `harness.<group>` | choice | `claude` | One per group (`fix`, `review`, `watch`, `support`); asked whenever another harness is installed. Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. The selected value is a floor. |
 | `model.<group>` | choice | `claude-opus-5-5` (`watch`, `support`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. Each group's label says what the model will do. |

@@ -723,7 +723,7 @@ empty. An answered question is never repeated.
 | `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, in the harness's own order, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts in the order medium, high, xhigh, low, max | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
-`worktree` is always the first question and `tuning-scope` the second.
+`worktree` comes first when asked (a workflow with `lock-worktree` omits it), then `tuning-scope`.
 With `single`, every tuning stage below is asked once under the pseudo-group
 `all` (`harness.all`, `model.all`, `effort.all`, defaults from the first
 unlocked group) and the answer applies to every unlocked group; each group

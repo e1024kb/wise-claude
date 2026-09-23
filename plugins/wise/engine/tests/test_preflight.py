@@ -322,6 +322,23 @@ def test_single_tuning_scope_asks_one_harness_model_and_effort():
     assert p.chosen_harnesses(defn, answers) == ["codex"]
 
 
+def test_single_scope_unasked_harness_uses_single_group_default():
+    defn = {
+        "steps": [
+            {"id": "a", "type": "agent", "prompt": "x", "group": "g1"},
+            {"id": "b", "type": "agent", "prompt": "x", "group": "g2"},
+        ],
+        "tuning": {
+            "groups": [
+                {"id": "g1", "default": {"harness": "claude", "model": "opus"}},
+                {"id": "g2", "default": {"harness": "codex", "model": "gpt"}},
+            ]
+        },
+    }
+    expanded = p.expand_single_scope(defn, {"tuning-scope": "single"})
+    assert expanded["harness.g1"] == expanded["harness.g2"] == "claude"
+
+
 def test_tuning_scope_inference():
     defn = definition()
     assert p.tuning_scope(defn, {}) is None
@@ -330,6 +347,11 @@ def test_tuning_scope_inference():
     assert p.tuning_scope(defn, {"model.all": "opus"}) == "single"
     assert p.invalid_tuning_scope_answers({"tuning-scope": "bogus"}) == ["tuning-scope"]
     assert p.invalid_tuning_scope_answers({"tuning-scope": "single"}) == []
+    assert p.invalid_tuning_scope_answers({"tuning-scope": None}) == ["tuning-scope"]
+    assert p.invalid_tuning_scope_answers({}) == []
+    # other tuning answers infer a scope, yet the retry still carries the question
+    retry = p.retry_questions(defn, {}, {"model.implement": "opus"}, ["tuning-scope"])
+    assert [q["id"] for q in retry] == ["tuning-scope"]
     plain = {
         "steps": [{"id": "a", "type": "agent", "prompt": "x", "group": "g"}],
         "tuning": {"groups": [{"id": "g", "default": {"model": "opus"}}]},

@@ -250,11 +250,16 @@ def expand_single_scope(definition: Json, answers: Json) -> Json:
     if tuning_scope(definition, answers) != SCOPE_SINGLE:
         return answers
     out = dict(answers)
+    groups = _tunable_groups(definition)
     for stage in ("harness", "model", "effort"):
         value = answers.get(f"{stage}.{ALL_GROUP}")
+        if value is None and stage == "harness" and groups:
+            # Not asked (one harness offered) or not yet answered: every
+            # group still runs on the single group's default harness.
+            value = _single_group(definition)["default"].get("harness", "claude")
         if value is None:
             continue
-        for group in _tunable_groups(definition):
+        for group in groups:
             out[f"{stage}.{group['id']}"] = value
     return out
 
@@ -267,8 +272,8 @@ def _tuning_scope_question() -> Json:
         options=[
             dict(
                 value=SCOPE_SINGLE,
-                label="Same for every step",
-                description="pick one harness, model and effort for the whole workflow",
+                label="One choice for all step groups",
+                description="pick one harness, model and effort for every tunable step group; locked groups and step pins keep theirs",
             ),
             dict(
                 value=SCOPE_PER_GROUP,
@@ -636,10 +641,9 @@ def worktree_answer(definition: Json, answers: Json) -> str | None:
 
 
 def invalid_tuning_scope_answers(answers: Json) -> list[str]:
-    value = answers.get(TUNING_SCOPE)
-    return (
-        [TUNING_SCOPE] if value is not None and value not in (SCOPE_SINGLE, SCOPE_PER_GROUP) else []
-    )
+    if TUNING_SCOPE not in answers:
+        return []
+    return [] if answers[TUNING_SCOPE] in (SCOPE_SINGLE, SCOPE_PER_GROUP) else [TUNING_SCOPE]
 
 
 def invalid_worktree_answers(answers: Json) -> list[str]:
@@ -822,6 +826,10 @@ def retry_questions(definition: Json, ctx: Json, answers: Json, wanted: list[str
     found: dict[str, Json] = {}
     pending = set(wanted)
     answers = dict(answers)
+    if TUNING_SCOPE in pending:
+        # Built directly: other tuning answers would infer a scope and hide it.
+        found[TUNING_SCOPE] = mark_default(_tuning_scope_question())
+        pending.discard(TUNING_SCOPE)
     for _ in range(len(wanted) + 1):
         for question in build_questionary(definition, ctx, answers)["questions"]:
             if question["id"] in pending:
