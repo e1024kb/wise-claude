@@ -40,6 +40,15 @@ def test_price_table():
     assert price_for("claude", "claude-opus-4-8") == dict(
         input=5, output=25, cache_read=0.5, cache_write=6.25
     )
+    assert price_for("codex", "gpt-6-astra") == dict(
+        input=10, output=50, cache_read=1, cache_write=12.5, cached_in_input=True
+    )
+    assert price_for("codex", "gpt-6-sol") == dict(
+        input=2, output=10, cache_read=0.2, cache_write=2.5, cached_in_input=True
+    )
+    assert price_for("codex", "gpt-6-luna") == dict(
+        input=0.1, output=0.5, cache_read=0.01, cache_write=0.125, cached_in_input=True
+    )
     for harness, model in [
         ("claude", "inherit"),
         ("gemini", "gemini-2.5-pro"),
