@@ -999,7 +999,7 @@ def test_suggest_input_is_a_choice_with_free_text():
     stage = p.build_questionary(defn, {"harnesses": ["claude"]})
     question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
     assert question["kind"] == "choice" and question["allow_text"] is True
-    assert [o["value"] for o in question["options"]] == ["10", "20", "45", "60"]
+    assert [o["value"] for o in question["options"]] == ["10", "20", "45", "60", ""]
     assert question["options"][0]["label"] == "10" + p.DEFAULT_MARK
     assert question["default"] == "10"
     assert _accepted_answer(question, {"input.watch_minutes": "90"}) == "90"
@@ -1014,8 +1014,24 @@ def test_suggest_wins_over_literal_enum_options():
     stage = p.build_questionary(defn, {"harnesses": ["claude"]})
     question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
     assert question["kind"] == "choice" and question["allow_text"] is True
-    assert [o["value"] for o in question["options"]] == ["ask", "auto"]
+    assert [o["value"] for o in question["options"]] == ["ask", "auto", ""]
     assert question["default"] == "ask"
+
+
+def test_optional_suggest_input_can_be_left_unset():
+    defn = load_and_validate({"path": str(ROOT / "workflows/pr-watch/workflow.yaml")})["def"]
+    item = next(i for i in defn["inputs"] if i["name"] == "watch_minutes")
+    item.pop("default")
+    item["optional"] = True
+    stage = p.build_questionary(defn, {"harnesses": ["claude"]})
+    question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
+    assert question["options"][-1]["value"] == ""
+    assert question["options"][-1]["label"].startswith("Leave unset")
+    assert question["default"] == ""
+    schema = question_form_schema(question)["properties"]["input.watch_minutes"]
+    assert "minLength" not in schema
+    assert _accepted_answer(question, {"input.watch_minutes": ""}) == ""
+    assert p.invalid_choice_input_ids(defn, {"watch_minutes": ""}) == []
 
 
 def test_branch_choice_accepts_free_text_in_forms_and_answers():

@@ -267,7 +267,8 @@ def question_form_schema(question: Mapping[str, Any]) -> dict[str, Any]:
     prop: dict[str, Any] = {"type": "string", "title": question["label"]}
     if question["kind"] == "choice" and options and question.get("allow_text") is True:
         prop["examples"] = [item["value"] for item in options]
-        prop["minLength"] = 1
+        if not question.get("optional"):
+            prop["minLength"] = 1
     elif question["kind"] == "choice" and options:
         prop["oneOf"] = [{"const": item["value"], "title": item["label"]} for item in options]
     elif not question.get("optional"):

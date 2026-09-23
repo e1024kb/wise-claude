@@ -936,17 +936,18 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 values = [js_string(v) for v in values]
                 if "options-from" in entry:
                     iss.error(f"{p}.suggest", "suggest and options-from are exclusive")
+                elif "extract" in entry:
+                    # Answers skip extraction at run time, so a suggested
+                    # value could not be told apart from a raw one.
+                    iss.error(f"{p}.suggest", "suggest and extract are exclusive")
                 elif len(values) != len(set(values)) or "" in values:
                     iss.error(f"{p}.suggest", "suggest values must be unique and non-empty")
-                elif any(
-                    not validate_input(v, item.get("extract"), item.get("validate"))["ok"]
-                    for v in values
-                ):
-                    iss.error(f"{p}.suggest", "every suggest value must pass extract and validate")
+                elif any(not validate_input(v, None, item.get("validate"))["ok"] for v in values):
+                    iss.error(f"{p}.suggest", "every suggest value must pass validate")
                 else:
                     item["suggest"] = values
             else:
-                iss.error(f"{p}.suggest", "suggest must be a non-empty list of strings")
+                iss.error(f"{p}.suggest", "suggest must be a non-empty list of strings or integers")
         if "needs-steps" in entry:
             steps = entry["needs-steps"]
             if _strings(steps) and steps:

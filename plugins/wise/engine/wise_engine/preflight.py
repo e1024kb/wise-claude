@@ -142,6 +142,8 @@ def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
         elif item.get("validate") and not item.get("extract"):
             from .defs import validate_input
 
+            if value == "" and item.get("suggest") and item.get("optional"):
+                continue
             if (
                 not isinstance(value, str)
                 or not validate_input(value, None, item["validate"])["ok"]
@@ -750,11 +752,10 @@ def build_questionary(
             q["options"] = options
         elif item.get("suggest"):
             # Suggested values as picker rows; any other valid value as free text.
-            q.update(
-                kind="choice",
-                options=[dict(value=v, label=v) for v in item["suggest"]],
-                allow_text=True,
-            )
+            suggested = [dict(value=v, label=v) for v in item["suggest"]]
+            if item.get("optional"):
+                suggested.append({"value": "", "label": "Leave unset"})
+            q.update(kind="choice", options=suggested, allow_text=True)
         if item.get("optional"):
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))

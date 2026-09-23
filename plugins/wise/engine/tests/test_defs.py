@@ -5773,18 +5773,15 @@ def test_supported_backreference_boundary(text, pattern, expected):
 @pytest.mark.parametrize(
     ("entry", "message"),
     [
-        ({"suggest": []}, "suggest must be a non-empty list of strings"),
-        ({"suggest": [True]}, "suggest must be a non-empty list of strings"),
+        ({"suggest": []}, "suggest must be a non-empty list of strings or integers"),
+        ({"suggest": [True]}, "suggest must be a non-empty list of strings or integers"),
         ({"suggest": ["1", "1"]}, "suggest values must be unique and non-empty"),
         ({"suggest": ["1"], "options-from": "branches"}, "suggest and options-from are exclusive"),
         (
             {"suggest": ["1", "x"], "validate": "^[0-9]+$"},
-            "every suggest value must pass extract and validate",
+            "every suggest value must pass validate",
         ),
-        (
-            {"suggest": ["BAR"], "extract": "([A-Z]+)", "validate": "^FOO$"},
-            "every suggest value must pass extract and validate",
-        ),
+        ({"suggest": ["FOO"], "extract": "([A-Z]+)"}, "suggest and extract are exclusive"),
     ],
 )
 def test_suggest_input_is_validated(entry, message):

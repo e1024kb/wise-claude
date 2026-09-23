@@ -293,7 +293,8 @@ answer above `1` there is rejected and asked again.
 values, in order, with `allow_text: true`: the picker offers the rows and
 accepts any other value as free text. Pre-flight still checks every answer
 against `validate:`. Values must be unique, non-empty and pass `validate:`.
-`suggest:` and `options-from:` are exclusive.
+An optional input also gets a `Leave unset` row. `suggest:` excludes
+`options-from:` and `extract:`.
 
 `options-from: branches` renders the question as a choice whose options
 the engine reads from the checkout it pre-flights in (`engine/wise_engine/branches.py`):
@@ -727,7 +728,7 @@ empty. An answered question is never repeated.
 | `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
 | `tuning-scope` | `choice` | `single` (same harness, model and effort for every step), `per-group` (chosen per tuning group); asked only when more than one group is unlocked | `per-group` |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
-| `input.<name>` | `choice` for strict literal enums without extraction, for `options-from: branches` and for `suggest:` (free text allowed for the last two); otherwise `text` | enum values, plus `Leave unset` for optional enums; the checkout's base-branch candidates for `options-from: branches`; the `suggest:` values in order; none for text | context value, else `default`, else empty when optional; the checked-out base branch else the default branch for `options-from: branches` |
+| `input.<name>` | `choice` for strict literal enums without extraction, for `options-from: branches` and for `suggest:` (free text allowed for the last two); otherwise `text` | enum values, plus `Leave unset` for optional enums; the checkout's base-branch candidates for `options-from: branches`; the `suggest:` values in order, plus `Leave unset` when optional; none for text | context value, else `default`, else empty when optional; the checked-out base branch else the default branch for `options-from: branches` |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH) in the order claude, codex, cursor, grok, gemini; a logged-out one carries its login command in the option description | the group's default harness |
 | `permissions.<harness>` | `choice` | `Bypass permissions`, `Auto`, `Approval required`; once for every selected or fallback provider, in the order claude, codex, cursor, grok, gemini | `auto`, or the mapped legacy workflow pin |
 | `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, in the harness's own order, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |
