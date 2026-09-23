@@ -195,7 +195,7 @@ def test_real_engine_cli_fallback_for_each_host_binding(profile, host):
         try:
 
             async def restart():
-                await cli(home, host, env, "daemon", "stop", "--now")
+                await cli(home, host, env, "daemon", "stop", "--now", "--force")
                 await cli(home, host, env, "daemon", "start")
 
             await lifecycle(call, workflow, home, restart)
@@ -311,7 +311,7 @@ def test_codex_real_engine_no_model_control(profile):
                 return json.loads(result["content"][0]["text"])
 
             async def restart():
-                await cli(home, "codex", env, "daemon", "stop", "--now")
+                await cli(home, "codex", env, "daemon", "stop", "--now", "--force")
                 await cli(home, "codex", env, "daemon", "start")
 
             await lifecycle(call, workflow, home, restart)

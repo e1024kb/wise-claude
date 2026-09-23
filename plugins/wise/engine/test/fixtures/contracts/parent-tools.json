@@ -104,6 +104,32 @@
                     },
                     "url": {
                       "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "description": "Tracker workflow state (Todo, In Progress, Done, ...)."
+                    },
+                    "parent": {
+                      "type": "string",
+                      "description": "Ref of the epic or parent work item this ticket belongs to."
+                    },
+                    "children": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Refs of child work items, recursively; set on an epic or parent."
+                    },
+                    "blocked_by": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Refs this ticket waits for (tracker blocked-by relations or the epic body's order)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "description": "Target repository (owner/name or an absolute checkout path) when it differs from the run's project."
                     }
                   },
                   "required": [

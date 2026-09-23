@@ -260,6 +260,11 @@ inputs:
     default: defaults
     validate: "^(defaults|ask)$"
     needs-steps: [gap-analysis]      # asked only when step-select keeps one of these steps
+    unless-fanout: ticket_id         # not asked when ticket_id fans out
+  - name: concurrency
+    default: "2"
+    validate: "^(1|2|3|4)$"
+    needs-fanout: ticket_id          # asked only when ticket_id fans out
 ```
 
 `needs-steps` lists optional `step-select` steps. Pre-flight asks the input
@@ -267,6 +272,18 @@ after the step-select answer, and only when at least one listed step stays
 selected. Otherwise the input is not asked and its `default:` applies. Each
 listed id must be a step-select optional step, and the input needs a
 `default:` or `optional: true`.
+
+`needs-fanout: <input>` asks the input only when that input fans out: it
+holds more than one ref, or a run-context ticket carries `children` (the
+conductor expanded an epic). `unless-fanout: <input>` is the inverse: the
+input is asked only for a single-ticket run and is forced to its `default:`
+in a fan-out run, whatever was answered. Either key names another declared
+input, needs a `default:` or `optional: true`, and an input takes only one of
+them. When a workflow declares either key, pre-flight also predicts the
+`fanout` output (`yes` / `no`) the expansion step produces at run time, so a
+`when: "fanout != 'yes'"` gate drops its tuning questions. An input named
+`concurrency` is offered with default `1` when the tree is `current`, and an
+answer above `1` there is rejected and asked again.
 
 `options-from: branches` renders the question as a choice whose options
 the engine reads from the checkout it pre-flights in (`engine/wise_engine/branches.py`):
@@ -444,8 +461,8 @@ pipelines](#unit-pipelines).
 ```yaml
 - id: process
   type: units
-  pipeline: ticket                 # ticket | plan | pr | implement
-  items: "{{ticket_list}}"         # rendered, then parsed
+  pipeline: ticket                 # ticket | plan | pr | implement | ticket-plan
+  items: "{{items}}"               # rendered, then parsed
   groups: { plan: plan, implement: implement, review: review, fix: implement, watch: watch }
   caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
   reviewers: [copilot-pull-request-reviewer]   # default
@@ -455,17 +472,18 @@ pipelines](#unit-pipelines).
 
 | Field | Notes |
 |---|---|
-| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd) \| `pr` (unit = the checked-out branch with its open PR) \| `implement` (unit = a `PLAN-*.md` implemented on the checked-out branch). `pr` and `implement` always run in the current checkout. |
-| `items` | String. After rendering: a JSON array of strings or `{ref}` objects, else split on `,` `;` newline. Deduplicated. |
+| `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd) \| `pr` (unit = the checked-out branch with its open PR) \| `implement` (unit = a `PLAN-*.md` implemented on the checked-out branch) \| `ticket-plan` (unit = an epic child: `claim`, `worktree`, `plan`, `cleanup`; ends `plan-written`). `pr` and `implement` always run in the current checkout. |
+| `items` | String. After rendering: a JSON array of strings or item specs, else split on `,` `;` newline. A text that starts with `[` must be a JSON array, or the step fails. Deduplicated by ref. An item spec is `{ref, url?, title?, state?, parent?, repo?, depends_on?, serialize?}`; see [Epic fan-out](#epic-fan-out). |
 | `groups` | Non-empty mapping phase -> tuning group id for `plan`, `implement`, `review`, `fix`, `watch`. Unknown phase warns. `fix` falls back to `implement`'s group. |
 | `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. A workflow input named after a listed cap overrides it when it holds a number (`pr-watch`: `max_fix_attempts`, `watch_minutes`). |
 | `reviewers` | GitHub logins for `gh pr edit --add-reviewer`. |
-| `parallel` | Positive int. Git operations are serialised per step. |
+| `parallel` | Positive int. The `concurrency` input (`1`-`4`) overrides it. `current` tree: always 1. Git operations are serialised per step. |
 | `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (sessions never cross harnesses, so a fixer on another one starts clean); `fresh` (default) starts each child clean. |
 
-Outputs: `{units: UnitRow[]}` (`{{units}}` renders the rows as JSON).
-Verdict: `units=N merged=N open=N failed=N skipped=N`, plus ` no-pr=N`
-when any unit ends `no-pr` (see [No GitHub remote](#no-github-remote)).
+Outputs: `{units: UnitRow[]}` (`{{units}}` renders the rows as JSON, in
+item order). Verdict: `units=N merged=N open=N failed=N skipped=N`, plus
+` no-pr=N`, ` plan-written=N` and ` blocked=N` when non-zero (see [No
+GitHub remote](#no-github-remote), [Epic fan-out](#epic-fan-out)).
 
 ### `trigger-rule`
 
@@ -846,8 +864,12 @@ are unaffected.
 ### Run context
 
 `context` is what the children may not refetch from the transcript:
-`ticket[] {ref, title?, body?, url?}`, `guidance`, `decisions
-{key: value}`, `links[]`. Children read it with `wise_context`.
+`ticket[] {ref, title?, body?, url?, state?, parent?, children?,
+blocked_by?, repo?}`, `guidance`, `decisions {key: value}`, `links[]`.
+Children read it with `wise_context`. The epic fields are set when the
+conductor expanded an epic: the epic entry carries `children`, each child
+its `state`, `parent`, `blocked_by` and `repo`; they land in the ticket
+file's front matter.
 
 The conductor fetches every ticket before `wise_run` (its MCP
 connectors, a CLI, or a public URL) and passes the content once as
@@ -934,7 +956,12 @@ file), exits after 30 idle minutes (gated and paused runs do not keep
 it alive), rotates its log at 10 MB. On restart every `running` run
 becomes `paused` with `warn` "daemon restarted, run paused" and the
 recorded child process group (`<run dir>/daemon.json`) is killed. A
-client with another plugin version gets `DAEMON_VERSION_MISMATCH`.
+client with another plugin version gets `DAEMON_VERSION_MISMATCH`; the
+client asks the old daemon to exit when idle and, while it still serves
+active runs, reports that it restarts on the new version once they
+finish. It never forces the restart. `shutdown` with `when: now` is
+refused while runs are active unless `force: true` (CLI: `daemon stop
+--now --force`), so a concurrent client cannot kill a long epic run.
 
 Run history: each run prunes terminal runs in the same cwd beyond
 `WISE_RUN_HISTORY_CAP` (default 25), oldest by `last_activity_at`.
@@ -1007,16 +1034,16 @@ v1 prose orchestrators used to describe. Phases in order:
 
 | Phase | Kind | Does |
 |---|---|---|
-| `claim` | code | Ownership gate: our ledger = ours (resume); merged PR = shipped; a branch that exists locally, on origin or in a worktree moves the unit to the first free `<branch>-N`. Resolves `base`. |
+| `claim` | code | Ownership gate: our ledger = ours (resume); merged PR = shipped; an open same-repo PR on `<branch>` or `<branch>-N` by the `gh` user is adopted (the unit takes its branch and base and resumes at `watch`), one by someone else skips the unit (`open-pr-exists`); a branch that exists locally, on origin or in a worktree moves the unit to the first free `<branch>-N`. Resolves `base`. |
 | `worktree` | code | `new`: `git worktree add` under `<run dir>/worktrees/`, applies `.worktreeinclude` once (`includes-done`). `current`: uses `cwd`, refusing dirty branch switches. |
 | `plan` | model | Writes `<run dir>/plans/PLAN-<ref>.md` (plan pipeline: re-plans the seed at HEAD). |
 | `implement` | model | Task waves, one commit per task, in the worktree. |
 | `review` | model | Three-lens panel (correctness, security, tests) writing `units/<branch>.findings.md`. |
 | `fix` | model | Applies findings from review, CI or bot comments; commits. |
-| `push` | code | `git push -u origin <branch>`. |
+| `push` | code | First push only: rebase onto the freshly fetched base (skipped once the branch is on origin; a conflict fails the unit), then a numbered file the branch adds whose number the base already uses in that directory (migrations, ADRs) goes to one `fix` pass (source `sequence`); a collision that survives fails the unit. Then `git push -u origin <branch>`. |
 | `pr` | code | `gh pr create` with the repo template filled, or reuse. |
 | `request-review` | code | `gh pr edit --add-reviewer` per `reviewers`. |
-| `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. |
+| `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. A human-comment stand-down needs a `User`-type, non-bot commenter on GitHub since the watch started; a merged flag counts only when `gh pr view` reports `MERGED`. |
 | `cleanup` | code | On `merged` in `new` mode: remove worktree, delete local branch, `cleaned: true`. `current` retains the checkout and branch. Runs after a failure too. |
 
 The `pr` pipeline runs `claim -> watch -> cleanup` and the `implement`
@@ -1046,6 +1073,32 @@ and retains the checkout and branches even after merge. The default remains
 hold one checkout lock across all steps and open questions. Another current-tree
 run cannot use that checkout until the run ends and its children have exited.
 Resuming a run reacquires the lock before scheduling work.
+
+On the `cursor` harness, `implement` and `fix` rewrite the commits they made
+without cursor's `Co-authored-by` trailer (`phases/trailers.py`) before
+anything is pushed.
+
+### Epic fan-out
+
+An expansion step (an agent following `references/epic-expansion.md`) turns
+an epic or parent work item into item specs; the `units` step schedules them
+as a dependency DAG in `_run_units_step`:
+
+- `depends_on` names blockers by ref or URL. A child starts once every blocker
+  in the run reached its pipeline's success verdict (`merged`; `plan-written`
+  for `ticket-plan`; `all-green` for `implement`). A blocker that ended
+  anything else marks its dependents `blocked` with `blocked_by`, transitively.
+  A blocker outside the run is logged and not waited for; a cycle fails the step.
+- Up to `concurrency` children run at once. Children that share a `serialize`
+  key in the same checkout never overlap.
+- `on_child_failure: stop` starts no new child after a `failed`, `partial` or
+  `exhausted` one; the rest end `skipped` with the reason.
+- A terminal tracker `state` (Done, Canceled, Duplicate, ...) skips the child.
+- `repo` targets another repository: the `repo_paths` input
+  (`owner/name=/abs/path`), else a sibling of the project checkout whose
+  `origin` matches. That child runs in `<run dir>/worktrees/<repo>/<branch>`
+  off its repository's default branch, with ledger key `<repo>/<branch>`. No
+  checkout found: `skipped`, never cloned.
 
 ### No GitHub remote
 

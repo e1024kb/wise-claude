@@ -437,3 +437,48 @@ async def _verify_provider(
 
 def _iso(ms: float) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+async def human_commenters(ctx: Json, since_ms: float) -> list[str] | None:
+    """Logins of people who commented on or reviewed the PR since `since_ms`.
+
+    Only a User-type account counts: a Bot account, a `[bot]` login, a known
+    review bot, and this run's own login (the fix pass replies to threads as
+    the operator) never do. None when GitHub cannot be read, so the caller
+    falls back to the watch child's own classification."""
+    from .model import BOT_LOGINS
+
+    located = pr_locator(ctx["unit"].get("pr") or {})
+    if located is None:
+        return None
+    repo, number = located
+    me = await gh(ctx, ["api", "user", "--jq", ".login"])
+    own = me["stdout"].strip().lower() if ok(me) else ""
+    bots = {login.lower() for login in BOT_LOGINS}
+    people: list[str] = []
+    for path, stamp in (
+        (f"repos/{repo}/issues/{number}/comments?per_page=100", "created_at"),
+        (f"repos/{repo}/pulls/{number}/comments?per_page=100", "created_at"),
+        (f"repos/{repo}/pulls/{number}/reviews?per_page=100", "submitted_at"),
+    ):
+        rows = await _paginated(ctx, path)
+        if isinstance(rows, str):
+            return None
+        for row in rows:
+            raw_user = row.get("user")
+            user: dict[str, Any] = raw_user if isinstance(raw_user, dict) else {}
+            login = _login(row)
+            when = _ms(row.get(stamp))
+            if (
+                not login
+                or user.get("type") != "User"
+                or login.endswith("[bot]")
+                or login in bots
+                or login == own
+                or when is None
+                or when < since_ms
+            ):
+                continue
+            if login not in people:
+                people.append(login)
+    return people

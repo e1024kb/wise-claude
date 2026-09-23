@@ -72,6 +72,8 @@ PIPELINE_PHASES = {
     "plan": PHASES,
     "pr": ("claim", "watch", "cleanup"),
     "implement": ("claim", "implement", "cleanup"),
+    # One epic child in the ticket-plan workflow: its branch, then its plan.
+    "ticket-plan": ("claim", "worktree", "plan", "cleanup"),
 }
 PIPELINES = tuple(PIPELINE_PHASES)
 # Pipelines that work in the checkout the run starts in, never a new worktree.

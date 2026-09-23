@@ -63,6 +63,8 @@ from .preflight import (
     complete_answers,
     input_choice_values,
     invalid_choice_input_ids,
+    invalid_concurrency_ids,
+    fanout_skips,
     invalid_model_answer_ids,
     invalid_provider_permission_answers,
     invalid_worktree_answers,
@@ -1119,7 +1121,8 @@ class Executor:
     async def dispatch_units(
         self, live: LiveRun, state: Json, step: Json, step_run_id: str
     ) -> None:
-        from .units import run_units_step, parse_items
+        from .fanout import parse_item_specs
+        from .units import run_units_step
 
         if live.stopped:
             return
@@ -1165,7 +1168,7 @@ class Executor:
             cwd=state["cwd"],
             step_run_id=step_run_id,
             step=step,
-            items=parse_items(step["items"]),
+            items=parse_item_specs(step["items"]),
             state=state,
             parent_env=self.env,
             agent=agent,
@@ -1723,8 +1726,22 @@ class Executor:
             for item in definition.get("inputs", [])
             if "needs-steps" in item and not set(item["needs-steps"]) & applied["enabled_steps"]
         }
+        # A single-ticket-only input in a fan-out run (and the reverse) keeps
+        # its default whatever was answered: an epic plans every child
+        # autonomously.
+        fanout_fixed = {
+            item["name"]: item.get("default")
+            for item in definition.get("inputs", [])
+            if fanout_skips(definition, item, seeded, context)
+        }
+        skipped |= set(fanout_fixed)
         explicit = {key: value for key, value in explicit.items() if key not in skipped}
         inputs = {**applied["inputs"], **explicit}
+        for name, default in fanout_fixed.items():
+            if default is None:
+                inputs.pop(name, None)
+            else:
+                inputs[name] = default
         for item in definition.get("inputs", []):
             name = item["name"]
             answer_id = f"input.{name}"
@@ -1755,6 +1772,11 @@ class Executor:
                     inputs[name] = value
         inputs["worktree_mode"] = applied["worktree"]
         invalid_inputs = invalid_choice_input_ids(definition, inputs)
+        invalid_inputs += [
+            key
+            for key in invalid_concurrency_ids(inputs, "input.concurrency" in seeded)
+            if key not in invalid_inputs
+        ]
         invalid_worktree = [] if worktree_locked(definition) else invalid_worktree_answers(seeded)
         # An explicit model no catalog row backs (a harness-reported id whose
         # listing failed this time) is re-asked, never swapped for the default.

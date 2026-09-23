@@ -50,6 +50,13 @@ def ticket_markdown(ticket: Mapping[str, Any], fetched_at: str) -> str:
         front_matter.append(f"title: {_yaml_string(ticket['title'])}")
     if ticket.get("url"):
         front_matter.append(f"url: {_yaml_string(ticket['url'])}")
+    # Epic fields, set only when the conductor expanded a parent work item.
+    for key in ("state", "parent", "repo"):
+        if isinstance(ticket.get(key), str) and ticket[key]:
+            front_matter.append(f"{key}: {_yaml_string(ticket[key])}")
+    for key in ("children", "blocked_by"):
+        if ticket.get(key):
+            front_matter.append(f"{key}: {json.dumps(ticket[key], ensure_ascii=False)}")
     front_matter.extend([f"fetched_at: {_yaml_string(fetched_at)}", "source: conductor"])
     heading = (
         f"# {ticket['ref']}: {ticket['title']}" if ticket.get("title") else f"# {ticket['ref']}"

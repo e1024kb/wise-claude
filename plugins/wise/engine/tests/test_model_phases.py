@@ -326,6 +326,10 @@ def test_watch_human_blocked_and_merged(tmp_path, watch, verdict):
     async def scenario():
         fixture = ModelFixture(tmp_path)
         fixture.scripts["watch"] = lambda req, nth: answer(watch)
+        # GitHub confirms a person commented; a bot-only thread would not stop the run.
+        fixture.api["repos/a/r/issues/5/comments"] = [
+            {"user": {"login": "alice", "type": "User"}, "created_at": "2099-01-01T00:00:00Z"}
+        ]
         result = await run_units_step(fixture.input())
         assert result["outputs"]["units"][0]["verdict"] == verdict
         assert read_unit(fixture.run_dir, "PROJ-1")["cleaned"] == (verdict == "merged")

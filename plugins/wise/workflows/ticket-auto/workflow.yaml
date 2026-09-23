@@ -83,8 +83,28 @@ inputs:
     default: new
     validate: "^(current|new)$"
   - name: tickets
+    # An epic or parent item expands to its open children (expand-tickets).
     prompt: "Which tickets? Comma-separated URLs or ids (PROJ-1, PROJ-2, https://linear.app/acme/issue/ENG-9). No spaces when passed positionally."
     from-context: ticket[].ref
+  # Fan-out inputs: asked only when the tickets hold more than one ref or
+  # the conductor's context carries an epic. Default 2 matches the engine's
+  # per-harness cap for Claude children (DEFAULT_CAPS); 3 and 4 queue on
+  # that cap unless the phases use different harnesses. `current` runs one
+  # child at a time, and pre-flight rejects a higher answer there.
+  - name: concurrency
+    prompt: "How many child tickets run at once? (1: sequential | 2: recommended, the Claude per-harness cap | 3 | 4: the engine-wide cap; needs worktree_mode new)"
+    default: "2"
+    validate: "^(1|2|3|4)$"
+    needs-fanout: tickets
+  - name: on_child_failure
+    prompt: "When a child ticket fails? (continue: run the independent children, block only its dependents | stop: start no new child)"
+    default: continue
+    validate: "^(continue|stop)$"
+    needs-fanout: tickets
+  - name: repo_paths
+    prompt: "Optional local checkouts for children in other repositories: owner/name=/abs/path, comma-separated. Blank = look for a sibling checkout of this project whose origin matches."
+    optional: true
+    needs-fanout: tickets
   - name: base_branch
     prompt: "Base branch for the ticket branches and their PRs? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
     options-from: branches
@@ -231,10 +251,78 @@ steps:
     allowed_tools: ["Bash(command:*)", "Bash(which:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "WebSearch", "WebFetch"]
     depends_on: [split-tickets]
 
+  # Expansion: an epic or parent item becomes its open children with their
+  # blocked-by edges, serialize keys and target repo. A plain ticket passes
+  # through as one item. Runs before any worktree or branch exists.
+  - id: expand-tickets
+    type: agent
+    group: support
+    prompt: |
+      Expand the tickets of this run into the item list the engine
+      schedules: `{{ticket_list}}`.
+
+      Read ${CLAUDE_PLUGIN_ROOT}/references/epic-expansion.md and follow
+      it. The run's project is {{project.name}} at {{project.path}}. Write
+      nothing to any tracker.
+
+      Return the fields directly, no wrapping: items, item_count, fanout,
+      expansion, resolved, expansion_detail.
+    schema:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              ref: { type: string }
+              url: { type: string }
+              title: { type: string }
+              state: { type: string }
+              parent: { type: string }
+              repo: { type: string }
+              depends_on: { type: array, items: { type: string } }
+              serialize: { type: array, items: { type: string } }
+            required: [ref]
+            additionalProperties: false
+        item_count: { type: integer }
+        fanout: { type: string, enum: ["yes", "no"] }
+        expansion: { type: string, enum: [ok, blocked] }
+        resolved: { type: string }
+        expansion_detail: { type: string }
+      required: [items, item_count, fanout, expansion, resolved, expansion_detail]
+      additionalProperties: false
+    outputs: [items, item_count, fanout, expansion, resolved, expansion_detail]
+    allowed_tools: ["Bash(command:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(git:*)", "WebFetch"]
+    when: "access == 'ok'"
+    depends_on: [ensure-access]
+
+  # An empty expansion stops the run here, with the resolved list.
+  - id: require-items
+    type: bash
+    run: |
+      set -eu
+      printf 'EXPANSION:\n%s\n' "${WISE_RESOLVED-}"
+      if [ "${WISE_EXPANSION-}" != ok ]; then
+        echo "ERROR: ticket expansion blocked: ${WISE_EXPANSION_DETAIL-}" >&2
+        exit 1
+      fi
+      if [ "${WISE_ITEM_COUNT:-0}" -lt 1 ]; then
+        echo "ERROR: no open ticket to run: every child is Done, Canceled or Duplicate, or the epic has none." >&2
+        exit 1
+      fi
+      echo "ITEMS: ${WISE_ITEM_COUNT}"
+    timeout: 15
+    when: "access == 'ok'"
+    depends_on: [expand-tickets]
+
   - id: process
     type: units
     pipeline: ticket
-    items: "{{ticket_list}}"
+    # Expansion specs (JSON): the engine builds the dependency DAG, skips
+    # a child whose tracker state is terminal, runs up to `concurrency`
+    # children at once and blocks the dependents of a failed child.
+    items: "{{items}}"
     # Phase -> tuning group, one question each at pre-flight. The
     # engine owns the loops, the caps and the merge.
     groups: { plan: plan, implement: implement, review: review, fix: fix, watch: watch }
@@ -246,7 +334,7 @@ steps:
     # (same harness only; otherwise the fixer starts clean).
     resume: unit
     when: "access == 'ok'"
-    depends_on: [ensure-access]
+    depends_on: [require-items]
 
   - id: report
     type: agent
@@ -300,6 +388,25 @@ steps:
       the token usage per unit from the ledgers.
       Print the same table and the counts in your reply. State facts
       once, no praise.
+
+      Epic runs: fanout is `{{fanout}}` (a raw placeholder means the
+      expansion did not run). When it is `yes`, the report also opens
+      with one epic table, one row per child in the order above:
+      child ref, repo (the unit's worktree repository, `-` for this
+      project), verdict, PR URL, SHA, notes. Map the verdict:
+      `merged` -> merged (only when `gh pr view` shows MERGED; the SHA is
+      its `mergeCommit.oid`); `all-green`, `human-intervention`, and
+      `blocked` with a PR -> pr-open (SHA = `headRefOid`); a row with
+      `blocked_by` -> blocked (notes: which child it waited for and how
+      that child ended); `failed`, `partial`, `exhausted` -> failed;
+      `skipped` -> skipped (notes: the tracker state or the reason);
+      `no-pr` -> blocked (notes: no GitHub remote, open a PR manually).
+      Notes carry the engine verdict when it differs and the reason. The
+      expansion's resolved list, for the children it skipped:
+
+      ---
+      {{resolved}}
+      ---
 
       Return the fields directly, no wrapping: merged, open, failed,
       no_pr, report_path.

@@ -362,6 +362,15 @@ async def test_stop_idle_and_active_runs(daemon, root):
     assert await stop_daemon(**opts) == {"stopped": True, "was_running": False, "active_runs": 0}
 
 
+async def test_stop_now_refuses_active_runs_without_force(daemon, root):
+    make_run(root)
+    opts = dict(data_root=root, env={}, stop_timeout_ms=50)
+    refused = await stop_daemon(**opts, now=True)
+    assert refused == {"stopped": False, "was_running": True, "active_runs": 1, "refused": True}
+    assert (await daemon_status(data_root=root, env={}))["alive"]
+    assert (await stop_daemon(**opts, now=True, force=True))["stopped"]
+
+
 async def test_path_helpers_locks_and_rotation(root):
     paths = daemon_paths(env={"XDG_DATA_HOME": root, "XDG_RUNTIME_DIR": root + "/runtime"})
     assert paths.data_root == root + "/wise"

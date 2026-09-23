@@ -144,6 +144,48 @@ def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
     return invalid
 
 
+def fans_out(definition: Json, source: str, answers: Json, context: Json | None = None) -> bool:
+    """Whether the run fans out: the `source` input holds more than one ref,
+    or the conductor's context carries an epic (a ticket with children)."""
+    if any(
+        isinstance(ticket, dict) and ticket.get("children")
+        for ticket in (context or {}).get("ticket", [])
+    ):
+        return True
+    value = known_inputs(definition, answers, context).get(source)
+    return isinstance(value, str) and sum(1 for p in re.split(r"[,;\n]", value) if p.strip()) > 1
+
+
+def fanout_source(definition: Json) -> str | None:
+    """The input a workflow's fan-out questions name, if it has any."""
+    for item in definition.get("inputs", []):
+        for key in ("needs-fanout", "unless-fanout"):
+            if key in item:
+                return str(item[key])
+    return None
+
+
+def fanout_skips(definition: Json, item: Json, answers: Json, context: Json | None) -> bool:
+    """A fan-out-only input in a single-ticket run, or a single-ticket-only
+    input in a fan-out run: not asked; it keeps its default."""
+    if "needs-fanout" in item:
+        return not fans_out(definition, item["needs-fanout"], answers, context)
+    if "unless-fanout" in item:
+        return fans_out(definition, item["unless-fanout"], answers, context)
+    return False
+
+
+def invalid_concurrency_ids(inputs: Json, asked: bool) -> list[str]:
+    """Parallel children need a worktree each: an answered `concurrency`
+    above 1 with `worktree_mode: current` is rejected and asked again. The
+    default of a run that never asked is not an answer and is not rejected;
+    the units step runs one child at a time in `current` mode."""
+    value = str(inputs.get("concurrency", "1") or "1")
+    if asked and inputs.get("worktree_mode") == "current" and value != "1":
+        return ["input.concurrency"]
+    return []
+
+
 def describe_tuning(value: Json) -> str:
     return " / ".join(value[k] for k in ("harness", "model", "effort") if value.get(k)) or "inherit"
 
@@ -406,8 +448,15 @@ def resolve_from_context(path: str, context: Json | None = None) -> str | None:
         links = context.get("links", [])
         return "\n".join(links) if links else None
     if path in ("ticket[].ref", "ticket[].title", "ticket[].body", "ticket[].url"):
+        # Top-level tickets only: expanded epic children carry `parent` and
+        # are fanned out by the engine, never typed into a ticket input.
         field = path.split(".")[1]
-        return ", ".join(t[field] for t in context.get("ticket", []) if t.get(field)) or None
+        return (
+            ", ".join(
+                t[field] for t in context.get("ticket", []) if t.get(field) and not t.get("parent")
+            )
+            or None
+        )
     if (
         path.startswith("decisions.")
         and len(path) > 10
@@ -586,6 +635,8 @@ def build_questionary(
                 continue
             if not set(item["needs-steps"]) & enabled:
                 continue
+        if fanout_skips(definition, item, answers, ctx.get("context")):
+            continue
         if item.get("options-from") == "branches":
             push(_branch_input_question(item, ctx.get("branches")))
             continue
@@ -607,6 +658,12 @@ def build_questionary(
             preset = choice_input_preset(item, ctx.get("context"))
         elif preset is None:
             preset = fallback
+        if (
+            item["name"] == "concurrency"
+            and (worktree_answer(definition, answers) or worktree_default(definition)) == "current"
+        ):
+            # One checkout runs one child at a time.
+            preset = "1"
         if preset is not None:
             q["default"] = preset
         push(q)
@@ -614,6 +671,13 @@ def build_questionary(
     if optional and selected is None:
         return _paged(result)
     scope = {"inputs": known_inputs(definition, answers, ctx.get("context")), "answers": answers}
+    source = fanout_source(definition)
+    if source is not None:
+        # `fanout` is the expansion step's output at run time; pre-flight
+        # predicts it so a step gated on it drops its tuning questions.
+        scope["inputs"]["fanout"] = (
+            "yes" if fans_out(definition, source, answers, ctx.get("context")) else "no"
+        )
     enabled = enabled_step_ids(definition, selected)
     active = active_group_ids(definition, enabled, scope)
     for group in _groups(definition):

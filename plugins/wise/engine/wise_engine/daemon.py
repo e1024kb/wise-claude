@@ -591,6 +591,10 @@ class Daemon:
         def shutdown(params: Any, _ctx: CallContext) -> Any:
             record = {} if params is UNDEFINED else as_record(params, "shutdown")
             runs = self.active_runs()
+            if record.get("when") == "now" and runs and record.get("force") is not True:
+                # A forced restart mid-run kills every active run (an epic's
+                # children included); only an explicit `force` does that.
+                return {"accepted": False, "active_runs": runs, "reason": "active-runs"}
             self._shutdown_requested = True
             if record.get("when") == "now" or runs == 0:
                 asyncio.get_running_loop().call_soon(
@@ -676,7 +680,8 @@ DAEMON_USAGE = """wise-engine daemon <serve|start|stop|status> [options]
 
   serve    run in the foreground (what the detached start launches)
   start    start a detached daemon if none answers; prints its status
-  stop     ask the daemon to exit when idle (--now: exit immediately)
+  stop     ask the daemon to exit when idle (--now: exit immediately; refused
+           while runs are active unless --force is also given)
   status   socket alive, pid, version
 
 Options: --data-root <dir> --socket <path> --lock <path> --log <path> --idle-ms <n> --json
@@ -780,9 +785,15 @@ async def daemon_command(argv: list[str], io: Any) -> int:
             )
             return 0
         if args["sub"] == "stop":
-            result = await stop_daemon(**opts, now=args["flags"].get("now") is True)
+            result = await stop_daemon(
+                **opts,
+                now=args["flags"].get("now") is True,
+                force=args["flags"].get("force") is True,
+            )
             text = "engined not running\n"
-            if result["was_running"]:
+            if result.get("refused"):
+                text = f"engined kept running: {result['active_runs']} active run(s); add --force to kill them\n"
+            elif result["was_running"]:
                 text = (
                     "engined stopped\n"
                     if result["stopped"]

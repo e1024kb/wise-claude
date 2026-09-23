@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 from ..constants import ATTACHED_PIPELINES
@@ -58,6 +59,90 @@ async def free_branch(ctx: Json, wanted: str) -> str | None:
         if not taken:
             return candidate
     return None
+
+
+class PrListUnavailable(Exception):
+    """`gh pr list` failed or returned no list while probing for an open PR."""
+
+
+async def open_pr_for(ctx: Json, branch: str) -> Json | None:
+    """The oldest open same-repo PR whose head is `branch` or `branch-N`.
+    Raises PrListUnavailable when gh fails, so a failed probe never reads as
+    "no open PR" and never leads to a duplicate."""
+    rows = json_of(
+        await gh(
+            ctx,
+            [
+                "pr",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                "200",
+                "--json",
+                "number,url,headRefName,baseRefName,isCrossRepository,author",
+            ],
+        )
+    )
+    if not isinstance(rows, list):
+        raise PrListUnavailable(branch)
+    family = re.compile(re.escape(branch) + r"(?:-[0-9]+)?")
+    found = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance(row.get("headRefName"), str)
+        and family.fullmatch(row["headRefName"])
+        and not row.get("isCrossRepository")
+        and type(row.get("number")) in (int, float)
+        and isinstance(row.get("url"), str)
+    ]
+    return min(found, key=lambda row: row["number"]) if found else None
+
+
+async def adopt_open_pr(ctx: Json, unit: Json) -> Json | None:
+    """Claim an open PR for this ticket instead of opening a second one.
+
+    Ours (or an author gh cannot tell): the unit takes its branch and PR and
+    resumes at the watch loop. Someone else's: the unit is skipped, because
+    their branch is never adopted and a duplicate PR is never opened."""
+    pr = await open_pr_for(ctx, unit["branch"])
+    if pr is None:
+        return None
+    head = pr["headRefName"]
+    author = pr.get("author", {}).get("login") if isinstance(pr.get("author"), dict) else None
+    me = await gh(ctx, ["api", "user", "--jq", ".login"])
+    login = me["stdout"].strip() if ok(me) else ""
+    if author and not login:
+        return fail(
+            f"open-pr-exists: #{pr['number']} on {head} by @{author} (current gh user unknown); "
+            "not adopted, no duplicate opened",
+            "skipped",
+        )
+    if author and author.lower() != login.lower():
+        return fail(
+            f"open-pr-exists: #{pr['number']} on {head} by @{author}; not adopted, no duplicate opened",
+            "skipped",
+        )
+    fetched = await git(
+        ctx,
+        ["fetch", "origin", f"+refs/heads/{head}:refs/remotes/origin/{head}"],
+        {"timeout_ms": NETWORK_CMD_TIMEOUT_MS},
+    )
+    if not ok(fetched):
+        return fail(f"claim: cannot fetch {head} for open PR #{pr['number']}")
+    if not await local_branch_exists(ctx, head):
+        made = await git(ctx, ["branch", "--no-track", head, f"refs/remotes/origin/{head}"])
+        if not ok(made):
+            return fail(f"claim: cannot create local {head} for open PR #{pr['number']}")
+    adopted = {**unit, "branch": head, "pr": {"number": pr["number"], "url": pr["url"]}}
+    adopted["adopted"] = True
+    if isinstance(pr.get("baseRefName"), str) and pr["baseRefName"]:
+        adopted["base"] = pr["baseRefName"]
+    if os.path.abspath(unit["worktree"]) != os.path.abspath(ctx["cwd"]):
+        adopted["worktree"] = os.path.join(os.path.dirname(unit["worktree"]), worktree_slug(head))
+    ctx["log"](f"claim: {unit['ref']} has open PR #{pr['number']} on {head}; adopting it")
+    return pass_({"unit": adopted, "cursors": {**ctx["ledger"]["cursors"], "claim": OWNED}})
 
 
 def is_owned(ctx: Json) -> bool:
@@ -150,6 +235,15 @@ async def claim_phase(ctx: Json) -> Json:
         ):
             pr = {"number": rows[0]["number"], "url": rows[0]["url"]}
             return fail(f"pr-merged: #{pr['number']}", "merged", {"unit": {**with_base, "pr": pr}})
+        # F1: an open PR for this ticket (its branch or a `<branch>-N` an
+        # earlier run took) is resumed, never duplicated.
+        if ctx["config"]["pipeline"] == "ticket":
+            try:
+                adopted = await adopt_open_pr(ctx, with_base)
+            except PrListUnavailable:
+                return fail("claim: cannot list open PRs (gh pr list failed)")
+            if adopted is not None:
+                return adopted
     # A branch another run, a person, or a stale checkout already holds is
     # never reused: the unit takes the first free `<branch>-N` instead.
     try:
@@ -165,6 +259,8 @@ async def claim_phase(ctx: Json) -> Json:
         ctx["log"](f"claim: {unit['branch']} already exists, using {branch}")
         with_base["branch"] = branch
         if os.path.abspath(with_base["worktree"]) != os.path.abspath(ctx["cwd"]):
-            with_base["worktree"] = os.path.join(ctx["run_dir"], "worktrees", worktree_slug(branch))
+            with_base["worktree"] = os.path.join(
+                os.path.dirname(with_base["worktree"]), worktree_slug(branch)
+            )
     ctx["log"](f"claim: {unit['ref']} -> {branch} (base {base})")
     return pass_({"unit": with_base, "cursors": {**ctx["ledger"]["cursors"], "claim": OWNED}})

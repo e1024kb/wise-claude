@@ -2393,7 +2393,7 @@ VALIDATION_CASES = [
                 {
                     "level": "error",
                     "path": "steps[0].pipeline",
-                    "message": "pipeline must be ticket | plan | pr | implement",
+                    "message": "pipeline must be ticket | plan | pr | implement | ticket-plan",
                 }
             ]
         },
@@ -5314,9 +5314,9 @@ def test_invalid_regexes():
 def test_bundled_and_v1_definitions():
     engine = Path(__file__).resolve().parents[1]
     expected = {
-        "ticket-plan": 17,
+        "ticket-plan": 21,
         "example-workflow": 8,
-        "ticket-auto": 5,
+        "ticket-auto": 7,
         "impl-plan-auto": 4,
         "code-review": 12,
         "pr-watch": 3,

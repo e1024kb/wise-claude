@@ -636,6 +636,12 @@ def test_human_comment_still_stands_the_run_down_before_any_request(tmp_path):
     fixture = VerifyFixture(tmp_path)
     cr_footprint(fixture, "head-0")
     fixture.head = "head-5"
+    fixture.issue_comments.append(
+        {
+            **comment("alice", "please rename", T0 + 10**12),
+            "user": {"login": "alice", "type": "User"},
+        }
+    )
     fixture.scripts["watch"] = lambda req, nth: answer(watch_output(human_comment=True))
     result = fixture.run()
     assert result["outputs"]["units"][0]["verdict"] == "human-intervention"

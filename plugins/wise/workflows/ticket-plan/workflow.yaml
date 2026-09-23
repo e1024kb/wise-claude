@@ -104,17 +104,24 @@ tuning:
 # conductor already knows the ticket (E1).
 inputs:
   - name: ticket_id
+    # An epic or parent item, or several comma-separated refs, plans every
+    # open child (expand-tickets). The prompt text is unchanged so the
+    # single-ticket questionary stays identical.
     prompt: "Which ticket? (paste a URL, or an id like PROJ-123 / ENG-45 / #678)"
     from-context: ticket[].ref
+  # Single-ticket modes: an epic run plans every child autonomously, so
+  # these are not asked there and keep their defaults (unless-fanout).
   - name: gap_mode
     prompt: "If the gap analysis finds open questions? (defaults: proceed on the stated defaults, recorded as assumptions | ask: pause so I can answer inline)"
     default: defaults
     validate: "^(defaults|ask)$"
     needs-steps: [gap-analysis]
+    unless-fanout: ticket_id
   - name: review_mode
     prompt: "Review the plan before setup? (auto: accept the plan as presented | ask: pause for my comments, one refine pass)"
     default: auto
     validate: "^(auto|ask)$"
+    unless-fanout: ticket_id
   - name: worktree_mode
     prompt: "Where should setup and implementation work? (current: current tree | new: new worktree)"
     default: current
@@ -127,6 +134,24 @@ inputs:
     prompt: "Implement the plan after setup? (plan-only: stop after setup | now: implement autonomously | ask: ask me once the plan and branch are settled)"
     default: plan-only
     validate: "^(plan-only|now|ask)$"
+    unless-fanout: ticket_id
+  # Epic inputs, asked only when the run fans out. Each child plans in its
+  # own branch; `new` gives each its own worktree, so children can plan in
+  # parallel. Default 2 matches the engine's Claude per-harness cap.
+  - name: concurrency
+    prompt: "How many child tickets are planned at once? (1: sequential | 2: recommended, the Claude per-harness cap | 3 | 4: the engine-wide cap; needs worktree_mode new)"
+    default: "2"
+    validate: "^(1|2|3|4)$"
+    needs-fanout: ticket_id
+  - name: on_child_failure
+    prompt: "When a child's plan fails? (continue: plan the independent children, block only its dependents | stop: start no new child)"
+    default: continue
+    validate: "^(continue|stop)$"
+    needs-fanout: ticket_id
+  - name: repo_paths
+    prompt: "Optional local checkouts for children in other repositories: owner/name=/abs/path, comma-separated. Blank = look for a sibling checkout of this project whose origin matches."
+    optional: true
+    needs-fanout: ticket_id
 
   - name: base_branch
     prompt: "Base branch for the ticket branch and its PR? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
@@ -251,6 +276,71 @@ steps:
     outputs: [access_checked]
     timeout: 15
     depends_on: [ensure-access]
+
+  # Epic mode. A plain ticket expands to itself (`fanout` = no) and the
+  # single-ticket flow below runs unchanged; an epic or parent item
+  # expands to its open children and the per-child `plan-children` step
+  # replaces gap-analysis .. finalize. The research wave runs once, on
+  # the epic, and every child plan reads it.
+  - id: expand-tickets
+    type: agent
+    group: support
+    prompt: |
+      Expand the ticket input of this run into the item list the engine
+      schedules: `{{ticket_id}}` (tracker {{tracker_slug}}).
+
+      Read ${CLAUDE_PLUGIN_ROOT}/references/epic-expansion.md and follow
+      it. The run's project is {{project.name}} at {{project.path}}. Write
+      nothing to any tracker.
+
+      Return the fields directly, no wrapping: items, item_count, fanout,
+      expansion, resolved, expansion_detail.
+    schema:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              ref: { type: string }
+              url: { type: string }
+              title: { type: string }
+              state: { type: string }
+              parent: { type: string }
+              repo: { type: string }
+              depends_on: { type: array, items: { type: string } }
+              serialize: { type: array, items: { type: string } }
+            required: [ref]
+            additionalProperties: false
+        item_count: { type: integer }
+        fanout: { type: string, enum: ["yes", "no"] }
+        expansion: { type: string, enum: [ok, blocked] }
+        resolved: { type: string }
+        expansion_detail: { type: string }
+      required: [items, item_count, fanout, expansion, resolved, expansion_detail]
+      additionalProperties: false
+    outputs: [items, item_count, fanout, expansion, resolved, expansion_detail]
+    allowed_tools: ["Bash(command:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(linear:*)", "Bash(jira:*)", "Bash(git:*)", "WebFetch"]
+    depends_on: [require-access]
+
+  # An empty expansion stops the run here, with the resolved list.
+  - id: require-items
+    type: bash
+    run: |
+      set -eu
+      printf 'EXPANSION:\n%s\n' "${WISE_RESOLVED-}"
+      if [ "${WISE_EXPANSION-}" != ok ]; then
+        echo "ERROR: ticket expansion blocked: ${WISE_EXPANSION_DETAIL-}" >&2
+        exit 1
+      fi
+      if [ "${WISE_ITEM_COUNT:-0}" -lt 1 ]; then
+        echo "ERROR: no open ticket to plan: every child is Done, Canceled or Duplicate, or the epic has none." >&2
+        exit 1
+      fi
+      echo "ITEMS: ${WISE_ITEM_COUNT}"
+    timeout: 15
+    depends_on: [expand-tickets]
 
   - id: fetch-ticket
     type: agent
@@ -518,9 +608,12 @@ steps:
       - analyze-related
       - research-context
       - codebase-audit
+      - require-items
     # step-select may pre-skip any evidence step; run on whatever
     # evidence remains (a FAILED evidence step still propagates the skip)
     trigger-rule: none-failed
+    # Epic runs plan per child in `plan-children` instead.
+    when: "fanout != 'yes'"
 
   - id: resolve-gaps
     type: ask
@@ -644,11 +737,13 @@ steps:
       - codebase-audit
       - gap-analysis
       - resolve-gaps
+      - require-items
     # step-select may pre-skip any of these; the plan still builds from
     # what remains. A FAILED dep (e.g. gap-analysis crashed) still
     # propagates the skip and blocks the plan: failing is not the same
     # as deselecting.
     trigger-rule: none-failed
+    when: "fanout != 'yes'"
 
   - id: present-plan
     type: agent
@@ -850,6 +945,9 @@ steps:
     outputs: [work_branch, work_path, work_head, implement_choice]
     depends_on: [review-comments, refine-plan]
     trigger-rule: all-done
+    # all-done would run setup after a skipped plan; epic children set up
+    # their own branches in `plan-children`.
+    when: "fanout != 'yes'"
 
   - id: implement
     type: agent
@@ -944,4 +1042,90 @@ steps:
       user can run to label this session for /resume's picker.
     allowed_tools: ["Bash(git:*)"]
     depends_on: [setup, implement]
+    trigger-rule: all-done
+    when: "fanout != 'yes'"
+
+  # Epic mode: one plan per child, fully autonomous (gap questions proceed
+  # on defaults, the plan is accepted as written, no implementation). Per
+  # child the engine claims a branch (a worktree with worktree_mode new),
+  # writes PLAN-<child>.md from the shared research and keeps the branch.
+  # A child waits for its blockers' plans; a failed blocker blocks it.
+  - id: plan-children
+    type: units
+    pipeline: ticket-plan
+    items: "{{items}}"
+    groups: { plan: build-plan }
+    when: "fanout == 'yes'"
+    depends_on:
+      - analyze-design
+      - analyze-related
+      - research-context
+      - codebase-audit
+      - require-items
+    # Deselected research steps are skipped, not failed.
+    trigger-rule: none-failed
+
+  - id: epic-index
+    type: agent
+    group: build-plan
+    when: "fanout == 'yes'"
+    prompt: |
+      Act as the wise `architect` role (see
+      ${CLAUDE_PLUGIN_ROOT}/agents/architect.md).
+
+      This run planned every open child of epic `{{ticket_id}}`
+      separately. The rows between the markers are the `plan-children`
+      result, one per child, as JSON (a raw placeholder in double braces
+      means the step did not run; say so and stop):
+
+      ---
+      {{units}}
+      ---
+
+      The expansion's resolved list (children, states, blockers, the
+      children skipped as Done, Canceled or Duplicate):
+
+      ---
+      {{resolved}}
+      ---
+
+      Each `plan-written` row names its plan in `reason`
+      (`plan: <path>`); the plans are under {{run.dir}}/plans/. Read
+      every plan, its `## Cross-child notes` above all.
+
+      Write the epic index to {{run.dir}}/plans/PLAN-<epic>.md, where
+      <epic> is the epic ref with any leading '#' stripped, with:
+        # <epic>: <epic title from {{run.dir}}/research/ticket.md>
+        ## Children    one table row per child: ref, repo (`-` for this
+          project), verdict (plan-written | blocked | failed | skipped),
+          plan link, branch, notes. A row with `blocked_by` is blocked;
+          notes name the child it waited for and how that child ended.
+        ## Order       the dependency order to implement in (blockers
+          first), with the edges it follows.
+        ## Conflicts   every file two or more plans change, every
+          numbered sequence (migration or ADR number) two plans claim or
+          may claim, and every shared contract (API, schema, event,
+          config key) two plans change; per item the children involved
+          and the resolution (serialize, renumber, one owner).
+        ## Next        `/wise-workflow-run ticket-auto` with the epic ref
+          implements the children in this order.
+
+      Print the Children table and the counts in your reply. State facts
+      once, no praise. Write nothing to any tracker.
+
+      Return the fields directly, no wrapping: index_path, planned,
+      blocked, failed, skipped.
+    schema:
+      type: object
+      properties:
+        index_path: { type: string }
+        planned: { type: integer }
+        blocked: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+      required: [index_path, planned, blocked, failed, skipped]
+      additionalProperties: false
+    outputs: [index_path, planned, blocked, failed, skipped]
+    allowed_tools: ["Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(test:*)", "Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)"]
+    depends_on: [plan-children]
     trigger-rule: all-done

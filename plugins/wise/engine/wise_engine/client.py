@@ -165,7 +165,16 @@ async def ensure_daemon(**options: Any) -> Client:
             raise
         result = await stop_daemon(**options)
         if not result["stopped"]:
-            raise
+            # Never force it: the busy daemon serves active runs to the end,
+            # then exits on the idle request above and the next call starts
+            # this version.
+            data = error.data if isinstance(error.data, dict) else {}
+            raise RpcError(
+                error.code,
+                f"{error}; it serves {result['active_runs']} active run(s) and "
+                "restarts on this version once they finish",
+                data,
+            ) from error
     except ConnectError:
         pass
     paths = _paths(options)
@@ -224,10 +233,15 @@ async def stop_daemon(**options: Any) -> dict[str, Any]:
         return {"stopped": True, "was_running": False, "active_runs": 0}
     rpc = RpcClient(reader, writer, timeout_ms=timeout)
     try:
-        result = await rpc.call("shutdown", {"when": "now" if options.get("now") else "idle"})
+        request: dict[str, Any] = {"when": "now" if options.get("now") else "idle"}
+        if options.get("force"):
+            request["force"] = True
+        result = await rpc.call("shutdown", request)
         active_runs = result.get("active_runs", 0)
     finally:
         rpc.close()
+    if result.get("accepted") is False:
+        return {"stopped": False, "was_running": True, "active_runs": active_runs, "refused": True}
     deadline = asyncio.get_running_loop().time() + options.get("stop_timeout_ms", 5000) / 1000
     while asyncio.get_running_loop().time() < deadline:
         if not await socket_alive(paths.socket_path, timeout):
