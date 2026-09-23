@@ -1051,6 +1051,10 @@ def test_branch_choice_accepts_free_text_in_forms_and_answers():
     assert _accepted_answer(question, {"input.base_branch": "  "}) is None
     strict = {**question, "allow_text": False}
     assert _accepted_answer(strict, {"input.base_branch": "release-26-9-0"}) is None
+    optional = {**question, "optional": True}
+    assert "minLength" not in question_form_schema(optional)["properties"]["input.base_branch"]
+    assert _accepted_answer(optional, {"input.base_branch": ""}) == ""
+    assert _accepted_answer(optional, {"input.base_branch": "  "}) == ""
 
 
 @pytest.mark.parametrize("workflow", ["pr-watch", "impl-plan"])

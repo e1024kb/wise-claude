@@ -308,7 +308,9 @@ def _accepted_answer(question: Mapping[str, Any], content: Mapping[str, Any]) ->
     if question["kind"] == "text" and not question.get("optional") and not value.strip():
         return None
     if question["kind"] == "choice" and allowed and value not in allowed:
-        return value.strip() or None if question.get("allow_text") is True else None
+        if question.get("allow_text") is not True:
+            return None
+        return value.strip() or ("" if question.get("optional") else None)
     return value
 
 
