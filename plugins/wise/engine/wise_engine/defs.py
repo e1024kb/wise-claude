@@ -938,12 +938,11 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                     iss.error(f"{p}.suggest", "suggest and options-from are exclusive")
                 elif len(values) != len(set(values)) or "" in values:
                     iss.error(f"{p}.suggest", "suggest values must be unique and non-empty")
-                elif (
-                    "validate" in item
-                    and "extract" not in item
-                    and any(not validate_input(v, None, item["validate"])["ok"] for v in values)
+                elif any(
+                    not validate_input(v, item.get("extract"), item.get("validate"))["ok"]
+                    for v in values
                 ):
-                    iss.error(f"{p}.suggest", "every suggest value must pass validate")
+                    iss.error(f"{p}.suggest", "every suggest value must pass extract and validate")
                 else:
                     item["suggest"] = values
             else:

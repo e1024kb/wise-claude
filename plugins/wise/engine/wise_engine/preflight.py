@@ -733,7 +733,12 @@ def build_questionary(
         if item.get("options-from") == "branches":
             push(_branch_input_question(item, ctx.get("branches")))
             continue
-        options = None if item.get("extract") else _input_options(item.get("validate"))
+        # `suggest:` wins over options derived from a literal-enum validate.
+        options = (
+            None
+            if item.get("extract") or item.get("suggest")
+            else _input_options(item.get("validate"))
+        )
         q = dict(
             id=f"input.{item['name']}",
             kind="choice" if options else "text",
@@ -754,7 +759,7 @@ def build_questionary(
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))
         fallback = item.get("default", "" if item.get("optional") else None)
-        if options:
+        if input_choice_values(item) is not None:
             preset = choice_input_preset(item, ctx.get("context"))
         elif preset is None:
             preset = fallback

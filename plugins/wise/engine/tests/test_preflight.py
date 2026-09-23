@@ -1007,6 +1007,17 @@ def test_suggest_input_is_a_choice_with_free_text():
     assert p.invalid_choice_input_ids(defn, {"watch_minutes": "0"}) == ["input.watch_minutes"]
 
 
+def test_suggest_wins_over_literal_enum_options():
+    defn = load_and_validate({"path": str(ROOT / "workflows/pr-watch/workflow.yaml")})["def"]
+    item = next(i for i in defn["inputs"] if i["name"] == "watch_minutes")
+    item.update(validate="^(auto|ask)$", suggest=["ask", "auto"], default="ask")
+    stage = p.build_questionary(defn, {"harnesses": ["claude"]})
+    question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
+    assert question["kind"] == "choice" and question["allow_text"] is True
+    assert [o["value"] for o in question["options"]] == ["ask", "auto"]
+    assert question["default"] == "ask"
+
+
 def test_branch_choice_accepts_free_text_in_forms_and_answers():
     question = {
         "id": "input.base_branch",
