@@ -22,7 +22,7 @@ INPUTS = [
     "input.base_branch",
 ]
 MODES = {"input.review_mode": "ask", "input.implement_mode": "now"}
-AUTO = {"worktree": "current", "permissions.claude": "auto"}
+AUTO = {"worktree": "current", "tuning-scope": "per-group", "permissions.claude": "auto"}
 
 
 def definition():
@@ -71,10 +71,11 @@ def test_stage_order_and_explicit_answers():
     ready = {"harnesses": ["claude", "codex", "cursor", "grok", "gemini"]}
     assert ids(p.build_questionary(defn, ready)) == [
         "worktree",
+        "tuning-scope",
         "step-select",
         *(i for i in INPUTS if i != "input.gap_mode"),
     ]
-    answer = {"worktree": "current", "step-select": OPTIONAL, **MODES}
+    answer = {"worktree": "current", "tuning-scope": "per-group", "step-select": OPTIONAL, **MODES}
     stage = p.build_questionary(defn, ready, answer)
     assert "input.gap_mode" in ids(stage)
     assert [i for i in ids(stage) if not i.startswith("input.")] == [
@@ -284,6 +285,58 @@ def test_known_inputs_filter_groups():
     assert "implement" in p.active_group_ids(
         defn, enabled, {"inputs": {"implement_mode": "plan-only"}, "answers": {}}
     )
+
+
+def test_single_tuning_scope_asks_one_harness_model_and_effort():
+    defn = extended()
+    ready = {"harnesses": ["claude", "codex"]}
+    base = {"worktree": "current", "step-select": OPTIONAL, **MODES}
+    # asked on the first page, before step-select, while still unanswered
+    assert ids(p.build_questionary(defn, ready))[:2] == ["worktree", "tuning-scope"]
+    assert not any(
+        i.startswith(("harness.", "model.")) for i in ids(p.build_questionary(defn, ready, base))
+    )
+    answers = {**base, "tuning-scope": "single"}
+    stage = p.build_questionary(defn, ready, answers)
+    assert [i for i in ids(stage) if not i.startswith("input.")] == ["harness.all"]
+    harness_q = next(q for q in stage["questions"] if q["id"] == "harness.all")
+    assert harness_q["label"] == "Which harness runs: every step?"
+    answers.update({"harness.all": "codex", "permissions.codex": "auto"})
+    stage = p.build_questionary(defn, ready, answers)
+    assert [i for i in ids(stage) if not i.startswith("input.")] == ["model.all"]
+    answers["model.all"] = next(q for q in stage["questions"] if q["id"] == "model.all")["default"]
+    stage = p.build_questionary(defn, ready, answers)
+    assert [i for i in ids(stage) if not i.startswith("input.")] == ["effort.all"]
+    answers["effort.all"] = "low"
+    assert [
+        i for i in ids(p.build_questionary(defn, ready, answers)) if not i.startswith("input.")
+    ] == []
+    applied = p.apply_answers(defn, answers)
+    assert applied["tuning_scope"] == "single"
+    for group in groups(defn):
+        assert applied["tuning"][group] == dict(
+            harness="codex", model=answers["model.all"], effort="low"
+        )
+    # a locked group keeps its declared tuning
+    assert applied["tuning"]["presentation"] == dict(harness="claude", model="sonnet", effort="low")
+    assert p.chosen_harnesses(defn, answers) == ["codex"]
+
+
+def test_tuning_scope_inference():
+    defn = definition()
+    assert p.tuning_scope(defn, {}) is None
+    assert p.tuning_scope(defn, {"tuning-scope": "bogus"}) is None
+    assert p.tuning_scope(defn, {"model.implement": "opus"}) == "per-group"
+    assert p.tuning_scope(defn, {"model.all": "opus"}) == "single"
+    assert p.invalid_tuning_scope_answers({"tuning-scope": "bogus"}) == ["tuning-scope"]
+    assert p.invalid_tuning_scope_answers({"tuning-scope": "single"}) == []
+    plain = {
+        "steps": [{"id": "a", "type": "agent", "prompt": "x", "group": "g"}],
+        "tuning": {"groups": [{"id": "g", "default": {"model": "opus"}}]},
+    }
+    # one tunable group: nothing to choose between
+    assert p.tuning_scope(plain, {}) == "per-group"
+    assert "tuning-scope" not in ids(p.build_questionary(plain))
 
 
 def test_deselected_locked_and_unbound_groups():
@@ -678,7 +731,7 @@ def test_harness_options_and_login_hint():
     result = p.build_questionary(
         defn,
         {"harnesses": ["codex", "grok"], "logged_out": ["grok"]},
-        {"step-select": OPTIONAL, **MODES},
+        {"step-select": OPTIONAL, "tuning-scope": "per-group", **MODES},
     )
     question = next(q for q in result["questions"] if q["id"] == "harness.analyze-design")
     assert [o["value"] for o in question["options"]] == ["claude", "codex", "grok"]
@@ -942,7 +995,8 @@ def test_lock_worktree_skips_the_worktree_question(workflow):
     defn = load_and_validate({"path": str(ROOT / f"workflows/{workflow}/workflow.yaml")})["def"]
     assert p.worktree_locked(defn)
     assert "worktree" not in ids(p.build_questionary(defn))
-    assert p.build_questionary(defn)["questions"][0]["id"].startswith("input.")
+    first, second = ids(p.build_questionary(defn))[:2]
+    assert first == "tuning-scope" and second.startswith("input.")
     assert p.apply_answers(defn, {"worktree": "new"})["worktree"] == "current"
     assert p.apply_answers(defn, {"worktree": "new"})["inputs"]["worktree_mode"] == "current"
 
@@ -1038,10 +1092,10 @@ def test_pages_hold_at_most_four_questions_and_never_straddle_a_stage():
     ready = {"harnesses": ["claude", "codex", "cursor", "grok", "gemini"]}
     first = p.build_questionary(defn, ready)
     assert first["pages"] == [
-        ["worktree", "step-select", "input.ticket_id", "input.review_mode"],
-        ["input.branch_mode", "input.implement_mode", "input.base_branch"],
+        ["worktree", "tuning-scope", "step-select", "input.ticket_id"],
+        ["input.review_mode", "input.branch_mode", "input.implement_mode", "input.base_branch"],
     ]
-    answers = {"worktree": "current", "step-select": OPTIONAL, **MODES}
+    answers = {"worktree": "current", "tuning-scope": "per-group", "step-select": OPTIONAL, **MODES}
     stage = p.build_questionary(defn, ready, answers)
     harness = [i for i in ids(stage) if i.startswith("harness.")]
     inputs = [i for i in ids(stage) if i.startswith("input.")]

@@ -55,6 +55,7 @@ Inside `process`, for the plan and in this order:
 |---|---|---|---|
 | `input.plan` | text | - | The `PLAN-*.md` path, relative to the repo root or absolute. Skipped when `/wise-implement-plan-auto <path>` supplied it. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to the implementer. |
+| `tuning-scope` | choice | `per-group` | Asked first after `worktree`: `single` asks harness, model and effort once (`harness.all`, `model.all`, `effort.all`) for every group, `per-group` asks them per group as below. |
 | `harness.<group>` | choice | `claude` | One per group (`implement`, `support`); asked whenever another harness is installed. Always put to the user, like `model.<group>` and `effort.<group>`. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. The selected value is a floor. |
 | `model.<group>` | choice | `claude-opus-5-5` (`support`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. Each group's label says what the model will do. |

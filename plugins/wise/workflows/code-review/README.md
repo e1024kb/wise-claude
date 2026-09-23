@@ -84,7 +84,8 @@ set) never blocks the summary.
 After the summary, a missing report fails the run even when the user chose to
 curate the reports that were available.
 
-Pre-flight asks one multi-select over the optional `verify` pass
+Before any of this, `tuning-scope` asks whether one harness, model and effort run every step (`single`: asked once as `harness.all`, `model.all`, `effort.all`) or each group is chosen separately (`per-group`, the default).
+Pre-flight then asks one multi-select over the optional `verify` pass
 (selected by default) and the inputs below first; then, per tuning
 group a selected step uses (`correctness`, `security`, `tests`,
 `curate`, `verify`, `fix`; all default to `claude-opus-5-5 / high`),

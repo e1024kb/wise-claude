@@ -715,6 +715,7 @@ empty. An answered question is never repeated.
 | Id | Kind | Options | Default |
 |---|---|---|---|
 | `worktree` | `choice` | current checkout, separate worktree | workflow `preflight.worktree`, else current checkout |
+| `tuning-scope` | `choice` | `single` (same harness, model and effort for every step), `per-group` (chosen per tuning group); asked only when more than one group is unlocked | `per-group` |
 | `step-select` | `multi` | optional step ids, labelled by `description` | all |
 | `input.<name>` | `choice` for strict literal enums without extraction and for `options-from: branches` (free text allowed); otherwise `text` | enum values, plus `Leave unset` for optional enums; the checkout's base-branch candidates for `options-from: branches`; none for text | context value, else `default`, else empty when optional; the checked-out base branch else the default branch for `options-from: branches` |
 | `harness.<group>` | `choice` | the group's default harness first, then every other installed harness (adapter present, CLI on PATH) in the order claude, codex, cursor, grok, gemini; a logged-out one carries its login command in the option description | the group's default harness |
@@ -722,7 +723,14 @@ empty. An answered question is never repeated.
 | `model.<group>` | `choice` | every predefined catalog entry for the chosen harness (`engine/wise_engine/models.py`, option `source: catalog`) in catalog order, then every additional model the installed harness reports (`source: harness`, in the harness's own order, no effort flag, deduplicated against the catalog) | the group's pinned model when the catalog has it, else the catalog's first entry |
 | `effort.<group>` | `choice` | the chosen model's efforts in the order medium, high, xhigh, low, max | the group's effort when the model takes it, else the closest lower one, else the lowest |
 
-`worktree` is always the first question. `step-select` and `input.<name>` follow
+`worktree` is always the first question and `tuning-scope` the second.
+With `single`, every tuning stage below is asked once under the pseudo-group
+`all` (`harness.all`, `model.all`, `effort.all`, defaults from the first
+unlocked group) and the answer applies to every unlocked group; each group
+keeps its own fallback. `all` is therefore a reserved group id. A run given
+per-group tuning answers without `tuning-scope` is treated as `per-group`,
+one given `*.all` answers as `single`.
+`step-select` and `input.<name>` follow
 after it: the workflow-specific inputs in their declared order, then the shared
 `base_branch` and `guidance`. An input with `needs-steps` waits for the `step-select` answer. The tuning stages wait for the `step-select` answer (which steps
 run decides which groups matter) and are asked only for the groups a

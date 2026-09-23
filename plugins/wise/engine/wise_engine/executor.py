@@ -67,6 +67,7 @@ from .preflight import (
     fanout_skips,
     invalid_model_answer_ids,
     invalid_provider_permission_answers,
+    invalid_tuning_scope_answers,
     invalid_worktree_answers,
     retry_questions,
     resolve_from_context,
@@ -1778,6 +1779,7 @@ class Executor:
             if key not in invalid_inputs
         ]
         invalid_worktree = [] if worktree_locked(definition) else invalid_worktree_answers(seeded)
+        invalid_scope = invalid_tuning_scope_answers(seeded)
         # An explicit model no catalog row backs (a harness-reported id whose
         # listing failed this time) is re-asked, never swapped for the default.
         invalid_models = invalid_model_answer_ids(definition, given, ctx.get("models"))
@@ -1795,19 +1797,24 @@ class Executor:
                 ]
                 + invalid_inputs
                 + (["worktree"] if invalid_worktree else [])
+                + invalid_scope
                 + invalid_models
             )
         )
         if missing:
             questions = {question["id"]: question for question in completed["questions"]}
-            if invalid_inputs or invalid_worktree or invalid_models:
+            if invalid_inputs or invalid_worktree or invalid_scope or invalid_models:
                 retry_answers = {
                     key: value
                     for key, value in answers.items()
-                    if key not in (*invalid_inputs, *invalid_worktree, *invalid_models)
+                    if key
+                    not in (*invalid_inputs, *invalid_worktree, *invalid_scope, *invalid_models)
                 }
                 for question in retry_questions(
-                    definition, ctx, retry_answers, [*invalid_inputs, *invalid_models, "worktree"]
+                    definition,
+                    ctx,
+                    retry_answers,
+                    [*invalid_inputs, *invalid_models, *invalid_scope, "worktree"],
                 ):
                     questions[question["id"]] = question
             raise domain_error(

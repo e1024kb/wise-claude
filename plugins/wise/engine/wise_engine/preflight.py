@@ -17,6 +17,12 @@ PLAIN_ALTERNATION_RE = re.compile(r"\^\(([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+)\)\
 DEFAULT_MARK = " (default)"
 PAGE_SIZE = 4
 
+TUNING_SCOPE = "tuning-scope"
+SCOPE_SINGLE = "single"
+SCOPE_PER_GROUP = "per-group"
+# The pseudo-group a single-scope run asks its one harness/model/effort for.
+ALL_GROUP = "all"
+
 
 def canonical_groups(groups: list[Json]) -> list[Json]:
     """Tuning groups in the order every workflow asks them: workflow-specific
@@ -202,6 +208,76 @@ def _answer_list(value: Any) -> list[str] | None:
 
 def _groups(definition: Json) -> list[Json]:
     return canonical_groups(definition.get("tuning", {}).get("groups", []))
+
+
+def _tunable_groups(definition: Json) -> list[Json]:
+    return [g for g in _groups(definition) if not g.get("locked")]
+
+
+def tuning_scope(definition: Json, answers: Json) -> str | None:
+    """`single` asks one harness/model/effort for every step, `per-group` asks
+    each tuning group. Inferred from tuning answers already given (a scripted
+    or resumed run), fixed to `per-group` with at most one tunable group, and
+    None while still to ask."""
+    value = _answer_string(answers.get(TUNING_SCOPE))
+    if value in (SCOPE_SINGLE, SCOPE_PER_GROUP):
+        return value
+    keys = [k for k in answers if k.startswith(("harness.", "model.", "effort."))]
+    if any(k.split(".", 1)[1] == ALL_GROUP for k in keys):
+        return SCOPE_SINGLE
+    if keys or len(_tunable_groups(definition)) <= 1:
+        return SCOPE_PER_GROUP
+    return None
+
+
+def _single_group(definition: Json) -> Json:
+    """The one group a single-scope run asks: it takes the first tunable
+    group's harness, model and effort as its defaults."""
+    first = _tunable_groups(definition)[0]
+    return dict(id=ALL_GROUP, label="every step", default=_group_base(definition, first))
+
+
+def _asked_groups(definition: Json, answers: Json, active: set[str] | None = None) -> list[Json]:
+    """The groups whose harness/model/effort pre-flight asks, in order."""
+    groups = [g for g in _tunable_groups(definition) if active is None or g["id"] in active]
+    if groups and tuning_scope(definition, answers) == SCOPE_SINGLE:
+        return [_single_group(definition)]
+    return groups
+
+
+def expand_single_scope(definition: Json, answers: Json) -> Json:
+    """Copy the `*.all` answers of a single-scope run onto every tunable group."""
+    if tuning_scope(definition, answers) != SCOPE_SINGLE:
+        return answers
+    out = dict(answers)
+    for stage in ("harness", "model", "effort"):
+        value = answers.get(f"{stage}.{ALL_GROUP}")
+        if value is None:
+            continue
+        for group in _tunable_groups(definition):
+            out[f"{stage}.{group['id']}"] = value
+    return out
+
+
+def _tuning_scope_question() -> Json:
+    return dict(
+        id=TUNING_SCOPE,
+        kind="choice",
+        label="How should harness, model and effort be chosen?",
+        options=[
+            dict(
+                value=SCOPE_SINGLE,
+                label="Same for every step",
+                description="pick one harness, model and effort for the whole workflow",
+            ),
+            dict(
+                value=SCOPE_PER_GROUP,
+                label="Per step group",
+                description="pick harness, model and effort for each step group",
+            ),
+        ],
+        default=SCOPE_PER_GROUP,
+    )
 
 
 def _group_base(definition: Json, group: Json) -> Json:
@@ -559,6 +635,13 @@ def worktree_answer(definition: Json, answers: Json) -> str | None:
     return value if value in ("current", "new") else None
 
 
+def invalid_tuning_scope_answers(answers: Json) -> list[str]:
+    value = answers.get(TUNING_SCOPE)
+    return (
+        [TUNING_SCOPE] if value is not None and value not in (SCOPE_SINGLE, SCOPE_PER_GROUP) else []
+    )
+
+
 def invalid_worktree_answers(answers: Json) -> list[str]:
     key = "worktree" if "worktree" in answers else "input.worktree_mode"
     return [key] if key in answers and answers[key] not in ("current", "new") else []
@@ -621,6 +704,12 @@ def build_questionary(
         question = mark_default(_worktree_question(definition))
         questions.append(question)
         defaults[question["id"]] = question["default"]
+    scope_known = tuning_scope(definition, answers) is not None
+    if not scope_known:
+        # Asked again when the given answer is invalid, so not through push.
+        question = mark_default(_tuning_scope_question())
+        questions.append(question)
+        defaults[question["id"]] = question["default"]
     optional = optional_step_ids(definition)
     if optional:
         push(_step_select_question(definition, optional))
@@ -668,7 +757,7 @@ def build_questionary(
             q["default"] = preset
         push(q)
     result: Json = {"questions": questions, "defaults": defaults}
-    if optional and selected is None:
+    if (optional and selected is None) or not scope_known:
         return _paged(result)
     scope = {"inputs": known_inputs(definition, answers, ctx.get("context")), "answers": answers}
     source = fanout_source(definition)
@@ -680,9 +769,8 @@ def build_questionary(
         )
     enabled = enabled_step_ids(definition, selected)
     active = active_group_ids(definition, enabled, scope)
-    for group in _groups(definition):
-        if group.get("locked") or group["id"] not in active:
-            continue
+    asked = _asked_groups(definition, answers, active)
+    for group in asked:
         stage = _stage_harness(
             definition, group, answers, ctx.get("harnesses"), ctx.get("logged_out")
         )
@@ -692,7 +780,12 @@ def build_questionary(
         return _paged(result)
     if _legacy_permission_answer(answers) is None:
         for h in active_harnesses(
-            definition, enabled, active, answers, ctx.get("harnesses"), scope
+            definition,
+            enabled,
+            active,
+            expand_single_scope(definition, answers),
+            ctx.get("harnesses"),
+            scope,
         ):
             push(_permission_question(definition, h))
     if any(q["id"].startswith("permissions.") for q in questions):
@@ -701,9 +794,7 @@ def build_questionary(
     # the first group's model; every next page asks the previous group's
     # effort (its options depend on the model just chosen) together with the
     # next group's model; the last page asks the last group's effort alone.
-    for group in _groups(definition):
-        if group.get("locked") or group["id"] not in active:
-            continue
+    for group in asked:
         stage = _stage_group(
             definition,
             group,
@@ -753,11 +844,13 @@ def retry_questions(definition: Json, ctx: Json, answers: Json, wanted: list[str
 def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> Json:
     tuning = {}
     models = (ctx or {}).get("models")
+    single = tuning_scope(definition, answers) == SCOPE_SINGLE
     for group in _groups(definition):
         if group.get("locked"):
             tuning[group["id"]] = _group_base(definition, group)
             continue
-        stage = _stage_group(definition, group, answers, models=models)
+        asked = _single_group(definition) if single else group
+        stage = _stage_group(definition, asked, answers, models=models)
         base = stage["base"]
         harness = stage.get("harness", base.get("harness", "claude"))
         model = stage.get("model") or default_model(
@@ -766,7 +859,10 @@ def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> J
             (models or {}).get(harness),
         )
         effort = stage.get("effort", default_effort(model, base.get("effort")))
-        value = {**base, "harness": harness, "model": model["id"]}
+        # A single-scope run keeps each group's own declared keys; only the
+        # one chosen harness, model and effort replace its declared ones.
+        own = _group_base(definition, group) if single else base
+        value = {**own, "harness": harness, "model": model["id"]}
         if effort is not None:
             value["effort"] = effort
         else:
@@ -789,6 +885,7 @@ def apply_answers(definition: Json, answers: Json, ctx: Json | None = None) -> J
     return dict(
         profile=PROFILE_DEFAULT,
         worktree=worktree,
+        tuning_scope=tuning_scope(definition, answers) or SCOPE_PER_GROUP,
         tuning=tuning,
         provider_permissions=provider_permissions(answers),
         enabled_steps=enabled,
@@ -832,14 +929,12 @@ def complete_answers(definition: Json, ctx: Json, given: Json) -> Json:
     return {**filled, "questions": list(seen.values())}
 
 
-EARLIER_STAGES = ("worktree", "step-select", "harness.", "permissions.")
+EARLIER_STAGES = ("worktree", TUNING_SCOPE, "step-select", "harness.", "permissions.")
 
 
 def chosen_harnesses(definition: Json, answers: Json) -> list[str]:
     chosen = []
-    for group in _groups(definition):
-        if group.get("locked"):
-            continue
+    for group in _asked_groups(definition, answers):
         answer = _answer_string(answers.get(f"harness.{group['id']}"))
         chosen.append(
             answer
@@ -852,9 +947,7 @@ def chosen_harnesses(definition: Json, answers: Json) -> list[str]:
 def invalid_model_answer_ids(definition: Json, answers: Json, models: Json | None) -> list[str]:
     """Explicit model answers that no catalog row (predefined or discovered) backs."""
     invalid = []
-    for group in _groups(definition):
-        if group.get("locked"):
-            continue
+    for group in _asked_groups(definition, answers):
         key = f"model.{group['id']}"
         wanted = _answer_string(answers.get(key))
         if not wanted:
@@ -899,7 +992,7 @@ async def build_questionary_with_auth(
     ]
     if not group_ids:
         return questionary
-    groups = {group["id"]: group for group in _groups(definition)}
+    groups = {group["id"]: group for group in _asked_groups(definition, answers)}
     defaults = [
         _group_base(definition, groups[gid]).get("harness", "claude") if gid in groups else "claude"
         for gid in group_ids
