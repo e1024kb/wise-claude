@@ -31,7 +31,7 @@ from wise_engine.fanout import (
 )
 from wise_engine.ledger import read_unit
 from wise_engine.phases.claim import claim_phase
-from wise_engine.phases.push import rebase_onto_base, sequence_collisions
+from wise_engine.phases.push import rebase_onto_base, sequence_collisions, sequence_number
 from wise_engine.phases.trailers import strip_cursor_trailers, strip_trailer
 from wise_engine.phases.common import spawn_runner
 from wise_engine.spawn import clean_env
@@ -150,6 +150,10 @@ def test_resolve_repo(tmp_path):
         assert await resolve("acme/api") == str(sibling.resolve())
         assert await resolve("acme/web", {"acme/web": str(mapped)}) == str(mapped.resolve())
         assert await resolve(str(mapped)) == str(mapped.resolve())
+        outside = tmp_path / "far" / "away"
+        (outside / ".git").mkdir(parents=True)
+        assert await resolve(str(outside)) is None
+        assert await resolve(str(outside), {"acme/x": str(outside)}) == str(outside.resolve())
         assert await resolve("acme/unknown") is None
 
     asyncio.run(scenario())
@@ -238,6 +242,23 @@ def test_a_failed_blocker_blocks_its_dependents_transitively(tmp_path):
     assert rows["PROJ-4"]["verdict"] == "plan-written"
     assert "PROJ-2" not in fixture.order and "PROJ-3" not in fixture.order
     assert "blocked=2" in result["verdict"]
+
+
+def test_a_child_without_a_checkout_blocks_its_dependents(tmp_path):
+    fixture = EpicFixture(
+        tmp_path,
+        [
+            {"ref": "PROJ-1", "repo": "acme/nowhere"},
+            {"ref": "PROJ-2", "depends_on": ["PROJ-1"]},
+        ],
+        concurrency="1",
+    )
+    result, rows = fixture.run()
+    assert rows["PROJ-1"]["verdict"] == "skipped"
+    assert "no local checkout found" in rows["PROJ-1"]["reason"]
+    assert rows["PROJ-2"]["verdict"] == "blocked" and rows["PROJ-2"]["blocked_by"] == ["PROJ-1"]
+    assert fixture.order == []
+    assert "not in this run" not in result["log"]
 
 
 def test_on_child_failure_stop_starts_no_new_child(tmp_path):
@@ -453,6 +474,31 @@ def test_claim_skips_someone_elses_open_pr(tmp_path):
     result = asyncio.run(fixture.phase(claim_phase))
     assert not result["ok"] and result["verdict"] == "skipped"
     assert result["reason"].startswith("open-pr-exists: #9 on proj-1-2 by @alice")
+
+
+def test_claim_skips_an_open_pr_when_the_gh_user_is_unknown(tmp_path):
+    fixture = OpenPrFixture(tmp_path)
+    fixture.api["user"] = lambda args: command_result(code=1)
+    fixture.ctx["unit"]["branch"] = fixture.ctx["ledger"]["unit"]["branch"] = "proj-1"
+    result = asyncio.run(fixture.phase(claim_phase))
+    assert not result["ok"] and result["verdict"] == "skipped"
+    assert "current gh user unknown" in result["reason"]
+
+
+def test_claim_fails_when_open_prs_cannot_be_listed(tmp_path):
+    fixture = OpenPrFixture(tmp_path)
+    original = fixture.execute
+
+    async def execute(cmd, args, opts):
+        if cmd == "gh" and args[:2] == ["pr", "list"] and "open" in args:
+            return command_result(code=1)
+        return await original(cmd, args, opts)
+
+    fixture.execute = execute
+    fixture.ctx["exec"] = execute
+    fixture.ctx["unit"]["branch"] = fixture.ctx["ledger"]["unit"]["branch"] = "proj-1"
+    result = asyncio.run(fixture.phase(claim_phase))
+    assert not result["ok"] and result["reason"].startswith("claim: cannot list open PRs")
 
 
 def test_an_adopted_pr_resumes_at_the_watch_loop(tmp_path):
@@ -672,6 +718,14 @@ def test_sequence_collision_is_reported(repo, tmp_path):
     git(repo, "fetch", "origin")
     findings = asyncio.run(sequence_collisions(real_ctx(repo)))
     assert len(findings) == 1 and "db/002_orders.sql" in findings[0] and "002" in findings[0]
+
+
+def test_sequence_number_ignores_dates_and_number_only_stems():
+    assert sequence_number("0042_add_users.sql") == "0042"
+    assert sequence_number("V7__init.sql") == "7"
+    assert sequence_number("2024-05-01-new.md") is None
+    assert sequence_number("404.svg") is None
+    assert sequence_number("readme.md") is None
 
 
 def test_rebase_onto_a_moved_base_before_the_first_push(repo, tmp_path):

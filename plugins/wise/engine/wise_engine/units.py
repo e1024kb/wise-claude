@@ -832,13 +832,27 @@ async def _run_units_step(input: Json) -> Json:
             continue
         seen.add(key)
         if unit_cwd is None:
+            # Kept in the DAG as a pre-settled skip, so its dependents are
+            # blocked by it instead of running without it.
             reason = (
                 f"repo {spec['repo']}: no local checkout found; map it with the repo_paths input"
             )
-            settle(
-                index,
-                {"unit": unit, "cleaned": False, "verdict": "skipped", "reason": reason},
-                reason,
+            skip: Json = {"unit": unit, "cleaned": False, "verdict": "skipped", "reason": reason}
+            lines.append(f"[{unit['ref']}] {reason}")
+            input["emit"](
+                {"type": "unit.done", "unit": unit["ref"], "verdict": "skipped", "message": reason}
+            )
+            nodes.append(
+                {
+                    "index": index,
+                    "spec": spec,
+                    "unit": unit,
+                    "key": key,
+                    "cwd": cwd,
+                    "config": dict(config),
+                    "locks": set(),
+                    "settled": skip,
+                }
             )
             continue
         if is_terminal_state(spec.get("state")):
@@ -876,6 +890,8 @@ async def _run_units_step(input: Json) -> Json:
     # default to github.
     remotes: dict[str, Json] = {}
     for node in nodes:
+        if "settled" in node:
+            continue
         if node["cwd"] not in remotes and _pending(node):
             remotes[node["cwd"]] = await detect_remote(
                 {"cwd": node["cwd"], "env": env, "exec": execute, "log": lines.append}
@@ -890,8 +906,8 @@ async def _run_units_step(input: Json) -> Json:
     success = SUCCESS_VERDICTS.get(pipeline, frozenset(("merged",)))
     stop_on_failure = str(inputs.get("on_child_failure", "") or "").strip() == "stop"
     by_key = {node["key"]: node for node in nodes}
-    pending = [node["key"] for node in nodes]
-    results: dict[str, Json] = {}
+    pending = [node["key"] for node in nodes if "settled" not in node]
+    results: dict[str, Json] = {node["key"]: node["settled"] for node in nodes if "settled" in node}
     running: dict[asyncio.Task[Json], str] = {}
     held: set[tuple[str, str]] = set()
     stop_reason: str | None = None

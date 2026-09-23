@@ -61,8 +61,14 @@ async def free_branch(ctx: Json, wanted: str) -> str | None:
     return None
 
 
+class PrListUnavailable(Exception):
+    """`gh pr list` failed or returned no list while probing for an open PR."""
+
+
 async def open_pr_for(ctx: Json, branch: str) -> Json | None:
-    """The oldest open same-repo PR whose head is `branch` or `branch-N`."""
+    """The oldest open same-repo PR whose head is `branch` or `branch-N`.
+    Raises PrListUnavailable when gh fails, so a failed probe never reads as
+    "no open PR" and never leads to a duplicate."""
     rows = json_of(
         await gh(
             ctx,
@@ -78,10 +84,12 @@ async def open_pr_for(ctx: Json, branch: str) -> Json | None:
             ],
         )
     )
+    if not isinstance(rows, list):
+        raise PrListUnavailable(branch)
     family = re.compile(re.escape(branch) + r"(?:-[0-9]+)?")
     found = [
         row
-        for row in (rows if isinstance(rows, list) else [])
+        for row in rows
         if isinstance(row, dict)
         and isinstance(row.get("headRefName"), str)
         and family.fullmatch(row["headRefName"])
@@ -105,7 +113,13 @@ async def adopt_open_pr(ctx: Json, unit: Json) -> Json | None:
     author = pr.get("author", {}).get("login") if isinstance(pr.get("author"), dict) else None
     me = await gh(ctx, ["api", "user", "--jq", ".login"])
     login = me["stdout"].strip() if ok(me) else ""
-    if author and login and author.lower() != login.lower():
+    if author and not login:
+        return fail(
+            f"open-pr-exists: #{pr['number']} on {head} by @{author} (current gh user unknown); "
+            "not adopted, no duplicate opened",
+            "skipped",
+        )
+    if author and author.lower() != login.lower():
         return fail(
             f"open-pr-exists: #{pr['number']} on {head} by @{author}; not adopted, no duplicate opened",
             "skipped",
@@ -224,7 +238,10 @@ async def claim_phase(ctx: Json) -> Json:
         # F1: an open PR for this ticket (its branch or a `<branch>-N` an
         # earlier run took) is resumed, never duplicated.
         if ctx["config"]["pipeline"] == "ticket":
-            adopted = await adopt_open_pr(ctx, with_base)
+            try:
+                adopted = await adopt_open_pr(ctx, with_base)
+            except PrListUnavailable:
+                return fail("claim: cannot list open PRs (gh pr list failed)")
             if adopted is not None:
                 return adopted
     # A branch another run, a person, or a stale checkout already holds is

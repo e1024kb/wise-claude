@@ -237,16 +237,22 @@ async def resolve_repo(
 ) -> str | None:
     """The local checkout a child targets.
 
-    No repo, or the project's own: the project checkout. An absolute path
-    that exists: that path. `owner/name`: the `repo_paths` input, else a
-    sibling of the project checkout whose origin is that repo. None when no
-    checkout is found; the child is skipped, never cloned."""
+    No repo, or the project's own: the project checkout. An absolute path:
+    that checkout, only when it is the project, a `repo_paths` value or a
+    sibling of the project, so tracker text never selects an arbitrary local
+    repository. `owner/name`: the `repo_paths` input, else a sibling of the
+    project checkout whose origin is that repo. None when no checkout is
+    found; the child is skipped, never cloned."""
     if not wanted:
         return project
     value = wanted.strip()
     if value.startswith(("/", "~")):
-        path = Path(os.path.expanduser(value))
-        return str(path.resolve()) if (path / ".git").exists() else None
+        path = Path(os.path.expanduser(value)).resolve()
+        root = Path(project).resolve()
+        allowed = {Path(mapped).resolve() for mapped in repo_paths.values()}
+        if path != root and path not in allowed and path.parent != root.parent:
+            return None
+        return str(path) if (path / ".git").exists() else None
     slug = repo_slug(value) or value.lower().removesuffix(".git")
     if slug == project_slug:
         return project

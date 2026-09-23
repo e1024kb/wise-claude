@@ -448,8 +448,15 @@ def resolve_from_context(path: str, context: Json | None = None) -> str | None:
         links = context.get("links", [])
         return "\n".join(links) if links else None
     if path in ("ticket[].ref", "ticket[].title", "ticket[].body", "ticket[].url"):
+        # Top-level tickets only: expanded epic children carry `parent` and
+        # are fanned out by the engine, never typed into a ticket input.
         field = path.split(".")[1]
-        return ", ".join(t[field] for t in context.get("ticket", []) if t.get(field)) or None
+        return (
+            ", ".join(
+                t[field] for t in context.get("ticket", []) if t.get(field) and not t.get("parent")
+            )
+            or None
+        )
     if (
         path.startswith("decisions.")
         and len(path) > 10

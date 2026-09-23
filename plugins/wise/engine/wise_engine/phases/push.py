@@ -17,6 +17,17 @@ from .common import (
 # A file whose name starts with a sequence number: `0042_add_users.sql`,
 # `V42__add_users.sql` (Flyway), `0007-record-decision.md` (ADR).
 NUMBERED_RE = re.compile(r"^V?(\d+)(?:__|[_.-])")
+DATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def sequence_number(name: str) -> str | None:
+    """The sequence digits a file name starts with; None for dated names
+    (`2024-05-01-post.md`) and all-digit stems (`404.svg`), which are not
+    sequences."""
+    if DATED_RE.match(name) or PurePosixPath(name).stem.isdigit():
+        return None
+    match = NUMBERED_RE.match(name)
+    return match[1] if match else None
 
 
 async def push_phase(ctx: Json) -> Json:
@@ -72,9 +83,9 @@ async def sequence_collisions(ctx: Json) -> list[str]:
     by_dir: dict[str, list[tuple[str, str]]] = {}
     for line in added["stdout"].splitlines():
         path = PurePosixPath(line.strip())
-        match = NUMBERED_RE.match(path.name)
-        if match:
-            by_dir.setdefault(str(path.parent), []).append((path.name, match[1]))
+        number = sequence_number(path.name)
+        if number is not None:
+            by_dir.setdefault(str(path.parent), []).append((path.name, number))
     findings = []
     for directory, files in by_dir.items():
         prefix = "" if directory == "." else directory + "/"
@@ -84,9 +95,9 @@ async def sequence_collisions(ctx: Json) -> list[str]:
         taken: dict[int, str] = {}
         for entry in listed["stdout"].splitlines():
             name = PurePosixPath(entry.strip()).name
-            match = NUMBERED_RE.match(name)
-            if match:
-                taken.setdefault(int(match[1]), name)
+            number = sequence_number(name)
+            if number is not None:
+                taken.setdefault(int(number), name)
         for name, number in files:
             other = taken.get(int(number))
             if other is not None and other != name:

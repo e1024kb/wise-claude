@@ -330,6 +330,19 @@ def test_deselected_locked_and_unbound_groups():
     assert ids(p.build_questionary(plain, {}, AUTO)) == ["model.g"]
 
 
+def test_epic_children_never_prefill_ticket_inputs():
+    context = {
+        "ticket": [
+            {"ref": "ENG-100", "title": "Epic", "children": ["ENG-101", "ENG-102"]},
+            {"ref": "ENG-101", "title": "A", "parent": "ENG-100"},
+            {"ref": "ENG-102", "title": "B", "parent": "ENG-100", "state": "Done"},
+        ]
+    }
+    result = p.build_questionary(extended(), {"context": context})
+    assert result["defaults"]["input.ticket_id"] == "ENG-100"
+    assert p.resolve_from_context("ticket[].title", context) == "Epic"
+
+
 def test_context_and_optional_inputs():
     context = {
         "ticket": [{"ref": "TEST-1", "title": "T"}, {"ref": "TEST-2"}],
