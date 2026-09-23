@@ -1023,6 +1023,7 @@ def test_optional_suggest_input_can_be_left_unset():
     item = next(i for i in defn["inputs"] if i["name"] == "watch_minutes")
     item.pop("default")
     item["optional"] = True
+    item["validate"] = "^[1-9][0-9]*$"
     stage = p.build_questionary(defn, {"harnesses": ["claude"]})
     question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
     assert question["options"][-1]["value"] == ""
