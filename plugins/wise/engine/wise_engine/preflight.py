@@ -743,6 +743,13 @@ def build_questionary(
             if item.get("optional"):
                 options = [*options, {"value": "", "label": "Leave unset"}]
             q["options"] = options
+        elif item.get("suggest"):
+            # Suggested values as picker rows; any other valid value as free text.
+            q.update(
+                kind="choice",
+                options=[dict(value=v, label=v) for v in item["suggest"]],
+                allow_text=True,
+            )
         if item.get("optional"):
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))

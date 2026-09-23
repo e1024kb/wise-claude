@@ -994,6 +994,19 @@ def test_branch_input_is_a_choice_from_the_checkout_and_text_without_one():
     assert "input.base_branch" not in ids(answered)
 
 
+def test_suggest_input_is_a_choice_with_free_text():
+    defn = load_and_validate({"path": str(ROOT / "workflows/pr-watch/workflow.yaml")})["def"]
+    stage = p.build_questionary(defn, {"harnesses": ["claude"]})
+    question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
+    assert question["kind"] == "choice" and question["allow_text"] is True
+    assert [o["value"] for o in question["options"]] == ["10", "20", "45", "60"]
+    assert question["options"][0]["label"] == "10" + p.DEFAULT_MARK
+    assert question["default"] == "10"
+    assert _accepted_answer(question, {"input.watch_minutes": "90"}) == "90"
+    assert p.invalid_choice_input_ids(defn, {"watch_minutes": "90"}) == []
+    assert p.invalid_choice_input_ids(defn, {"watch_minutes": "0"}) == ["input.watch_minutes"]
+
+
 def test_branch_choice_accepts_free_text_in_forms_and_answers():
     question = {
         "id": "input.base_branch",

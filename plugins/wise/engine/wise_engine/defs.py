@@ -851,6 +851,7 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                 "extract",
                 "options",
                 "options-from",
+                "suggest",
                 "needs-steps",
                 "needs-fanout",
                 "unless-fanout",
@@ -925,6 +926,28 @@ def _inputs(iss: _Issues, raw: Any) -> list[dict[str, Any]]:
                     f"{p}.options-from",
                     f"options-from {js_json(source)} must be one of {' | '.join(OPTIONS_SOURCES)}",
                 )
+        if "suggest" in entry:
+            values = entry["suggest"]
+            if (
+                isinstance(values, list)
+                and values
+                and all(isinstance(v, (str, int)) and not isinstance(v, bool) for v in values)
+            ):
+                values = [js_string(v) for v in values]
+                if "options-from" in entry:
+                    iss.error(f"{p}.suggest", "suggest and options-from are exclusive")
+                elif len(values) != len(set(values)) or "" in values:
+                    iss.error(f"{p}.suggest", "suggest values must be unique and non-empty")
+                elif (
+                    "validate" in item
+                    and "extract" not in item
+                    and any(not validate_input(v, None, item["validate"])["ok"] for v in values)
+                ):
+                    iss.error(f"{p}.suggest", "every suggest value must pass validate")
+                else:
+                    item["suggest"] = values
+            else:
+                iss.error(f"{p}.suggest", "suggest must be a non-empty list of strings")
         if "needs-steps" in entry:
             steps = entry["needs-steps"]
             if _strings(steps) and steps:

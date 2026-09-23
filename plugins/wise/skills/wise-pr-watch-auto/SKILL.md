@@ -61,7 +61,7 @@ That question is the consent gate, asked once before launch.
 
 Read `$ARGUMENTS` and split into whitespace-separated tokens:
 
-- `--minutes <n>` — wall-clock budget for the whole run (default 120).
+- `--minutes <n>` — wall-clock budget for the whole run (default 10).
   `n` must be an integer in `1..1440`.
 - The first remaining token, if present, is `max_fix_attempts` — the
   cap on fix + push rounds (default 10). Must be a positive integer.

@@ -4,7 +4,7 @@
 > workflow engine that runs multi-step jobs across several AI coding CLIs, and
 > ready-made pipelines that take a ticket all the way to a merged PR.
 
-![version](https://img.shields.io/badge/version-5.19.0-blue)
+![version](https://img.shields.io/badge/version-5.20.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 
