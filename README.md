@@ -4,7 +4,7 @@
 > multi-harness workflow engine, and autonomous git / PR / ticket-planning
 > pipelines.
 
-![version](https://img.shields.io/badge/version-5.16.0-blue)
+![version](https://img.shields.io/badge/version-5.17.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 

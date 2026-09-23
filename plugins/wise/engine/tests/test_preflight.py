@@ -123,12 +123,11 @@ def test_stage_order_and_explicit_answers():
     assert codex["default"] == "gpt-6-astra"
     assert [o["value"] for o in codex["options"]] == [
         "gpt-6-astra",
-        "gpt-5.6-sol",
-        "gpt-5.6-luna",
-        "gpt-5.5",
+        "gpt-6-sol",
+        "gpt-6-luna",
     ]
     assert codex["options"][0]["label"] == "GPT-6 Astra (default)"
-    answer["model.analyze-design"] = "gpt-5.6-luna"
+    answer["model.analyze-design"] = "gpt-6-luna"
     stage = p.build_questionary(defn, ready, answer)
     assert [i for i in ids(stage) if not i.startswith("input.")] == [
         "effort.analyze-design",
@@ -136,7 +135,7 @@ def test_stage_order_and_explicit_answers():
     ]
     assert stage["pages"][-1] == ["effort.analyze-design", "model.research-context"]
     eq = next(q for q in stage["questions"] if q["id"] == "effort.analyze-design")
-    assert eq["default"] == "high" and eq["label"] == "Effort for GPT-5.6 Luna: Design spec?"
+    assert eq["default"] == "high" and eq["label"] == "Effort for GPT-6 Luna: Design spec?"
     assert [o["value"] for o in eq["options"]] == ["medium", "high", "low"]
     assert eq["options"][1]["label"] == "high (default)"
     answer["effort.analyze-design"] = "medium"
@@ -599,7 +598,7 @@ def test_all_bundled_enum_inputs_are_choices():
             dict(harness="claude", model="claude-sonnet-5", effort="medium"),
         ),
         (
-            {"model.analyze-design": "gpt-5.5", "effort.analyze-design": "ultra"},
+            {"model.analyze-design": "gpt-6-sol", "effort.analyze-design": "ultra"},
             dict(harness="claude", model="claude-opus-5-5", effort="high"),
         ),
         (

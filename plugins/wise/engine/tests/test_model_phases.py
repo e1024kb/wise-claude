@@ -188,7 +188,7 @@ def test_templates_resolution_and_context_pointer(tmp_path):
         render_phase_prompt("ticket", "plan", {})
     step = {"groups": {"plan": "p", "implement": "i"}}
     tuning = {
-        "p": {"harness": "codex", "model": "gpt-5.5", "effort": "high"},
+        "p": {"harness": "codex", "model": "gpt-6-sol", "effort": "high"},
         "i": {"harness": "grok", "model": "grok-4.6"},
     }
     resolved = resolve_unit_phases(step, tuning, "low", {})
@@ -274,7 +274,7 @@ def test_review_fix_cycles_resume_and_cross_harness(tmp_path, resume, cross, exp
         )
         if cross:
             fixture.state["resolved"] = {
-                "process.review": {"harness": "codex", "model": "gpt-5.5", "effort": "high"},
+                "process.review": {"harness": "codex", "model": "gpt-6-sol", "effort": "high"},
                 "process.fix": {"harness": "grok", "model": "grok-4.6", "effort": ""},
             }
         result = await run_units_step(fixture.input())
