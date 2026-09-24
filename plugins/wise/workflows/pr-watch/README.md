@@ -63,7 +63,7 @@ Inside `process`, for the checked-out branch and in this order:
 |---|---|---|---|
 | `input.substitute_review` | choice | `yes` | The consent gate, asked once: may the run review the branch itself (one read-only 3-lens pass on the `review` group's model) when a bot is stuck? `no` stands the run down on a stuck bot. |
 | `input.max_fix_attempts` | text | `""` (cap 10) | Fix + push rounds before standing down; overrides the cap when given. Skipped when `/wise-pr-watch-auto <n>` supplied it. |
-| `input.watch_minutes` | text | `""` (cap 120) | Wall-clock budget in minutes; overrides the cap when given. Skipped when `--minutes <n>` supplied it. |
+| `input.watch_minutes` | choice + free text | `10` | Wall-clock budget in minutes: `10`, `20`, `45`, `60`, or any number 1-1440 as free text; blank keeps the cap. Skipped when `--minutes <n>` supplied it. |
 | `tuning-scope` | choice | `per-group` | Asked first (the worktree is locked): `single` asks harness, model and effort once (`harness.all`, `model.all`, `effort.all`) for every group, `per-group` asks them per group as below. |
 | `harness.<group>` | choice | `claude` | One per group (`fix`, `review`, `watch`, `support`); asked whenever another harness is installed. Always put to the user, like `model.<group>` and `effort.<group>`: the run refuses to start on a skipped one. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. The selected value is a floor. |
@@ -77,7 +77,7 @@ Unit caps (`profiles.medium.caps`):
 
 | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes |
 |---|---|---|---|
-| 10 | 120 | 60 | 2 |
+| 10 | 10 | 60 | 2 |
 
 ## Steps
 
@@ -93,7 +93,7 @@ Unit caps (`profiles.medium.caps`):
 |---|---|---|
 | `substitute_review` | yes | `yes` (default) / `no`: whether the run may run wise's substitute review when a bot is stuck. |
 | `max_fix_attempts` | no | Positive integer; blank keeps the cap (10). |
-| `watch_minutes` | no | Positive integer; blank keeps the cap (120). |
+| `watch_minutes` | no | Integer 1-1440, default `10`; blank keeps the cap (10). |
 
 ## Outputs
 

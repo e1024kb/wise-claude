@@ -47,7 +47,7 @@ profiles:
   medium:
     caps:
       max_fix_attempts: 10
-      watch_minutes: 120
+      watch_minutes: 10
       watch_poll_seconds: 60
       watch_stable_passes: 2
 
@@ -63,8 +63,10 @@ inputs:
     optional: true
     validate: "^([1-9][0-9]*)?$"
   - name: watch_minutes
-    prompt: "Wall-clock budget in minutes (1-1440)? Blank = 120."
+    prompt: "How many minutes may this run watch the PR before it stops? Other takes any number from 1 to 1440."
     optional: true
+    default: "10"
+    suggest: ["10", "20", "45", "60"]
     validate: "^([1-9][0-9]{0,2}|1[0-3][0-9]{2}|14[0-3][0-9]|1440)?$"
 
 steps:

@@ -994,6 +994,47 @@ def test_branch_input_is_a_choice_from_the_checkout_and_text_without_one():
     assert "input.base_branch" not in ids(answered)
 
 
+def test_suggest_input_is_a_choice_with_free_text():
+    defn = load_and_validate({"path": str(ROOT / "workflows/pr-watch/workflow.yaml")})["def"]
+    stage = p.build_questionary(defn, {"harnesses": ["claude"]})
+    question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
+    assert question["kind"] == "choice" and question["allow_text"] is True
+    assert [o["value"] for o in question["options"]] == ["10", "20", "45", "60", ""]
+    assert question["options"][0]["label"] == "10" + p.DEFAULT_MARK
+    assert question["default"] == "10"
+    assert _accepted_answer(question, {"input.watch_minutes": "90"}) == "90"
+    assert p.invalid_choice_input_ids(defn, {"watch_minutes": "90"}) == []
+    assert p.invalid_choice_input_ids(defn, {"watch_minutes": "0"}) == ["input.watch_minutes"]
+
+
+def test_suggest_wins_over_literal_enum_options():
+    defn = load_and_validate({"path": str(ROOT / "workflows/pr-watch/workflow.yaml")})["def"]
+    item = next(i for i in defn["inputs"] if i["name"] == "watch_minutes")
+    item.update(validate="^(auto|ask)$", suggest=["ask", "auto"], default="ask")
+    stage = p.build_questionary(defn, {"harnesses": ["claude"]})
+    question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
+    assert question["kind"] == "choice" and question["allow_text"] is True
+    assert [o["value"] for o in question["options"]] == ["ask", "auto", ""]
+    assert question["default"] == "ask"
+
+
+def test_optional_suggest_input_can_be_left_unset():
+    defn = load_and_validate({"path": str(ROOT / "workflows/pr-watch/workflow.yaml")})["def"]
+    item = next(i for i in defn["inputs"] if i["name"] == "watch_minutes")
+    item.pop("default")
+    item["optional"] = True
+    item["validate"] = "^[1-9][0-9]*$"
+    stage = p.build_questionary(defn, {"harnesses": ["claude"]})
+    question = next(q for q in stage["questions"] if q["id"] == "input.watch_minutes")
+    assert question["options"][-1]["value"] == ""
+    assert question["options"][-1]["label"].startswith("Leave unset")
+    assert question["default"] == ""
+    schema = question_form_schema(question)["properties"]["input.watch_minutes"]
+    assert "minLength" not in schema
+    assert _accepted_answer(question, {"input.watch_minutes": ""}) == ""
+    assert p.invalid_choice_input_ids(defn, {"watch_minutes": ""}) == []
+
+
 def test_branch_choice_accepts_free_text_in_forms_and_answers():
     question = {
         "id": "input.base_branch",
@@ -1010,6 +1051,10 @@ def test_branch_choice_accepts_free_text_in_forms_and_answers():
     assert _accepted_answer(question, {"input.base_branch": "  "}) is None
     strict = {**question, "allow_text": False}
     assert _accepted_answer(strict, {"input.base_branch": "release-26-9-0"}) is None
+    optional = {**question, "optional": True}
+    assert "minLength" not in question_form_schema(optional)["properties"]["input.base_branch"]
+    assert _accepted_answer(optional, {"input.base_branch": ""}) == ""
+    assert _accepted_answer(optional, {"input.base_branch": "  "}) == ""
 
 
 @pytest.mark.parametrize("workflow", ["pr-watch", "impl-plan"])

@@ -5768,3 +5768,36 @@ def test_unicode_case_insensitive_backreferences_are_explicitly_rejected(pattern
 )
 def test_supported_backreference_boundary(text, pattern, expected):
     assert validate_input(text, pattern) == expected
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        ({"suggest": []}, "suggest must be a non-empty list of strings or integers"),
+        ({"suggest": [True]}, "suggest must be a non-empty list of strings or integers"),
+        ({"suggest": ["1", "1"]}, "suggest values must be unique and non-empty"),
+        ({"suggest": ["1"], "options-from": "branches"}, "suggest and options-from are exclusive"),
+        (
+            {"suggest": ["1", "x"], "validate": "^[0-9]+$"},
+            "every suggest value must pass validate",
+        ),
+        ({"suggest": ["FOO"], "extract": "([A-Z]+)"}, "suggest and extract are exclusive"),
+    ],
+)
+def test_suggest_input_is_validated(entry, message):
+    raw = {"version": 2, "name": "t", "inputs": [{"name": "n", "optional": True, **entry}]}
+    raw["steps"] = [{"id": "a", "type": "bash", "run": "true"}]
+    issues = validate_def(raw, "t.yaml")["issues"]
+    assert {"level": "error", "path": "inputs[0].suggest", "message": message} in issues
+
+
+def test_suggest_input_keeps_values_as_strings():
+    raw = {
+        "version": 2,
+        "name": "t",
+        "inputs": [{"name": "n", "optional": True, "validate": "^[0-9]+$", "suggest": [10, "20"]}],
+        "steps": [{"id": "a", "type": "bash", "run": "true"}],
+    }
+    result = validate_def(raw, "t.yaml")
+    assert not result.get("issues")
+    assert result["def"]["inputs"][0]["suggest"] == ["10", "20"]

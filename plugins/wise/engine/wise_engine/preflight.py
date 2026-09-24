@@ -142,6 +142,8 @@ def invalid_choice_input_ids(definition: Json, inputs: Json) -> list[str]:
         elif item.get("validate") and not item.get("extract"):
             from .defs import validate_input
 
+            if value == "" and item.get("suggest") and item.get("optional"):
+                continue
             if (
                 not isinstance(value, str)
                 or not validate_input(value, None, item["validate"])["ok"]
@@ -733,7 +735,12 @@ def build_questionary(
         if item.get("options-from") == "branches":
             push(_branch_input_question(item, ctx.get("branches")))
             continue
-        options = None if item.get("extract") else _input_options(item.get("validate"))
+        # `suggest:` wins over options derived from a literal-enum validate.
+        options = (
+            None
+            if item.get("extract") or item.get("suggest")
+            else _input_options(item.get("validate"))
+        )
         q = dict(
             id=f"input.{item['name']}",
             kind="choice" if options else "text",
@@ -743,11 +750,17 @@ def build_questionary(
             if item.get("optional"):
                 options = [*options, {"value": "", "label": "Leave unset"}]
             q["options"] = options
+        elif item.get("suggest"):
+            # Suggested values as picker rows; any other valid value as free text.
+            suggested = [dict(value=v, label=v) for v in item["suggest"]]
+            if item.get("optional"):
+                suggested.append({"value": "", "label": "Leave unset"})
+            q.update(kind="choice", options=suggested, allow_text=True)
         if item.get("optional"):
             q["optional"] = True
         preset = resolve_from_context(item.get("from-context", ""), ctx.get("context"))
         fallback = item.get("default", "" if item.get("optional") else None)
-        if options:
+        if input_choice_values(item) is not None:
             preset = choice_input_preset(item, ctx.get("context"))
         elif preset is None:
             preset = fallback

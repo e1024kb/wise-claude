@@ -267,7 +267,8 @@ def question_form_schema(question: Mapping[str, Any]) -> dict[str, Any]:
     prop: dict[str, Any] = {"type": "string", "title": question["label"]}
     if question["kind"] == "choice" and options and question.get("allow_text") is True:
         prop["examples"] = [item["value"] for item in options]
-        prop["minLength"] = 1
+        if not question.get("optional"):
+            prop["minLength"] = 1
     elif question["kind"] == "choice" and options:
         prop["oneOf"] = [{"const": item["value"], "title": item["label"]} for item in options]
     elif not question.get("optional"):
@@ -307,7 +308,9 @@ def _accepted_answer(question: Mapping[str, Any], content: Mapping[str, Any]) ->
     if question["kind"] == "text" and not question.get("optional") and not value.strip():
         return None
     if question["kind"] == "choice" and allowed and value not in allowed:
-        return value.strip() or None if question.get("allow_text") is True else None
+        if question.get("allow_text") is not True:
+            return None
+        return value.strip() or ("" if question.get("optional") else None)
     return value
 
 
