@@ -778,9 +778,9 @@ the ` (default)` marker in its label and stays in its fixed slot.
 needs a Claude Code build that recognises the id. Older builds may reject
 it; pin `claude-opus-4-8` on such a host.
 
-The predefined catalog (2026-09-23), in picker order: claude
+The predefined catalog (2026-09-28), in picker order: claude
 `claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-4-8` (low, medium, high),
-`claude-sonnet-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
+`claude-sonnet-5-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
 (low, medium, high); the first four are the rows a four-option host shows, the
 rest are named in the question text; codex
 `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` (low, medium, high);

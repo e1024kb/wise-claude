@@ -30,8 +30,8 @@ MODEL_CATALOG: dict[str, Any] = {
             "efforts": ["low", "medium", "high"],
         },
         {
-            "id": "claude-sonnet-5",
-            "label": "Sonnet 5",
+            "id": "claude-sonnet-5-5",
+            "label": "Sonnet 5.5",
             "description": "latest Sonnet",
             "efforts": ["low", "medium"],
         },
@@ -123,6 +123,12 @@ TYPED_ONLY_CATALOG: dict[str, Any] = {
             "description": "previous Opus, accepted when typed",
             "efforts": ["low", "medium", "high"],
         },
+        {
+            "id": "claude-sonnet-5",
+            "label": "Sonnet 5",
+            "description": "previous Sonnet, accepted when typed",
+            "efforts": ["low", "medium"],
+        },
     ],
     "codex": [
         {
@@ -149,7 +155,7 @@ TYPED_ONLY_CATALOG: dict[str, Any] = {
 CLAUDE_ALIASES: dict[str, Any] = {
     "fable": "claude-fable-5-1",
     "opus": "claude-opus-5-5",
-    "sonnet": "claude-sonnet-5",
+    "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-4-5",
 }
 

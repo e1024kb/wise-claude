@@ -102,7 +102,7 @@ def test_preflight_shape_stages_and_context(monkeypatch):
         "worktree": "current",
         **{"harness." + group: "claude" for group in groups},
         "permissions.claude": "auto",
-        "model.analyze-design": "claude-sonnet-5",
+        "model.analyze-design": "claude-sonnet-5-5",
     }
     workflow = str(ROOT / "workflows/ticket-plan/workflow.yaml")
     code, out, err = invoke("preflight", workflow, "--answers", json.dumps(answers))

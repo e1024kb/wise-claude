@@ -203,7 +203,7 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   user; the run refuses to start on a skipped one. Defaults:
   `claude-opus-5-5 / high` for all seven (the authoring four declare
   `xhigh`, which Opus 5.5's ceiling resolves to `high`);
-  `claude-sonnet-5 / medium` for `support`.
+  `claude-sonnet-5-5 / medium` for `support`.
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
