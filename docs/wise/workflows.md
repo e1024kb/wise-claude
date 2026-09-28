@@ -788,7 +788,7 @@ cursor `grok-4.7-high-fast`, `grok-4.7-high`, `cursor-grok-4.6-high-fast`,
 `cursor-grok-4.6-high` (no effort flag); grok
 `grok-4.6`, `grok-4.5`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-`claude-opus-5` and codex `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low,
+`claude-opus-5`, `claude-sonnet-5` and codex `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low,
 medium, high) are typed-only: no picker lists them, but a model answer or pin
 that names one is accepted.
 
