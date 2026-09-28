@@ -87,7 +87,7 @@ def test_bundled_unit_phase_models_and_caps(name):
     phases = resolve_unit_phases(step, applied["tuning"], applied["profile"], {})
     for phase in ("plan", "implement", "review", "fix"):
         assert phases[phase]["model"] == "claude-opus-5-5"
-    assert phases["watch"]["model"] == "claude-sonnet-5"
+    assert phases["watch"]["model"] == "claude-sonnet-5-5"
     assert all(cap in applied["caps"] for cap in step["caps"])
 
 

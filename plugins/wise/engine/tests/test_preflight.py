@@ -185,7 +185,7 @@ def test_model_options_carry_source_and_accept_harness_reported_models():
         "claude-fable-5-1",
         "claude-opus-5-5",
         "claude-opus-4-8",
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
         "claude-haiku-4-5",
         "claude-fable-5",
     ]
@@ -685,8 +685,8 @@ def test_all_bundled_enum_inputs_are_choices():
         ),
         ({"harness.analyze-design": "gemini"}, dict(harness="gemini", model="gemini-3.8-flash")),
         (
-            {"model.analyze-design": "claude-sonnet-5"},
-            dict(harness="claude", model="claude-sonnet-5", effort="medium"),
+            {"model.analyze-design": "claude-sonnet-5-5"},
+            dict(harness="claude", model="claude-sonnet-5-5", effort="medium"),
         ),
         (
             {"model.analyze-design": "gpt-6-sol", "effort.analyze-design": "ultra"},

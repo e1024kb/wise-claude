@@ -38,6 +38,9 @@ def test_alias_and_effort_boundaries():
     assert catalog_model("codex", "opus") is None
     assert catalog_model("claude", "claude-opus-5")["label"] == "Opus 5"
     assert "claude-opus-5" not in [entry["id"] for entry in merged_catalog("claude")]
+    assert catalog_model("claude", " Sonnet ")["id"] == "claude-sonnet-5-5"
+    assert catalog_model("claude", "claude-sonnet-5")["label"] == "Sonnet 5"
+    assert "claude-sonnet-5" not in [entry["id"] for entry in merged_catalog("claude")]
     assert [entry["id"] for entry in catalog_for("codex")] == [
         "gpt-6-astra",
         "gpt-6-sol",
@@ -61,7 +64,7 @@ def test_alias_and_effort_boundaries():
         "claude-fable-5-1",
         "claude-opus-5-5",
         "claude-opus-4-8",
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
         "claude-haiku-4-5",
         "claude-fable-5",
     ]

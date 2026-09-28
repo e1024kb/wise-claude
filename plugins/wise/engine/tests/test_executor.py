@@ -595,7 +595,9 @@ def test_rate_limit_retry_and_fallback(tmp_path, fallback):
         adapters = {"claude": claude}
         if fallback != "missing":
             adapters["codex"] = codex
-        rig = Rig(tmp_path, adapters=adapters, backoff_ms=lambda n: 50)
+        # The fallback case must outlast the async auth probe, or claude unparks first and retries.
+        backoff = 5000 if fallback == "ok" else 50
+        rig = Rig(tmp_path, adapters=adapters, backoff_ms=lambda n: backoff)
         try:
             run = await rig.conduct("fallback")
             state = await rig.status(run["run_id"], "completed", "failed")

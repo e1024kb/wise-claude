@@ -58,7 +58,7 @@ Inside `process`, for the plan and in this order:
 | `tuning-scope` | choice | `per-group` | Asked first (the worktree is locked): `single` asks harness, model and effort once (`harness.all`, `model.all`, `effort.all`) for every group, `per-group` asks them per group as below. |
 | `harness.<group>` | choice | `claude` | One per group (`implement`, `support`); asked whenever another harness is installed. Always put to the user, like `model.<group>` and `effort.<group>`. |
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. The selected value is a floor. |
-| `model.<group>` | choice | `claude-opus-5-5` (`support`: `claude-sonnet-5`) | The engine's catalog for the chosen harness. Each group's label says what the model will do. |
+| `model.<group>` | choice | `claude-opus-5-5` (`support`: `claude-sonnet-5-5`) | The engine's catalog for the chosen harness. Each group's label says what the model will do. |
 | `effort.<group>` | choice | `high` (`support`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
 
 The worktree question is not asked (`preflight.lock-worktree: true`):

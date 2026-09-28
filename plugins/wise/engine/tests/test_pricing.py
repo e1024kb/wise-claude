@@ -16,7 +16,7 @@ def usage(**over):
     "harness,model,expected",
     [
         ("claude", "opus", "claude-opus-5-5"),
-        ("claude", "Sonnet", "claude-sonnet-5"),
+        ("claude", "Sonnet", "claude-sonnet-5-5"),
         ("claude", "haiku", "claude-haiku-4-5"),
         ("claude", "claude-opus-4-8-20260401", "claude-opus-4-8"),
         ("codex", "gpt-5-codex", "gpt-5-codex"),
@@ -39,6 +39,12 @@ def test_price_table():
     assert price_for("claude", "opus") == dict(input=4, output=20, cache_read=0.2, cache_write=5)
     assert price_for("claude", "claude-opus-4-8") == dict(
         input=5, output=25, cache_read=0.5, cache_write=6.25
+    )
+    assert price_for("claude", "sonnet") == dict(
+        input=2, output=10, cache_read=0.2, cache_write=2.5
+    )
+    assert price_for("claude", "claude-sonnet-5") == dict(
+        input=2, output=10, cache_read=0.2, cache_write=2.5
     )
     assert price_for("codex", "gpt-6-astra") == dict(
         input=10, output=50, cache_read=1, cache_write=12.5, cached_in_input=True
