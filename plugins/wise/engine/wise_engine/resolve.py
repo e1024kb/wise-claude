@@ -11,8 +11,9 @@ from .paths import PLUGIN_ROOT
 from .yaml_compat import js_string, parse_yaml
 
 EFFORT_ORDER = EFFORTS
-MODEL_EFFORT_SUPPORT = {family: set(EFFORTS) for family in ("opus", "fable", "sonnet")}
-MODEL_EFFORT_SUPPORT["haiku"] = set()
+MODEL_EFFORT_SUPPORT = {family: set(EFFORTS) for family in ("opus", "fable", "sonnet", "haiku")}
+# Haiku 4.x predates effort control; Haiku 5.5 and later take every level.
+LEGACY_NO_EFFORT_PREFIXES = ("claude-haiku-4",)
 MODEL_EFFORT_CEILING = {
     "opus": "high",
     "claude-opus-5": "high",
@@ -141,7 +142,10 @@ def resolve_model_dict(
         if low:
             reasons.append(f"low profile: {model}→{low} (Opus 5.5 is never used at low)")
             model = low
-    eff_out, changed = downmap_effort(family, eff, options.get("effort_support"))
+    support = options.get("effort_support")
+    if model.strip().lower().startswith(LEGACY_NO_EFFORT_PREFIXES):
+        support = {**(MODEL_EFFORT_SUPPORT if support is None else support), family: set()}
+    eff_out, changed = downmap_effort(family, eff, support)
     if changed:
         reasons.append(
             f"{model} has no effort control; effort '{eff}' dropped"

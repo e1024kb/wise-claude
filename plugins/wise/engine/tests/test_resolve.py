@@ -50,7 +50,10 @@ def resolve(model, effort="", profile="", **opts):
         ("inherit", "xhigh", "xhigh"),
         ("opus", "bogus", "bogus"),
         ("opus", "", ""),
-        ("haiku", "xhigh", ""),
+        ("haiku", "xhigh", "xhigh"),
+        ("claude-haiku-5-5", "high", "high"),
+        ("claude-haiku-4-5", "xhigh", ""),
+        ("claude-haiku-4-5-20251001", "medium", ""),
     ],
 )
 def test_ceiling_table(model, effort, expected):
@@ -63,7 +66,7 @@ def test_clamp_reasons_and_snapshot_rules():
         assert not is_snapshot_of(value, "claude-opus-5-5")
     assert "reason" not in resolve("opus", "high")
     assert "policy ceiling" in resolve("opus", "xhigh")["reason"]
-    assert "no effort control" in resolve("haiku", "xhigh")["reason"]
+    assert "no effort control" in resolve("claude-haiku-4-5", "xhigh")["reason"]
     cap = resolve(
         "sonnet",
         "xhigh",
@@ -165,7 +168,7 @@ def test_team_tuning_and_profiles():
     for overrides, expected in [
         ({}, ("opus", "high")),
         ({"model_override": "sonnet", "effort_override": "high"}, ("sonnet", "high")),
-        ({"model_override": "haiku"}, ("haiku", "")),
+        ({"model_override": "haiku"}, ("haiku", "xhigh")),
         ({"profile": "low"}, (LOW_PROFILE_OPUS_MODEL, "xhigh")),
     ]:
         result = resolve_team(panel(), {"env": {}, **overrides})

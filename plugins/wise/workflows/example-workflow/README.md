@@ -65,7 +65,7 @@ an `ask` gate, `approve-summary` as an `approval` gate; in
 
 Before any of this, `tuning-scope` asks whether one harness, model and effort run every step (`single`: asked once as `harness.all`, `model.all`, `effort.all`) or each group is chosen separately (`per-group`, the default).
 With `per-group`, pre-flight asks, per tuning group (`classify`, `summarize`; both default
-to `claude-haiku-4-5`, `summarize` with `codex` as fallback harness),
+to `claude-haiku-5-5`, `summarize` with `codex` as fallback harness),
 which harness runs it when more than one is logged in, then which model
 from the engine's catalog, then the effort that model takes. It also asks
 once for each selected or fallback provider's permission floor; and the

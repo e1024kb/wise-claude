@@ -17,7 +17,7 @@ def usage(**over):
     [
         ("claude", "opus", "claude-opus-5-5"),
         ("claude", "Sonnet", "claude-sonnet-5-5"),
-        ("claude", "haiku", "claude-haiku-4-5"),
+        ("claude", "haiku", "claude-haiku-5-5"),
         ("claude", "claude-opus-4-8-20260401", "claude-opus-4-8"),
         ("codex", "gpt-5-codex", "gpt-5-codex"),
         ("grok", "grok-4.6-latest", "grok-4.6"),
@@ -35,7 +35,12 @@ def test_price_table():
         assert price["input"] > 0 and price["output"] > 0
         assert 0 <= price["cache_read"] <= price["input"]
         assert price["cache_write"] >= 0
-    assert price_for("claude", "haiku") == dict(input=1, output=5, cache_read=0.1, cache_write=1.25)
+    assert price_for("claude", "haiku") == dict(
+        input=0.1, output=0.5, cache_read=0.01, cache_write=0.125
+    )
+    assert price_for("claude", "claude-haiku-4-5") == dict(
+        input=1, output=5, cache_read=0.1, cache_write=1.25
+    )
     assert price_for("claude", "opus") == dict(input=4, output=20, cache_read=0.2, cache_write=5)
     assert price_for("claude", "claude-opus-4-8") == dict(
         input=5, output=25, cache_read=0.5, cache_write=6.25
@@ -48,6 +53,9 @@ def test_price_table():
     )
     assert price_for("codex", "gpt-6-astra") == dict(
         input=10, output=50, cache_read=1, cache_write=12.5, cached_in_input=True
+    )
+    assert price_for("codex", "gpt-6.1-sol") == dict(
+        input=2, output=10, cache_read=0.1, cache_write=2.5, cached_in_input=True
     )
     assert price_for("codex", "gpt-6-sol") == dict(
         input=2, output=10, cache_read=0.2, cache_write=2.5, cached_in_input=True

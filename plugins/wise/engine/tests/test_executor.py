@@ -1056,7 +1056,7 @@ def test_context_choice_gates_match_runtime_staging(
                 with pytest.raises(RpcError) as error:
                     await rig.executor.run(params, rig.ctx)
                 assert domain_code(error.value) == "MISSING_ANSWERS"
-                assert error.value.data["missing"] == ["model.gated"]
+                assert error.value.data["missing"] == ["model.gated", "effort.gated"]
             else:
                 run = await rig.executor.run(params, rig.ctx)
                 state = await rig.status(run["run_id"], "completed")

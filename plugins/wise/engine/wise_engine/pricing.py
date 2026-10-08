@@ -22,6 +22,7 @@ PRICES: dict[str, Any] = {
         "cache_read": 0.30000000000000004,
         "cache_write": 3.75,
     },
+    "claude-haiku-5-5": {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125},
     "claude-haiku-4-5": {"input": 1, "output": 5, "cache_read": 0.1, "cache_write": 1.25},
     "gpt-5": {
         "input": 1.25,
@@ -126,6 +127,13 @@ PRICES: dict[str, Any] = {
         "output": 50,
         "cache_read": 1,
         "cache_write": 12.5,
+        "cached_in_input": True,
+    },
+    "gpt-6.1-sol": {
+        "input": 2,
+        "output": 10,
+        "cache_read": 0.1,
+        "cache_write": 2.5,
         "cached_in_input": True,
     },
     "gpt-6-sol": {
