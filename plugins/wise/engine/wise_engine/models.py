@@ -36,9 +36,15 @@ MODEL_CATALOG: dict[str, Any] = {
             "efforts": ["low", "medium"],
         },
         {
+            "id": "claude-haiku-5-5",
+            "label": "Haiku 5.5",
+            "description": "cheap tier for simple steps",
+            "efforts": ["low", "medium", "high"],
+        },
+        {
             "id": "claude-haiku-4-5",
             "label": "Haiku 4.5",
-            "description": "cheap tier for simple steps",
+            "description": "previous Haiku",
             "efforts": ["medium"],
         },
         {
@@ -56,8 +62,8 @@ MODEL_CATALOG: dict[str, Any] = {
             "efforts": ["low", "medium", "high"],
         },
         {
-            "id": "gpt-6-sol",
-            "label": "GPT-6 Sol",
+            "id": "gpt-6.1-sol",
+            "label": "GPT-6.1 Sol",
             "description": "workhorse for coding",
             "efforts": ["low", "medium", "high"],
         },
@@ -132,6 +138,12 @@ TYPED_ONLY_CATALOG: dict[str, Any] = {
     ],
     "codex": [
         {
+            "id": "gpt-6-sol",
+            "label": "GPT-6 Sol",
+            "description": "previous Sol, accepted when typed",
+            "efforts": ["low", "medium", "high"],
+        },
+        {
             "id": "gpt-5.6-sol",
             "label": "GPT-5.6 Sol",
             "description": "previous Sol, accepted when typed",
@@ -156,7 +168,7 @@ CLAUDE_ALIASES: dict[str, Any] = {
     "fable": "claude-fable-5-1",
     "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5-5",
-    "haiku": "claude-haiku-4-5",
+    "haiku": "claude-haiku-5-5",
 }
 
 

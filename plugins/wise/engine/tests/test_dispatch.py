@@ -216,7 +216,7 @@ def test_dispatch_catalog_alias_and_provider_reported_model():
             )
             == 0
         )
-        assert adapter.seen[0]["model"] == "claude-haiku-4-5"
+        assert adapter.seen[0]["model"] == "claude-haiku-5-5"
         assert adapter.seen[0]["prompt"] == "inline"
         assert json.loads("".join(out))["model"] == "provider-picked"
 

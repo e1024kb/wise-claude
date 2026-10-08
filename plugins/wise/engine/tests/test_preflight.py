@@ -124,7 +124,7 @@ def test_stage_order_and_explicit_answers():
     assert codex["default"] == "gpt-6-astra"
     assert [o["value"] for o in codex["options"]] == [
         "gpt-6-astra",
-        "gpt-6-sol",
+        "gpt-6.1-sol",
         "gpt-6-luna",
     ]
     assert codex["options"][0]["label"] == "GPT-6 Astra (default)"
@@ -186,6 +186,7 @@ def test_model_options_carry_source_and_accept_harness_reported_models():
         "claude-opus-5-5",
         "claude-opus-4-8",
         "claude-sonnet-5-5",
+        "claude-haiku-5-5",
         "claude-haiku-4-5",
         "claude-fable-5",
     ]
@@ -694,7 +695,7 @@ def test_all_bundled_enum_inputs_are_choices():
         ),
         (
             {"model.analyze-design": "haiku"},
-            dict(harness="claude", model="claude-haiku-4-5", effort="medium"),
+            dict(harness="claude", model="claude-haiku-5-5", effort="high"),
         ),
     ],
 )

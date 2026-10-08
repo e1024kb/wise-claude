@@ -597,7 +597,8 @@ grok, gemini.
    `claude-opus-4-8` under `low` never fires; `resolve.py` keeps it for
    callers that pass `low`.
 3. Capability clamp (`MODEL_EFFORT_SUPPORT`): `opus`, `fable`, `sonnet`
-   take every effort; `haiku` has none, the effort is dropped.
+   take every effort, `haiku` included (Haiku 5.5); Haiku 4.x
+   (`claude-haiku-4-*`) has none, the effort is dropped.
 4. Policy ceiling (`MODEL_EFFORT_CEILING`): `opus` and `claude-opus-5-5`
    (dated snapshots `-YYYYMMDD` included) cap at `high`;
    `claude-opus-4-8` caps at `xhigh`; anything else has no ceiling.
@@ -778,17 +779,18 @@ the ` (default)` marker in its label and stays in its fixed slot.
 needs a Claude Code build that recognises the id. Older builds may reject
 it; pin `claude-opus-4-8` on such a host.
 
-The predefined catalog (2026-09-28), in picker order: claude
+The predefined catalog (2026-10-08), in picker order: claude
 `claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-4-8` (low, medium, high),
-`claude-sonnet-5-5` (low, medium), `claude-haiku-4-5` (medium), `claude-fable-5`
+`claude-sonnet-5-5` (low, medium), `claude-haiku-5-5` (low, medium, high),
+`claude-haiku-4-5` (medium), `claude-fable-5`
 (low, medium, high); the first four are the rows a four-option host shows, the
 rest are named in the question text; codex
-`gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` (low, medium, high);
+`gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna` (low, medium, high);
 cursor `grok-4.7-high-fast`, `grok-4.7-high`, `cursor-grok-4.6-high-fast`,
 `cursor-grok-4.6-high` (no effort flag); grok
 `grok-4.6`, `grok-4.5`; gemini `gemini-3.8-flash`, `gemini-3.5-flash-lite` (no effort flag).
 
-`claude-opus-5`, `claude-sonnet-5` and codex `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low,
+`claude-opus-5`, `claude-sonnet-5` and codex `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.5` (low,
 medium, high) are typed-only: no picker lists them, but a model answer or pin
 that names one is accepted.
 

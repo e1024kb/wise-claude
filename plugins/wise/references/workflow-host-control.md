@@ -476,7 +476,7 @@ order theirs Bypass permissions, Auto, Approval required, and the engine asks
 one per provider in the harness order above. Effort pickers order theirs
 medium, high, xhigh, low, max. Model pickers show the
 predefined catalog first (`source: catalog`, hand-ordered: for claude Fable
-5.1, Opus 5.5, Opus 4.8, Sonnet 5.5, Haiku 4.5, Fable 5), then the models the
+5.1, Opus 5.5, Opus 4.8, Sonnet 5.5, Haiku 5.5, Haiku 4.5, Fable 5), then the models the
 installed harness reported (`source: harness`) in the harness's own order;
 mention the source in the description
 when the host shows one (`reported by the cursor harness`), not in the value.
