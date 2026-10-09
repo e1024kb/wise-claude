@@ -35,10 +35,10 @@ tuning:
       default: { harness: claude, model: opus, effort: high }
     - id: watch
       label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state, writes the findings file (cheap, frequent)"
-      default: { harness: claude, model: sonnet, effort: medium }
+      default: { harness: claude, model: haiku, effort: medium }
     - id: support
       label: "Support: the end-of-run report (mechanical, no code changes)"
-      default: { harness: claude, model: sonnet, effort: medium }
+      default: { harness: claude, model: haiku, effort: medium }
 
 # Caps the `units` step reads: fix rounds, wall clock, poll interval and
 # the consecutive green passes before merging. The `max_fix_attempts`

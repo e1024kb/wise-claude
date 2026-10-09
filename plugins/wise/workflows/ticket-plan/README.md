@@ -203,7 +203,7 @@ stage selection and inputs first, harnesses and provider permissions next, then 
   user; the run refuses to start on a skipped one. Defaults:
   `claude-opus-5-5 / high` for all seven (the authoring four declare
   `xhigh`, which Opus 5.5's ceiling resolves to `high`);
-  `claude-sonnet-5-5 / medium` for `support`.
+  `claude-haiku-5-5 / medium` for `support`.
 - **Review depth** - the follow-up branch review is the `code-review`
   workflow, which asks harness, provider permissions, model and effort per reviewer at its
   own pre-flight, so there is no review question here.
@@ -290,7 +290,7 @@ policy ceiling resolves to `high` (see
 [Effort ceilings](../../../../docs/wise/workflows.md#effort-ceilings));
 `analyze-design`, `research-context` and `codebase-audit` default to
 `opus / high`; every other step shares the `support` group
-(`sonnet / medium`). The pre-flight answers override the group
+(`haiku / medium`). The pre-flight answers override the group
 defaults at dispatch. See
 [Agents, model and effort](../../../../docs/wise/workflows.md#agents-model-and-effort).
 

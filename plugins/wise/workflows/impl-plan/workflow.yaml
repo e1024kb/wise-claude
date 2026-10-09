@@ -29,7 +29,7 @@ tuning:
       default: { harness: claude, model: opus, effort: high }
     - id: support
       label: "Support: the end-of-run report (mechanical, no code changes)"
-      default: { harness: claude, model: sonnet, effort: medium }
+      default: { harness: claude, model: haiku, effort: medium }
 
 inputs:
   - name: plan

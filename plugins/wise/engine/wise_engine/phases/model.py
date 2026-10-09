@@ -150,7 +150,7 @@ BOT_GRACE_MINUTES = 15
 
 def default_tuning(phase: str, profile: str) -> Json:
     if phase == "watch":
-        return {"harness": "claude", "model": "sonnet"}
+        return {"harness": "claude", "model": "haiku"}
     return {
         "harness": "claude",
         "model": "opus",
