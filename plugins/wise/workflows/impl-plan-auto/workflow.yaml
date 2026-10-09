@@ -35,7 +35,7 @@ preflight:
 
 # One question per group, `fix` included. Model
 # tiering (opus = the latest Opus, Opus 5.5): opus at high for re-plan,
-# implement, fix and the review gate; sonnet for the watch pass and support.
+# implement, fix and the review gate; haiku for the watch pass and support.
 tuning:
   groups:
     - id: plan
@@ -52,10 +52,10 @@ tuning:
       default: { harness: claude, model: opus, effort: high }
     - id: watch
       label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state (cheap, frequent)"
-      default: { harness: claude, model: sonnet, effort: medium }
+      default: { harness: claude, model: haiku, effort: medium }
     - id: support
       label: "Support: access checks and the end-of-run report (mechanical, no code changes)"
-      default: { harness: claude, model: sonnet, effort: medium }
+      default: { harness: claude, model: haiku, effort: medium }
 
 # Caps the `units` step reads (docs/wise/workflows.md, `profiles`): review
 # cycles before pushing anyway, fix rounds in the watch loop, watch wall

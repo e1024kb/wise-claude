@@ -1168,7 +1168,7 @@ appends ` no-pr=N`.
 | `implement` | `full-access` | 90 min | claude / opus / high | edit tools, build tools (`git`, `npm`, `npx`, `pnpm`, `yarn`, `bun`, `make`, `just`, `go`, `cargo`, `python3`, `pytest`, `cd`, `cat`, `ls`), Task, Agent |
 | `review` | `auto` | 30 min | claude / opus / medium under `low`, else high | Read, Glob, Grep, Write, Task, read-only `git` subcommands |
 | `fix` | `full-access` | 45 min | implement's group | edit and build tools, `Bash(gh:*)` |
-| `watch` | `full-access` | 15 min | claude / sonnet | edit tools, `Bash(gh:*)`, `Bash(git:*)`, `Bash(date:*)` |
+| `watch` | `full-access` | 15 min | claude / haiku | edit tools, `Bash(gh:*)`, `Bash(git:*)`, `Bash(date:*)` |
 
 The step's `timeout` and `max_turns` apply to every phase. Prompts are
 templates under `engine/wise_engine/prompts/units/` (`ticket/plan.md`,

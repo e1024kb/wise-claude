@@ -197,7 +197,7 @@ def test_templates_resolution_and_context_pointer(tmp_path):
         resolved["review"]["model"] == "claude-opus-4-8"
         and resolved["review"]["effort"] == "medium"
     )
-    assert resolved["watch"]["model"] == "sonnet"
+    assert resolved["watch"]["model"] == "haiku"
     assert all(
         value["model"] == "haiku"
         for value in resolve_unit_phases({**step, "model": "haiku"}, tuning, "medium", {}).values()
