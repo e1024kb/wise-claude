@@ -1,19 +1,20 @@
-# ensure-reviewers — attach the default reviewer + ask about extras
+# ensure-reviewers - read the current reviewers + ask about human reviewers
 
 Before collecting user input, follow the [question lifecycle](../workflow-host-control.md#keep-asynchronous-questions-open).
 A display acknowledgement is not an answer; keep asynchronous prompts open.
 This does not add prompts to autonomous paths.
 
-This fragment owns the **defaults** side of reviewer attachment —
-Copilot code review. It also asks the user whether they want to add
-extras beyond the default; if so, the follow-up step
-(`propose-reviewers.md`) handles the actual picker.
+This fragment attaches nothing by default. It reads who is already
+requested on the PR and asks the user whether to add human
+reviewers; if so, the follow-up step (`propose-reviewers.md`)
+handles the actual picker. Wise never requests a review bot (GitHub
+Copilot code review, CodeRabbit): a bot configured on the repo
+reviews on its own, and wise reviews locally with the 3-lens code
+review team (`references/code-review-pass.md`).
 
 Used by:
 - `/wise-pr-add-reviewers` standalone skill (which also orchestrates
   `propose-reviewers.md` when the user picks `yes`).
-- the `ticket-auto` workflow's autonomous analogue,
-  `request-review-auto.md`.
 
 ## Context the caller supplies
 
@@ -34,105 +35,60 @@ gh pr view <pr_number> --json reviewRequests \
 ```
 
 Keep the result in `ALREADY_REQUESTED` — a comma-separated list of
-user/team/bot slugs already on the PR. The goal is idempotency: if
-a slug is already requested, don't re-request it.
+user/team slugs already on the PR. Drop review bots from it
+(`copilot-pull-request-reviewer`, `Copilot`, `coderabbitai`, any
+login ending in `[bot]`): they are never wise's to manage. The goal
+is idempotency: a slug already requested is never re-requested.
 
-### 2. Attach Copilot code review
-
-Copilot's requested-reviewer slug varies by org setup. Try the CLI
-shorthand first; fall back to the GraphQL `requestReviews` mutation
-with Copilot's bot node id if the shorthand isn't accepted.
-
-```bash
-# Preferred: the simple slug. Works on orgs where Copilot code
-# review is enabled at the repo or enterprise level.
-gh pr edit <pr_number> --add-reviewer copilot-pull-request-reviewer
-```
-
-On "not a valid user" / "reviewer not found":
-
-```bash
-COPILOT_NODE="$(gh api graphql -f query='
-  query { user(login: "copilot-pull-request-reviewer") { id } }
-' --jq '.data.user.id' 2>/dev/null)"
-
-if [ -n "$COPILOT_NODE" ]; then
-  PR_NODE="$(gh pr view <pr_number> --json id --jq .id)"
-  gh api graphql -f query='
-    mutation($pr: ID!, $reviewers: [ID!]!) {
-      requestReviews(input: { pullRequestId: $pr, userIds: $reviewers }) {
-        pullRequest { number }
-      }
-    }
-  ' -F pr="$PR_NODE" -F reviewers="$COPILOT_NODE"
-fi
-```
-
-If neither approach works (Copilot code review not enabled for the
-org, or auth doesn't grant the scope), log `Copilot reviewer NOT
-attached — <one-line reason>` and continue. Don't fail the step
-over it.
-
-If Copilot was already in `ALREADY_REQUESTED`, skip the call and
-note "Copilot already requested".
-
-### 3. Ask whether to add extras
+### 2. Ask whether to add human reviewers
 
 This fragment does NOT enumerate org members or ask for typed
-logins. Instead it asks a simple three-way choice and hands off
-to `propose-reviewers.md` (the separate follow-up step) when the
-user wants extras.
+logins. Instead it asks a simple two-way choice and hands off to
+`propose-reviewers.md` (the separate follow-up step) when the user
+wants reviewers.
 
 Use `AskUserQuestion`:
 
-- question: `Add individual reviewers beyond Copilot?`
-- header: `Extras`
+- question: `Add human reviewers to this PR?`
+- header: `Reviewers`
 - multiSelect: false
-- options (3):
-  - `No — just Copilot` — `Keep Copilot only. Continue to the next step.`
-  - `Yes — Claude proposes candidates` — `Analyse the PR (changed files, CODEOWNERS, recent authors) and surface the most relevant org members as picks in the next step.`
-  - `Skip — don't touch reviewers` — `Revert the default this step just added (newly-added Copilot gets removed). Use when you realise mid-flow that review isn't wanted yet.`
+- options (2):
+  - `No` - `Leave the reviewer list as it is. Continue to the next step.`
+  - `Yes - Claude proposes candidates` - `Analyse the PR (changed files, CODEOWNERS, recent authors) and surface the most relevant org members as picks in the next step.`
 
 Map the result to an `extras_choice` value:
-- `No — …` → `no`
-- `Yes — …` → `yes`
-- `Skip — …` → `skip`
+- `No` → `no`
+- `Yes - …` → `yes`
 
-On `skip`: undo the step's own additions — any reviewer this step
-NEWLY added in §2 gets `gh pr edit --remove-reviewer`'d. Do NOT
-remove reviewers that were already requested before §2 ran (the
-ones in `ALREADY_REQUESTED`). Then emit the final line below with
-`attached=NONE-skipped`.
+### 3. Emit the final line
 
-### 4. Emit the final line
-
-Build a comma-separated list of slugs that ended up on the PR as
-a result of this step (the default that actually stuck — whether
-newly-added or already-present — or `NONE` if the user chose
-skip). Your response's FINAL line — alone on its own line, no
-markdown, no backticks — MUST match:
+`attached` is `ALREADY_REQUESTED` (the human reviewers already on
+the PR when this step ran), or `NONE` when it is empty. Your
+response's FINAL line - alone on its own line, no markdown, no
+backticks - MUST match:
 
 ```
-REVIEWERS: attached=<slug1,slug2,...-or-NONE> extras=<no|yes|skip>
+REVIEWERS: attached=<slug1,slug2,...-or-NONE> extras=<no|yes>
 ```
 
 Examples:
 
 ```
-REVIEWERS: attached=copilot-pull-request-reviewer extras=yes
-REVIEWERS: attached=copilot-pull-request-reviewer extras=no
-REVIEWERS: attached=NONE-skipped extras=skip
+REVIEWERS: attached=NONE extras=yes
+REVIEWERS: attached=jlevdev extras=no
 ```
 
-The engine captures both values — the `propose-reviewers` step
+The caller captures both values - the `propose-reviewers` step
 gates on `extras_choice == 'yes'`.
 
 ## Guardrails
 
-- Never block on a Copilot-attach failure.
-- Never remove a reviewer the user didn't ask to remove. The
-  `skip` path reverts only what *this step* added.
+- Never attach, request or re-request a review bot
+  (`copilot-pull-request-reviewer`, `Copilot`, `coderabbitai`), by
+  `gh pr edit --add-reviewer`, the GraphQL `requestReviews`
+  mutation or a trigger comment.
+- Never remove a reviewer.
 - Never re-request a reviewer already on the PR.
 - Do NOT ask the user to type comma-separated logins here. If they
-  want extras, emit `extras=yes` and let `propose-reviewers.md`
+  want reviewers, emit `extras=yes` and let `propose-reviewers.md`
   surface Claude-picked candidates in the next step.

@@ -9,9 +9,9 @@ engine. Give it one or more `PLAN-*.md` files (for example the plans
 `/wise-revise` writes into `docs/plans/`); for each one the engine's
 `units` step claims a branch and worktree, re-plans the seed against
 current HEAD, implements the refreshed plan, converges the branch
-through a review / fix loop, pushes, opens a PR, requests the bot
-reviews, watches CI and the bots, fixes what they raise, and merges
-once the PR is green and quiet. One worktree + branch + PR per plan
+through a review / fix loop, pushes, opens a PR, watches CI and any
+review bot configured on the repo, reviews each new head locally, fixes
+what they raise, and merges once the PR is green and quiet. One worktree + branch + PR per plan
 file. A merged PR loses its worktree and local branch; anything else
 stays open for a human with the worktree kept for inspection. No
 prompts after launch.
@@ -71,8 +71,8 @@ name without `PLAN-` and `.md`, sanitised):
 | `plan` | model | `plan` | Reads the seed, checks drift against its `SOURCE_SHA`, re-audits the scope at HEAD, writes the refreshed plan to `<run-dir>/plans/PLAN-<ref>.md`. `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `fix` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
-| `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body (links the plan), `gh pr edit --add-reviewer` for each login in `reviewers`. Skipped without a GitHub remote: `none` skips push too, `other` still pushes; the unit ends `no-pr`. |
-| `watch` (+ `fix`, `push`) | model | `watch` / `fix` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
+| `push`, `pr`, `request-review` | code | - | `git push -u`, PR from the repo template or a compact body (links the plan), `gh pr edit --add-reviewer` for each human login the workflow explicitly lists in `reviewers` (review bots are always skipped; this workflow lists none). Skipped without a GitHub remote: `none` skips push too, `other` still pushes; the unit ends `no-pr`. |
+| `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, review threads from bots configured on the repo. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`). The engine never posts a comment or requests a review: it only observes a configured bot's state for the head (`references/pr/review-verification.md`) and holds the merge while that bot's own review is running or a trigger someone else posted is unanswered (at most 15 minutes); a silent or stuck bot blocks nothing. Once per new head, when CI is green and no bot item is open, the `review` group runs the local review (the 3-lens panel, same prompt as the pre-push gate; a converged pre-push review already covers the first pushed head): `changes-requested` goes to `fix` then `push` (counts against `max_fix_attempts`), `approve` covers the head. A human comment stands the loop down. The merge needs CI green, the local review approved for the head and no open bot item, for `watch_stable_passes` consecutive passes (squash, then merge commit). |
 | `cleanup` | code | - | Only on `merged`: remove the worktree and the local branch. |
 
 ### No GitHub remote
@@ -111,7 +111,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 |---|---|---|
 | `preflight-checks` | `bash` | Clean base tree; classify `origin` (host only) and require `gh auth status` only for a GitHub origin. Logs `REMOTE: ...`. |
 | `split-plans` | `bash` | Splits the `plans` input on commas and semicolons, trims, dedupes, resolves each path against the repo root, fails when a file is missing, emits a JSON array of absolute paths as `plan_list`. |
-| `process` | `units` | `pipeline: plan`, `items: {{plan_list}}`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per plan). |
+| `process` | `units` | `pipeline: plan`, `items: {{plan_list}}`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `resume: unit`. Emits `units` (one row per plan). |
 | `report` | `agent` (`support` group) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands, usage per unit). Emits `merged`, `open`, `failed`, `no_pr`, `report_path`. |
 
 ## Inputs

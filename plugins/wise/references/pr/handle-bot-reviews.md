@@ -8,7 +8,9 @@ Filtered procedure for walking the user through actionable review
 comments from a **single** review bot — Copilot or CodeRabbit
 (whichever the caller selects via `bot_filter`). `watch-pipelines.md`
 §4 calls this fragment twice, once per bot, so each queue is its
-own mini-pipeline with its own top-level gate.
+own mini-pipeline with its own top-level gate. The queue holds only
+what a bot configured on the repo posted on its own; wise never
+requests a bot review.
 
 Both bots leave line-level code-anchored review comments via the
 same GitHub surfaces; they differ in author login and in the
@@ -456,6 +458,11 @@ BOT-REVIEWS: aborted bot=coderabbit reason=apply-failed-on=AuditPanel.tsx:88
 - Process only items matching `bot_filter`. Items from the other
   bot get their own invocation of this fragment — don't
   cross-process.
+- Handle only what a bot configured on the repo posted on its
+  own. Never request or re-request the bot (`gh pr edit
+  --add-reviewer`, GraphQL `requestReviews`) and never post a
+  trigger comment (`@coderabbitai review` / `full review`), after
+  a push or otherwise.
 - Stop after 10 wizard rounds in a single `watch-pipelines`
   invocation (safety catch — if we're still processing bot
   comments after 10 iterations, the PR is in a fight with the

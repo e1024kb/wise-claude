@@ -79,7 +79,7 @@ class PhaseFixture:
             "exec": self.execute,
             "config": {
                 "pipeline": "ticket",
-                "reviewers": ["copilot-pull-request-reviewer"],
+                "reviewers": ["alice"],
                 "tickets": [
                     {
                         "ref": "PROJ-1",
@@ -444,6 +444,7 @@ def test_protected_push_pr_and_best_effort_reviewer(tmp_path):
         assert not (await push_phase(fixture.ctx))["ok"]
         assert not (await pr_phase(fixture.ctx))["ok"] and fixture.calls == []
         fixture.ctx["unit"]["pr"] = {"number": 5, "url": "https://github.invalid/pr/5"}
+        fixture.ctx["config"]["reviewers"] = ["alice"]
         fixture.failures[("gh", "pr", "edit")] = command_result(code=1, stderr="unknown reviewer")
         assert (await request_review_phase(fixture.ctx))["ok"]
         assert "unavailable" in fixture.logs[-1]

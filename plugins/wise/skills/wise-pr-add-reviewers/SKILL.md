@@ -1,17 +1,18 @@
 ---
 name: wise-pr-add-reviewers
 description: >-
-  Attach Copilot code review to the PR for the current branch, then
-  prompt the user for individual reviewers (free-text comma-separated
-  logins, with CODEOWNERS-derived candidates and org members shown
-  inline for reference). Idempotent — already-requested reviewers are
-  detected and not re-requested. This skill runs just the reviewer
-  attach step on an existing PR. Fails with a
+  Request human reviewers on the PR for the current branch: ask
+  whether to add reviewers, then propose candidates (CODEOWNERS,
+  recent authors, org members) as picks plus free-text logins. Never
+  requests a review bot (Copilot code review, CodeRabbit). Idempotent
+  - already-requested reviewers are detected and not re-requested.
+  This skill runs just the reviewer attach step on an existing PR.
+  Fails with a
   clear message if the current branch has no open PR — run
   `/wise-pr-create` first. Invoked as `/wise-pr-add-reviewers` (bare
   alias) or `/wise:wise-pr-add-reviewers` (canonical). Use when the
-  user says "add reviewers", "request review", "ping Copilot", or
-  types `/wise-pr-add-reviewers`.
+  user says "add reviewers", "request review", or types
+  `/wise-pr-add-reviewers`.
 argument-hint: ""
 allowed-tools: Read, Bash(git:*), Bash(gh:*), Bash(cd:*), Bash(bash:*), AskUserQuestion
 ---
@@ -29,10 +30,11 @@ questions in autonomous or otherwise prompt-free procedures.
 
 ## Why this skill exists
 
-Most PRs end up requesting Copilot code review plus 0–N individuals
-picked from CODEOWNERS or the org. This skill is the narrowed
-surface — just the reviewer attach step, on a PR that already exists
-(`/wise-pr-create` makes the PR; `/wise-pr-watch` drives CI).
+Most PRs end up requesting 0-N individuals picked from CODEOWNERS or
+the org. This skill is the narrowed surface - just the human reviewer
+attach step, on a PR that already exists (`/wise-pr-create` makes the
+PR; `/wise-pr-watch` drives CI and runs the local review). Review bots
+are never requested: a bot configured on the repo reviews on its own.
 
 Single source of truth for the reviewer logic:
 `plugins/wise/references/pr/ensure-reviewers.md`. This skill reads it
@@ -94,7 +96,7 @@ Otherwise parse the JSON:
 PROJECT_PATH="$(git rev-parse --show-toplevel)"
 ```
 
-### 3. Read and run ensure-reviewers.md (defaults + ask about extras)
+### 3. Read and run ensure-reviewers.md (current reviewers + ask about extras)
 
 Read the fragment:
 
@@ -108,13 +110,13 @@ Follow its procedure with the context:
 - `pr_url = <url>`
 - `project.path = <PROJECT_PATH>`
 
-The fragment attaches Copilot (idempotent), asks via `AskUserQuestion`
-whether to add extra reviewers, and reverts its own defaults if the
-user picks `Skip`. Capture its final line and parse `DEFAULTS_ATTACHED`
-/ `EXTRAS_CHOICE`:
+The fragment reads the reviewers already requested and asks via
+`AskUserQuestion` whether to add human reviewers. It attaches
+nothing. Capture its final line and parse `ALREADY_REQUESTED` /
+`EXTRAS_CHOICE`:
 
 ```
-REVIEWERS: attached=<slugs-or-NONE> extras=<no|yes|skip>
+REVIEWERS: attached=<slugs-or-NONE> extras=<no|yes>
 ```
 
 ### 4. If extras_choice is `yes`, run propose-reviewers.md
@@ -131,7 +133,7 @@ Follow its procedure with the context:
 - `pr_url = <url>`
 - `pr_base = <gh pr view --json baseRefName --jq .baseRefName>`
 - `project.path = <PROJECT_PATH>`
-- `defaults_attached = <DEFAULTS_ATTACHED>`
+- `already_requested = <ALREADY_REQUESTED>`
 
 The fragment ranks reviewer candidates (changed files, CODEOWNERS,
 recent authors ∩ org members) and surfaces them as **multi-select**
@@ -143,18 +145,18 @@ line and parse `EXTRAS_ATTACHED`:
 EXTRAS: attached=<comma-separated-logins-or-NONE>
 ```
 
-When `EXTRAS_CHOICE != 'yes'` (i.e., `no` or `skip`), skip this
-step — there are no extras to propose.
+When `EXTRAS_CHOICE` is `no`, skip this step - there are no
+extras to propose.
 
 ### 5. Summarise
 
 Print the final list of reviewers on the PR. Two cases:
 
-- `EXTRAS_CHOICE == 'yes'` → concatenate defaults + extras:
-  `Reviewers attached: <DEFAULTS_ATTACHED>, <EXTRAS_ATTACHED> on <pr_url>`
-- Else → just defaults:
-  `Reviewers attached: <DEFAULTS_ATTACHED> on <pr_url>`
-  (or `no reviewers attached` when the user picked `Skip`)
+- `EXTRAS_CHOICE == 'yes'` → concatenate already-requested + extras:
+  `Reviewers on <pr_url>: <ALREADY_REQUESTED>, <EXTRAS_ATTACHED>`
+- Else → just the already-requested ones:
+  `Reviewers on <pr_url>: <ALREADY_REQUESTED>`
+  (or `no reviewers requested` when both are `NONE`)
 
 If the user wants to watch pipelines next, point them at:
 
@@ -172,11 +174,10 @@ Watch pipelines + comments with:
   `references/pr/github-remote.md` and stop; never call `gh pr`.
 - Never create a PR here — bail with the pointer at
   `/wise-pr-create` if the branch has no open PR.
-- Never remove a reviewer the user didn't ask to remove. The
-  fragment's `Skip` path reverts only the defaults *this skill*
-  added.
+- Never remove a reviewer.
 - Never re-request a reviewer who's already on the PR — noisy on
   the PR's activity log.
-- Never block on Copilot-attach failures — the fragment tolerates
-  them with a clear log line; users whose orgs don't enable
-  Copilot code review can still use this skill.
+- Never request a review bot (Copilot code review, CodeRabbit): no
+  `--add-reviewer copilot-pull-request-reviewer`, no GraphQL
+  `requestReviews` for a bot, no `@coderabbitai review` comment.
+  Humans only.

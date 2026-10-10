@@ -8,9 +8,9 @@ Watch the open pull request of the checked-out branch until it is
 merged or needs a human, `version: 2`, run by the wise engine. The
 engine's `units` step on the `pr` pipeline binds to the branch's open
 PR, then runs the same loop `ticket-auto` runs once its PR is open:
-poll CI and the review bots, fix what they raise, push, run wise's own
-substitute review when a bot is stuck (if allowed at pre-flight), and
-merge once the PR is green and quiet. Runs in the current checkout,
+poll CI and any review bot configured on the repo, run the local review
+on each new head, fix what they raise, push, and merge once the PR is
+green and quiet. Never triggers a remote review. Runs in the current checkout,
 never creates a worktree or branch. No prompts after launch;
 pre-flight asks harness, model and effort per phase.
 `/wise-pr-watch-auto` conducts this workflow.
@@ -45,7 +45,7 @@ pre-flight asks harness, model and effort per phase.
 
 ```mermaid
 flowchart TD
-    A[resolve-branch<br/>bash - classify origin, gh auth only for a GitHub origin, clean checkout on a named unprotected branch -> branch] --> B[process<br/>units pipeline pr - claim the open PR, watch / fix / push / merge -> units row]
+    A[resolve-branch<br/>bash - classify origin, gh auth only for a GitHub origin, clean checkout on a named unprotected branch -> branch] --> B[process<br/>units pipeline pr - claim the open PR, watch / local review / fix / push / merge -> units row]
     B --> C[report<br/>agent support - verify the PR live, write run-dir/report.md -> verdict, report_path]
 ```
 
@@ -54,14 +54,13 @@ Inside `process`, for the checked-out branch and in this order:
 | Phase | Kind | Group / model | What it does |
 |---|---|---|---|
 | `claim` | code | - | Binds to the checkout: named unprotected branch, matching the item, with an open PR (`MERGED` -> verdict `merged`, closed -> `skipped`). Base from the PR. No GitHub remote -> verdict `skipped` (`no-github-remote`) before any `gh pr view`. |
-| `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); after the push the engine reconciles CodeRabbit's state for the new head (reviews bound to the head, its check run, notices and trigger comments created after the head appeared) and, when the head is silent past a 2-minute grace or CodeRabbit says automatic reviews are off, posts one `@coderabbitai review` per head (`references/pr/review-verification.md`; ledger `watch.verification`), holding the merge while the request is unanswered or the review runs; a stuck bot gets the substitute review once per head when `substitute_review` is `yes`, else the run stands down (`all-green reason=review-consent-declined`); a human comment stands the loop down; `watch_stable_passes` consecutive green passes merge (squash, then merge commit). |
+| `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, review threads from bots configured on the repo. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`). The engine never posts a comment or requests a review: it only observes a configured bot's state for the head (`references/pr/review-verification.md`; ledger `watch.verification`) and holds the merge while that bot's own review is running or a trigger someone else posted is unanswered (at most 15 minutes); a silent or stuck bot blocks nothing. Once per new head, when CI is green and no bot item is open, the `review` group runs the local review (the 3-lens panel, same prompt as the pre-push gate): `changes-requested` goes to `fix` then `push` (counts against `max_fix_attempts`), `approve` covers the head (ledger `watch.reviewed_sha`). A human comment stands the loop down. The merge needs CI green, the local review approved for the head and no open bot item, for `watch_stable_passes` consecutive passes (squash, then merge commit). |
 | `cleanup` | code | - | Always keeps the current tree and branch. |
 
 ## Pre-flight questions
 
 | Id | Kind | Default | Notes |
 |---|---|---|---|
-| `input.substitute_review` | choice | `yes` | The consent gate, asked once: may the run review the branch itself (one read-only 3-lens pass on the `review` group's model) when a bot is stuck? `no` stands the run down on a stuck bot. |
 | `input.max_fix_attempts` | text | `""` (cap 10) | Fix + push rounds before standing down; overrides the cap when given. Skipped when `/wise-pr-watch-auto <n>` supplied it. |
 | `input.watch_minutes` | choice + free text | `10` | Wall-clock budget in minutes: `10`, `20`, `45`, `60`, or any number 1-1440 as free text; blank keeps the cap. Skipped when `--minutes <n>` supplied it. |
 | `tuning-scope` | choice | `per-group` | Asked first (the worktree is locked): `single` asks harness, model and effort once (`harness.all`, `model.all`, `effort.all`) for every group, `per-group` asks them per group as below. |
@@ -84,14 +83,13 @@ Unit caps (`profiles.medium.caps`):
 | Step | Type | Purpose |
 |---|---|---|
 | `resolve-branch` | `bash` | Classifies `origin` (host only) and runs `gh auth status` only for a GitHub origin; resolves the checked-out branch name; refuses a detached HEAD, `main` / `master` / `release*` and a dirty checkout (`git status --porcelain` non-empty). Emits `branch`. |
-| `process` | `units` | `pipeline: pr`, `items: {{branch}}`. Groups `watch`, `fix`, `review`; caps from `profiles.medium` (overridden by the inputs of the same name); `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row). |
-| `report` | `agent` (`support` group) | Renders the `units` row, verifies the PR with `gh pr view`, writes `<run-dir>/report.md` (verdict and reason, passes and fix rounds, what was fixed, the verification requests per head from the ledger's `watch.verification`, the next step for a human). Emits `verdict`, `report_path`. |
+| `process` | `units` | `pipeline: pr`, `items: {{branch}}`. Groups `watch`, `fix`, `review`; caps from `profiles.medium` (overridden by the inputs of the same name); `resume: unit`. Emits `units` (one row). |
+| `report` | `agent` (`support` group) | Renders the `units` row, verifies the PR with `gh pr view`, writes `<run-dir>/report.md` (verdict and reason, passes and fix rounds, what was fixed, the head the local review approved (`watch.reviewed_sha`), what each configured review bot did per head from the ledger's `watch.verification`, the next step for a human). Emits `verdict`, `report_path`. |
 
 ## Inputs
 
 | Name | Required | Description |
 |---|---|---|
-| `substitute_review` | yes | `yes` (default) / `no`: whether the run may run wise's substitute review when a bot is stuck. |
 | `max_fix_attempts` | no | Positive integer; blank keeps the cap (10). |
 | `watch_minutes` | no | Integer 1-1440, default `10`; blank keeps the cap (10). |
 
@@ -100,14 +98,14 @@ Unit caps (`profiles.medium.caps`):
 | Name | Source | Content |
 |---|---|---|
 | `branch` | `resolve-branch` | The checked-out branch, the `units` item. |
-| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. A `skipped` whose reason starts with `no-github-remote` means the repo has no GitHub remote (nothing to watch). Ledger under `<run-dir>/units/<branch>.json`; its `watch.verification.<provider>.<head>` records the verification requests for the 5 most recent heads (state, attempts, comment id, retry time). |
+| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. A `skipped` whose reason starts with `no-github-remote` means the repo has no GitHub remote (nothing to watch). Ledger under `<run-dir>/units/<branch>.json`; `watch.reviewed_sha` is the head the local review approved, and `watch.verification.<provider>.<head>` records the observed state of each configured review bot for the 5 most recent heads (state, detail). |
 | `verdict`, `report_path` | `report` | The verdict and the report file. |
 
 ## Examples
 
 ```
 /wise-pr-watch-auto
-# Pre-flight asks the substitute-review consent, the caps, then harness, permissions, model and effort per group.
+# Pre-flight asks the caps, then harness, permissions, model and effort per group.
 
 /wise-pr-watch-auto 3 --minutes 30
 # Three fix rounds at most, half an hour; those two inputs are not asked.

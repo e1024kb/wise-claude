@@ -2,9 +2,9 @@ version: 2
 name: pr-watch
 description: >-
   Watch the open pull request of the checked-out branch until it is
-  merged or needs a human: poll CI and the bot reviews, fix what they
-  raise, push, run a substitute review when a bot is stuck, and merge
-  once the PR is green and quiet. Runs in the current checkout, never
+  merged or needs a human: poll CI and any review bot the repo runs,
+  review each new head locally, fix what they raise, push, and merge
+  once the PR is green and quiet. Never triggers a remote review. Runs in the current checkout, never
   creates a worktree or branch. No prompts after launch. The engine
   drives the loop; pre-flight picks harness, model and effort per phase.
 author: e1024kb
@@ -13,7 +13,7 @@ project-selection: current
 
 # The loop is the engine's `units` step on the `pr` pipeline: the item
 # is the checked-out branch, claim binds to its open PR, then the same
-# watch / fix / push / substitute-review loop ticket-auto runs after its
+# watch / fix / push / local-review loop ticket-auto runs after its
 # PR is open. /wise-pr-watch-auto conducts this workflow.
 preflight:
   control-mode: synchronous
@@ -24,17 +24,17 @@ preflight:
 
 # One question per group. Labels say what each model will be doing so
 # the choice can be priced: a cheap model for the watch pass, a strong
-# one for the fixes and the substitute review.
+# one for the fixes and the local review.
 tuning:
   groups:
     - id: fix
-      label: "Fix pass: applies CI failures, bot review threads and substitute-review findings as commits (code changes)"
+      label: "Fix pass: applies CI failures, bot review threads and local-review findings as commits (code changes)"
       default: { harness: claude, model: opus, effort: high }
     - id: review
-      label: "Substitute review: one read-only 3-lens review when a review bot is stuck (correctness, security, tests)"
+      label: "Local review: the read-only 3-lens code review team (correctness, security, tests) on each new PR head"
       default: { harness: claude, model: opus, effort: high }
     - id: watch
-      label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state, writes the findings file (cheap, frequent)"
+      label: "Watch pass: polls CI and the repo's own review bots every minute, classifies the PR state, writes the findings file (cheap, frequent)"
       default: { harness: claude, model: haiku, effort: medium }
     - id: support
       label: "Support: the end-of-run report (mechanical, no code changes)"
@@ -52,12 +52,6 @@ profiles:
       watch_stable_passes: 2
 
 inputs:
-  # The consent gate the interactive watcher asks mid-run, asked once
-  # here instead: the run never prompts after launch.
-  - name: substitute_review
-    prompt: "When a review bot is stuck, may this run review the branch itself (one read-only 3-lens pass on the review group's model) before merging? `no` stands the run down on a stuck bot."
-    default: "yes"
-    validate: "^(yes|no)$"
   - name: max_fix_attempts
     prompt: "Cap on fix rounds before standing down? Blank = 10."
     optional: true
@@ -139,9 +133,6 @@ steps:
     # Phase -> tuning group. The engine owns the loop, the caps and the merge.
     groups: { watch: watch, fix: fix, review: review }
     caps: [max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
-    # Copilot is attached with `gh pr edit --add-reviewer`; the watch
-    # pass triggers CodeRabbit by comment when the repo has it.
-    reviewers: [copilot-pull-request-reviewer]
     resume: unit
     depends_on: [resolve-branch]
 
@@ -169,10 +160,11 @@ steps:
       has no GitHub remote, so there was no PR or checks to watch. The
       ledger
       {{run.dir}}/units/<branch>.json carries the watch counters
-      (passes, fix_attempts, stable), the verification requests per
-      head (`watch.verification.<provider>.<head>`: state, attempts,
-      comment id) and usage. Report a skipped, failed, rate-limited or
-      unanswered verification as such, never as a completed review.
+      (passes, fix_attempts, stable), the head the local review approved
+      (`watch.reviewed_sha`), what each review bot the repo runs did per
+      head (`watch.verification.<provider>.<head>`: state, detail) and
+      usage. Report a skipped, failed or rate-limited bot review as such,
+      never as a completed review; wise never requested one.
 
       The run's token usage, as JSON the engine folded: `total`, `by_pool`
       (subscription, api-key), `by_harness`, `by_step`.

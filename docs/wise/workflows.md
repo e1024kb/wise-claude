@@ -45,7 +45,7 @@ when a preferred model or native agent route is unavailable. The main client
 offers its current model and other verified executable models through GUI/TUI,
 then waits for an actual selection. Children relay the question to that client.
 No model choice is inferred from defaults or plain text, and selecting a model
-does not replace review consent or authorize additional actions. Native child
+does not authorize additional actions. Native child
 catalogs and engine-provider catalogs are checked separately. Engine workflow
 steps remain engine-owned and retain their existing preflight/recovery contract.
 
@@ -476,7 +476,7 @@ pipelines](#unit-pipelines).
   items: "{{items}}"               # rendered, then parsed
   groups: { plan: plan, implement: implement, review: review, fix: implement, watch: watch }
   caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
-  reviewers: [copilot-pull-request-reviewer]   # default
+  reviewers: [jdoe]                # default []; review bots are always skipped
   parallel: 2                      # units at once, default 1
   resume: unit                     # fixer resumes the reviewer's session
 ```
@@ -487,7 +487,7 @@ pipelines](#unit-pipelines).
 | `items` | String. After rendering: a JSON array of strings or item specs, else split on `,` `;` newline. A text that starts with `[` must be a JSON array, or the step fails. Deduplicated by ref. An item spec is `{ref, url?, title?, state?, parent?, repo?, depends_on?, serialize?}`; see [Epic fan-out](#epic-fan-out). |
 | `groups` | Non-empty mapping phase -> tuning group id for `plan`, `implement`, `review`, `fix`, `watch`. Unknown phase warns. `fix` falls back to `implement`'s group. |
 | `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. A workflow input named after a listed cap overrides it when it holds a number (`pr-watch`: `max_fix_attempts`, `watch_minutes`). |
-| `reviewers` | GitHub logins for `gh pr edit --add-reviewer`. |
+| `reviewers` | Human GitHub logins for `gh pr edit --add-reviewer`. Default `[]`; review bots (`copilot-pull-request-reviewer`, `Copilot`, `coderabbitai`) are always skipped. The bundled workflows list none. |
 | `parallel` | Positive int. The `concurrency` input (`1`-`4`) overrides it. `current` tree: always 1. Git operations are serialised per step. |
 | `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (sessions never cross harnesses, so a fixer on another one starts clean); `fresh` (default) starts each child clean. |
 
@@ -1063,8 +1063,8 @@ v1 prose orchestrators used to describe. Phases in order:
 | `fix` | model | Applies findings from review, CI or bot comments; commits. |
 | `push` | code | First push only: rebase onto the freshly fetched base (skipped once the branch is on origin; a conflict fails the unit), then a numbered file the branch adds whose number the base already uses in that directory (migrations, ADRs) goes to one `fix` pass (source `sequence`); a collision that survives fails the unit. Then `git push -u origin <branch>`. |
 | `pr` | code | `gh pr create` with the repo template filled, or reuse. |
-| `request-review` | code | `gh pr edit --add-reviewer` per `reviewers`. |
-| `watch` | model | One pass: CI state, bot reviews, human comments, merged flag. A human-comment stand-down needs a `User`-type, non-bot commenter on GitHub since the watch started; a merged flag counts only when `gh pr view` reports `MERGED`. |
+| `request-review` | code | `gh pr edit --add-reviewer` per login the workflow explicitly lists in `reviewers`; review bots are always skipped. Nothing to do when the list is empty (every bundled workflow). |
+| `watch` | model | One pass: CI state, review threads from bots configured on the repo, human comments, merged flag. Never posts a comment or requests a review. A human-comment stand-down needs a `User`-type, non-bot commenter on GitHub since the watch started; a merged flag counts only when `gh pr view` reports `MERGED`. |
 | `cleanup` | code | On `merged` in `new` mode: remove worktree, delete local branch, `cleaned: true`. `current` retains the checkout and branch. Runs after a failure too. |
 
 The `pr` pipeline runs `claim -> watch -> cleanup` and the `implement`
@@ -1075,9 +1075,6 @@ the item and to carry an open PR (`MERGED` -> `merged`, closed ->
 `skipped`; the base is the PR's), `implement` needs the plan file. Both
 force `worktree_mode: current`. `implement` records `all-green` with
 `implemented: <done> of <tasks> tasks in <n> commits (failed <f>)`.
-The `substitute_review` input (`pr-watch`) set to `no` makes a stuck
-bot end the watch loop as `all-green reason=review-consent-declined`
-instead of running the substitute review.
 
 Branch and worktree naming (`phases/common.py`): a ticket ref with a
 project key (`PROJ-777`) is the branch verbatim; a bare number becomes
@@ -1192,25 +1189,29 @@ plan, and paths. Structured results:
 | `max_fix_attempts` | 3 | fix + push rounds in the watch loop; exhaustion -> `exhausted`. |
 | `watch_minutes` | 45 | wall clock of the watch loop; at the cap: `all-green` when the last CI was green, else `exhausted`. |
 | `watch_poll_seconds` | 60 | sleep between watch passes. |
-| `watch_stable_passes` | 2 | consecutive green-and-covered passes before merging. |
+| `watch_stable_passes` | 2 | consecutive passes with CI green, the local review approved for the head and no open bot item before merging. |
 
 A cap applies only when the step lists it in `caps` and
 `profiles.medium.caps` sets it; otherwise the default. Watch loop per
 pass: `merged` -> `merged`; human comment or `needs-human` ->
 `human-intervention`;
 `blocked` -> `blocked`; red CI or open bot reviews -> fix and push (a
-fix without a commit -> `partial`); after the batch is pushed the
-engine reconciles each review provider's state for the head
-(`phases/verify.py`, rules in `references/pr/review-verification.md`)
-and posts one `@coderabbitai review` per head when CodeRabbit has a
-footprint on the PR but nothing for this head (2-minute grace for an
-automatic review; at once when CodeRabbit says automatic reviews are
-off; again after a rate-limit reset, at most 3 per head), holding the
-pass while the request is unanswered (15 minutes) or the review runs;
-a requested bot silent for 15
-minutes on the same head -> one substitute universal review per head;
-stable target reached -> `gh pr merge --squash` (then `--merge` when
-squash is disallowed) -> `merged`, else `all-green`.
+fix without a commit -> `partial`). The engine never triggers a remote
+review: it only observes the state of each review bot configured on the
+repo for the head (`phases/verify.py`, rules in
+`references/pr/review-verification.md`; ledger
+`watch.verification.<provider>.<head>`) and holds the pass while that
+bot's own review runs or a trigger someone else posted is unanswered
+(15 minutes); a silent or stuck bot blocks nothing. Once per new head,
+when CI is green and no bot item is open, the `review` phase runs the
+local review (the 3-lens panel, same prompt as the pre-push gate; in
+`ticket` / `plan` a converged pre-push review already covers the first
+pushed head): `changes-requested` -> fix and push (counts against
+`max_fix_attempts`), `approve` covers the head (`watch.reviewed_sha`).
+A pass counts toward the stable target only with CI green, the local
+review approved for the head and no open bot item; stable target
+reached -> `gh pr merge --squash` (then `--merge` when squash is
+disallowed) -> `merged`, else `all-green`.
 
 Verdicts: `merged` \| `all-green` \| `blocked` \| `partial` \|
 `exhausted` \| `human-intervention` \| `failed` \| `skipped` \| `no-pr`

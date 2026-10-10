@@ -1,5 +1,20 @@
 from ..yaml_compat import js_string
 from .common import Json, err_text, gh, json_of, ok, pass_
+from .model import BOT_LOGINS
+from .verify import PROVIDERS
+
+
+def bot_key(login: str) -> str:
+    """A login compared without padding, `@`, `[bot]` or case."""
+    return login.strip().lower().removeprefix("@").removesuffix("[bot]").strip()
+
+
+# Remote review bots are never requested: wise reviews locally instead and
+# handles a bot's comments only when the repository runs it on its own.
+REVIEW_BOTS = frozenset(
+    bot_key(login)
+    for login in (*BOT_LOGINS, *(name for spec in PROVIDERS.values() for name in spec["logins"]))
+)
 
 
 async def request_review_phase(ctx: Json) -> Json:
@@ -21,6 +36,9 @@ async def request_review_phase(ctx: Json) -> Json:
                     row[key].lower() for key in ("login", "name") if isinstance(row.get(key), str)
                 )
     for login in ctx["config"]["reviewers"]:
+        if bot_key(login) in REVIEW_BOTS:
+            ctx["log"](f"request-review: {login} is a review bot, never requested")
+            continue
         if login.lower() in have:
             ctx["log"](f"request-review: {login} already requested")
             continue

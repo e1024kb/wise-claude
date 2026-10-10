@@ -73,7 +73,8 @@ __all__ = [
     "MODEL_PHASES",
     "phase_key",
 ]
-DEFAULT_REVIEWERS = ["copilot-pull-request-reviewer"]
+# Wise never requests a review bot; a workflow lists human reviewers explicitly.
+DEFAULT_REVIEWERS: list[str] = []
 # Phases skipped, per detected remote kind, for the branch-owning pipelines
 # (`ticket` / `plan`). `none`: nothing to push to, so no push either. `other`:
 # the branch is pushed to origin, only the GitHub steps are skipped.
@@ -141,9 +142,6 @@ def config_for(step: Json, state: Json) -> Json:
         if step["pipeline"] in ATTACHED_PIPELINES
         else inputs.get("worktree_mode", "new"),
         "base": str(inputs.get("base_branch", "") or "").strip(),
-        # The `substitute_review` input (pr-watch) declines the stuck-bot
-        # review at pre-flight; every other workflow leaves it on.
-        "substitute_review": str(inputs.get("substitute_review", "") or "").strip().lower() != "no",
         "reviewers": step.get("reviewers", DEFAULT_REVIEWERS),
         "tickets": state["context"].get("ticket", []),
         "caps": {
@@ -304,7 +302,14 @@ async def review_fix_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
         if converged
         else f"review: not converged after {cycles} cycle(s); pushing anyway"
     )
-    return pass_({"review": {"converged": converged, "cycles": cycles}})
+    review: Json = {"converged": converged, "cycles": cycles}
+    if converged:
+        # The approved head is the one pushed next: the watch loop's local
+        # review does not repeat it. An unreadable head records nothing.
+        sha = await head_sha(ctx)
+        if sha:
+            review["sha"] = sha
+    return pass_({"review": review})
 
 
 async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
@@ -351,8 +356,8 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
         pushed = await runners["push"](ctx)
         hooks["fold"]("push", pushed)
         if pushed["ok"]:
-            # The pushed head's age starts now: the verification request
-            # waits for an automatic review before asking for one.
+            # The pushed head's age starts now: a configured review bot's
+            # notices about it can only be newer.
             watch["head_since"] = {"sha": await head_sha(ctx), "at": ctx["now"]()}
             save()
         return pushed
@@ -368,6 +373,11 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
                 {"watch": dict(watch)},
             )
         head = await head_sha(ctx)
+        if not head:
+            # An unreadable head can be neither reviewed nor merged.
+            ctx["log"]("watch: cannot read the head commit; retrying next pass")
+            await ctx["sleep"](poll_ms)
+            continue
         if watch.get("head_since", {}).get("sha") != head:
             # A head this run did not push (the initial one, or someone
             # else's push): its commit time bounds when notices about it
@@ -424,11 +434,9 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
                 return fixed
             await ctx["sleep"](poll_ms)
             continue
-        # The fix batch is settled on this head: reconcile the review
-        # providers' state for it and request the one verification review
-        # the head still needs. A requested or running review holds the
-        # pass: neither covered nor stuck until it answers.
-        verification = await verify_reviews(ctx, watch, head, output)
+        # The fix batch is settled on this head. A review bot configured on
+        # the repo may still be reviewing it on its own; wise never asks one.
+        verification = await verify_reviews(ctx, watch, head)
         save()
         if verification["hold"]:
             if watch["stable"] != 0:
@@ -436,38 +444,37 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
                 save()
             await ctx["sleep"](poll_ms)
             continue
-        covered = output["bot_reviews"] == "resolved"
-        if output["bot_reviews"] == "stuck":
-            if watch.get("fallback_sha") == head:
-                covered = True
-            elif not ctx["config"].get("substitute_review", True):
+        # The local review gates every head: the 3-lens panel on the review
+        # group, once per head, after CI is green. A converged pre-push
+        # review already covers the first pushed head.
+        reviewed = head in (watch.get("reviewed_sha"), ctx["ledger"].get("review", {}).get("sha"))
+        if output["ci"] == "green" and not reviewed:
+            hooks["emit_phase"]("review")
+            local = await runners["review"](
+                {**ctx, "review": {"shape": "panel", "cycle": watch["passes"]}}
+            )
+            hooks["fold"]("review", local)
+            if not local["ok"]:
                 return fail(
-                    "review-consent-declined: a review bot is stuck and the substitute "
-                    "review was declined at pre-flight",
-                    "all-green",
-                    {"watch": dict(watch)},
+                    f"local review failed: {local['reason']}", "all-green", {"watch": dict(watch)}
                 )
-            else:
-                hooks["emit_phase"]("review")
-                substitute = await runners["review"](
-                    {**ctx, "review": {"shape": "universal", "cycle": watch["passes"]}}
+            review = parse_review(local.get("output"))
+            if review is None:
+                return fail(
+                    "local review: unusable structured output", "all-green", {"watch": dict(watch)}
                 )
-                hooks["fold"]("review", substitute)
-                if not substitute["ok"]:
-                    return fail(f"substitute review failed: {substitute['reason']}", "all-green")
-                review = parse_review(substitute.get("output"))
-                if review is None:
-                    return fail("substitute review: unusable structured output", "all-green")
-                if review["verdict"] == "changes-requested":
-                    fixed = await fix_and_push("review")
-                    if not fixed["ok"]:
-                        return fixed
-                    await ctx["sleep"](poll_ms)
-                    continue
-                watch["fallback_sha"] = head
-                covered = True
-                save()
-                ctx["log"](f"watch: substitute review covered {head[:12]}")
+            if review["verdict"] == "changes-requested":
+                fixed = await fix_and_push("review")
+                if not fixed["ok"]:
+                    return fixed
+                await ctx["sleep"](poll_ms)
+                continue
+            watch["reviewed_sha"] = head
+            reviewed = True
+            save()
+            ctx["log"](f"watch: local review approved {head[:12]}")
+        # A silent or stuck bot blocks nothing: the local review covers the head.
+        covered = reviewed and output["bot_reviews"] in ("resolved", "stuck")
         if output["ci"] == "green" and covered:
             watch["stable"] += 1
             save()

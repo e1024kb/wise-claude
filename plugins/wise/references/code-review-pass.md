@@ -1,18 +1,26 @@
 # code-review-pass — the canonical multi-agent branch review
 
 Single source of truth for **how** the plugin runs its heavyweight
-branch gate. Read by:
+branch gate. Read or followed by:
 
-- `workflows/code-review/workflow.yaml` — the standalone pre-push gate:
-  the lenses, curation, verification and bounded apply below as engine
+- `workflows/code-review/workflow.yaml` — the standalone review,
+  conducted by `/wise-code-review` over the branch, uncommitted work or
+  a PR: the lenses, curation, verification and bounded apply below as engine
   steps, harness / provider permissions / model / effort per agent chosen at pre-flight.
-- `workflows/ticket-auto/prompts/review-branch-auto.md` — the prose
-  form, read by the PR watcher's review fallback
-  (`review-fallback-auto.md`).
+- the engine's review phase prompt
+  (`engine/wise_engine/prompts/units/shared/review.md`, same panel and
+  curation) in the `units` pipelines: the pre-push gate in `ticket-auto` /
+  `impl-plan-auto`, and the local review the watch loop runs once per
+  new PR head (`pr-watch`, `ticket-auto`, `impl-plan-auto`), same prompt.
+- `/wise-pr-watch`'s local review step (`pr/watch-pipelines.md` §4e),
+  once per new PR head.
+- `workflows/ticket-auto/prompts/review-branch-auto.md` - the legacy
+  prose form of the gate.
 
 This is the **heavy tier** of the two-tier quality model: it runs
 **once** over a whole branch, after every change is committed but
-**before that branch reaches GitHub** (push / PR open). The lightweight
+**before that branch reaches GitHub** (push / PR open), and again on
+each new PR head the watcher sees. The lightweight
 per-commit tier is [`simplify-pass.md`](./simplify-pass.md).
 
 ## The mechanism — a wise-native panel of reviewer subagents
@@ -29,8 +37,9 @@ the diff), but stays fully autonomous and self-contained.
 > the effort argument), not an Anthropic effort-graded reviewer. And the
 > effort-graded `/code-review` is a slash command, which an autonomous
 > workflow cannot type. So wise runs its own reviewer panel via `Task`.
-> CodeRabbit / Copilot still review the PR later, in the watch loop — this
-> gate is the *pre-push* catch.
+> Wise never triggers or requests a remote review bot (Copilot code
+> review, CodeRabbit); this panel is its review, before the push and
+> again on each new PR head.
 
 ### Panel shape → profile sets the EFFORT, never the lens count
 
@@ -78,14 +87,8 @@ it against the actual code; findings the checker refutes are dropped
 (noted as skipped). What `max` buys is fewer false positives at the
 gate, not more findings.
 
-There is a second shape for one caller only — **`panel=universal`**,
-used by the PR watcher's review fallback (`review-fallback-auto.md`):
-ONE reviewer subagent covering all three focus areas in a single
-read-only pass, at `medium` effort, profile-independent in effort (its
-model still follows the low-profile Opus rule above). The watcher's
-fallback substitutes for a bot review of a branch that already passed
-the pre-push gate, so one universal reviewer is the right weight
-there; the lens panel stays the shape for the pre-push gate itself.
+The 3-lens panel is the only shape: the pre-push gate and the
+per-head PR review run it alike.
 (Pre-4.15 this table was keyed by `effort` with a 5-lens default;
 4.15.0 briefly scaled lens count by profile; effort-scaling replaced
 that deliberately.)
@@ -93,15 +96,15 @@ that deliberately.)
 ## The pass (review → curate → apply → commit)
 
 1. **Resolve the diff.** The change set is `origin/<base>..HEAD` — exactly
-   the commits about to be pushed (the caller supplies `base` / detects
-   the default branch).
+   the commits about to be pushed, or the PR's whole change set for a
+   per-head PR review (the caller supplies `base` / detects the default
+   branch).
 
 2. **Run the panel.** Fan-out route: in a single message, dispatch the
-   three reviewer `Task` subagents **in parallel** (or the one universal
-   reviewer under `panel=universal`), each **read-only**
+   three reviewer `Task` subagents **in parallel**, each **read-only**
    (`subagent_type: "Explore"` is a good fit) on the current model.
    Inline route: run the same three lenses one after another in this
-   context (one universal pass under `panel=universal`). Give each its
+   context. Give each its
    lens, the diff range, and the worktree. Each returns a list of findings —
    `file:line`, a one-line description, and a severity
    (critical / warning / info). Reviewers **report only — they never

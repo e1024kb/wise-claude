@@ -1,5 +1,5 @@
-"""Review verification: provider discovery per head and the one batched
-CodeRabbit verification request the watch loop posts after a fix batch."""
+"""Review-bot observation per head, and the watch loop's local review:
+wise reads what a configured bot did and never posts a trigger."""
 
 import asyncio
 import json
@@ -9,13 +9,13 @@ import pytest
 
 from test_model_phases import ModelFixture, answer, watch_output
 from test_phases import command_result
-from wise_engine.ledger import read_unit, write_unit
+from wise_engine.ledger import empty_usage, read_unit, write_unit
+from wise_engine.phases.request_review import request_review_phase
 from wise_engine.phases.model import findings_path
 from wise_engine.phases.verify import (
+    FIRST_REVIEW_GRACE_MS,
     PROVIDERS,
     REQUEST_GRACE_MS,
-    VERIFY_GRACE_MS,
-    VERIFY_MAX_ATTEMPTS,
     classify,
     pr_locator,
     retry_after_ms,
@@ -24,7 +24,6 @@ from wise_engine.phases.verify import (
 from wise_engine.units import run_units_step
 
 CR = PROVIDERS["coderabbit"]
-TRIGGER = CR["trigger"]
 T0 = 1_700_000_000_000  # 2023-11-14T22:13:20Z, an arbitrary anchor in ms
 
 
@@ -58,8 +57,8 @@ def evidence(reviews=(), comments=(), runs=()):
     return {"reviews": list(reviews), "comments": list(comments), "check_runs": list(runs)}
 
 
-def state_of(reviews=(), comments=(), runs=(), head="h2", since=T0, record=None):
-    return classify(CR, evidence(reviews, comments, runs), head, since, record or {})
+def state_of(reviews=(), comments=(), runs=(), head="h2", since=T0):
+    return classify(CR, evidence(reviews, comments, runs), head, since)
 
 
 # --- classification -------------------------------------------------------
@@ -73,7 +72,7 @@ def test_absent_without_any_footprint_and_silent_with_one():
     assert state_of([review("Copilot", "h2"), review("alice", "h2")])["state"] == "absent"
     # A configured-but-silent reviewer is on the PR: silent, not absent.
     configured = {**evidence(), "requested": ["coderabbitai"]}
-    assert classify(CR, configured, "h2", T0, {})["state"] == "silent"
+    assert classify(CR, configured, "h2", T0)["state"] == "silent"
 
 
 def test_completed_only_by_a_review_bound_to_the_head():
@@ -149,7 +148,7 @@ def test_pause_and_resume_commands():
     assert state_of(footprint, [paused])["state"] == "paused"
     resumed = comment("alice", "@coderabbitai resume", T0 - 50_000)
     assert state_of(footprint, [paused, resumed])["state"] == "silent"
-    # A completed head review beats the pause: nothing to request anyway.
+    # A completed head review beats the pause.
     assert state_of([review(bot, "h2")], [paused])["state"] == "completed"
 
 
@@ -201,15 +200,9 @@ class VerifyFixture(ModelFixture):
         if cmd == "git" and args[:2] == ["symbolic-ref", "--quiet"]:
             return command_result("feat/x\n")
         if cmd == "git" and args[0] == "rev-list":
-            # The branch is always ahead of its base, so the substitute
-            # review runs a child instead of short-circuiting on an empty range.
+            # The branch is always ahead of its base, so the local review
+            # runs a child instead of short-circuiting on an empty range.
             return command_result(str(max(1, self.commits)))
-        if cmd == "gh" and args[:2] == ["pr", "comment"]:
-            result = await super().execute(cmd, args, opts)
-            self.issue_comments.append(
-                comment("wise-bot", args[-1], self.time, cid=900 + len(self.comments))
-            )
-            return result
         return await super().execute(cmd, args, opts)
 
     def run(self, **over):
@@ -221,350 +214,134 @@ class VerifyFixture(ModelFixture):
     def ledger(self):
         return read_unit(self.run_dir, "feat/x")
 
-    def triggers(self):
-        return [body for body in self.comments if body == TRIGGER]
+    def posted(self):
+        """Every comment or reviewer request wise sent to the PR."""
+        return [
+            args
+            for cmd, args, _ in self.calls
+            if cmd == "gh"
+            and (
+                args[:2] == ["pr", "comment"]
+                or (args[:2] == ["pr", "edit"] and "--add-reviewer" in args)
+            )
+        ]
+
+    def records(self):
+        return self.ledger()["watch"]["verification"]["coderabbit"]
 
 
 def cr_footprint(fixture, head="head-0", at=T0 - 60_000):
     fixture.reviews.append(review("coderabbitai[bot]", head, at))
 
 
-def with_findings(fixture, first_passes, **kw):
-    """Watch script: bot findings open for the first N passes, then the default."""
-
-    def watch(req, nth):
-        if nth <= first_passes:
-            fixture.findings().write_text("1. a.py:1 - thread T1 - coderabbit - fix it\n")
-            return answer(watch_output(bot_reviews="open", verdict="fix", **kw))
-        return answer(watch_output(**kw))
-
-    fixture.scripts["watch"] = watch
-
-
 @pytest.mark.parametrize(
     "setup",
-    ["no-bot", "human-only", "copilot-only", "other-tool"],
+    [
+        "no-bot",
+        "human-only",
+        "copilot-only",
+        "other-tool",
+        "silent",
+        "manual-required",
+        "rate-limited",
+    ],
 )
-def test_no_request_without_a_coderabbit_footprint(tmp_path, setup):
+def test_never_requests_a_bot_review_and_reviews_locally(tmp_path, setup):
     fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
     if setup == "human-only":
-        fixture.reviews.append(review("alice", "head-0", state="APPROVED"))
+        fixture.reviews.append(review("alice", "head-5", state="APPROVED"))
     elif setup == "copilot-only":
-        fixture.reviews.append(review("Copilot", "head-0"))
+        fixture.reviews.append(review("Copilot", "head-5"))
     elif setup == "other-tool":
-        fixture.reviews.append(review("sonarqubecloud[bot]", "head-0"))
-    result = fixture.run()
-    assert "merged=1" in result["verdict"]
-    assert fixture.triggers() == []
-    assert fixture.ledger()["watch"]["verification"]["coderabbit"]["head-0"]["state"] == "absent"
-
-
-def test_completed_head_is_not_re_requested(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    result = fixture.run()
-    assert "merged=1" in result["verdict"] and fixture.triggers() == []
-    assert fixture.ledger()["watch"]["verification"]["coderabbit"]["head-0"]["state"] == "completed"
-
-
-def test_bulk_fix_then_one_verification_request_then_merge(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    # CodeRabbit reviews the head only after the trigger (incremental reviews off).
-    with_findings(fixture, 1)
-
-    def watch(req, nth):
-        if nth == 1:
-            fixture.findings().write_text("1. a.py:1 - T1 - coderabbit - fix\n")
-            return answer(watch_output(bot_reviews="open", verdict="fix"))
-        if fixture.triggers() and not any(r["commit_id"] == fixture.head for r in fixture.reviews):
-            fixture.reviews.append(review("coderabbitai[bot]", fixture.head, fixture.time))
-            return answer(watch_output(bot_reviews="pending", verdict="wait"))
-        return answer(watch_output(bot_reviews="pending" if not fixture.triggers() else "resolved"))
-
-    fixture.scripts["watch"] = watch
-    result = fixture.run()
-    assert "merged=1" in result["verdict"]
-    assert fixture.triggers() == [TRIGGER]
-    records = fixture.ledger()["watch"]["verification"]["coderabbit"]
-    assert records["head-1"]["state"] == "completed" and records["head-1"]["attempts"] == 1
-    assert fixture.counts["fix"] == 1 and fixture.counts["review"] == 0
-
-
-def test_manual_required_notice_requests_without_waiting_for_grace(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    with_findings(fixture, 1)
-    posted_at = {}
-
-    original = fixture.execute
-
-    async def execute(cmd, args, opts):
-        if cmd == "git" and args[0] == "push":
-            fixture.issue_comments.append(
-                comment(
-                    "coderabbitai[bot]",
-                    "**Review skipped** Auto incremental reviews are disabled on this repository.",
-                    fixture.time + 1,
-                    cid=50,
-                )
+        fixture.reviews.append(review("sonarqubecloud[bot]", "head-5"))
+    elif setup != "no-bot":
+        cr_footprint(fixture)
+    if setup == "manual-required":
+        fixture.issue_comments.append(
+            comment(
+                "coderabbitai[bot]",
+                "**Review skipped** Auto incremental reviews are disabled on this repository.",
+                T0 + 1,
             )
-        if cmd == "gh" and args[:2] == ["pr", "comment"]:
-            posted_at["at"] = fixture.time
-            fixture.reviews.append(review("coderabbitai[bot]", fixture.head, fixture.time + 2))
-        return await original(cmd, args, opts)
-
-    fixture.execute = execute
-    result = fixture.run()
-    assert "merged=1" in result["verdict"] and fixture.triggers() == [TRIGGER]
-    pushed = fixture.ledger()["watch"]["head_since"]
-    assert pushed["sha"] == "head-1" and posted_at["at"] - pushed["at"] < VERIFY_GRACE_MS
-
-
-def test_automatic_incremental_review_in_progress_is_not_duplicated(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    with_findings(fixture, 1)
-    original = fixture.execute
-
-    async def execute(cmd, args, opts):
-        if cmd == "git" and args[0] == "push":
-            fixture.runs["head-1"] = [check_run()]
-        return await original(cmd, args, opts)
-
-    def watch(req, nth):
-        if nth == 1:
-            fixture.findings().write_text("1. a.py:1 - T1 - coderabbit - fix\n")
-            return answer(watch_output(bot_reviews="open", verdict="fix"))
-        if nth == 4:
-            fixture.runs["head-1"] = [check_run("completed", "success", "Review completed")]
-            fixture.reviews.append(review("coderabbitai[bot]", "head-1", fixture.time))
-        return answer(watch_output(bot_reviews="pending" if nth < 4 else "resolved"))
-
-    fixture.execute = execute
-    fixture.scripts["watch"] = watch
-    result = fixture.run()
-    assert "merged=1" in result["verdict"] and fixture.triggers() == []
-    records = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-1"]
-    assert records["state"] == "completed" and records["attempts"] == 0
-
-
-def test_repeated_findings_get_a_new_round_per_head(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-
-    answered = []
-
-    def watch(req, nth):
-        head = fixture.head
-        reviewed = any(r["commit_id"] == head for r in fixture.reviews)
-        if len(fixture.triggers()) > len(answered) and not reviewed:
-            # CodeRabbit answers each trigger once: findings on head-1, none on head-2.
-            answered.append(head)
-            fixture.reviews.append(review("coderabbitai[bot]", head, fixture.time))
-            reviewed = True
-        if reviewed and head in ("head-0", "head-1") and nth <= 6:
-            fixture.findings().write_text(f"1. a.py:1 - T{nth} - coderabbit - fix\n")
-            return answer(watch_output(bot_reviews="open", verdict="fix"))
-        return answer(watch_output(bot_reviews="resolved" if reviewed else "pending"))
-
-    fixture.scripts["watch"] = watch
-    result = fixture.run()
-    assert "merged=1" in result["verdict"]
-    assert fixture.triggers() == [TRIGGER, TRIGGER]
-    records = fixture.ledger()["watch"]["verification"]["coderabbit"]
-    # head-1's request was answered with findings and superseded by the fix push.
-    assert [records[h]["state"] for h in ("head-1", "head-2")] == ["requested", "completed"]
-    assert fixture.counts["fix"] == 2
-
-
-def test_open_findings_or_red_ci_never_trigger(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    fixture.step["caps"] = ["max_fix_attempts"]
-    fixture.state["caps"]["max_fix_attempts"] = 1
-    with_findings(fixture, 99, ci="red")
-    result = fixture.run()
-    assert result["outputs"]["units"][0]["verdict"] == "exhausted"
-    assert fixture.triggers() == []
-
-
-def test_request_holds_the_merge_until_answered_then_stuck_policy_applies(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    fixture.head = "head-5"
-    fixture.step["caps"] = ["watch_minutes"]
-    fixture.state["caps"]["watch_minutes"] = 60
-    stuck_after = []
-
-    def watch(req, nth):
-        # The child sees silence: pending inside its grace, stuck afterwards.
-        if fixture.triggers():
-            stuck_after.append(nth)
-            return answer(watch_output(bot_reviews="stuck", verdict="wait"))
-        return answer(watch_output(bot_reviews="pending", verdict="wait"))
-
-    fixture.scripts["watch"] = watch
-    result = fixture.run()
-    assert "merged=1" in result["verdict"]
-    assert fixture.triggers() == [TRIGGER]
-    # Substitute review ran once, only after the request grace elapsed.
-    assert fixture.counts["review"] == 1
-    ledger = fixture.ledger()
-    assert ledger["watch"]["fallback_sha"] == "head-5"
-    requested_at = ledger["watch"]["verification"]["coderabbit"]["head-5"]["requested_at"]
-    assert fixture.time - requested_at >= REQUEST_GRACE_MS
-
-
-def test_rate_limit_retries_after_reset_but_not_every_poll(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    fixture.head = "head-5"
-    fixture.step["caps"] = ["watch_minutes"]
-    fixture.state["caps"]["watch_minutes"] = 90
-    original = fixture.execute
-
-    async def execute(cmd, args, opts):
-        result = await original(cmd, args, opts)
-        if cmd == "gh" and args[:2] == ["pr", "comment"] and len(fixture.triggers()) == 1:
-            fixture.issue_comments.append(
-                comment(
-                    "coderabbitai[bot]",
-                    "Rate limit exceeded. Please wait **10 minutes and 0 seconds** before requesting another review.",
-                    fixture.time + 1,
-                    cid=60,
-                )
-            )
-        if cmd == "gh" and args[:2] == ["pr", "comment"] and len(fixture.triggers()) == 2:
-            fixture.reviews.append(review("coderabbitai[bot]", "head-5", fixture.time + 2))
-        return result
-
-    fixture.execute = execute
-    posts = []
-
-    def watch(req, nth):
-        posts.append((nth, len(fixture.triggers())))
-        reviewed = any(r["commit_id"] == "head-5" for r in fixture.reviews)
-        return answer(
-            watch_output(bot_reviews="resolved" if reviewed else "pending", verdict="wait")
         )
-
-    fixture.scripts["watch"] = watch
+    elif setup == "rate-limited":
+        fixture.issue_comments.append(
+            comment("coderabbitai[bot]", "Rate limit exceeded. Please wait 5 minutes.", T0 + 1)
+        )
     result = fixture.run()
     assert "merged=1" in result["verdict"]
-    assert fixture.triggers() == [TRIGGER, TRIGGER]
-    record = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]
-    assert record["state"] == "completed" and record["attempts"] == 2
-    # Ten passes of one minute passed between the two requests: no per-poll spam.
-    first = next(n for n, k in posts if k == 1)
-    second = next(n for n, k in posts if k == 2)
-    assert second - first >= 10
+    assert fixture.posted() == []
+    assert fixture.counts["review"] == 1
+    assert fixture.ledger()["watch"]["reviewed_sha"] == "head-5"
+    expected = {
+        "silent": "silent",
+        "manual-required": "manual-required",
+        "rate-limited": "rate-limited",
+    }
+    assert fixture.records()["head-5"]["state"] == expected.get(setup, "absent")
 
 
-def test_explicit_skip_and_pause_are_respected(tmp_path):
-    for body in ("**Review skipped** Draft detected.", None):
-        root = tmp_path / ("skip" if body else "pause")
-        root.mkdir()
-        fixture = VerifyFixture(root)
-        cr_footprint(fixture, "head-0")
-        fixture.head = "head-5"
-        if body:
-            fixture.issue_comments.append(comment("coderabbitai[bot]", body, T0 + 1, cid=70))
-        else:
-            fixture.issue_comments.append(comment("alice", "@coderabbitai pause", T0 - 10, cid=71))
-        fixture.scripts["watch"] = lambda req, nth: answer(watch_output())
-        result = fixture.run()
-        assert "merged=1" in result["verdict"] and fixture.triggers() == []
-        record = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]
-        assert record["state"] == ("skipped" if body else "paused")
-
-
-def test_access_error_holds_the_merge_without_requesting(tmp_path):
+def test_configured_bot_findings_are_fixed_then_the_new_head_is_reviewed_locally(tmp_path):
     fixture = VerifyFixture(tmp_path)
     cr_footprint(fixture, "head-0")
-    fixture.head = "head-5"
-    fixture.api["repos/a/r/pulls/7/reviews"] = lambda args: command_result(
-        code=1, stderr="HTTP 403"
-    )
-    fixture.scripts["watch"] = lambda req, nth: answer(watch_output())
-    result = fixture.run()
-    assert "merged=0" in result["verdict"] and fixture.triggers() == []
-    assert not any(args[:2] == ["pr", "merge"] for cmd, args, _ in fixture.calls if cmd == "gh")
-    record = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]
-    assert record["state"] == "access-error" and "403" in record["detail"]
-
-
-def test_head_mismatch_and_closed_pr_never_request(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    fixture.head = "head-5"
-    original = fixture.execute
-
-    async def execute(cmd, args, opts):
-        if cmd == "gh" and args[:2] == ["pr", "view"] and "headRefOid" in args[-1]:
-            return command_result(json.dumps({**fixture.pr, "headRefOid": "remote-head"}))
-        return await original(cmd, args, opts)
-
-    fixture.execute = execute
-    fixture.scripts["watch"] = lambda req, nth: answer(watch_output())
-    fixture.run()
-    assert fixture.triggers() == []
-    assert (
-        fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]["state"]
-        == "head-mismatch"
-    )
-
-
-def test_ambiguous_post_is_reconciled_before_a_second_request(tmp_path):
-    fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
-    fixture.head = "head-5"
-    original = fixture.execute
-    calls = []
-
-    async def execute(cmd, args, opts):
-        if cmd == "gh" and args[:2] == ["pr", "comment"]:
-            calls.append(fixture.time)
-            if len(calls) == 1:
-                # The comment landed, but the CLI timed out before saying so.
-                fixture.issue_comments.append(comment("wise-bot", TRIGGER, fixture.time, cid=80))
-                return {"code": 1, "stdout": "", "stderr": "", "timed_out": True}
-        return await original(cmd, args, opts)
-
-    fixture.execute = execute
 
     def watch(req, nth):
-        if any(c["body"] == TRIGGER for c in fixture.issue_comments) and nth >= 5:
-            fixture.reviews.append(review("coderabbitai[bot]", "head-5", fixture.time))
-            return answer(watch_output())
-        return answer(watch_output(bot_reviews="pending", verdict="wait"))
+        if nth == 1:
+            fixture.findings().write_text("1. a.py:1 - T1 - coderabbit - fix\n")
+            return answer(watch_output(bot_reviews="open", verdict="fix"))
+        return answer(watch_output())
 
     fixture.scripts["watch"] = watch
     result = fixture.run()
-    assert "merged=1" in result["verdict"]
-    assert len(calls) == 1
-    record = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]
-    assert record["state"] == "completed" and record["attempts"] == 1 and record["comment_id"] == 80
+    assert "merged=1" in result["verdict"] and fixture.posted() == []
+    assert fixture.counts["fix"] == 1
+    # Only the pushed head is reviewed: head-0 never reached a settled pass.
+    assert fixture.counts["review"] == 1
+    assert fixture.ledger()["watch"]["reviewed_sha"] == "head-1"
+    assert fixture.records()["head-1"]["state"] == "silent"
 
 
-def test_resume_and_concurrent_trigger_do_not_duplicate(tmp_path):
+def test_local_review_findings_are_fixed_and_the_new_head_re_reviewed(tmp_path):
     fixture = VerifyFixture(tmp_path)
-    cr_footprint(fixture, "head-0")
+
+    def local(req, nth):
+        verdict = "changes-requested" if nth == 1 else "approve"
+        return answer({"findings": 2 - nth, "blocking": 2 - nth, "verdict": verdict})
+
+    fixture.scripts["review"] = local
+    result = fixture.run()
+    assert "merged=1" in result["verdict"] and fixture.posted() == []
+    assert fixture.counts["review"] == 2 and fixture.counts["fix"] == 1
+    assert fixture.ledger()["watch"]["reviewed_sha"] == "head-1"
+
+
+def test_local_review_waits_for_green_ci(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.scripts["watch"] = lambda req, nth: answer(
+        watch_output(ci="pending", verdict="wait") if nth < 3 else watch_output()
+    )
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert fixture.counts["review"] == 1
+    first_review = next(i for i, call in enumerate(fixture.child_calls) if call[0] == "review")
+    assert [call[0] for call in fixture.child_calls[:first_review]] == ["watch"] * 3
+
+
+def test_a_head_the_pre_push_review_approved_is_not_reviewed_again(tmp_path):
+    fixture = VerifyFixture(tmp_path)
     fixture.head = "head-5"
-    # Another watcher (or the previous incarnation of this run) already asked.
-    fixture.issue_comments.append(comment("someone-else", TRIGGER, T0 - 30_000, cid=90))
-    unit = {
-        "ref": "feat/x",
-        "branch": "feat/x",
-        "worktree": str(fixture.repo),
-        "base": "main",
-        "pr": fixture.pr,
-    }
     write_unit(
         fixture.run_dir,
         "feat/x",
         {
-            "unit": unit,
+            "unit": {
+                "ref": "feat/x",
+                "branch": "feat/x",
+                "worktree": str(fixture.repo),
+                "base": "main",
+                "pr": fixture.pr,
+            },
             "last_phase": "claim",
             "cleaned": False,
             "cursors": {},
@@ -576,63 +353,101 @@ def test_resume_and_concurrent_trigger_do_not_duplicate(tmp_path):
                 "pool": "subscription",
             },
             "caps": {},
-            "watch": {
-                "passes": 3,
-                "fix_attempts": 1,
-                "stable": 0,
-                "started": T0 - 120_000,
-                "head_since": {"sha": "head-5", "at": T0 - 100_000},
-            },
+            "review": {"converged": True, "cycles": 1, "sha": "head-5"},
         },
     )
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert fixture.counts["review"] == 0
+
+
+def test_stuck_bot_does_not_block_the_merge(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
+    fixture.scripts["watch"] = lambda req, nth: answer(
+        watch_output(bot_reviews="stuck", verdict="wait")
+    )
+    result = fixture.run()
+    assert "merged=1" in result["verdict"] and fixture.posted() == []
+    assert fixture.counts["review"] == 1
+
+
+def test_pending_bot_review_holds_the_merge_until_it_completes(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
+    fixture.runs["head-5"] = [check_run()]
+    merged_at = []
 
     def watch(req, nth):
-        if nth >= 2:
+        if nth == 4:
+            fixture.runs["head-5"] = [check_run("completed", "success", "Review completed")]
             fixture.reviews.append(review("coderabbitai[bot]", "head-5", fixture.time))
-            return answer(watch_output())
-        return answer(watch_output(bot_reviews="pending", verdict="wait"))
+        return answer(watch_output())
 
+    original = fixture.execute
+
+    async def execute(cmd, args, opts):
+        if cmd == "gh" and args[:2] == ["pr", "merge"]:
+            merged_at.append(fixture.counts["watch"])
+        return await original(cmd, args, opts)
+
+    fixture.execute = execute
     fixture.scripts["watch"] = watch
     result = fixture.run()
-    assert "merged=1" in result["verdict"] and fixture.triggers() == []
-    ledger = fixture.ledger()
-    assert ledger["watch"]["passes"] >= 5
-    record = ledger["watch"]["verification"]["coderabbit"]["head-5"]
-    assert record["state"] == "completed" and record["attempts"] == 0 and record["comment_id"] == 90
+    assert "merged=1" in result["verdict"] and fixture.posted() == []
+    assert merged_at and merged_at[0] >= 5
+    assert fixture.records()["head-5"]["state"] == "completed"
 
 
-def test_request_budget_is_per_head(tmp_path):
+def test_someone_elses_trigger_holds_the_merge_only_for_the_grace(tmp_path):
     fixture = VerifyFixture(tmp_path)
     cr_footprint(fixture, "head-0")
     fixture.head = "head-5"
     fixture.step["caps"] = ["watch_minutes"]
-    fixture.state["caps"]["watch_minutes"] = 200
+    fixture.state["caps"]["watch_minutes"] = 60
+    fixture.issue_comments.append(comment("alice", "@coderabbitai review", T0 + 1, cid=90))
+    result = fixture.run()
+    assert "merged=1" in result["verdict"] and fixture.posted() == []
+    record = fixture.records()["head-5"]
+    assert record["state"] == "requested" and record["comment_id"] == 90
+    assert fixture.time - record["requested_at"] >= REQUEST_GRACE_MS
+
+
+def test_access_error_holds_the_merge(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
+    fixture.api["repos/a/r/pulls/7/reviews"] = lambda args: command_result(
+        code=1, stderr="HTTP 403"
+    )
+    fixture.scripts["watch"] = lambda req, nth: answer(watch_output())
+    result = fixture.run()
+    assert "merged=0" in result["verdict"] and fixture.posted() == []
+    assert not any(args[:2] == ["pr", "merge"] for cmd, args, _ in fixture.calls if cmd == "gh")
+    record = fixture.records()["head-5"]
+    assert record["state"] == "access-error" and "403" in record["detail"]
+
+
+def test_head_mismatch_is_recorded(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
     original = fixture.execute
 
     async def execute(cmd, args, opts):
-        result = await original(cmd, args, opts)
-        if cmd == "gh" and args[:2] == ["pr", "comment"]:
-            fixture.issue_comments.append(
-                comment(
-                    "coderabbitai[bot]",
-                    "Rate limit exceeded. Please wait 5 minutes.",
-                    fixture.time + 1,
-                )
-            )
-        return result
+        if cmd == "gh" and args[:2] == ["pr", "view"] and "headRefOid" in args[-1]:
+            return command_result(json.dumps({**fixture.pr, "headRefOid": "remote-head"}))
+        return await original(cmd, args, opts)
 
     fixture.execute = execute
-    fixture.scripts["watch"] = lambda req, nth: answer(
-        watch_output(bot_reviews="pending", verdict="wait")
-    )
-    result = fixture.run()
-    assert result["outputs"]["units"][0]["verdict"] == "all-green"
-    assert len(fixture.triggers()) == VERIFY_MAX_ATTEMPTS
-    record = fixture.ledger()["watch"]["verification"]["coderabbit"]["head-5"]
-    assert record["attempts"] == VERIFY_MAX_ATTEMPTS and "budget exhausted" in record["detail"]
+    fixture.run()
+    assert fixture.posted() == []
+    assert fixture.records()["head-5"]["state"] == "head-mismatch"
 
 
-def test_human_comment_still_stands_the_run_down_before_any_request(tmp_path):
+def test_human_comment_still_stands_the_run_down(tmp_path):
     fixture = VerifyFixture(tmp_path)
     cr_footprint(fixture, "head-0")
     fixture.head = "head-5"
@@ -645,12 +460,289 @@ def test_human_comment_still_stands_the_run_down_before_any_request(tmp_path):
     fixture.scripts["watch"] = lambda req, nth: answer(watch_output(human_comment=True))
     result = fixture.run()
     assert result["outputs"]["units"][0]["verdict"] == "human-intervention"
-    assert fixture.triggers() == [] and "verification" not in fixture.ledger()["watch"]
+    assert fixture.posted() == [] and "verification" not in fixture.ledger()["watch"]
 
 
 def test_verify_reviews_without_a_pr_is_a_no_op():
     async def scenario():
         ctx = {"unit": {"pr": None}, "now": lambda: 0, "log": lambda line: None}
-        assert await verify_reviews(ctx, {}, "h", watch_output()) == {"hold": False, "states": {}}
+        assert await verify_reviews(ctx, {}, "h") == {"hold": False, "states": {}}
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "bot",
+    [
+        "@copilot",
+        "Copilot",
+        "copilot-pull-request-reviewer[bot]",
+        "coderabbitai[bot]",
+        "  CodeRabbitAI  ",
+        "@CODERABBITAI[BOT]",
+    ],
+)
+def test_request_review_never_attaches_a_review_bot(bot):
+    calls, lines = [], []
+
+    async def scenario():
+        async def execute(cmd, args, opts):
+            calls.append(args)
+            return command_result(json.dumps({"reviewRequests": []}))
+
+        ctx = {
+            "unit": {"pr": {"number": 7}},
+            "config": {"reviewers": [bot, "alice"]},
+            "log": lines.append,
+            "exec": execute,
+            "env": {},
+            "cwd": ".",
+        }
+        return await request_review_phase(ctx)
+
+    asyncio.run(scenario())
+    added = [args[-1] for args in calls if "--add-reviewer" in args]
+    assert added == ["alice"]
+    assert sum("review bot, never requested" in line for line in lines) == 1
+
+
+# --- first-review grace, heads and the local review gate ------------------
+
+
+def merge_times(fixture):
+    """Record the fixture clock at every `gh pr merge` call."""
+    times = []
+    original = fixture.execute
+
+    async def execute(cmd, args, opts):
+        if cmd == "gh" and args[:2] == ["pr", "merge"]:
+            times.append((fixture.time, args))
+        return await original(cmd, args, opts)
+
+    fixture.execute = execute
+    return times
+
+
+def merges(fixture):
+    return [args for cmd, args, _ in fixture.calls if cmd == "gh" and args[:2] == ["pr", "merge"]]
+
+
+def seed_ledger(fixture, **extra):
+    write_unit(
+        fixture.run_dir,
+        "feat/x",
+        {
+            "unit": {
+                "ref": "feat/x",
+                "branch": "feat/x",
+                "worktree": str(fixture.repo),
+                "base": "main",
+                "pr": fixture.pr,
+            },
+            "last_phase": "claim",
+            "cleaned": False,
+            "cursors": {},
+            "usage": {
+                "input": 0,
+                "output": 0,
+                "cache_read": 0,
+                "cache_write": 0,
+                "pool": "subscription",
+            },
+            "caps": {},
+            **extra,
+        },
+    )
+
+
+def test_bot_configured_by_its_config_file_holds_for_the_first_review_grace(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    (fixture.repo / ".coderabbit.yaml").write_text("reviews: {}\n")
+    times = merge_times(fixture)
+    result = fixture.run()
+    assert "merged=1" in result["verdict"] and fixture.posted() == []
+    assert times and times[0][0] - T0 >= FIRST_REVIEW_GRACE_MS
+    assert fixture.records()["head-5"]["state"] == "absent"
+    assert fixture.ledger()["watch"]["configured"] == {"coderabbit": True}
+    # The config file answers the question: no recent-PR lookup.
+    assert not any(args[:2] == ["pr", "list"] for cmd, args, _ in fixture.calls if cmd == "gh")
+
+
+def test_bot_configured_by_a_recent_pr_review_holds_for_the_grace(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    fixture.failures[("gh", "pr", "list", "--state")] = command_result(
+        json.dumps([{"reviews": [{"author": {"login": "coderabbitai"}}]}])
+    )
+    times = merge_times(fixture)
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert times and times[0][0] - T0 >= FIRST_REVIEW_GRACE_MS
+    assert fixture.ledger()["watch"]["configured"] == {"coderabbit": True}
+    listed = [args for cmd, args, _ in fixture.calls if cmd == "gh" and args[:2] == ["pr", "list"]]
+    assert len(listed) == 1
+
+
+def test_unconfigured_absent_bot_does_not_hold(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    times = merge_times(fixture)
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert times and times[0][0] - T0 < FIRST_REVIEW_GRACE_MS
+    assert fixture.ledger()["watch"]["configured"] == {"coderabbit": False}
+
+
+def test_silent_bot_with_a_footprint_holds_within_the_grace(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
+    times = merge_times(fixture)
+    details = []
+
+    def watch(req, nth):
+        record = fixture.ledger().get("watch", {}).get("verification", {})
+        details.append(record.get("coderabbit", {}).get("head-5", {}).get("detail"))
+        return answer(watch_output())
+
+    fixture.scripts["watch"] = watch
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert times and times[0][0] - T0 >= FIRST_REVIEW_GRACE_MS
+    assert "waiting for its first review of this head" in details
+    assert fixture.records()["head-5"]["state"] == "silent"
+
+
+def test_an_empty_head_never_merges_nor_skips_the_review(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    seed_ledger(fixture, review={"converged": True, "cycles": 1})
+    blind = {"left": 3}
+    original = fixture.execute
+
+    async def execute(cmd, args, opts):
+        if cmd == "git" and args == ["rev-parse", "HEAD"] and blind["left"]:
+            blind["left"] -= 1
+            fixture.calls.append((cmd, args, opts))
+            return command_result(code=1, stderr="fatal: bad HEAD")
+        return await original(cmd, args, opts)
+
+    fixture.execute = execute
+    result = fixture.run()
+    assert "merged=1" in result["verdict"] and blind["left"] == 0
+    assert fixture.counts["review"] == 1
+    assert fixture.ledger()["watch"]["reviewed_sha"] == "head-5"
+    assert merges(fixture) and all(args[-1] == "head-5" for args in merges(fixture))
+
+
+def test_an_unreadable_head_never_merges(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.failures[("git", "rev-parse", "HEAD")] = command_result(code=1, stderr="fatal")
+    result = fixture.run()
+    assert "merged=0" in result["verdict"]
+    assert merges(fixture) == [] and fixture.counts["review"] == 0
+    assert fixture.counts["watch"] == 0
+
+
+def test_resume_on_a_head_the_watch_already_reviewed_merges_without_a_review(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    seed_ledger(
+        fixture, watch={"passes": 1, "fix_attempts": 0, "stable": 0, "reviewed_sha": "head-5"}
+    )
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert fixture.counts["review"] == 0
+
+
+def test_a_stale_pre_push_review_sha_reviews_the_new_head_once(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    seed_ledger(fixture, review={"converged": True, "cycles": 1, "sha": "head-4"})
+    result = fixture.run()
+    assert "merged=1" in result["verdict"]
+    assert fixture.counts["review"] == 1
+    assert fixture.ledger()["watch"]["reviewed_sha"] == "head-5"
+
+
+@pytest.mark.parametrize(
+    "outcome,reason",
+    [
+        (
+            {"text": "", "usage": empty_usage(), "exit": "error", "error": "child crashed"},
+            "local review failed",
+        ),
+        (answer({"verdict": "bogus"}), "unusable structured output"),
+    ],
+)
+def test_a_failed_local_review_never_merges(tmp_path, outcome, reason):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    fixture.scripts["review"] = lambda req, nth: outcome
+    result = fixture.run()
+    unit = result["outputs"]["units"][0]
+    assert unit["verdict"] == "all-green" and reason in unit["reason"]
+    assert merges(fixture) == []
+
+
+def test_open_bot_reviews_on_a_reviewed_head_go_to_the_fix_path(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    seed_ledger(fixture, review={"converged": True, "cycles": 1, "sha": "head-5"})
+
+    def watch(req, nth):
+        if nth == 1:
+            fixture.findings().write_text("1. a.py:1 - T1 - coderabbit - fix\n")
+            return answer(watch_output(bot_reviews="open", verdict="fix"))
+        return answer(watch_output())
+
+    fixture.scripts["watch"] = watch
+    result = fixture.run()
+    assert "merged=1" in result["verdict"] and fixture.counts["fix"] == 1
+    assert all(args[-1] == "head-1" for args in merges(fixture))
+    assert fixture.ledger()["watch"]["reviewed_sha"] == "head-1"
+
+
+def test_pending_bot_reviews_never_merge(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    fixture.head = "head-5"
+    seed_ledger(fixture, review={"converged": True, "cycles": 1, "sha": "head-5"})
+    fixture.scripts["watch"] = lambda req, nth: answer(
+        watch_output(bot_reviews="pending", verdict="wait")
+    )
+    result = fixture.run()
+    assert result["outputs"]["units"][0]["verdict"] == "all-green"
+    assert merges(fixture) == []
+
+
+def test_a_closed_pr_is_recorded_as_closed(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
+    original = fixture.execute
+
+    async def execute(cmd, args, opts):
+        if cmd == "gh" and args[:2] == ["pr", "view"] and "headRefOid" in args[-1]:
+            return command_result(
+                json.dumps({**fixture.pr, "headRefOid": "head-5", "state": "CLOSED"})
+            )
+        return await original(cmd, args, opts)
+
+    fixture.execute = execute
+    fixture.run()
+    record = fixture.records()["head-5"]
+    assert record["state"] == "closed" and record["detail"] == "PR CLOSED"
+
+
+def test_a_rate_limited_bot_records_when_the_limit_resets(tmp_path):
+    fixture = VerifyFixture(tmp_path)
+    cr_footprint(fixture, "head-0")
+    fixture.head = "head-5"
+    fixture.issue_comments.append(
+        comment("coderabbitai[bot]", "Rate limit exceeded. Please wait 5 minutes.", T0 + 1)
+    )
+    fixture.run()
+    record = fixture.records()["head-5"]
+    assert record["state"] == "rate-limited"
+    assert record["detail"].startswith("rate limited; resets at ")

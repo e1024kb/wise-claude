@@ -5337,7 +5337,7 @@ def test_bundled_and_v1_definitions():
         "example-workflow": 8,
         "ticket-auto": 7,
         "impl-plan-auto": 4,
-        "code-review": 12,
+        "code-review": 18,
         "pr-watch": 3,
         "impl-plan": 3,
     }

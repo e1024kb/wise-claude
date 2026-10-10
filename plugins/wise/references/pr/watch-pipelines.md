@@ -70,8 +70,8 @@ watch loop reads all three (see
 1. `gh pr view --json comments` — top-level issue comments (bot
    summaries live here).
 2. `gh api repos/:/:/pulls/:n/comments` — line-level review
-   comments (Copilot and CodeRabbit drop actionable suggestions
-   here).
+   comments (Copilot and CodeRabbit, when configured on the repo,
+   drop actionable suggestions here).
 3. `gh api repos/:/:/pulls/:n/reviews` — reviews with states
    (`CHANGES_REQUESTED` on any review means work to do even if
    the top-level state is green).
@@ -203,7 +203,14 @@ skipped, or fixed-and-re-polled). This section is what the
 watch loop spends most of its attention on in practice —
 humans, Copilot, CodeRabbit, and SonarCloud each get their
 own queue, their own top-level gate, and their own verdict
-line.
+line. Then §4e runs wise's own local review of the head.
+
+The bot queues handle only items a bot configured on the repo
+posted on its own. Wise never triggers or requests a remote
+review: no `gh pr edit --add-reviewer copilot-pull-request-reviewer`,
+no GraphQL `requestReviews` for a bot, no `@coderabbitai review` /
+`full review` comment, no re-request after a push. A repo without
+a bot simply has an empty queue for it.
 
 The top-level gate for each queue is:
 
@@ -364,6 +371,9 @@ move to §4b.
 Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-bot-reviews.md
 ```
 
+Runs on the items Copilot posted on its own; this queue never
+requests Copilot.
+
 Context: the usual + `bot_filter=copilot` + `bot_display_name=Copilot`.
 Emits `BOT-REVIEWS: … bot=copilot` — on `handled`, includes
 `committed=N resolved=M` (Fix / Fix-using-suggestion / Dismiss
@@ -372,21 +382,16 @@ all auto-resolve the thread on GitHub in Phase C; see
 
 #### 4c. CodeRabbit queue
 
-First make sure the current head has its verification review. Read
+Runs on the items CodeRabbit posted on its own; this queue never
+posts a trigger. Read
 `${CLAUDE_PLUGIN_ROOT}/references/pr/review-verification.md` and apply
-its §1 state table to the PR head: when the state is `silent` past the
-grace, `manual-required`, or `rate-limited` past the reset, and §2's
-conditions hold (CI not red, the previous queues' push landed, no
-request recorded for this head in `$SCRATCH/wise-pr-verify-<pr_number>`),
-post the one `@coderabbitai review` comment and record
-`<head> <comment-url> <time>` there. Then wait for the answer with the
-§1 poll (`gh pr checks --watch` returns when the CodeRabbit check run
-settles; re-read the state table on each return, at most 15 minutes):
-`completed` continues into the queue below on the new findings;
-`pending` / `requested` keep waiting; `skipped`, `failed`, `paused`,
-`absent` or no answer continue without a review and add
-`coderabbit-unverified` to the §7 markers. Never post twice for the
-same head, never on every poll.
+its §1 state table to the PR head, observe only: while the state is
+`pending`, `requested` (a trigger someone else posted, at most 15
+minutes old), `access-error`, or `absent` / `silent` for a configured
+bot within 10 minutes of the head appearing (the first-review grace,
+§2), wait with the §1 poll and re-read the table on each return; `completed` continues into the queue below on
+the new findings; every other state continues at once and is only
+noted in the iteration log.
 
 ```
 Read: ${CLAUDE_PLUGIN_ROOT}/references/pr/handle-bot-reviews.md
@@ -408,13 +413,66 @@ the Sonar queue has no Skip, so a successful fetch always ends
 `all-clear` or `handled` (every issue Fixed/Accepted);
 `unchecked` covers only a fetch failure.
 
-#### 4e. Re-poll after any committed batch
+#### 4e. Local review
 
-If any of §4a–§4d emitted `handled committed=<N>` (meaning code
+Wise's own review of the PR head: the 3-lens code review team
+(correctness, security, tests). It replaces any request to a
+remote review bot. Run it when every condition holds:
+
+- CI is green (every non-skipped check `SUCCESS`),
+- none of §4a-§4d committed in this iteration and no bot item is
+  waiting for a decision,
+- the PR head has no local review yet:
+
+  ```bash
+  HEAD_SHA="$(gh pr view <pr_number> --json headRefOid --jq .headRefOid)"
+  grep -qx "$HEAD_SHA" "$SCRATCH/wise-pr-reviewed-<pr_number>" 2>/dev/null && echo reviewed
+  ```
+
+Review the PR head, not a stale local checkout. When
+`git rev-parse HEAD` differs from `HEAD_SHA`, run `git fetch origin
+<current_branch>` and `git merge --ff-only origin/<current_branch>`.
+If the fast-forward fails (local commits the PR does not have), stop
+and report the divergence as a review error (§6) rather than reviewing
+a different tree.
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` and run
+its pass on the PR's change set (`origin/<pr_base>...HEAD_SHA`): the
+3-lens panel (subagents, or the lenses inline when no subagent tool
+is available), `profile` from `${CLAUDE_PLUGIN_ROOT}/references/profile-read.md`,
+reviewers read-only, then curate. Record the head once the panel
+returns: `echo "$HEAD_SHA" >> "$SCRATCH/wise-pr-reviewed-<pr_number>"`.
+
+No kept findings → announce `Local review: no findings on
+<short-sha>` and continue to §4f. Otherwise list the kept findings
+(`file:line`, severity, one line each) and ask one
+`AskUserQuestion`:
+
+- question: `Local review kept <N> finding(s) on <short-sha>. Apply them?`
+- header: `Review`
+- options:
+  - `Fix all (recommended)` - `Apply every kept finding, commit, push.`
+  - `Walk step-by-step` - `Decide Fix / Skip per finding.`
+  - `Skip` - `Apply nothing; report the findings as left for you.`
+
+Apply the chosen fixes, then commit + push through
+`commit-from-fix.md` with `fix_kind=other`. Skipped findings count
+toward the §7 `local-review-skipped=<N>` marker. A commit counts
+as `handled committed=<N>` for §4f.
+
+A new head (any push, from wise or anyone else) needs a new local
+review before §5 can finish. A review error (`code-review errored:
+…`) is surfaced and ends the loop (§6).
+
+#### 4f. Re-poll after any committed batch
+
+If any of §4a–§4e emitted `handled committed=<N>` (meaning code
 was pushed), re-enter §1 before declaring green — the push may
-have kicked a new CI run and a new pass from the bots. Run §4
-again only for the queues that had items in the LAST iteration
-(no need to re-query queues that were `all-clear`).
+have kicked a new CI run, a new pass from a configured bot, and
+needs a new local review. Run every §4 queue again on the new head,
+including queues that were `all-clear` (a configured bot may review
+the new head with new items), and always re-run the §4e local review
+for the new head.
 
 If none of the queues committed anything (all `all-clear` /
 `partial` / `unchecked`), proceed to §5.
@@ -446,7 +504,8 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
    line with the `stability-capped` marker.
 2. Announce (first round only)
    `All checks green — holding <POST_GREEN_STABILITY/60> min for late comments…`.
-   Record the current head: `STABLE_SHA="$(git rev-parse HEAD)"`.
+   Record the PR head when the window starts:
+   `STABLE_SHA="$(gh pr view <pr_number> --json headRefOid -q .headRefOid)"`.
    The §1 `LAST_SEEN` watermark (`"$SCRATCH/wise-pr-lastcomment-<pr_number>"`)
    already marks the last comment you saw.
 3. `sleep POST_GREEN_STABILITY`.
@@ -459,13 +518,20 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
    - a new **bot** review item arrived that a §4 queue classifier
      would surface (re-running §4 for the affected queues is the
      existing mechanism),
-   - a verification review requested in §4c is still `requested` or
-     `pending` for `STABLE_SHA` (the head is not verified yet),
-   - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone
-     pushed).
+   - the §4e local review has not run for `STABLE_SHA` (it is not
+     in `"$SCRATCH/wise-pr-reviewed-<pr_number>"`),
+   - a configured bot's own review is still `pending`, or
+     `requested` within 15 minutes, for `STABLE_SHA`
+     (`review-verification.md` §2),
+   - a configured bot is `absent` or `silent` for `STABLE_SHA` within
+     10 minutes of that head appearing (the first-review grace,
+     `review-verification.md` §2),
+   - a freshly fetched `gh pr view <pr_number> --json headRefOid -q
+     .headRefOid` no longer equals `STABLE_SHA` (someone pushed).
+     Compare before counting the window clean.
 5. **Dirty window** → `CLEAN_STREAK=0`, re-enter §1 (full poll →
    §3 dispatch → §4 queues → back here). Any §4 commit re-greens via
-   the normal §4e re-poll before the window restarts.
+   the normal §4f re-poll before the window restarts.
 6. **Clean window** → `CLEAN_STREAK=CLEAN_STREAK+1`. If
    `CLEAN_STREAK < STABILITY_CLEAN_TARGET`, loop to step 1 for the
    next consecutive window. Otherwise the PR is settled — finish:
@@ -483,6 +549,7 @@ Any of these conditions exits the loop:
 
 - User picked `Abort watch` anywhere in §3 or §4.
 - Any queue fragment emitted `aborted reason=…`.
+- The §4e local review errored (`reason=local-review-errored`).
 - A `git push` inside `commit-from-fix.md` returned `COMMIT: failed`.
 - More than 10 loop iterations without progress (a safety catch —
   if we're looping without reducing the failure count, something
@@ -526,9 +593,9 @@ WATCH: partial url=<url> accepted=<comma-separated-check-names>
 - The §5 stability loop hit `STABILITY_MAX_ROUNDS` without two
   consecutive clean windows (reviewers still active). Marker:
   `stability-capped`.
-- §4c could not get CodeRabbit's verification review of the final
-  head (skipped, failed, paused, rate-limited past the budget, or
-  unanswered). Marker: `coderabbit-unverified`.
+- The §4e local review left findings unapplied (user picked
+  `Skip`, or skipped findings in the walk). Marker:
+  `local-review-skipped=<N>`.
 
 When emitting `partial`, `accepted` should include ALL
 applicable markers. Examples:

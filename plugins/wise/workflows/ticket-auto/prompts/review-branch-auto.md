@@ -18,8 +18,8 @@ below). It is the heavyweight tier of the plugin's two-tier quality
 model; the lightweight simplify tier already ran on each individual
 commit.
 
-Prose form of the gate, read by the PR watcher's review fallback
-(`review-fallback-auto.md`); the standalone gate is the `code-review`
+Prose form of the gate, also read by the PR watcher's local review of
+each new head (`review-fallback-auto.md`); the standalone gate is the `code-review`
 workflow (`workflows/code-review/`). Routine work is decision-free: the
 reviewers run on the current model and no picker opens.
 
@@ -27,7 +27,7 @@ reviewers run on the current model and no picker opens.
 
 - `worktree` — absolute path to the git working tree to review (a ticket
   worktree, when called from `ticket-auto`; the repo toplevel for the
-  review fallback).
+  watcher's local review).
 - `base` — **optional** base branch to diff against. When absent, detect
   the repo's default branch (below).
 - `ticket_ref`, `plan_path` — **optional** context; when supplied, weigh
@@ -43,7 +43,7 @@ reviewers run on the current model and no picker opens.
   flag anything that violates a stated guardrail, and do not "fix"
   something the guidance deliberately chose.
 - `fixer` — **optional** `self` (default) or `delegate`. `self` (the
-  review fallback) → the review panel applies its
+  watcher's local review) → the review panel applies its
   own bounded fixes and commits them, exactly as before. `delegate`
   (`ticket-auto`'s review↔fix loop) → the panel REPORTS its bounded findings
   and a verdict but applies NOTHING; the caller hands the fixing to a separate
@@ -54,7 +54,7 @@ reviewers run on the current model and no picker opens.
   per-finding verification pass (each kept finding adversarially
   re-checked before apply). `ticket-auto` always pins `medium` (the
   review gate never follows the run's budget profile down or up); the
-  review fallback pins it too.
+  watcher's local review takes its caller's `profile`.
 - (No model input. Reviewers run on the current model; the route -
   parallel subagents or sequential inline lenses - is picked by
   `code-review-pass.md` from the session's tools.)

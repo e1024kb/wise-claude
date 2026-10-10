@@ -7,9 +7,10 @@
 Autonomous ticket -> PR pipeline, `version: 2`, run by the TS engine.
 For each ticket the engine's `units` step claims a branch and worktree,
 plans the ticket, implements the plan, converges the branch through a
-review / fix loop, pushes, opens a PR, requests the bot reviews,
-watches CI and the bots, fixes what they raise, and merges once the PR
-is green and quiet. Pre-flight asks current tree or new worktree before
+review / fix loop, pushes, opens a PR, watches CI and any review bot
+configured on the repo, reviews each new head locally, fixes what they
+raise, and merges once the PR is green and quiet. It never triggers a
+remote review. Pre-flight asks current tree or new worktree before
 the ticket input that determines branch names. New worktrees are the default:
 a merged PR loses its separate worktree and local branch. Current-tree mode
 runs tickets sequentially and always retains the checkout and its branches.
@@ -29,7 +30,7 @@ The per-ticket loop is engine code (`plugins/wise/engine/wise_engine/units.py`,
 design in `docs/wise/research-ts-engine.md` P4). The five model phases
 run from the engine's prompt templates under
 `plugins/wise/engine/wise_engine/prompts/units/`; this workflow declares only
-the phase -> tuning-group binding, the unit caps, the reviewers,
+the phase -> tuning-group binding, the unit caps,
 the intake and the report. The prompt fragments still under `prompts/`
 (`implement-plan.md`, `review-branch-auto.md`, `watch-pipelines-auto.md`,
 ...) are shared routines the standalone `/wise-*-auto` skills and
@@ -39,7 +40,7 @@ Those shared skill procedures follow
 [model fallback](../../references/workflow-host-control.md#model-fallback) when
 a requested model or native agent route is unavailable. The main harness asks
 through GUI/TUI using its verified model options before substitution; children
-relay the question. Review consent, fresh-reviewer guarantees and merge gates
+relay the question. Fresh-reviewer guarantees and merge gates
 remain separate. This does not change the engine pipeline's selected models or
 automatically restart failed units.
 
@@ -99,8 +100,8 @@ Inside `process`, per ticket and in this order:
 | `plan` | model | `plan` | Reads the ticket (context body first, else the tracker), audits the worktree, writes `<run-dir>/plans/PLAN-<ref>.md`. `no-access` or `insufficient-context` (with a `BLUEPRINT-<ref>.md`) fails the unit. |
 | `implement` | model | `implement` | Task waves, one atomic commit per task, validation after each commit. `done = 0` or no commits fails the unit. |
 | `review` <-> `fix` | model | `review` / `fix` | 3-lens review of `origin/<base>..HEAD` writes a findings file; the fixer applies it (resuming the reviewer's session under `resume: unit` when both run on the same harness, else fresh); repeats up to `max_review_cycles`, then pushes anyway with `converged: false`. |
-| `push`, `pr`, `request-review` | code | - | Before the first push the branch is rebased onto the freshly fetched base (never after it is on origin, so no force push; a conflict fails the unit), and a numbered file it adds (`0042_x.sql`, `V42__x.sql`, `0007-adr.md`) whose number the base already uses in that directory goes to one `fix` pass to renumber; a collision that survives fails the unit. Then `git push -u`, PR from the repo template or a compact body, `gh pr edit --add-reviewer` for each login in `reviewers`. Skipped without a GitHub remote: `none` skips push too, `other` still pushes; the unit ends `no-pr`. |
-| `watch` (+ `fix`, `push`) | model | `watch` / `fix` | One pass per poll: CI state, human comments, bot reviews. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`); a stuck bot gets the substitute review once per head; a human comment stands the loop down only when GitHub shows a `User`-type, non-bot commenter since the watch started (bot-only threads continue); `watch_stable_passes` consecutive green passes merge (squash, then merge commit). `merged` is recorded only when `gh pr view` reports `MERGED`. |
+| `push`, `pr`, `request-review` | code | - | Before the first push the branch is rebased onto the freshly fetched base (never after it is on origin, so no force push; a conflict fails the unit), and a numbered file it adds (`0042_x.sql`, `V42__x.sql`, `0007-adr.md`) whose number the base already uses in that directory goes to one `fix` pass to renumber; a collision that survives fails the unit. Then `git push -u`, PR from the repo template or a compact body, `gh pr edit --add-reviewer` for each human login the workflow explicitly lists in `reviewers` (review bots are always skipped; this workflow lists none). Skipped without a GitHub remote: `none` skips push too, `other` still pushes; the unit ends `no-pr`. |
+| `watch` (+ `fix`, `push`, `review`) | model | `watch` / `fix` / `review` | One pass per poll: CI state, human comments, review threads from bots configured on the repo. Red CI or open bot items go to `fix` then `push` (each counts against `max_fix_attempts`). The engine never posts a comment or requests a review: it only observes a configured bot's state for the head (`references/pr/review-verification.md`) and holds the merge while that bot's own review is running or a trigger someone else posted is unanswered (at most 15 minutes); a silent or stuck bot blocks nothing. Once per new head, when CI is green and no bot item is open, the `review` group runs the local review (the 3-lens panel, same prompt as the pre-push gate; a converged pre-push review already covers the first pushed head): `changes-requested` goes to `fix` then `push` (counts against `max_fix_attempts`), `approve` covers the head. A human comment stands the loop down only when GitHub shows a `User`-type, non-bot commenter since the watch started (bot-only threads continue). The merge needs CI green, the local review approved for the head and no open bot item, for `watch_stable_passes` consecutive passes (squash, then merge commit). `merged` is recorded only when `gh pr view` reports `MERGED`. |
 | `cleanup` | code | - | Only on `merged`: remove a separate worktree and its local branch. Always retain the current tree and its branches. |
 
 On the `cursor` harness, `implement` and `fix` rewrite the commits they
@@ -195,7 +196,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 | `ensure-access` | `agent` (`support` group) | Reads `wise_context("ticket")` first; probes a granted CLI (`gh`, `glab`, `linear`, or `jira`) or public URL for tickets whose tracker identity is established. Custom or private tracker content must be preloaded into run context. Ambiguous bare IDs fail closed. Emits `access` (`ok` / `blocked`) and `detail`. |
 | `expand-tickets` | `agent` (`support` group) | `when: access == 'ok'`. Follows `references/epic-expansion.md`. Emits `items` (JSON specs: ref, url, title, state, parent, repo, depends_on, serialize), `item_count`, `fanout` (`yes` / `no`), `expansion` (`ok` / `blocked`), `resolved` (the list the log shows), `expansion_detail`. Writes nothing to a tracker. |
 | `require-items` | `bash` | Prints the resolved list; fails the run when the expansion is blocked or no open ticket is left. |
-| `process` | `units` | `pipeline: ticket`, `items: {{items}}`, `when: access == 'ok'`. The item specs drive the dependency DAG, `concurrency` and `on_child_failure`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `reviewers: [copilot-pull-request-reviewer]`; `resume: unit`. Emits `units` (one row per ticket, input order; a dependency-blocked row carries `blocked_by`). |
+| `process` | `units` | `pipeline: ticket`, `items: {{items}}`, `when: access == 'ok'`. The item specs drive the dependency DAG, `concurrency` and `on_child_failure`. Groups `plan`, `implement`, `review`, `fix`, `watch`; caps from `profiles.medium`; `resume: unit`. Emits `units` (one row per ticket, input order; a dependency-blocked row carries `blocked_by`). |
 | `report` | `agent` (`support` group) | `trigger-rule: all-done`. Renders the `units` rows, verifies every PR with `gh pr view`, writes `<run-dir>/report.md` (table, why each non-merged unit stopped, `git worktree remove` commands for separate worktrees only, usage per unit; for `fanout: yes` the epic table first). Emits `merged`, `open`, `failed`, `no_pr`, `report_path`. |
 
 ## Inputs
@@ -249,9 +250,6 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
   expansion routine `expand-tickets` follows.
 - `docs/wise/research-ts-engine.md` P4: the `units` contract.
 
-The shared `watch-pipelines-auto.md` prompt used by `/wise-pr-watch-auto` requires
-main-harness consent before each substitute review, preferring blocking or
-asynchronous GUI/TUI controls, then rendered MCP forms, with text fallback when
-neither structured route is usable. Children relay through Wise/the parent.
-Declining or an unavailable answer channel stops that watch without review or
-merge.
+The shared `watch-pipelines-auto.md` prompt never triggers a remote review
+and asks no question: it runs the local review (`review-fallback-auto.md`,
+the 3-lens panel) once per new PR head.

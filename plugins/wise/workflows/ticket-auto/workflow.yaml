@@ -3,8 +3,9 @@ name: ticket-auto
 description: >-
   Autonomous ticket -> PR pipeline. For each ticket the engine claims a
   branch in the selected tree, plans it, implements the plan, converges it
-  through a review / fix loop, pushes, opens a PR, requests the bot
-  reviews, watches CI and the bots, fixes what they raise, and merges
+  through a review / fix loop, pushes, opens a PR, watches CI and
+  any review bot the repo runs, reviews each new head locally, fixes
+  what they raise, and merges
   once the PR is green and quiet. No prompts after launch: pre-flight
   asks the per-phase harness, model and effort, and the inputs. One
   branch + PR per ticket; a merged PR loses its separate worktree and
@@ -18,12 +19,12 @@ project-selection: current
 
 # The per-ticket loop is the engine's `units` step (docs/wise/
 # research-ts-engine.md P4): claim, worktree, plan, implement, review
-# <-> fix, push, pr, request-review, watch (fix, push, substitute
+# <-> fix, push, pr, request-review, watch (fix, push, local
 # review, merge) and cleanup run as code; the five model phases spawn
 # one harness child each from the engine's prompt templates under
 # engine/src/prompts/units/. This file declares only what the engine
 # cannot know: the phase -> tuning-group binding, the unit caps, the
-# reviewers, the intake and the report.
+# intake and the report.
 #
 # control-mode: synchronous, no gates. worktree: current, the units step
 # uses worktree_mode to select the current tree or a worktree per ticket.
@@ -48,10 +49,10 @@ tuning:
       label: "Fix pass: applies review findings, CI failures and bot review threads as commits (code changes)"
       default: { harness: claude, model: opus, effort: high }
     - id: review
-      label: "Review gate: read-only 3-lens review before push (correctness, security, tests) and the substitute review when a bot is stuck"
+      label: "Review gate: read-only 3-lens review (correctness, security, tests) before push and on each new PR head"
       default: { harness: claude, model: opus, effort: high }
     - id: watch
-      label: "Watch pass: polls CI and bot reviews every minute, classifies the PR state (cheap, frequent)"
+      label: "Watch pass: polls CI and the repo's own review bots every minute, classifies the PR state (cheap, frequent)"
       default: { harness: claude, model: haiku, effort: medium }
     - id: support
       label: "Support: access checks and the end-of-run report (mechanical, no code changes)"
@@ -327,9 +328,6 @@ steps:
     # engine owns the loops, the caps and the merge.
     groups: { plan: plan, implement: implement, review: review, fix: fix, watch: watch }
     caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
-    # Copilot is attached with `gh pr edit --add-reviewer`; the watch
-    # pass triggers CodeRabbit by comment when the repo has it.
-    reviewers: [copilot-pull-request-reviewer]
     # E8: the fixer resumes the reviewer's session inside a review cycle
     # (same harness only; otherwise the fixer starts clean).
     resume: unit
