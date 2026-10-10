@@ -1,12 +1,12 @@
-"""Review verification for the watch loop.
+"""Review-bot observation for the watch loop.
 
-Discovers what a review provider (CodeRabbit today; the table is generic)
-did for the PR head from evidence tied to that head - reviews with the
-head's `commit_id`, check runs on the head, status notices and trigger
-comments newer than the head - and requests ONE incremental verification
-review per head once the fix batch is done. State lives in the unit
-ledger under `watch.verification[<provider>][<head>]`, so polls, resume
-and concurrent watchers never post twice for the same head.
+Discovers what a review bot configured on the repository (CodeRabbit
+today; the table is generic) did for the PR head from evidence tied to
+that head - reviews with the head's `commit_id`, check runs on the head,
+status notices and trigger comments newer than the head. Observe only:
+wise never posts a trigger or requests a bot review; its own local
+review covers each head. The state lives in the unit ledger under
+`watch.verification[<provider>][<head>]` for the report.
 
 The prose twin for the interactive watcher is
 `references/pr/review-verification.md`; keep the two in step.
@@ -22,16 +22,8 @@ from typing import Any
 from ..yaml_compat import js_string
 from .common import Json, NETWORK_CMD_TIMEOUT_MS, err_text, gh, git, json_of, ok
 
-# An automatic review shows its check run within a minute of the push;
-# wait this long on a silent head before assuming nothing is coming.
-VERIFY_GRACE_MS = 120_000
-# Trigger comments per head, whatever the outcome of each.
-VERIFY_MAX_ATTEMPTS = 3
-# Backoff after a rejected or failed request when the provider gave no
-# reset time; the remaining wall-clock budget bounds it in the loop.
-VERIFY_BACKOFF_MS = (300_000, 900_000, 1_800_000)
-# A request is answered by the provider within this window or it is not
-# answered at all; the watch phase's stuck policy takes over after it.
+# A trigger someone else posted is answered within this window or not at
+# all; the merge waits for it no longer than this.
 REQUEST_GRACE_MS = 15 * 60_000
 # How many heads a provider's history keeps in the ledger.
 HISTORY_HEADS = 5
@@ -44,7 +36,6 @@ PROVIDERS: dict[str, Json] = {
         "check_names": ("coderabbit",),
         "app_slugs": ("coderabbitai",),
         "handle": "@coderabbitai",
-        "trigger": "@coderabbitai review",
         # Comment commands, matched as whole commands at the start of a body.
         "review_commands": ("review", "full review"),
         "pause_commands": ("pause",),
@@ -201,7 +192,7 @@ def _provider_run(spec: Json, run: Json) -> bool:
     )
 
 
-def classify(spec: Json, evidence: Json, head: str, head_since: float, record: Json) -> Json:
+def classify(spec: Json, evidence: Json, head: str, head_since: float) -> Json:
     """The provider's state for `head`: completed | pending | requested |
     rate-limited | skipped | failed | paused | manual-required | silent | absent."""
     logins = spec["logins"]
@@ -246,13 +237,10 @@ def classify(spec: Json, evidence: Json, head: str, head_since: float, record: J
     # No head-bound evidence: read the conversation since the head appeared,
     # latest item first. A trigger newer than every provider notice is an
     # unanswered request; a notice newer than the trigger answers it.
-    since = head_since
-    if record.get("state") == "unknown" and record.get("attempted_at") is not None:
-        since = min(since, record["attempted_at"] - 60_000)
     events: list[tuple[float, str, Json]] = []
     for row in evidence["comments"]:
         stamp = _ms(row.get("created_at"))
-        if stamp is None or stamp < since:
+        if stamp is None or stamp < head_since:
             continue
         body = row.get("body") or ""
         if _login(row) in logins:
@@ -283,10 +271,6 @@ def classify(spec: Json, evidence: Json, head: str, head_since: float, record: J
     return {"state": "silent" if footprint else "absent", "footprint": footprint}
 
 
-def _backoff(attempts: int) -> float:
-    return VERIFY_BACKOFF_MS[min(max(attempts, 1), len(VERIFY_BACKOFF_MS)) - 1]
-
-
 async def commit_time_ms(ctx: Json) -> float | None:
     result = await git(
         ctx, ["show", "-s", "--format=%cI", "HEAD"], {"cwd": ctx["unit"]["worktree"]}
@@ -294,13 +278,14 @@ async def commit_time_ms(ctx: Json) -> float | None:
     return _ms(result["stdout"].strip()) if ok(result) else None
 
 
-async def verify_reviews(ctx: Json, watch: Json, head: str, output: Json) -> Json:
+async def verify_reviews(ctx: Json, watch: Json, head: str) -> Json:
     """One call per watch pass after the pass's own fixes are settled.
 
     Returns `{"hold": bool, "states": {provider: state}}`; `hold` asks the
-    loop to wait for a review that is requested or running instead of
-    counting the pass as covered. Mutates `watch["verification"]`; the
-    caller checkpoints."""
+    loop to wait while a configured bot is reviewing the head on its own
+    (or answering someone else's trigger) instead of merging under it.
+    Never posts anything. Mutates `watch["verification"]`; the caller
+    checkpoints."""
     pr = ctx["unit"].get("pr")
     locator = pr_locator(pr) if pr else None
     states: Json = {}
@@ -314,18 +299,14 @@ async def verify_reviews(ctx: Json, watch: Json, head: str, output: Json) -> Jso
     hold = False
     for name, spec in PROVIDERS.items():
         records = history.setdefault(name, {})
-        record = records.setdefault(
-            head, {"repo": repo, "pr": number, "attempts": 0, "state": "new"}
-        )
+        record = records.setdefault(head, {"repo": repo, "pr": number, "state": "new"})
         for stale in sorted(records, key=lambda sha: records[sha].get("updated", 0))[
             : max(0, len(records) - HISTORY_HEADS)
         ]:
             if stale != head:
                 del records[stale]
         previous = record.get("state")
-        result = await _verify_provider(
-            ctx, spec, name, repo, number, head, head_since, record, watch, output, now
-        )
+        result = await _verify_provider(ctx, spec, repo, number, head, head_since, record, now)
         record["updated"] = now
         states[name] = record["state"]
         hold = hold or result
@@ -334,7 +315,6 @@ async def verify_reviews(ctx: Json, watch: Json, head: str, output: Json) -> Jso
             ctx["log"](
                 f"verify({name}): {record['state']} for {head[:12]}"
                 + (f" ({detail})" if detail else "")
-                + (f", attempts={js_string(record['attempts'])}" if record["attempts"] else "")
             )
     return {"hold": hold, "states": states}
 
@@ -342,14 +322,11 @@ async def verify_reviews(ctx: Json, watch: Json, head: str, output: Json) -> Jso
 async def _verify_provider(
     ctx: Json,
     spec: Json,
-    name: str,
     repo: str,
     number: int,
     head: str,
     head_since: float,
     record: Json,
-    watch: Json,
-    output: Json,
     now: float,
 ) -> bool:
     evidence = await gather_evidence(ctx, repo, number, head)
@@ -365,74 +342,20 @@ async def _verify_provider(
     if evidence.get("state") != "OPEN":
         record.update(state="closed", detail=f"PR {evidence.get('state')}")
         return False
-    found = classify(spec, evidence, head, head_since, record)
-    state = found["state"]
+    found = classify(spec, evidence, head, head_since)
+    record["state"] = found["state"]
     record["detail"] = found.get("detail")
-    if state == "requested":
-        record.update(state="requested", requested_at=found["at"])
+    if found["state"] == "requested":
+        # Someone else asked the bot; wait for its answer, bounded.
+        record["requested_at"] = found["at"]
         if found.get("comment_id") is not None:
             record["comment_id"] = found["comment_id"]
         return now - found["at"] < REQUEST_GRACE_MS
-    if state == "pending":
-        record["state"] = "pending"
-        return True
-    if state == "rate-limited":
-        record["state"] = "rate-limited"
-        record["retry_at"] = (found.get("at") or now) + (
-            found.get("retry_after") or _backoff(record["attempts"])
+    if found["state"] == "rate-limited" and found.get("retry_after"):
+        record["detail"] = "rate limited; resets at " + _iso(
+            (found.get("at") or now) + found["retry_after"]
         )
-        record["detail"] = "rate limited; retry at " + _iso(record["retry_at"])
-    elif state in ("completed", "skipped", "failed", "paused", "absent"):
-        record["state"] = state
-        return False
-    elif state == "manual-required":
-        record["state"] = "manual-required"
-    elif state == "silent":
-        record["state"] = "silent"
-    if not spec["trigger"]:
-        return False
-    # Eligibility: the batch is done (nothing red or open to fix), the head
-    # is not covered by the substitute review, the request budget holds and
-    # any provider-announced reset time has passed.
-    if output.get("ci") == "red" or output.get("bot_reviews") == "open":
-        record["detail"] = "fix batch open"
-        return False
-    if watch.get("fallback_sha") == head:
-        record["detail"] = "covered by the substitute review"
-        return False
-    if record["attempts"] >= VERIFY_MAX_ATTEMPTS:
-        record["detail"] = "request budget exhausted"
-        return False
-    if record.get("retry_at") is not None and now < record["retry_at"]:
-        return False
-    if state == "silent" and now - head_since < VERIFY_GRACE_MS:
-        record["detail"] = "waiting for an automatic review"
-        return False
-    result = await gh(
-        ctx,
-        ["pr", "comment", js_string(number), "--body", spec["trigger"]],
-        {"timeout_ms": NETWORK_CMD_TIMEOUT_MS},
-    )
-    record["attempts"] += 1
-    record.pop("retry_at", None)
-    if ok(result):
-        match = re.search(r"issuecomment-(\d+)", result["stdout"])
-        record.update(state="requested", requested_at=now, detail="verification requested")
-        if match:
-            record["comment_id"] = int(match[1])
-        ctx["log"](f"verify({name}): posted `{spec['trigger']}` for {head[:12]}")
-        return True
-    if result.get("timed_out") or "error" in result:
-        # The comment may or may not exist: reconcile from the conversation
-        # on the next pass before posting again.
-        record.update(state="unknown", attempted_at=now, detail=err_text(result, 120))
-        return True
-    record.update(
-        state="request-failed",
-        retry_at=now + _backoff(record["attempts"]),
-        detail=err_text(result, 120),
-    )
-    return False
+    return found["state"] == "pending"
 
 
 def _iso(ms: float) -> str:

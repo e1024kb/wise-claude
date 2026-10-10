@@ -138,7 +138,7 @@ Print the discovered skills grouped by shape. Use this structure:
   - `/wise-commit` — Draft + commit (no push).
   - `/wise-commit-push` — Draft + commit + push.
   - `/wise-pr-create` — Create or refresh a PR.
-  - `/wise-pr-add-reviewers` — Attach reviewers.
+  - `/wise-pr-add-reviewers` - Request human reviewers.
   - `/wise-pr-watch` — Watch CI + drive fixes to green.
   - ... (read from the JSON)
 

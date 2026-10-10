@@ -239,7 +239,8 @@ def test_happy_pipeline_model_requests_and_usage(tmp_path):
         result = await run_units_step(fixture.input())
         assert result["verdict"] == "units=1 merged=1 open=0 failed=0 skipped=0"
         ledger = read_unit(fixture.run_dir, "PROJ-1")
-        assert ledger["cleaned"] and ledger["review"] == {"converged": True, "cycles": 1}
+        assert ledger["cleaned"]
+        assert ledger["review"] == {"converged": True, "cycles": 1, "sha": fixture.head}
         assert ledger["watch"]["passes"] == 2
         assert fixture.counts == {"plan": 1, "implement": 1, "review": 1, "watch": 2}
         assert len(fixture.usage) == 5 and ledger["usage"]["input"] == 50
@@ -282,7 +283,11 @@ def test_review_fix_cycles_resume_and_cross_harness(tmp_path, resume, cross, exp
         assert fixture.counts["review"] == 2 and fixture.counts["fix"] == 1
         request = next(req for phase, _, req in fixture.child_calls if phase == "fix")
         assert request.get("resume") == expected
-        assert read_unit(fixture.run_dir, "PROJ-1")["review"] == {"converged": True, "cycles": 2}
+        assert read_unit(fixture.run_dir, "PROJ-1")["review"] == {
+            "converged": True,
+            "cycles": 2,
+            "sha": fixture.head,
+        }
 
     asyncio.run(scenario())
 
@@ -301,15 +306,18 @@ def test_permission_floor_every_phase(tmp_path, permission):
     asyncio.run(scenario())
 
 
-def test_review_cap_pushes_nonconverged(tmp_path):
+def test_review_cap_pushes_nonconverged_and_the_local_review_still_gates_the_merge(tmp_path):
     async def scenario():
         fixture = ModelFixture(tmp_path)
         fixture.scripts["review"] = lambda req, nth: answer(
             {"findings": 1, "blocking": 1, "verdict": "changes-requested"}
         )
         result = await run_units_step(fixture.input())
-        assert "merged=1" in result["verdict"]
-        assert read_unit(fixture.run_dir, "PROJ-1")["review"] == {"converged": False, "cycles": 2}
+        assert result["outputs"]["units"][0]["verdict"] == "exhausted"
+        ledger = read_unit(fixture.run_dir, "PROJ-1")
+        assert ledger["review"] == {"converged": False, "cycles": 2}
+        assert sum(args[0] == "push" for cmd, args, _ in fixture.calls if cmd == "git") >= 2
+        assert not any(args[:2] == ["pr", "merge"] for cmd, args, _ in fixture.calls if cmd == "gh")
 
     asyncio.run(scenario())
 
@@ -379,15 +387,14 @@ def test_fix_cap_or_no_commit(tmp_path, zero_commit, expected):
     asyncio.run(scenario())
 
 
-def test_stuck_bot_substitute_once_and_timeout(tmp_path):
+def test_stuck_bot_merges_on_the_pre_push_review(tmp_path):
     async def scenario():
         fixture = ModelFixture(tmp_path)
         fixture.scripts["watch"] = lambda req, nth: answer(watch_output(bot_reviews="stuck"))
         result = await run_units_step(fixture.input())
-        assert "merged=1" in result["verdict"] and fixture.counts["review"] == 2
-        substitute = [req for phase, _, req in fixture.child_calls if phase == "review"][1]
-        assert "universal (one reviewer, medium effort)" in substitute["prompt"]
-        assert read_unit(fixture.run_dir, "PROJ-1")["watch"]["fallback_sha"] == fixture.head
+        # The converged pre-push review covers the pushed head: no second review.
+        assert "merged=1" in result["verdict"] and fixture.counts["review"] == 1
+        assert "reviewed_sha" not in read_unit(fixture.run_dir, "PROJ-1")["watch"]
 
     asyncio.run(scenario())
 

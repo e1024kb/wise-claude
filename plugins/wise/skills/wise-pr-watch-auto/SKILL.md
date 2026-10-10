@@ -3,10 +3,11 @@ name: wise-pr-watch-auto
 description: >-
   Autonomous variant of `/wise-pr-watch` — drive the checked-out
   branch's open PR to merge on the wise engine: the bundled `pr-watch`
-  workflow polls CI and the review bots (Copilot, CodeRabbit), fixes
-  what they raise, pushes, runs wise's own substitute review when a bot
-  is stuck (only if allowed at pre-flight), and merges once the PR is
-  green and quiet (branch protection respected). Pre-flight asks, once,
+  workflow polls CI and any review bot configured on the repo, runs
+  wise's own local review (the 3-lens code review team) on each new
+  head, fixes what they raise, pushes, and merges once the PR is green,
+  locally reviewed and quiet (branch protection respected). Never
+  triggers or requests a remote review. Pre-flight asks, once,
   which harness, model and effort run each phase (watch, fix, review,
   report); nothing prompts after launch. A human comment stands the run
   down. Runs in the current checkout, never a worktree. Invoked as
@@ -39,23 +40,27 @@ questions beyond the engine's pre-flight in this autonomous procedure.
 with the user. Routine watch and fix rounds run unattended. The
 unattended loop is engine code (the `pr` units pipeline: claim the
 checked-out branch's open PR, then the same watch / fix / push /
-substitute-review / merge loop `ticket-auto` runs after its PR is open).
+local-review / merge loop `ticket-auto` runs after its PR is open).
 This skill exists so the loop can be started on its own, for a PR that
 already exists, with the same per-phase harness / model / effort choice
 every workflow gets at pre-flight — on any harness, not only Claude Code.
 
-Copilot and CodeRabbit are review *inputs*, not GitHub branch-protection
-gates, but their verification state does feed Wise's own merge decision. After a
-fix batch is pushed the engine requests one CodeRabbit verification
-review of the new head when CodeRabbit is on the PR but has not reviewed
-that head (repositories with automatic incremental reviews off), never
-one per push and never twice for a head; the rules are
-`references/pr/review-verification.md`. When a bot is
-stuck the run may review the branch itself (one read-only 3-lens pass on
-the `review` group's model) only when the `substitute_review` pre-flight
-input says `yes`; on `no` a stuck bot ends the run as
-`all-green reason=review-consent-declined` without reviewing or merging.
-That question is the consent gate, asked once before launch.
+Wise never triggers a remote review: no Copilot reviewer request, no
+`@coderabbitai review` comment, no re-request after a push. A bot
+configured on the repo reviews on its own; its review threads are fixed
+or dismissed like any other finding. The engine only observes the bot's
+state for the head (`references/pr/review-verification.md`) and holds
+the merge while that bot's own review is running, or a trigger someone
+else posted is unanswered (at most 15 minutes). A silent or stuck bot
+blocks nothing.
+
+Wise's own review is the local one: once per new PR head, when CI is
+green and no bot item is open, the `review` group runs the read-only
+3-lens panel (correctness, security, tests; the same prompt as the
+pre-push gate). `changes-requested` sends the findings to a fix pass
+and push (counted against `max_fix_attempts`); `approve` covers the
+head. The merge needs CI green, the local review approved for the
+head, and no open bot item.
 
 ## Arguments
 
@@ -117,7 +122,7 @@ loop) and §5 (final report) with:
 - `answers` seeded with `input.max_fix_attempts` / `input.watch_minutes`
   when the argument was given; everything else comes from the staged
   pre-flight, put to the user exactly as that skill prescribes: the
-  `substitute_review` consent, the remaining inputs, then
+  remaining inputs, then
   `harness.<group>`, `permissions.<harness>`, `model.<group>` and
   `effort.<group>` for the `watch`, `fix`, `review` and `support`
   groups (the worktree question is locked to the current checkout).
@@ -136,7 +141,7 @@ The `process` step's `units` row carries the outcome:
 was merged, how many watch passes and fix rounds it took, what was
 fixed, and — for anything but `merged` — that the PR needs a human,
 with the reason spelled out (`approval-required`, a branch rule,
-`review-consent-declined`, `wall-clock`, the fix cap, a bot item in the
+`wall-clock`, the fix cap, a bot item or local-review finding in the
 findings file, a human comment). Link the PR.
 
 ## Guardrails
@@ -150,10 +155,13 @@ findings file, a human comment). Link the PR.
 - Never execute a workflow step here: the engine's provider children run
   the watch, fix and review phases. Never force-push, never `--no-verify`;
   the engine's phases never do either.
-- The engine merges only a PR whose CI is green and whose bot reviews are
-  resolved or covered for `watch_stable_passes` consecutive passes
-  (squash, then merge commit); a required approval is reported as
-  `all-green`, never worked around. A human comment stands the run down.
+- The engine merges only a PR whose CI is green, whose head the local
+  review approved and with no open bot item, for `watch_stable_passes`
+  consecutive passes (squash, then merge commit); a required approval
+  is reported as `all-green`, never worked around. A human comment
+  stands the run down.
+- Never trigger or request a review bot (Copilot code review,
+  CodeRabbit); the engine never does either.
 - Sonar issues are not part of the engine loop; use `/wise-pr-watch` for
   a PR gated on Sonar.
 - Run state lives in the engine's run directory; `/wise-workflow-resume

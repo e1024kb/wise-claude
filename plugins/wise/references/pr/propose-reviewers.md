@@ -4,7 +4,7 @@ Before collecting user input, follow the [question lifecycle](../workflow-host-c
 A display acknowledgement is not an answer; keep asynchronous prompts open.
 This does not add prompts to autonomous paths.
 
-This fragment runs only when the user picked **Yes — Claude
+This fragment runs only when the user picked **Yes - Claude
 proposes candidates** in `ensure-reviewers.md` (the preceding
 step records `extras_choice=yes`). Its job is to turn the raw
 "who in the org should review this?" question into a short list
@@ -20,10 +20,10 @@ Used by:
 - `pr_url` — PR url (informational only).
 - `pr_base` — the PR's base branch (used to scope `git log`).
 - `project.path` — absolute path to the repo working tree.
-- `defaults_attached` — comma-separated list of slugs already on
-  the PR from the defaults step (informational; used only to
-  exclude them from the candidate pool so we don't re-propose a
-  reviewer who is already attached).
+- `already_requested` - comma-separated list of slugs already
+  requested on the PR, from `ensure-reviewers.md` (informational;
+  used only to exclude them from the candidate pool so we don't
+  re-propose a reviewer who is already requested).
 
 ## Procedure
 
@@ -102,9 +102,10 @@ rather than failing the step.
 
 Also drop:
 - `PR_AUTHOR` (no self-review).
-- Any slug already in `defaults_attached` (no re-request).
+- Any slug already in `already_requested` (no re-request).
 - Any bot (login ending in `[bot]` or matching known bot names
-  like `dependabot`, `github-actions`).
+  like `dependabot`, `github-actions`, `copilot-pull-request-reviewer`,
+  `Copilot`, `coderabbitai`).
 
 ### 3. Rank and select top 3
 
@@ -138,8 +139,8 @@ Use `AskUserQuestion`:
   - Option per candidate: label `<login>`, description
     `<rationale>`.
   - If you have fewer than 3 candidates, pad with a final option
-    `None of these` (description: `Don't add any extras — keep the
-    defaults only.`) so AskUserQuestion's 2-option minimum holds.
+    `None of these` (description: `Don't add any reviewers.`) so
+    AskUserQuestion's 2-option minimum holds.
 
 When the main harness supports direct custom text, accept extra logins there.
 Otherwise offer `Add other reviewers` as an action, then ask a separate native
@@ -203,7 +204,8 @@ nothing was attached.
 ## Guardrails
 
 - Never propose the PR author as a reviewer.
-- Never propose known bots.
+- Never propose or attach a bot, including the review bots
+  (Copilot code review, CodeRabbit).
 - Prefer logins in the repo's owning org; never propose a login
   outside it unless the org-members lookup was unavailable.
 - Never re-request a reviewer already on the PR.

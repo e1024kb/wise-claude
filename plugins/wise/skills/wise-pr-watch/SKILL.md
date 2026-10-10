@@ -7,7 +7,11 @@ description: >-
   routine — then walk four sequential review queues
   (humans → Copilot → CodeRabbit → Sonar), each gated by an interactive
   Paged-bulk / Fix-all / Walk-step-by-step / Skip choice with a phased
-  collect → commit → remote-side-effects → push apply. Surfaces new PR
+  collect → commit → remote-side-effects → push apply. Bot queues hold
+  only what a bot configured on the repo posted on its own: wise never
+  triggers or requests Copilot or CodeRabbit. Instead it runs its own
+  local review (the 3-lens code review team: correctness, security,
+  tests) once per new PR head, gated by Fix all / Walk / Skip. Surfaces new PR
   comments each iteration (a reviewer saying "stop autofixing"
   short-circuits the loop) and exits on all-green — confirmed across two
   consecutive post-green stability windows so late comments aren't
@@ -128,7 +132,8 @@ Follow its procedure with the context:
 The fragment owns the whole loop — the `gh pr checks --watch` block,
 failure classification, per-class fix dispatch (committing autofixes
 via `commit-from-fix.md`), the four review queues with their phased
-apply, and the exit conditions. Your job after it returns is §4.
+apply, the local review of each new head, and the exit conditions.
+Your job after it returns is §4.
 
 ### 4. Summarise
 
@@ -153,7 +158,9 @@ user-facing summary:
 - Never create a PR here — bail with the pointer at
   `/wise-pr-create` if the branch has no open PR.
 - Never attach reviewers here — `/wise-pr-add-reviewers` owns that
-  surface.
+  surface. Never trigger or request a review bot (Copilot code
+  review, CodeRabbit): no `--add-reviewer`, no `requestReviews`, no
+  `@coderabbitai review` comment.
 - Never force-push or skip hooks when committing autofixes —
   `commit-from-fix.md` enforces this; don't work around it.
 - Never dismiss a reviewer comment asking you to stop. The

@@ -1,6 +1,12 @@
 from ..yaml_compat import js_string
 from .common import Json, err_text, gh, json_of, ok, pass_
 
+# Remote review bots are never requested: wise reviews locally instead and
+# handles a bot's comments only when the repository runs it on its own.
+REVIEW_BOTS = frozenset(
+    {"copilot", "copilot-pull-request-reviewer", "coderabbitai", "coderabbitai[bot]"}
+)
+
 
 async def request_review_phase(ctx: Json) -> Json:
     pr = ctx["unit"].get("pr")
@@ -21,6 +27,9 @@ async def request_review_phase(ctx: Json) -> Json:
                     row[key].lower() for key in ("login", "name") if isinstance(row.get(key), str)
                 )
     for login in ctx["config"]["reviewers"]:
+        if login.lower() in REVIEW_BOTS:
+            ctx["log"](f"request-review: {login} is a review bot, never requested")
+            continue
         if login.lower() in have:
             ctx["log"](f"request-review: {login} already requested")
             continue

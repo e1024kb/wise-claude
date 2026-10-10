@@ -57,7 +57,7 @@ def test_config_caps_reviewer_default_and_context():
     assert result["guidance"] == "small" and result["resume"] == "unit"
     assert result["timeout"] == 5 and result["mcp"] == "engine-only"
     del step["reviewers"]
-    assert config_for(step, state)["reviewers"] == ["copilot-pull-request-reviewer"]
+    assert config_for(step, state)["reviewers"] == []
     assert config_for(step, state)["base"] == ""
     state["inputs"] = {"base_branch": " release-26-9-0 "}
     assert config_for(step, state)["base"] == "release-26-9-0"
@@ -492,24 +492,6 @@ def test_implement_pipeline_requires_plan_file(tmp_path):
         )
         result = await claim_phase(fixture.ctx)
         assert result["ok"] is False and "missing: plan file" in result["reason"]
-
-    asyncio.run(scenario())
-
-
-def test_declined_substitute_review_stands_down_on_a_stuck_bot(tmp_path):
-    async def scenario():
-        fixture = ModelFixture(tmp_path)
-        from test_model_phases import answer, watch_output
-
-        _on_branch(fixture, "feat/x")
-        fixture.pr = {"number": 7, "url": "https://github.invalid/a/r/pull/7", "state": "OPEN"}
-        fixture.step.update({"pipeline": "pr", "items": "feat/x", "groups": {}, "caps": []})
-        fixture.scripts["watch"] = lambda req, nth: answer(watch_output(bot_reviews="stuck"))
-        state = {**fixture.state, "inputs": {"substitute_review": "no"}}
-        result = await run_units_step(fixture.input(items=["feat/x"], state=state))
-        row = result["outputs"]["units"][0]
-        assert row["verdict"] == "all-green" and "review-consent-declined" in row["reason"]
-        assert fixture.counts["review"] == 0 and fixture.counts["watch"] == 1
 
     asyncio.run(scenario())
 

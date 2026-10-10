@@ -63,8 +63,8 @@ category below must complete successfully - the command exits 0 and its
 output parses - before its result counts. Retry a failed probe once; if
 it still fails, do NOT treat the category as absent. Emit
 `SONAR-AUTO: blocked-fetch reason=footprint-probe-failed` and stop.
-Absence has to be positively established, exactly as §4a of
-`watch-pipelines-auto.md` requires for Copilot's `absent` (where a
+Absence has to be positively established, exactly as the §0 pre-flight
+of `watch-pipelines-auto.md` requires for Copilot's `absent` (where a
 network / 5xx / auth hiccup is explicitly NOT evidence of a bot being
 unavailable). A `gh` outage must never be able to unlock the merge
 gate.
@@ -123,7 +123,7 @@ one to be absent:
 
    Categories 2 and 3 are **PR-scoped**, and a PR-scoped probe cannot
    tell "no Sonar here" from "Sonar has not posted yet" - the same trap
-   §4b of `watch-pipelines-auto.md` names for CodeRabbit. So when
+   the §0 pre-flight of `watch-pipelines-auto.md` names for CodeRabbit. So when
    category 1 is absent, do not decide on a head that is still settling:
    if the PR head was pushed less than `BOT_GRACE` (180s) ago, wait out
    the remainder and re-probe 2 and 3 before concluding. Then widen

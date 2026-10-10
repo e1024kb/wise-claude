@@ -5,7 +5,9 @@ the way `watch-pipelines-auto.md` is the analogue of
 `watch-pipelines.md`. Walks the actionable review comments from a
 **single** review bot — Copilot or CodeRabbit (whichever the caller
 selects via `bot_filter`) — and resolves every one of them WITHOUT
-any user prompt. The **Lead Architect** persona makes every call.
+any user prompt. The **Lead Architect** persona makes every call. The
+queue holds only what a bot configured on the repo posted on its own;
+wise never requests a bot review or posts a trigger comment.
 
 It reuses the comment-surface queries, the `commit-from-fix.md`
 delegate, and the `resolveReviewThread` mutation from
@@ -257,8 +259,8 @@ and return.
 
 Every comment this run handled or dismissed MUST end as a resolved
 thread on the PR, **before the push** — the fix and its thread close in
-the same round, so the re-review that the push triggers starts from a
-clean thread list. This is not best-effort.
+the same round, so a configured bot's own review of the pushed head
+starts from a clean thread list. This is not best-effort.
 
 **7a. Reasoned replies on dismissed threads.** For each thread id in
 `DISMISS_THREAD_IDS`, BEFORE resolving it, post the stored reply:

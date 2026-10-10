@@ -4,7 +4,7 @@
 > workflow engine that runs multi-step jobs across several AI coding CLIs, and
 > ready-made pipelines that take a ticket all the way to a merged PR.
 
-![version](https://img.shields.io/badge/version-5.23.0-blue)
+![version](https://img.shields.io/badge/version-6.0.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 
@@ -91,11 +91,11 @@ the [plugin README](plugins/wise/README.md#commands).
 | Area | Commands | What they do |
 |---|---|---|
 | Commits | `/wise-commit-message`, `/wise-commit`, `/wise-commit-push` | Draft a Conventional-Commits subject (with ticket scope when one is found), then optionally commit and push. Never force-pushes or skips hooks. |
-| Pull requests | `/wise-pr-create`, `/wise-pr-add-reviewers`, `/wise-pr-watch` | Open or refresh a PR from your project's template, attach reviewers, and drive CI failures and review comments to green. |
+| Pull requests | `/wise-pr-create`, `/wise-pr-add-reviewers`, `/wise-pr-watch` | Open or refresh a PR from your project's template, request human reviewers, and drive CI failures and review comments to green. |
 | Research and planning | `/wise-grill`, `/wise-revise`, `/wise-tickets`, `wise-estimation` | Deep-research a ticket, doc or question into a plan. Audit a folder or project into ranked improvement plans. Shape tickets and size them in story points. |
 | Product and design docs | `wise-prd-architect`, `wise-trd-architect` | Author PRDs and TRDs when you ask for one. |
 | Writing style | `/wise-human-writing`, `/wise-code-comments` | Keep PR bodies, tickets, chat messages and code comments readable and free of generated-text noise. |
-| Autonomous building blocks | `/wise-pr-create-auto`, `/wise-pr-watch-auto`, `/wise-implement-plan-auto`, `/wise-simplify-auto`, `/wise-pr-request-review-auto` | Prompt-free variants of the commands above. They never stop to ask, so pipelines can chain them. |
+| Autonomous building blocks | `/wise-pr-create-auto`, `/wise-pr-watch-auto`, `/wise-implement-plan-auto`, `/wise-simplify-auto` | Prompt-free variants of the commands above. They never stop to ask, so pipelines can chain them. |
 | Other harnesses | `/wise-exec-on-harness` | Run one prompt on `codex`, `cursor`, `gemini` or `grok` from inside your current session. |
 | Session tools | `/wise-report`, `/wise-fork`, `/wise-profile`, `/wise-supervise` | Verified status reports, clean restarts after a session fork, token-budget profiles, and a watchdog for background agent teams. |
 | Self-improvement | `/wise-insights-mine`, `/wise-insights-refine`, `/wise-insights-reset` | Find tasks you repeat across sessions and turn them into personal skills, with your approval. Fully local. |
@@ -144,7 +144,7 @@ recorded on disk, so an interrupted run can resume where it stopped.
 | [`impl-plan-auto`](plugins/wise/workflows/impl-plan-auto/README.md) | `/wise-workflow-run impl-plan-auto` | You already have `PLAN-*.md` files (for example from `/wise-revise`) and want them implemented and merged. |
 | [`impl-plan`](plugins/wise/workflows/impl-plan/README.md) | `/wise-implement-plan-auto <plan>` | You want one plan implemented on the current branch as atomic commits, without pushing. |
 | [`code-review`](plugins/wise/workflows/code-review/README.md) | `/wise-workflow-run code-review` | Before you push: three parallel reviewers (correctness, security, tests), a curator, optional verification, then a fixer that commits the kept findings. |
-| [`pr-watch`](plugins/wise/workflows/pr-watch/README.md) | `/wise-pr-watch-auto` | A PR is open and you want it driven to merge: CI fixes, bot review threads, a substitute review if a bot is stuck. |
+| [`pr-watch`](plugins/wise/workflows/pr-watch/README.md) | `/wise-pr-watch-auto` | A PR is open and you want it driven to merge: CI fixes, threads from review bots configured on the repo, wise's local review of each new head. |
 | [`example-workflow`](plugins/wise/workflows/example-workflow/README.md) | `/wise-workflow-run example-workflow` | You want to check the engine after an install, or see every step type in one small file. |
 
 Each workflow's README documents its flow diagram, steps, inputs and outputs.

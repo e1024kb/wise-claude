@@ -107,20 +107,22 @@ Current actions (all standalone):
   trio: `/wise-commit-message` is read-only (drafts and hands back),
   `/wise-commit` drafts + commits locally, `/wise-commit-push` drafts
   + commits + pushes.
-- `/wise-pr-create-auto`, `/wise-pr-request-review-auto`,
+- `/wise-pr-create-auto`,
   `/wise-pr-watch-auto`, `/wise-implement-plan-auto`,
   `/wise-simplify-auto` — the autonomous (`-auto`) building blocks:
   autonomous variants of the PR / implement /
-  quality steps. The PR-create, request-review and simplify ones are
+  quality steps. The PR-create and simplify ones are
   thin readers of a shared fragment or reference; `/wise-pr-watch-auto`
   and `/wise-implement-plan-auto` are thin conductors over the bundled
   `pr-watch` / `impl-plan` workflows (the engine's `pr` / `implement`
   units pipelines), so harness, model and effort are asked per phase at
-  pre-flight on every harness. `/wise-pr-watch-auto`'s consent for the
-  substitute review is the `substitute_review` pre-flight input; `no`
-  stands the run down on a stuck bot. The watch loop's one verification
-  request per pushed head (`phases/verify.py`) follows
-  `references/pr/review-verification.md`, as does `/wise-pr-watch`.
+  pre-flight on every harness. Wise never triggers a remote review
+  (no Copilot reviewer request, no `@coderabbitai review` comment):
+  the watch loop only observes a configured bot's state for the head
+  (`phases/verify.py`, following `references/pr/review-verification.md`,
+  as does `/wise-pr-watch`) and runs its own local review, the 3-lens
+  panel, once per new PR head; the merge needs CI green, that review
+  approved for the head and no open bot item.
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent on Claude Code, else the same cleanup inline
   per `references/simplify-instructions.md`) and the `code-review` workflow (the
@@ -238,7 +240,7 @@ plugins/wise/
 │   ├── epic-expansion.md           # epic -> child item specs (DAG edges, serialize keys, repo); read by the ticket-auto / ticket-plan expand-tickets steps
 │   ├── init-check.md               # shared init-registry fast-path protocol
 │   ├── profile-read.md             # session token-budget profile read (silent degrade to medium); read by profile-sensitive skills
-│   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by the pr-create / request-review / simplify -auto skills and wise-exec-on-harness
+│   ├── dispatch.md                 # the --on routine: run a skill's procedure as a headless child of any harness (engine.sh models + dispatch); read by the pr-create / simplify -auto skills and wise-exec-on-harness
 │   ├── simplify-pass.md            # canonical per-commit simplify pass (code-simplifier agent or inline)
 │   ├── simplify-instructions.md    # harness-neutral cleanup contract the pass applies
 │   ├── code-review-pass.md         # canonical high-depth branch review (reviewer-subagent panel)
@@ -279,11 +281,10 @@ plugins/wise/
     ├── wise-human-writing/SKILL.md  # hybrid: human-first rules for all outbound tracker/PR/doc/chat writing + /wise-human-writing rewrite
     ├── wise-tickets/SKILL.md        # hybrid: ticket structure/scoping/breakdown rules for any tracker + /wise-tickets restructure
     ├── wise-pr-create/SKILL.md      # create or refresh a PR
-    ├── wise-pr-add-reviewers/SKILL.md  # attach Copilot + extras
+    ├── wise-pr-add-reviewers/SKILL.md  # request human reviewers (never a bot)
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
     ├── wise-pr-create-auto/SKILL.md       # autonomous PR create (no prompts)
-    ├── wise-pr-request-review-auto/SKILL.md  # autonomous Copilot attach (no prompts)
-    ├── wise-pr-watch-auto/SKILL.md        # conductor of the pr-watch workflow (substitute-review consent asked at pre-flight)
+    ├── wise-pr-watch-auto/SKILL.md        # conductor of the pr-watch workflow (local review per head, never triggers a bot)
     ├── wise-implement-plan-auto/          # conductor of the impl-plan workflow
     │   ├── SKILL.md
     │   └── agents/executor.md            # per-task executor persona read by implement-plan.md (subagent or inline)
@@ -462,8 +463,8 @@ one-liners below are the rule, not the argument for it.
   `wise-workflow-run` / `-resume` / `-list` / `-status`), and the two
   quality passes `simplify-pass.md` (read by the commit routine, the
   implement phase, and `wise-simplify-auto`) and `code-review-pass.md`
-  (the discipline the `code-review` workflow's prompts and the PR
-  watcher's review fallback follow), the
+  (the discipline the `code-review` workflow's prompts, the engine's
+  review phase and `/wise-pr-watch`'s per-head local review follow), the
   verified status report `report-pass.md` (read by `/wise-report`;
   parameterized by `SCOPE` / `MODE` / `SAVE` so every caller runs the
   identical routine), the watchdog routine `supervise-loop.md` (read
@@ -476,7 +477,7 @@ one-liners below are the rule, not the argument for it.
   `ensure-reviewers.md`, `propose-reviewers.md`, `watch-pipelines.md`,
   the `handle-*.md` queue handlers, `paged-bulk-mode.md`,
   the shared `comment-surfaces.md` / `sonar-fetch.md` fetch spines,
-  `review-verification.md` (the one-verification-review-per-head rule
+  `review-verification.md` (the observe-only review-bot state rule
   the engine's watch loop and `/wise-pr-watch` share),
   `commit-from-fix.md`, read by the `wise-pr-*` skills and the
   `ticket-auto` workflow's `prompts/`) - has a single home there, addressed as

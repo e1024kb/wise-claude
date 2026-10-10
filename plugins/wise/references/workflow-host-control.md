@@ -237,10 +237,9 @@ recursively. A display acknowledgement is not approval.
   does not authorize cycling through the remaining models. Report the failure
   and obtain another explicit selection if a different valid option remains.
   Keep commit/push retry limits and all action permissions unchanged.
-- Substitute-review consent remains a separate, per-head gate. Selecting a model
-  does not approve a review, edits, push or merge. When both gates are required,
-  collect both actual answers and recheck the PR head before execution. Report
-  the model and `child`/`inline` route actually used, never the preferred model.
+- Selecting a model does not approve a review, edits, push or merge. Recheck
+  the PR head before execution. Report the model and `child`/`inline` route
+  actually used, never the preferred model.
 - Engine workflows still execute through the engine. This skill fallback does
   not move their DAG into the main conversation or rewrite a running definition.
   For an unavailable engine model, collect replacement tuning through preflight
