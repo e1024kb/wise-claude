@@ -54,7 +54,8 @@ Read `$ARGUMENTS` and split into whitespace-separated tokens:
   - `working` - those commits plus uncommitted and untracked changes.
   - `<pr-number>` or a PR URL of this repository - the PR's head. It is
     reviewed in place when that head is checked out here, otherwise
-    fetched read-only into a temporary worktree.
+    fetched read-only into a temporary worktree. A fork PR takes
+    `--report` or `--comment` only: the run refuses `--apply` on it.
 - `--base <branch>` - the base to diff against. Default: the PR's base
   for a PR target, else the repo's default branch.
 - Mode, at most one: `--apply` (fix the kept findings; one commit, or

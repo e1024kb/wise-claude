@@ -305,8 +305,10 @@ async def review_fix_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
     review: Json = {"converged": converged, "cycles": cycles}
     if converged:
         # The approved head is the one pushed next: the watch loop's local
-        # review does not repeat it.
-        review["sha"] = await head_sha(ctx)
+        # review does not repeat it. An unreadable head records nothing.
+        sha = await head_sha(ctx)
+        if sha:
+            review["sha"] = sha
     return pass_({"review": review})
 
 
@@ -371,6 +373,11 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
                 {"watch": dict(watch)},
             )
         head = await head_sha(ctx)
+        if not head:
+            # An unreadable head can be neither reviewed nor merged.
+            ctx["log"]("watch: cannot read the head commit; retrying next pass")
+            await ctx["sleep"](poll_ms)
+            continue
         if watch.get("head_since", {}).get("sha") != head:
             # A head this run did not push (the initial one, or someone
             # else's push): its commit time bounds when notices about it

@@ -313,9 +313,12 @@ def test_review_cap_pushes_nonconverged_and_the_local_review_still_gates_the_mer
             {"findings": 1, "blocking": 1, "verdict": "changes-requested"}
         )
         result = await run_units_step(fixture.input())
-        assert result["outputs"]["units"][0]["verdict"] == "exhausted"
+        unit = result["outputs"]["units"][0]
+        assert unit["verdict"] == "exhausted"
+        assert "max_fix_attempts" in unit["reason"] and "review" in unit["reason"]
         ledger = read_unit(fixture.run_dir, "PROJ-1")
         assert ledger["review"] == {"converged": False, "cycles": 2}
+        assert "reviewed_sha" not in ledger["watch"]
         assert sum(args[0] == "push" for cmd, args, _ in fixture.calls if cmd == "git") >= 2
         assert not any(args[:2] == ["pr", "merge"] for cmd, args, _ in fixture.calls if cmd == "gh")
 

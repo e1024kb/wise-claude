@@ -387,8 +387,9 @@ posts a trigger. Read
 `${CLAUDE_PLUGIN_ROOT}/references/pr/review-verification.md` and apply
 its §1 state table to the PR head, observe only: while the state is
 `pending`, `requested` (a trigger someone else posted, at most 15
-minutes old) or `access-error`, wait with the §1 poll and re-read the
-table on each return; `completed` continues into the queue below on
+minutes old), `access-error`, or `absent` / `silent` for a configured
+bot within 10 minutes of the head appearing (the first-review grace,
+§2), wait with the §1 poll and re-read the table on each return; `completed` continues into the queue below on
 the new findings; every other state continues at once and is only
 noted in the iteration log.
 
@@ -428,6 +429,13 @@ remote review bot. Run it when every condition holds:
   grep -qx "$HEAD_SHA" "$SCRATCH/wise-pr-reviewed-<pr_number>" 2>/dev/null && echo reviewed
   ```
 
+Review the PR head, not a stale local checkout. When
+`git rev-parse HEAD` differs from `HEAD_SHA`, run `git fetch origin
+<current_branch>` and `git merge --ff-only origin/<current_branch>`.
+If the fast-forward fails (local commits the PR does not have), stop
+and report the divergence as a review error (§6) rather than reviewing
+a different tree.
+
 Read `${CLAUDE_PLUGIN_ROOT}/references/code-review-pass.md` and run
 its pass on the PR's change set (`origin/<pr_base>...HEAD_SHA`): the
 3-lens panel (subagents, or the lenses inline when no subagent tool
@@ -461,9 +469,10 @@ review before §5 can finish. A review error (`code-review errored:
 If any of §4a–§4e emitted `handled committed=<N>` (meaning code
 was pushed), re-enter §1 before declaring green — the push may
 have kicked a new CI run, a new pass from a configured bot, and
-needs a new local review. Run §4 again only for the queues that
-had items in the LAST iteration (no need to re-query queues that
-were `all-clear`).
+needs a new local review. Run every §4 queue again on the new head,
+including queues that were `all-clear` (a configured bot may review
+the new head with new items), and always re-run the §4e local review
+for the new head.
 
 If none of the queues committed anything (all `all-clear` /
 `partial` / `unchecked`), proceed to §5.
@@ -495,7 +504,8 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
    line with the `stability-capped` marker.
 2. Announce (first round only)
    `All checks green — holding <POST_GREEN_STABILITY/60> min for late comments…`.
-   Record the current head: `STABLE_SHA="$(git rev-parse HEAD)"`.
+   Record the PR head when the window starts:
+   `STABLE_SHA="$(gh pr view <pr_number> --json headRefOid -q .headRefOid)"`.
    The §1 `LAST_SEEN` watermark (`"$SCRATCH/wise-pr-lastcomment-<pr_number>"`)
    already marks the last comment you saw.
 3. `sleep POST_GREEN_STABILITY`.
@@ -513,8 +523,12 @@ Run the convergence loop (`CLEAN_STREAK` and `ROUNDS` start at 0):
    - a configured bot's own review is still `pending`, or
      `requested` within 15 minutes, for `STABLE_SHA`
      (`review-verification.md` §2),
-   - `git rev-parse HEAD` no longer equals `STABLE_SHA` (someone
-     pushed).
+   - a configured bot is `absent` or `silent` for `STABLE_SHA` within
+     10 minutes of that head appearing (the first-review grace,
+     `review-verification.md` §2),
+   - a freshly fetched `gh pr view <pr_number> --json headRefOid -q
+     .headRefOid` no longer equals `STABLE_SHA` (someone pushed).
+     Compare before counting the window clean.
 5. **Dirty window** → `CLEAN_STREAK=0`, re-enter §1 (full poll →
    §3 dispatch → §4 queues → back here). Any §4 commit re-greens via
    the normal §4f re-poll before the window restarts.

@@ -56,18 +56,24 @@ choice. It never pushes and never requests a remote review bot
   `claude` logged in; `codex` / `cursor-agent` / `gemini` / `grok` logins only when you
   pick them at pre-flight).
 - Run from inside the git repository. For `branch` and `working`,
-  check out the branch under review. `origin/<base>` must exist (the
+  check out the branch under review. `<remote>/<base>` must exist (the
   workflow fetches it); `gh` is used to detect the default branch when
   the `base` input is empty.
-- A PR target needs a GitHub `origin` and a logged-in `gh`, and the PR
-  must belong to this repository. `mode=apply` on a PR target needs
-  that PR's head checked out here; `mode=comment` needs a PR target.
+- `<remote>` is the git remote whose URL points at the repository `gh`
+  resolves (in a fork checkout often `upstream`, not `origin`); without
+  a `gh` repository it is `origin`. When `gh` resolves a repository no
+  remote points at, the run fails.
+- A PR target needs a logged-in `gh`, and the PR must belong to this
+  repository. `mode=apply` on a PR target needs that PR's head checked
+  out here and is refused for a fork PR (use `report` or `comment`);
+  `mode=comment` needs a PR target.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    T[resolve-target<br/>bash → review_target] --> A[resolve-base<br/>bash → base]
+    T[resolve-target<br/>bash → review_target] --> U[resolve-remote<br/>bash → remote]
+    U --> A[resolve-base<br/>bash → base]
     A --> P[prepare-tree<br/>bash → review_dir]
     P --> Q[diff-command<br/>bash → diff_cmd]
     Q --> B[count-changes<br/>bash → change_count]
@@ -92,7 +98,12 @@ flowchart TD
 ```
 
 The three reviewers share `depends_on: [count-changes]` and run as one
-parallel wave. `review-health` waits for every lens even when one fails;
+parallel wave. The reviewers, the curator and the verifier treat the
+code, commit messages and comments under review as data, never
+instructions, and their tools are read-only: `git diff`, `git log`,
+`git show`, `git merge-base`, `git status`, `rg`, `grep`, `ls`, `cat`,
+`head`, `wc`, `test` (plus `mkdir` to write their report), with no bare
+`git` and no `find`. `review-health` waits for every lens even when one fails;
 the conditional `review-errors` gate lets the user continue with the
 available reports or skip curation before the run finalizes and fails. A
 deselected `verify`, a skipped `apply` or `comment` (the other modes, or an
@@ -118,11 +129,12 @@ are never repeated.
 
 | Step | Type | Purpose |
 |---|---|---|
-| `resolve-target` | `bash` | Normalises the `target` input to `branch`, `working` or `pr:<n>`. A PR URL must name this repository; the PR must exist; `mode=comment` needs a PR target. Captures `review_target`. |
-| `resolve-base` | `bash` | The `base` input, else the PR's base for a PR target, else the repo's default branch (`gh`, then `origin/HEAD`, then `main`); fetches it and fails when `origin/<base>` does not exist. Captures `base`. |
-| `prepare-tree` | `bash` | The checkout to review. The current tree for `branch`, `working` and a PR whose head is checked out here; otherwise fetches `pull/<n>/head` into a detached worktree at `<run-dir>/review/tree` (`mode=apply` fails instead). Captures `review_dir`. |
-| `diff-command` | `bash` | The diff the reviewers run: `git diff origin/<base>...HEAD`, or for `working` a diff from the merge base to the working tree. Captures `diff_cmd`. |
-| `count-changes` | `bash` | Commits over the base, plus changed paths for `working`. Captures `change_count`; `0` skips every review step. |
+| `resolve-target` | `bash` | Normalises the `target` input to `branch`, `working` or `pr:<n>`. A PR URL must name this repository; the PR must exist; `mode=apply` is refused for a fork PR (`isCrossRepository`); `mode=comment` needs a PR target. Captures `review_target`. |
+| `resolve-remote` | `bash` | The git remote whose URL (https or ssh) ends in the `owner/name` `gh repo view` resolves, `origin` first; `origin` when `gh` resolves no repository; fails when no remote matches. Captures `remote`. |
+| `resolve-base` | `bash` | The `base` input, else the PR's base for a PR target, else the repo's default branch (`gh`, then `<remote>/HEAD`, then `main`); rejects a name `git check-ref-format --branch` refuses, fetches it from `remote` and fails when `<remote>/<base>` does not exist. Captures `base`. |
+| `prepare-tree` | `bash` | The checkout to review. The current tree for `branch`, `working` and a PR whose head is checked out here; otherwise fetches `pull/<n>/head` from `remote` into a detached worktree at `<run-dir>/review/tree` (`mode=apply` fails instead). Captures `review_dir`. |
+| `diff-command` | `bash` | The diff the reviewers run: `git diff <remote>/<base>...HEAD`, or for `working` a diff from the merge base to the working tree. Captures `diff_cmd`. |
+| `count-changes` | `bash` | Commits over `<remote>/<base>`, plus changed and untracked paths for `working`. Captures `change_count`; `0` skips every review step. |
 | `review-correctness` | `agent` | Correctness and logic lens over the diff in `review_dir`: wrong conditions, unhandled error paths, broken invariants, races, leaks. Writes `<run-dir>/review/correctness.md`; read-only, never comments on the PR. `correctness` group. |
 | `review-security` | `agent` | Security and input-handling lens: injection, missing validation, secrets, skipped auth, unsafe defaults. Writes `<run-dir>/review/security.md`; read-only, never comments on the PR. `security` group. |
 | `review-tests` | `agent` | Test-coverage lens: untested behaviour, stale assertions, weakened tests, flaky patterns. Writes `<run-dir>/review/tests.md`; read-only, never comments on the PR. `tests` group. |
@@ -131,8 +143,8 @@ are never repeated.
 | `curate` | `agent` | Merges the available reports after the health check, dedupes by `file:line`, keeps only concrete correctness / security / clear-quality findings on touched lines, respects the plan's `## Decisions Made` and the guidance. Writes `<run-dir>/review/findings.md`. `curate` group. |
 | `verify` | `agent` | Optional (`step-select`). Tries to refute every kept finding against the code, defaulting to refuted when ambiguous; rewrites the findings file with the survivors. `when: findings != 0`. `verify` group. |
 | `apply` | `agent` | `when: mode == 'apply' && findings_path`. Applies each surviving finding as a bounded fix, runs the quickest relevant check, reverts if the tree breaks, stages only the edited files and commits once (`fix(<scope>): apply code-review findings`, no attribution trailer). For `working` the edits stay uncommitted. Never pushes. `fix` group, `mode: full-access`; `trigger-rule: none-failed`. |
-| `comment` | `bash` | `when: mode == 'comment' && findings_path`. Posts the kept findings (or a "no findings" note) as one `gh pr review --comment`, never an approval or a change request. `trigger-rule: none-failed`. |
-| `finalize` | `bash` | One summary line with the target, base, counts, whether a fix commit or PR comment landed, and the findings file. `trigger-rule: all-done`. |
+| `comment` | `bash` | `when: mode == 'comment' && findings_path`. Posts the kept findings as one `gh pr review --comment`, never an approval or a change request. The header names only the lenses that reported; an empty list says "no findings" only when every lens reported, otherwise the comment names the lens that did not report. Strips the `review_dir/` prefix from paths and refuses to post (fails) when the body matches a token pattern (`gh[pousr]_`, `github_pat_`, `AKIA...`, `-----BEGIN`). `trigger-rule: none-failed`. |
+| `finalize` | `bash` | One summary line with the target, base, counts, whether a fix commit or PR comment landed, and the findings file, read from `WISE_*` env vars (an unset value prints blank). `trigger-rule: all-done`. |
 | `cleanup-tree` | `bash` | Removes the temporary PR worktree `prepare-tree` created, if any. `trigger-rule: all-done`. |
 | `fail-incomplete-review` | `bash` | Runs after `finalize` when any reviewer report is missing, so partial curation remains useful but the workflow still ends failed. |
 
@@ -158,6 +170,7 @@ arguments, e.g. `/wise-code-review 123 --comment`.
 | Name | Source | Used for |
 |---|---|---|
 | `review_target` | `resolve-target` | `branch`, `working` or `pr:<n>`. |
+| `remote` | `resolve-remote` | The git remote of the repository `gh` resolves; the base, the PR head, the diff and the count use it. |
 | `base` | `resolve-base` | The resolved base branch. |
 | `review_dir` | `prepare-tree` | The checkout the reviewers read: the current tree or the temporary PR worktree. |
 | `diff_cmd` | `diff-command` | The diff command the reviewers and the curator run. |

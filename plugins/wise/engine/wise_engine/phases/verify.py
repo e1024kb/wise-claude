@@ -8,6 +8,11 @@ wise never posts a trigger or requests a bot review; its own local
 review covers each head. The state lives in the unit ledger under
 `watch.verification[<provider>][<head>]` for the report.
 
+A bot configured on the repository (a footprint on the PR, its config
+file at the worktree root, or a review on a recent PR) that has not
+reviewed a head yet holds the merge for FIRST_REVIEW_GRACE_MS from the
+head's appearance; after that its silence blocks nothing.
+
 The prose twin for the interactive watcher is
 `references/pr/review-verification.md`; keep the two in step.
 """
@@ -17,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from ..yaml_compat import js_string
@@ -25,6 +31,11 @@ from .common import Json, NETWORK_CMD_TIMEOUT_MS, err_text, gh, git, json_of, ok
 # A trigger someone else posted is answered within this window or not at
 # all; the merge waits for it no longer than this.
 REQUEST_GRACE_MS = 15 * 60_000
+# A configured bot gets this long after a head appears to post its first
+# review of it before the merge stops waiting.
+FIRST_REVIEW_GRACE_MS = 10 * 60_000
+# How many recent PRs the repo-level "configured" check reads.
+RECENT_PRS = 10
 # How many heads a provider's history keeps in the ledger.
 HISTORY_HEADS = 5
 # States in which the loop waits instead of counting the pass as covered.
@@ -36,6 +47,8 @@ PROVIDERS: dict[str, Json] = {
         "check_names": ("coderabbit",),
         "app_slugs": ("coderabbitai",),
         "handle": "@coderabbitai",
+        # Repository config files at the worktree root that enable the bot.
+        "config_files": (".coderabbit.yaml", ".coderabbit.yml"),
         # Comment commands, matched as whole commands at the start of a body.
         "review_commands": ("review", "full review"),
         "pause_commands": ("pause",),
@@ -283,8 +296,10 @@ async def verify_reviews(ctx: Json, watch: Json, head: str) -> Json:
 
     Returns `{"hold": bool, "states": {provider: state}}`; `hold` asks the
     loop to wait while a configured bot is reviewing the head on its own
-    (or answering someone else's trigger) instead of merging under it.
-    Never posts anything. Mutates `watch["verification"]`; the caller
+    (or answering someone else's trigger, or has not posted its first
+    review of the head within FIRST_REVIEW_GRACE_MS) instead of merging
+    under it. Never posts anything. Mutates `watch["verification"]` and
+    caches the repo-level check in `watch["configured"]`; the caller
     checkpoints."""
     pr = ctx["unit"].get("pr")
     locator = pr_locator(pr) if pr else None
@@ -306,7 +321,9 @@ async def verify_reviews(ctx: Json, watch: Json, head: str) -> Json:
             if stale != head:
                 del records[stale]
         previous = record.get("state")
-        result = await _verify_provider(ctx, spec, repo, number, head, head_since, record, now)
+        result = await _verify_provider(
+            ctx, watch, name, spec, repo, number, head, head_since, record, now
+        )
         record["updated"] = now
         states[name] = record["state"]
         hold = hold or result
@@ -319,8 +336,48 @@ async def verify_reviews(ctx: Json, watch: Json, head: str) -> Json:
     return {"hold": hold, "states": states}
 
 
+async def repo_configured(ctx: Json, watch: Json, name: str, spec: Json) -> bool:
+    """Whether the repository runs the provider: its config file at the
+    worktree root, or a review by one of its logins on a recent PR. Read
+    at most once per run and cached in `watch["configured"]`; a read error
+    counts as not configured."""
+    cache = watch.setdefault("configured", {})
+    if name in cache:
+        return bool(cache[name])
+    root = Path(ctx["unit"]["worktree"])
+    configured = any((root / file).is_file() for file in spec["config_files"])
+    if not configured:
+        listed = await gh(
+            ctx,
+            ["pr", "list", "--state", "all", "--limit", str(RECENT_PRS), "--json", "reviews"],
+            {"timeout_ms": NETWORK_CMD_TIMEOUT_MS},
+        )
+        prs = json_of(listed)
+        if isinstance(prs, list):
+            # GraphQL author logins carry no `[bot]` suffix.
+            logins = {login.removesuffix("[bot]") for login in spec["logins"]}
+            reviews = [
+                row
+                for pr in prs
+                if isinstance(pr, dict) and isinstance(pr.get("reviews"), list)
+                for row in pr["reviews"]
+            ]
+            configured = any(
+                isinstance(row, dict)
+                and isinstance(row.get("author"), dict)
+                and str(row["author"].get("login", "")).lower().removesuffix("[bot]") in logins
+                for row in reviews
+            )
+        else:
+            ctx["log"](f"verify({name}): recent PRs unreadable ({err_text(listed, 120)})")
+    cache[name] = configured
+    return configured
+
+
 async def _verify_provider(
     ctx: Json,
+    watch: Json,
+    name: str,
     spec: Json,
     repo: str,
     number: int,
@@ -351,6 +408,12 @@ async def _verify_provider(
         if found.get("comment_id") is not None:
             record["comment_id"] = found["comment_id"]
         return now - found["at"] < REQUEST_GRACE_MS
+    if found["state"] in ("absent", "silent") and now - head_since < FIRST_REVIEW_GRACE_MS:
+        # A configured bot that has not reviewed this head yet may still
+        # be about to: wait for it, bounded by the grace.
+        if found["footprint"] or await repo_configured(ctx, watch, name, spec):
+            record["detail"] = "waiting for its first review of this head"
+            return True
     if found["state"] == "rate-limited" and found.get("retry_after"):
         record["detail"] = "rate limited; resets at " + _iso(
             (found.get("at") or now) + found["retry_after"]

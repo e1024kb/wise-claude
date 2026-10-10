@@ -51,6 +51,18 @@ State of the provider for `HEAD`, first match wins:
 | `absent` | no provider footprint on the PR and the provider is not a configured reviewer |
 | `access-error` | any of the reads failed (403, 404, timeout) |
 
+A provider is **configured** when any of these holds:
+
+- it has a footprint on the PR (any review, notice or check run),
+- the repository has `.coderabbit.yaml` or `.coderabbit.yml` at its
+  root (CodeRabbit),
+- it reviewed one of the repository's 10 most recent PRs
+  (`gh pr list --state all --limit 10 --json reviews`).
+
+A configured provider with no evidence for `HEAD` yet is `silent`
+(footprint on the PR) or `absent` (none yet), and is still expected:
+its first review may simply be late.
+
 Old bot comments prove participation, never completion: only evidence
 bound to `HEAD` (commit id, check-run sha, notices newer than the head)
 decides. A skipped or unavailable review is reported as such, never as
@@ -62,9 +74,15 @@ completed.
   `requested` (for up to 15 minutes since that trigger was posted), or
   `access-error` (retry the read next pass; never treat it as "not
   reviewed").
+- **First-review grace.** A configured provider whose state is
+  `absent` or `silent` for `HEAD` holds the merge / green verdict for
+  up to 10 minutes after `HEAD` appeared on the PR. After that it blocks
+  nothing: the local review covers the head. The grace never triggers
+  or requests a review.
 - Every other state is recorded and reported, never acted on.
-  `manual-required`, `silent`, `skipped`, `failed`, `rate-limited` and
-  `paused` do not block the merge and do not trigger anything: the
+  `manual-required`, `silent` and `absent` (past the first-review
+  grace), `skipped`, `failed`, `rate-limited` and `paused` do not block
+  the merge and do not trigger anything: the
   local review covers the head.
 - A `completed` review's findings are threads and comments like any
   other: the bot queue handles them (`handle-bot-reviews.md`), which

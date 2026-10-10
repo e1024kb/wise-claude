@@ -33,6 +33,9 @@ reports.
   passed straight through to the review pass so it weighs findings
   against the ticket's intent, the plan's `## Decisions Made`, and the
   operator's standing guardrails.
+- `report_only` - **optional** `yes` / `no` (default `no`). `yes` when
+  the caller's fix budget is spent: review and report, apply nothing,
+  commit nothing, push nothing.
 - `profile` - **optional** budget profile for the panel's effort
   (`code-review-pass.md` table); default `medium`.
 - (No model input. The reviewers run on the current model; without a
@@ -47,7 +50,8 @@ Run all `git` / `gh` commands with `cd <project.path>` first.
 Read
 `${CLAUDE_PLUGIN_ROOT}/workflows/ticket-auto/prompts/review-branch-auto.md`
 and follow it end to end with `worktree=<project.path>`, `fixer=self`
-(the reviewer applies its own bounded fixes and commits them), the
+(the reviewer applies its own bounded fixes and commits them; with
+`report_only=yes` pass `fixer=delegate` instead, so nothing is applied), the
 required `base`, `profile`, plus `ticket_ref`, `plan_path`, and
 `config_prompt` when supplied. Verify `base` is non-empty first (see the
 context contract above) - a review of the wrong diff still satisfies the
@@ -70,13 +74,19 @@ actually ran alongside the model used.
 Capture its final line:
 
 - `REVIEW-AUTO: applied=<n> skipped=<m> committed=<yes|no>` → continue at §2.
+- `REVIEW-AUTO: mode=delegate verdict=<clean|issues> findings=<n> …`
+  (`report_only=yes`) → treat as `applied=0 skipped=<n> committed=no`
+  and go to §3. List the findings (`file:line`, one line each) above
+  the final line.
 - `REVIEW-AUTO: aborted reason="<one-line>"` → the panel errored or left
   the tree broken. Do NOT push, do NOT retry, do NOT invent a recovery.
   Skip to §3 with `failed`.
 
-`applied=0 committed=no` is a **success**, not a failure: the panel
-reviewed the head and found nothing worth changing. That is the outcome
-that lets the caller merge.
+`applied=0 skipped=0 committed=no` is a **success**, not a failure: the
+panel reviewed the head and found nothing worth changing. That is the
+only outcome that lets the caller merge. `skipped>0` with
+`committed=no` means findings were left on the head: reviewed, not
+approved.
 
 ### 2. Push the fix commit
 
@@ -108,8 +118,10 @@ LOCAL-REVIEW: failed reason=<panel-aborted|push-failed|base-unresolved> [unpushe
   subagents ran via `Task`; `depth=inline` means this context worked
   the three lenses itself because the caller has no `Task` tool.
   `committed=yes` means a fix commit was pushed (a new head: the caller
-  must re-poll CI and review it again); `committed=no` means the head
-  reviewed clean and nothing moved.
+  must re-poll CI and review it again). `committed=no` means nothing
+  moved: with `skipped=0` the head reviewed clean (approved); with
+  `skipped>0` findings were left on the head and the caller must not
+  merge it.
 - `failed` - the panel aborted or the push was rejected; no local
   review is on record for the head, so the caller must NOT treat it as
   reviewed. `unpushed=<sha>` appears only on `reason=push-failed` and
