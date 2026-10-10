@@ -140,6 +140,7 @@ Print the discovered skills grouped by shape. Use this structure:
   - `/wise-pr-create` — Create or refresh a PR.
   - `/wise-pr-add-reviewers` - Request human reviewers.
   - `/wise-pr-watch` — Watch CI + drive fixes to green.
+  - `/wise-code-review` - Review the branch, uncommitted work or a PR with the 3-lens team.
   - ... (read from the JSON)
 
 ### Reference skills (auto-triggered by prose)

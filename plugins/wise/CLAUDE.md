@@ -126,7 +126,8 @@ Current actions (all standalone):
   `/wise-simplify-auto` (the lightweight per-commit tier — the
   `code-simplifier` agent on Claude Code, else the same cleanup inline
   per `references/simplify-instructions.md`) and the `code-review` workflow (the
-  heavyweight branch gate — three reviewer children, a curator, an
+  heavyweight review, conducted by `/wise-code-review` over the branch,
+  uncommitted work or a PR — three reviewer children, a curator, an
   optional verifier and a fixer, each with its own tuning group) are
   the two quality passes; the `ticket-auto` workflow's engine-side
   review phase follows the same discipline.
@@ -283,6 +284,7 @@ plugins/wise/
     ├── wise-pr-create/SKILL.md      # create or refresh a PR
     ├── wise-pr-add-reviewers/SKILL.md  # request human reviewers (never a bot)
     ├── wise-pr-watch/SKILL.md       # drive pipelines + comments to green
+    ├── wise-code-review/SKILL.md          # conductor of the code-review workflow (branch, working tree or PR; never requests a bot)
     ├── wise-pr-create-auto/SKILL.md       # autonomous PR create (no prompts)
     ├── wise-pr-watch-auto/SKILL.md        # conductor of the pr-watch workflow (local review per head, never triggers a bot)
     ├── wise-implement-plan-auto/          # conductor of the impl-plan workflow

@@ -92,6 +92,7 @@ the [plugin README](plugins/wise/README.md#commands).
 |---|---|---|
 | Commits | `/wise-commit-message`, `/wise-commit`, `/wise-commit-push` | Draft a Conventional-Commits subject (with ticket scope when one is found), then optionally commit and push. Never force-pushes or skips hooks. |
 | Pull requests | `/wise-pr-create`, `/wise-pr-add-reviewers`, `/wise-pr-watch` | Open or refresh a PR from your project's template, request human reviewers, and drive CI failures and review comments to green. |
+| Code review | `/wise-code-review` | Review the branch, uncommitted work or a PR with three parallel reviewers (correctness, security, tests) on the harness, model and effort you pick, then apply, report or post the findings. Never requests a review bot. |
 | Research and planning | `/wise-grill`, `/wise-revise`, `/wise-tickets`, `wise-estimation` | Deep-research a ticket, doc or question into a plan. Audit a folder or project into ranked improvement plans. Shape tickets and size them in story points. |
 | Product and design docs | `wise-prd-architect`, `wise-trd-architect` | Author PRDs and TRDs when you ask for one. |
 | Writing style | `/wise-human-writing`, `/wise-code-comments` | Keep PR bodies, tickets, chat messages and code comments readable and free of generated-text noise. |
@@ -143,7 +144,7 @@ recorded on disk, so an interrupted run can resume where it stopped.
 | [`ticket-plan`](plugins/wise/workflows/ticket-plan/README.md) | `/wise-workflow-run ticket-plan` | You want a researched, story-point-estimated implementation plan to review before any code is written. Gaps come back as targeted questions. |
 | [`impl-plan-auto`](plugins/wise/workflows/impl-plan-auto/README.md) | `/wise-workflow-run impl-plan-auto` | You already have `PLAN-*.md` files (for example from `/wise-revise`) and want them implemented and merged. |
 | [`impl-plan`](plugins/wise/workflows/impl-plan/README.md) | `/wise-implement-plan-auto <plan>` | You want one plan implemented on the current branch as atomic commits, without pushing. |
-| [`code-review`](plugins/wise/workflows/code-review/README.md) | `/wise-workflow-run code-review` | Before you push: three parallel reviewers (correctness, security, tests), a curator, optional verification, then a fixer that commits the kept findings. |
+| [`code-review`](plugins/wise/workflows/code-review/README.md) | `/wise-code-review` | The branch, uncommitted work or a PR: three parallel reviewers (correctness, security, tests), a curator, optional verification, then a fixer that commits the kept findings, a findings file, or one PR comment review. |
 | [`pr-watch`](plugins/wise/workflows/pr-watch/README.md) | `/wise-pr-watch-auto` | A PR is open and you want it driven to merge: CI fixes, threads from review bots configured on the repo, wise's local review of each new head. |
 | [`example-workflow`](plugins/wise/workflows/example-workflow/README.md) | `/wise-workflow-run example-workflow` | You want to check the engine after an install, or see every step type in one small file. |
 

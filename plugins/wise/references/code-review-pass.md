@@ -3,8 +3,9 @@
 Single source of truth for **how** the plugin runs its heavyweight
 branch gate. Read or followed by:
 
-- `workflows/code-review/workflow.yaml` — the standalone pre-push gate:
-  the lenses, curation, verification and bounded apply below as engine
+- `workflows/code-review/workflow.yaml` — the standalone review,
+  conducted by `/wise-code-review` over the branch, uncommitted work or
+  a PR: the lenses, curation, verification and bounded apply below as engine
   steps, harness / provider permissions / model / effort per agent chosen at pre-flight.
 - the engine's review phase prompt
   (`engine/wise_engine/prompts/units/shared/review.md`, same panel and

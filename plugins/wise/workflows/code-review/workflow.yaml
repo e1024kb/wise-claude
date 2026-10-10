@@ -1,22 +1,24 @@
 version: 2
 name: code-review
 description: >-
-  Review the current branch before it is pushed: three parallel
-  read-only reviewers (correctness, security, tests) over
-  origin/<base>..HEAD, one curator that dedupes and keeps the concrete
+  Review local changes or a pull request with the 3-lens code review
+  team: three parallel read-only reviewers (correctness, security,
+  tests) over the branch's commits, the branch plus uncommitted work,
+  or a PR's head, one curator that dedupes and keeps the concrete
   findings, an optional adversarial verification pass, then a fixer that
-  applies the kept findings and commits them (or, in report mode, leaves
-  the findings file for you). Pre-flight picks harness, model and effort
-  for every reviewer, the curator, the verifier and the fixer. A failed
-  reviewer opens a recovery choice before curation. Never pushes.
+  applies the kept findings (or, in report mode, leaves the findings
+  file for you; in comment mode, posts them as one PR review comment).
+  Pre-flight picks harness, model and effort for every reviewer, the
+  curator, the verifier and the fixer. A failed reviewer opens a
+  recovery choice before curation. Never pushes, never requests a
+  remote review bot. /wise-code-review conducts it.
 author: e1024kb
 #
 # The heavyweight tier of the plugin's two-tier quality model (the
-# lightweight tier is the per-commit simplify pass). It replaces the
-# `/wise-code-review-auto` skill: the same 3-lens panel, curation,
-# verification and bounded apply, but as engine steps, so each agent's
-# harness / model / effort is a pre-flight choice instead of a budget
-# profile. Findings travel between steps as files under
+# lightweight tier is the per-commit simplify pass). `/wise-code-review`
+# conducts it: the 3-lens panel, curation, verification and bounded
+# apply as engine steps, so each agent's harness / model / effort is a
+# pre-flight choice instead of a budget profile. Findings travel between steps as files under
 # `{{run.dir}}/review/`; steps hand each other only counts.
 
 project-selection: current
@@ -49,13 +51,17 @@ tuning:
       default: { harness: claude, model: opus, effort: high }
 
 inputs:
+  - name: target
+    prompt: "What to review: `branch` (the commits over the base), `working` (those commits plus uncommitted and untracked changes) or a PR number / URL (the PR's head, read-only unless it is checked out)"
+    default: branch
+    validate: "^(branch|working|[0-9]+|https?://[^ ]+/pull/[0-9]+/?)$"
   - name: base
-    prompt: "Base branch to diff against (empty = the repo's default branch)"
+    prompt: "Base branch to diff against (empty = the PR's base for a PR target, else the repo's default branch)"
     optional: true
   - name: mode
-    prompt: "apply (fix and commit the kept findings) or report (write the findings file only)"
+    prompt: "apply (fix the kept findings; committed, except for the `working` target), report (write the findings file only) or comment (post the findings as one comment review on the PR target)"
     default: apply
-    validate: "^(apply|report)$"
+    validate: "^(apply|report|comment)$"
   - name: plan_path
     prompt: "Plan file whose `## Decisions Made` the review must respect (optional)"
     optional: true
@@ -69,13 +75,51 @@ step-select:
   optional: [verify]
 
 steps:
+  - id: resolve-target
+    type: bash
+    # `branch`, `working` or `pr:<number>`. A PR URL must belong to this
+    # repository: its head is fetched from `origin`. `comment` needs a PR.
+    run: |
+      set -eu
+      t=$(printf '%s\n' "${WISE_TARGET-}" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1)
+      mode=$(printf '%s' "${WISE_MODE-apply}" | tr -d '[:space:]')
+      case "$t" in
+        ""|branch) t=branch ;;
+        working) ;;
+        *)
+          case "$t" in
+            http*)
+              repo=$(printf '%s' "$t" | sed -E 's@^https?://[^/]+/([^/]+/[^/]+)/pull/[0-9]+/?$@\1@')
+              own=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+              if [ "$(printf '%s' "$repo" | tr 'A-Z' 'a-z')" != "$(printf '%s' "$own" | tr 'A-Z' 'a-z')" ]; then
+                echo "ERROR: $t is not a PR of $own; run the review from a checkout of that repository." >&2
+                exit 1
+              fi
+              ;;
+          esac
+          n=$(printf '%s' "$t" | sed -E 's@^.*/pull/([0-9]+)/?$@\1@')
+          gh pr view "$n" --json number >/dev/null || { echo "ERROR: PR #$n not found." >&2; exit 1; }
+          t="pr:$n" ;;
+      esac
+      case "$mode:$t" in
+        comment:pr:*) ;;
+        comment:*) echo "ERROR: mode=comment needs a PR target (a PR number or URL)." >&2; exit 1 ;;
+      esac
+      echo "$t"
+    outputs: [review_target]
+    timeout: 60
+
   - id: resolve-base
     type: bash
-    # The base branch: the input when given, else the repo's default
-    # branch from gh, else origin/HEAD, else main. Prints the bare name.
+    # The base branch: the input when given, else the PR's base for a PR
+    # target, else the repo's default branch from gh, else origin/HEAD,
+    # else main. Prints the bare name.
     run: |
       set -eu
       base=$(printf '%s\n' "${WISE_BASE-}" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's@^origin/@@' | head -n 1)
+      case "$WISE_REVIEW_TARGET" in
+        pr:*) [ -n "$base" ] || base=$(gh pr view "${WISE_REVIEW_TARGET#pr:}" --json baseRefName --jq .baseRefName) ;;
+      esac
       if [ -z "$base" ]; then
         base=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null || true)
       fi
@@ -91,17 +135,68 @@ steps:
       echo "$base"
     outputs: [base]
     timeout: 60
+    depends_on: [resolve-target]
 
-  - id: count-commits
+  - id: prepare-tree
     type: bash
-    # The change set is exactly the commits about to be pushed. Zero
-    # commits skips every review step and the run ends clean.
+    # Where the reviewers read the code. Local targets: this checkout. A PR
+    # whose head is checked out here: this checkout too. Any other PR: its
+    # head fetched read-only into a detached worktree under the run dir
+    # (removed by `cleanup-tree`); `apply` needs the PR checked out.
     run: |
       set -eu
-      git rev-list --count "origin/{{base}}..HEAD"
-    outputs: [commit_count]
-    timeout: 30
+      case "$WISE_REVIEW_TARGET" in
+        pr:*)
+          n=${WISE_REVIEW_TARGET#pr:}
+          head=$(gh pr view "$n" --json headRefOid --jq .headRefOid)
+          if [ "$(git rev-parse HEAD)" = "$head" ]; then pwd; exit 0; fi
+          if [ "${WISE_MODE-}" = apply ]; then
+            echo "ERROR: mode=apply needs PR #$n checked out at its head ($head); check it out, or use report or comment." >&2
+            exit 1
+          fi
+          dir="{{run.dir}}/review/tree"
+          mkdir -p "{{run.dir}}/review"
+          git fetch --quiet origin "pull/$n/head" >&2
+          git worktree add --detach --quiet "$dir" "$head" >&2
+          echo "$dir" ;;
+        *) pwd ;;
+      esac
+    outputs: [review_dir]
+    timeout: 300
     depends_on: [resolve-base]
+
+  - id: diff-command
+    type: bash
+    # The exact command that prints the change set, run in `review_dir`.
+    # `working` diffs the tree against the merge base: the branch's
+    # commits plus uncommitted changes to tracked files.
+    run: |
+      set -eu
+      cd "$WISE_REVIEW_DIR"
+      if [ "$WISE_REVIEW_TARGET" = working ]; then
+        echo "git diff $(git merge-base "origin/$WISE_BASE" HEAD)"
+      else
+        echo "git diff origin/$WISE_BASE...HEAD"
+      fi
+    outputs: [diff_cmd]
+    timeout: 30
+    depends_on: [prepare-tree]
+
+  - id: count-changes
+    type: bash
+    # Commits over the base, plus changed and untracked paths for the
+    # `working` target. Zero skips every review step and the run ends clean.
+    run: |
+      set -eu
+      cd "$WISE_REVIEW_DIR"
+      count=$(git rev-list --count "origin/$WISE_BASE..HEAD")
+      if [ "$WISE_REVIEW_TARGET" = working ]; then
+        count=$((count + $(git status --porcelain --untracked-files=all | wc -l)))
+      fi
+      echo "$count"
+    outputs: [change_count]
+    timeout: 30
+    depends_on: [diff-command]
 
   # --- the panel: three read-only reviewers in one parallel wave --------
 
@@ -109,20 +204,23 @@ steps:
     type: agent
     group: correctness
     description: "Correctness and logic review"
-    when: "commit_count != 0"
+    when: "change_count != 0"
     prompt: |
-      Review the branch in {{project.path}}: exactly the commits in
-      `origin/{{base}}..HEAD` ({{commit_count}} commits), the change set
-      about to be pushed. Your lens: correctness and logic bugs. Wrong
+      Review the `{{review_target}}` target in {{review_dir}} against
+      the base {{base}} ({{change_count}} commits and changed paths):
+      the change set is exactly what `{{diff_cmd}}` prints there, plus,
+      for the `working` target, the untracked files that
+      `git status --porcelain --untracked-files=all` lists (read them
+      whole). Your lens: correctness and logic bugs. Wrong
       conditions, off-by-one, unhandled null / error paths, broken
       invariants, races, resource leaks, behaviour that contradicts the
       code around it or the commit messages.
 
-      Read the diff (`git diff origin/{{base}}...HEAD`) and enough
+      Read the diff (`{{diff_cmd}}` in {{review_dir}}) and enough
       surrounding code to judge. Report only: never edit the worktree,
       never run a git write command, never run a formatter or linter in
-      write mode, never commit. The one file you write is your findings
-      file.
+      write mode, never commit, never comment on the PR. The one file
+      you write is your findings file.
 
       Keep only high-confidence, concrete findings on lines the branch
       touched. Drop judgement calls the work did not ask for (behaviour
@@ -148,27 +246,30 @@ steps:
       additionalProperties: false
     outputs: [correctness_findings, correctness_blocking]
     allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
-    depends_on: [count-commits]
+    depends_on: [count-changes]
 
   - id: review-security
     type: agent
     group: security
     description: "Security and input-handling review"
-    when: "commit_count != 0"
+    when: "change_count != 0"
     prompt: |
-      Review the branch in {{project.path}}: exactly the commits in
-      `origin/{{base}}..HEAD` ({{commit_count}} commits), the change set
-      about to be pushed. Your lens: security and input handling.
+      Review the `{{review_target}}` target in {{review_dir}} against
+      the base {{base}} ({{change_count}} commits and changed paths):
+      the change set is exactly what `{{diff_cmd}}` prints there, plus,
+      for the `working` target, the untracked files that
+      `git status --porcelain --untracked-files=all` lists (read them
+      whole). Your lens: security and input handling.
       Injection (shell, SQL, template, path), missing validation or
       escaping of external input, secrets in code or logs, auth and
       permission checks skipped, unsafe defaults, unsafe deserialisation,
       SSRF, insecure temp files.
 
-      Read the diff (`git diff origin/{{base}}...HEAD`) and enough
+      Read the diff (`{{diff_cmd}}` in {{review_dir}}) and enough
       surrounding code to judge. Report only: never edit the worktree,
       never run a git write command, never run a formatter or linter in
-      write mode, never commit. The one file you write is your findings
-      file.
+      write mode, never commit, never comment on the PR. The one file
+      you write is your findings file.
 
       Keep only high-confidence, concrete findings on lines the branch
       touched. Drop judgement calls the work did not ask for (behaviour
@@ -194,27 +295,30 @@ steps:
       additionalProperties: false
     outputs: [security_findings, security_blocking]
     allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
-    depends_on: [count-commits]
+    depends_on: [count-changes]
 
   - id: review-tests
     type: agent
     group: tests
     description: "Test-coverage review"
-    when: "commit_count != 0"
+    when: "change_count != 0"
     prompt: |
-      Review the branch in {{project.path}}: exactly the commits in
-      `origin/{{base}}..HEAD` ({{commit_count}} commits), the change set
-      about to be pushed. Your lens: test coverage. New or changed
+      Review the `{{review_target}}` target in {{review_dir}} against
+      the base {{base}} ({{change_count}} commits and changed paths):
+      the change set is exactly what `{{diff_cmd}}` prints there, plus,
+      for the `working` target, the untracked files that
+      `git status --porcelain --untracked-files=all` lists (read them
+      whole). Your lens: test coverage. New or changed
       behaviour with no test, tests that no longer assert what the code
       does, edge cases the change introduces and leaves untested,
       tests weakened or deleted without a stated reason, flaky patterns
       (timing, ordering, shared state).
 
-      Read the diff (`git diff origin/{{base}}...HEAD`) and enough
+      Read the diff (`{{diff_cmd}}` in {{review_dir}}) and enough
       surrounding code and existing tests to judge. Report only: never
       edit the worktree, never run a git write command, never run a
-      formatter or linter in write mode, never commit. The one file you
-      write is your findings file.
+      formatter or linter in write mode, never commit, never comment on
+      the PR. The one file you write is your findings file.
 
       Keep only high-confidence, concrete findings on lines the branch
       touched. Drop judgement calls the work did not ask for (behaviour
@@ -240,11 +344,11 @@ steps:
       additionalProperties: false
     outputs: [tests_findings, tests_blocking]
     allowed_tools: ["Bash(git:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(test:*)"]
-    depends_on: [count-commits]
+    depends_on: [count-changes]
 
   - id: review-health
     type: bash
-    when: "commit_count != 0"
+    when: "change_count != 0"
     run: |
       set -eu
       python3 - "{{run.dir}}" <<'WISE_REVIEW_HEALTH'
@@ -283,10 +387,10 @@ steps:
   - id: curate
     type: agent
     group: curate
-    when: "commit_count != 0 && (missing_reviews == 'none' || review_failure_action == 'Continue with available reports')"
+    when: "change_count != 0 && (missing_reviews == 'none' || review_failure_action == 'Continue with available reports')"
     prompt: |
-      Merge the three reviewer reports for the branch in
-      {{project.path}} (`origin/{{base}}..HEAD`) into one findings list.
+      Merge the three reviewer reports for the `{{review_target}}`
+      target in {{review_dir}} (against {{base}}) into one findings list.
       Read `{{run.dir}}/review/correctness.md`, `{{run.dir}}/review/security.md`
       and `{{run.dir}}/review/tests.md`. An empty file means that reviewer
       found nothing. A missing file is a failed lens the user explicitly
@@ -297,8 +401,8 @@ steps:
       (dead code, unused imports, obviously redundant logic). Drop
       judgement calls the work did not ask for (behaviour changes, broad
       renames, new dependencies, large refactors), anything on lines the
-      branch did not touch (check with `git diff origin/{{base}}...HEAD`
-      when in doubt), and anything the plan's `## Decisions Made` chose
+      change set did not touch (check with `{{diff_cmd}}` in
+      {{review_dir}} when in doubt), and anything the plan's `## Decisions Made` chose
       deliberately (plan: {{plan_path}}). Respect the operator guidance
       and keep what contradicts it: {{guidance}}
 
@@ -335,7 +439,7 @@ steps:
     when: "findings != 0"
     prompt: |
       Adversarially verify the findings in `{{findings_path}}` for the
-      branch in {{project.path}} (`origin/{{base}}..HEAD`). For every
+      `{{review_target}}` target in {{review_dir}} (`{{diff_cmd}}`). For every
       numbered finding, try to REFUTE it against the current code: is it
       actually wrong as claimed, on the lines it names, in the way it
       describes? Where you have subagents, run one read-only subagent per
@@ -370,10 +474,10 @@ steps:
     mode: full-access
     # `findings_path` is unset when `curate` was skipped (a reviewer failed), so
     # the fixer never runs on raw, uncurated reports.
-    when: "mode == 'apply' && commit_count != 0 && findings_path"
+    when: "mode == 'apply' && change_count != 0 && findings_path"
     prompt: |
-      Apply the findings in `{{findings_path}}` to the branch in
-      {{project.path}} (`origin/{{base}}..HEAD`). An empty file means
+      Apply the findings in `{{findings_path}}` to the `{{review_target}}`
+      target in {{review_dir}} (`{{diff_cmd}}`). An empty file means
       nothing to apply: return applied 0, skipped 0, committed no.
 
       For each numbered finding apply the concrete fix in place, bounded:
@@ -385,8 +489,11 @@ steps:
       When any file changed: run the project's quickest relevant check
       (a syntax check, the affected tests, or the linter in read-only
       mode); if the tree is broken, revert your edits with
-      `git checkout -- <files>` and treat every finding as skipped. Then
-      stage every change (`git add -A`) and commit with one
+      `git checkout -- <files>` and treat every finding as skipped.
+      For the `working` target stop there: leave your edits in the tree
+      next to the user's own uncommitted changes, never stage or commit,
+      and return committed `no`. Otherwise stage only the files you
+      edited (`git add <files>`) and commit with one
       Conventional Commits subject in the form
       `fix(<scope>): apply code-review findings` where <scope> is the
       area most of the fixes touch (drop the scope when there is none).
@@ -409,6 +516,30 @@ steps:
     depends_on: [verify]
     trigger-rule: none-failed
 
+  # --- comment: one review comment on the PR target ---------------------
+
+  - id: comment
+    type: bash
+    # Posts the kept findings as ONE comment review (never an approval or a
+    # change request); an empty list posts a short "no findings" note.
+    when: "mode == 'comment' && findings_path"
+    run: |
+      set -eu
+      n=${WISE_REVIEW_TARGET#pr:}
+      sha=$(git -C "$WISE_REVIEW_DIR" rev-parse --short HEAD)
+      body="{{run.dir}}/review/comment.md"
+      if [ -s "$WISE_FINDINGS_PATH" ]; then
+        { printf 'Local code review of %s (correctness, security, tests):\n\n' "$sha"; cat "$WISE_FINDINGS_PATH"; } > "$body"
+      else
+        printf 'Local code review of %s (correctness, security, tests): no findings.\n' "$sha" > "$body"
+      fi
+      gh pr review "$n" --comment --body-file "$body" >&2
+      echo yes
+    outputs: [commented]
+    timeout: 60
+    depends_on: [verify]
+    trigger-rule: none-failed
+
   # --- summary -----------------------------------------------------------
 
   - id: finalize
@@ -416,9 +547,23 @@ steps:
     # An output of a skipped step stays an unresolved `{{name}}`; sed blanks it
     # so the line always prints.
     run: |
-      echo "code-review: origin/{{base}}..HEAD commits={{commit_count}} findings={{findings}} kept={{kept}} refuted={{refuted}} applied={{applied}} skipped={{skipped}} committed={{committed}} file={{findings_path}}" | sed -E 's/\{\{[a-z_]+\}\}//g'
+      echo "code-review: target={{review_target}} base={{base}} changes={{change_count}} findings={{findings}} kept={{kept}} refuted={{refuted}} applied={{applied}} skipped={{skipped}} committed={{committed}} commented={{commented}} file={{findings_path}}" | sed -E 's/\{\{[a-z_]+\}\}//g'
     timeout: 15
-    depends_on: [apply]
+    depends_on: [apply, comment]
+    trigger-rule: all-done
+
+  - id: cleanup-tree
+    type: bash
+    # Removes the detached worktree `prepare-tree` made for a PR target.
+    run: |
+      set -eu
+      dir="${WISE_REVIEW_DIR-}"
+      case "$dir" in
+        "{{run.dir}}"/review/tree) git worktree remove --force "$dir" ;;
+      esac
+      echo done
+    timeout: 60
+    depends_on: [finalize]
     trigger-rule: all-done
 
   - id: fail-incomplete-review
