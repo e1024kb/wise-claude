@@ -82,8 +82,11 @@ async def ensure_fast_forward(ctx: Json) -> Json:
     history is rebuilt without force: back to `origin/<branch>`, the base
     merged in when the fix pass brought it in (a conflicted path takes the
     fix pass's own resolution), then each commit the fix pass made that
-    origin lacks (by patch id) cherry-picked on top. When that fails, the
-    rewritten head is restored and the unit fails `non-fast-forward`."""
+    origin lacks (by patch id) cherry-picked on top. When the replayed tree
+    differs from the rewritten head's, that tree is published instead as one
+    commit on `origin/<branch>` (and the base, when brought in). When the
+    replay fails, the rewritten head is restored and the unit fails
+    `non-fast-forward`."""
     unit = ctx["unit"]
     branch, path = unit["branch"], unit["worktree"]
     worktree = {"cwd": path}
@@ -193,6 +196,25 @@ async def ensure_fast_forward(ctx: Json) -> Json:
         return await restore(f"cherry-pick {commit[:12]} conflicts ({err_text(picked, 160)})")
     if not ok(await git(ctx, ["merge-base", "--is-ancestor", remote, "HEAD"], worktree)):
         return await restore(f"the replayed head does not contain {remote}")
+    if not ok(await git(ctx, ["diff", "--quiet", diverged, "HEAD"], worktree)):
+        # The replay lost part of the fix pass's tree (a conflicted path took
+        # the base side, or a dropped commit held changes): publish that tree
+        # as one commit on top of origin, merging the base when it came in.
+        parents = ["-p", remote] + (["-p", ref] if brings_base else [])
+        message = f"Merge {ref} into {branch}" if brings_base else f"Re-apply the fix on {remote}"
+        built = await git(
+            ctx, ["commit-tree", f"{diverged}^{{tree}}", *parents, "-m", message], worktree
+        )
+        rebuilt = built["stdout"].strip() if ok(built) else ""
+        if not rebuilt:
+            return await restore(f"cannot rebuild the fix pass's tree ({err_text(built, 160)})")
+        reset = await git(ctx, ["reset", "--hard", rebuilt], worktree)
+        if not ok(reset):
+            return await restore(f"cannot check out the rebuilt head ({err_text(reset, 160)})")
+        ctx["log"](
+            f"push: the replay differed from {diverged[:12]}; published its tree as one commit"
+        )
+        return pass_()
     ctx["log"](f"push: replayed {len(commits)} fix commit(s) on {remote}")
     return pass_()
 

@@ -1201,8 +1201,10 @@ engine checks that HEAD descends from `origin/<branch>`; a fix pass that
 rebased or amended pushed commits is rebuilt without force (back to
 `origin/<branch>`, the base merged in when the fix brought it in, with
 conflicts taking the fix pass's resolution, then the fix commits origin
-lacks, by patch id, cherry-picked on top); a failed replay restores the
-rewritten head and ends the unit `non-fast-forward`. The engine never triggers a remote
+lacks, by patch id, cherry-picked on top); a replay whose tree differs
+from the rewritten head's publishes that tree as one commit on
+`origin/<branch>` instead; a failed replay restores the rewritten head
+and ends the unit `non-fast-forward`. The engine never triggers a remote
 review: it only observes the state of each review bot configured on the
 repo for the head (`phases/verify.py`, rules in
 `references/pr/review-verification.md`; ledger

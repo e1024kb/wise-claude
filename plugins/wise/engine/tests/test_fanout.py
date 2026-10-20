@@ -724,6 +724,43 @@ def test_fix_pass_rebase_of_a_pushed_branch_still_fast_forwards(repo, tmp_path):
     assert git(repo, "rev-parse", "origin/feat") == git(repo, "rev-parse", "HEAD")
 
 
+def test_replay_that_loses_a_pushed_change_publishes_the_fix_tree(repo, tmp_path):
+    lines = [f"line {n}\n" for n in range(30)]
+
+    def text(first, last):
+        return first + "".join(lines[1:-1]) + last
+
+    git(repo, "checkout", "-b", "feat")
+    commit_file(repo, "shared.txt", text("branch\n", lines[-1]), "feat: branch work")
+    commit_file(repo, "shared.txt", text("branch\n", "more\n"), "feat: more work")
+    git(repo, "push", "-u", "origin", "feat")
+    move_base(tmp_path, "shared.txt", text("base\n", lines[-1]))
+    pushed = git(repo, "rev-parse", "origin/feat")
+    git(repo, "fetch", "origin")
+    # The first pushed commit conflicts; the second, far from the conflict,
+    # rebases with the same patch id, so the replay drops it while the
+    # conflict takes the base side of shared.txt.
+    step = subprocess.run(["git", "rebase", "origin/main"], cwd=repo, capture_output=True)
+    assert step.returncode
+    (repo / "shared.txt").write_text(text("base\nbranch\n", lines[-1]))
+    git(repo, "add", "shared.txt")
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    commit_file(repo, "fix.txt", "fix\n", "fix: ci")
+    rewritten_tree = git(repo, "rev-parse", "HEAD^{tree}")
+    result = asyncio.run(ensure_fast_forward(real_ctx(repo)))
+    assert result["ok"], result
+    assert git(repo, "rev-parse", "HEAD^{tree}") == rewritten_tree
+    assert (repo / "shared.txt").read_text() == text("base\nbranch\n", "more\n")
+    git(repo, "merge-base", "--is-ancestor", pushed, "HEAD")
+    git(repo, "merge-base", "--is-ancestor", "origin/main", "HEAD")
+    git(repo, "push", "origin", "feat")
+
+
 def test_fix_pass_rebase_without_conflict_replays_only_the_fix(repo, tmp_path):
     pushed_branch(repo)
     move_base(tmp_path, "other.txt", "base\n")

@@ -397,7 +397,8 @@ steps:
       its `mergeCommit.oid`); `all-green`, `human-intervention`, and
       `blocked` with a PR -> pr-open (SHA = `headRefOid`); a row with
       `blocked_by` -> blocked (notes: which child it waited for and how
-      that child ended); `failed`, `partial`, `exhausted` -> failed;
+      that child ended); `failed`, `partial`, `exhausted`,
+      `non-fast-forward` -> failed;
       `skipped` -> skipped (notes: the tracker state or the reason);
       `no-pr` -> blocked (notes: no GitHub remote, open a PR manually).
       Notes carry the engine verdict when it differs and the reason. The
