@@ -90,7 +90,10 @@ approved.
 
 ### 2. Push the fix commit
 
-Only when §1 reported `committed=yes`:
+Only when §1 reported `committed=yes`. The PR branch is already pushed:
+first bring in the base with `git fetch origin <base>` then
+`git merge origin/<base>`, never `git rebase`, and never amend, squash or
+reorder a pushed commit. Then push:
 
 ```bash
 git push

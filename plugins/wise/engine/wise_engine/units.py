@@ -50,7 +50,7 @@ from .phases.model import (
     watch_phase,
 )
 from .phases.pr import pr_phase, view_pr
-from .phases.push import push_phase, rebase_onto_base, sequence_collisions
+from .phases.push import ensure_fast_forward, push_phase, rebase_onto_base, sequence_collisions
 from .phases.remote import GITHUB_DEFAULT, detect_remote, no_pr_reason
 from .phases.request_review import request_review_phase
 from .phases.verify import commit_time_ms, human_commenters, verify_reviews
@@ -218,7 +218,9 @@ def _summarize(rows: list[Json]) -> str:
         and "blocked_by" not in row
         for row in rows
     )
-    failed = sum(row.get("verdict") in ("failed", "exhausted", None) for row in rows)
+    failed = sum(
+        row.get("verdict") in ("failed", "exhausted", "non-fast-forward", None) for row in rows
+    )
     skipped = sum(row.get("verdict") == "skipped" for row in rows)
     no_pr = sum(row.get("verdict") == "no-pr" for row in rows)
     planned = sum(row.get("verdict") == "plan-written" for row in rows)
@@ -353,6 +355,12 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
         watch["stable"] = 0
         save()
         hooks["emit_phase"]("push")
+        # The fix child may have rebased commits origin already has; a plain
+        # push of that history is rejected, so it is rebuilt first.
+        guarded = await ensure_fast_forward(ctx)
+        if not guarded["ok"]:
+            hooks["fold"]("push", guarded)
+            return {**guarded, "patch": {"watch": dict(watch)}}
         pushed = await runners["push"](ctx)
         hooks["fold"]("push", pushed)
         if pushed["ok"]:

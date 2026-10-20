@@ -367,6 +367,36 @@ def test_watch_red_fix_push_green(tmp_path):
     asyncio.run(scenario())
 
 
+def test_watch_fix_with_unreplayable_history_fails_non_fast_forward(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+
+        def watch(req, nth):
+            Path(findings_path(fixture.ctx)).write_text("CI failure")
+            return answer(watch_output(ci="red", verdict="fix"))
+
+        fixture.scripts["watch"] = watch
+        # The fix head never descends from origin/<branch>: the replay cannot help.
+        fixture.failures[("git", "merge-base", "--is-ancestor")] = command_result(code=1)
+        result = await run_units_step(fixture.input())
+        unit = result["outputs"]["units"][0]
+        assert unit["verdict"] == "non-fast-forward"
+        assert unit["reason"].startswith("non-fast-forward: the fix pass rewrote")
+        assert "failed=1" in result["verdict"]
+        git_calls = [args for cmd, args, _ in fixture.calls if cmd == "git"]
+        # Only the first push went out; nothing was ever force-pushed.
+        assert sum(args[0] == "push" for args in git_calls) == 1
+        assert not any(
+            arg.startswith(("--force", "-f"))
+            for args in git_calls
+            if args[0] == "push"
+            for arg in args
+        )
+        assert ["reset", "--hard", "head-2"] in git_calls
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("zero_commit,expected", [(False, "exhausted"), (True, "partial")])
 def test_fix_cap_or_no_commit(tmp_path, zero_commit, expected):
     async def scenario():

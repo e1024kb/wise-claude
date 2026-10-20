@@ -282,7 +282,10 @@ parsing for that marker never sees it twice.
 - **Push.** With `push=no`: skip this step and set
   `OUTCOME="handled committed=yes pushed=no resolved=<K>"` (or
   `committed=no` when nothing was committed). Otherwise, if §2 produced
-  a commit, run a single `git push` (never force, never `--no-verify`).
+  a commit: the PR branch is already pushed, so first bring in the base
+  with `git fetch origin <base>` then `git merge origin/<base>`, never
+  `git rebase`, and never amend, squash or reorder a pushed commit.
+  Then run a single `git push` (never force, never `--no-verify`).
   On failure set `OUTCOME="aborted reason=push-failed"`. On success set
   `OUTCOME="handled committed=yes resolved=<K>"` — the caller re-enters
   §1 (the push may trigger fresh Sonar analysis, so the new head must

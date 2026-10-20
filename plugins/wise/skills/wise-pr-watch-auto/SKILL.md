@@ -136,7 +136,7 @@ approvals: the run will drive the PR to green but cannot merge it.
 
 The `process` step's `units` row carries the outcome:
 `verdict` (`merged` | `all-green` | `blocked` | `partial` | `exhausted`
-| `human-intervention` | `failed` | `skipped`) and `reason`; the
+| `non-fast-forward` | `human-intervention` | `failed` | `skipped`) and `reason`; the
 `report` step writes `<run-dir>/report.md`. Summarise: whether the PR
 was merged, how many watch passes and fix rounds it took, what was
 fixed, and — for anything but `merged` — that the PR needs a human,

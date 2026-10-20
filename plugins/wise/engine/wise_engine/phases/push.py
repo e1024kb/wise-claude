@@ -71,6 +71,154 @@ async def rebase_onto_base(ctx: Json) -> Json:
     )
 
 
+NON_FAST_FORWARD = "non-fast-forward"
+
+
+async def ensure_fast_forward(ctx: Json) -> Json:
+    """Make the next push a fast-forward of `origin/<branch>`.
+
+    A fix pass after the first push may rebase or amend commits origin
+    already has, and a plain push of that history is rejected. Rewritten
+    history is rebuilt without force: back to `origin/<branch>`, the base
+    merged in when the fix pass brought it in (a conflicted path takes the
+    fix pass's own resolution), then each commit the fix pass made that
+    origin lacks (by patch id) cherry-picked on top. When the replayed tree
+    differs from the rewritten head's, that tree is published instead as one
+    commit on `origin/<branch>` (and the base, when brought in). When the
+    replay fails, the rewritten head is restored and the unit fails
+    `non-fast-forward`."""
+    unit = ctx["unit"]
+    branch, path = unit["branch"], unit["worktree"]
+    worktree = {"cwd": path}
+    remote = f"origin/{branch}"
+    base = unit.get("base") or "main"
+    fetched = await git(
+        ctx, ["fetch", "origin", branch, base], {"timeout_ms": NETWORK_CMD_TIMEOUT_MS}
+    )
+    if not ok(fetched):
+        ctx["log"](f"push: fetch origin {branch} failed; checking the last fetched {remote}")
+    tracked = await git(
+        ctx, ["show-ref", "--verify", "--quiet", f"refs/remotes/{remote}"], worktree
+    )
+    if not ok(tracked):
+        return pass_()
+    if ok(await git(ctx, ["merge-base", "--is-ancestor", remote, "HEAD"], worktree)):
+        return pass_()
+    head = await git(ctx, ["rev-parse", "HEAD"], worktree)
+    diverged = head["stdout"].strip() if ok(head) else ""
+    if not diverged:
+        return fail(f"{NON_FAST_FORWARD}: cannot read the head of {path}", NON_FAST_FORWARD)
+    ctx["log"](f"push: HEAD {diverged[:12]} rewrote {remote}; replaying the fix on top of it")
+
+    def failed(why: str) -> Json:
+        return fail(
+            f"{NON_FAST_FORWARD}: the fix pass rewrote commits already on {remote} "
+            f"(HEAD {diverged[:12]} does not contain it) and replaying them failed: {why}. "
+            f"The rewritten head stays in {path}: merge the base into {remote}, re-apply "
+            "the fix commits and push without force",
+            NON_FAST_FORWARD,
+        )
+
+    dirty = await git(ctx, ["status", "--porcelain", "--untracked-files=no"], worktree)
+    if not ok(dirty) or dirty["stdout"].strip():
+        return failed("the worktree has uncommitted changes")
+    ref = unit_base_ref(unit)
+    listed = await git(
+        ctx,
+        [
+            "rev-list",
+            "--reverse",
+            "--no-merges",
+            "--right-only",
+            "--cherry-pick",
+            f"{remote}...HEAD",
+            f"^{ref}",
+        ],
+        worktree,
+    )
+    if not ok(listed):
+        return failed(f"cannot list the fix commits ({err_text(listed, 160)})")
+    commits = listed["stdout"].split()
+    brings_base = ok(
+        await git(ctx, ["merge-base", "--is-ancestor", ref, "HEAD"], worktree)
+    ) and not ok(await git(ctx, ["merge-base", "--is-ancestor", ref, remote], worktree))
+    # The tree the fix pass resolved the base into, before its own commits.
+    resolution = f"{commits[0]}^" if commits else diverged
+
+    async def restore(why: str) -> Json:
+        await git(ctx, ["cherry-pick", "--abort"], worktree)
+        await git(ctx, ["merge", "--abort"], worktree)
+        await git(ctx, ["reset", "--hard", diverged], worktree)
+        return failed(why)
+
+    async def unmerged() -> list[str]:
+        result = await git(ctx, ["diff", "--name-only", "--diff-filter=U"], worktree)
+        return result["stdout"].split("\n") if ok(result) and result["stdout"].strip() else []
+
+    reset = await git(ctx, ["reset", "--hard", remote], worktree)
+    if not ok(reset):
+        return await restore(f"cannot check out {remote} ({err_text(reset, 160)})")
+    if brings_base:
+        merged = await git(ctx, ["merge", "--no-edit", ref], worktree)
+        if not ok(merged):
+            conflicted = [name for name in await unmerged() if name]
+            if not conflicted:
+                return await restore(f"merging {ref} failed ({err_text(merged, 160)})")
+            for name in conflicted:
+                present = ok(await git(ctx, ["cat-file", "-e", f"{resolution}:{name}"], worktree))
+                taken = await git(
+                    ctx,
+                    ["checkout", resolution, "--", name] if present else ["rm", "-q", "--", name],
+                    worktree,
+                )
+                if not ok(taken):
+                    return await restore(f"cannot resolve {name} from the fix pass's rebase")
+            committed = await git(ctx, ["commit", "--no-edit"], worktree)
+            if not ok(committed):
+                return await restore(
+                    f"cannot commit the merge of {ref} ({err_text(committed, 160)})"
+                )
+            ctx["log"](
+                f"push: merged {ref} into {branch}, {len(conflicted)} conflicted path(s) "
+                "resolved as the fix pass resolved them"
+            )
+        else:
+            ctx["log"](f"push: merged {ref} into {branch}")
+    for commit in commits:
+        picked = await git(ctx, ["cherry-pick", commit], worktree)
+        if ok(picked):
+            continue
+        staged = await git(ctx, ["diff", "--cached", "--quiet"], worktree)
+        if not await unmerged() and ok(staged):
+            # Already applied by the merge: nothing left of this commit.
+            await git(ctx, ["cherry-pick", "--skip"], worktree)
+            continue
+        return await restore(f"cherry-pick {commit[:12]} conflicts ({err_text(picked, 160)})")
+    if not ok(await git(ctx, ["merge-base", "--is-ancestor", remote, "HEAD"], worktree)):
+        return await restore(f"the replayed head does not contain {remote}")
+    if not ok(await git(ctx, ["diff", "--quiet", diverged, "HEAD"], worktree)):
+        # The replay lost part of the fix pass's tree (a conflicted path took
+        # the base side, or a dropped commit held changes): publish that tree
+        # as one commit on top of origin, merging the base when it came in.
+        parents = ["-p", remote] + (["-p", ref] if brings_base else [])
+        message = f"Merge {ref} into {branch}" if brings_base else f"Re-apply the fix on {remote}"
+        built = await git(
+            ctx, ["commit-tree", f"{diverged}^{{tree}}", *parents, "-m", message], worktree
+        )
+        rebuilt = built["stdout"].strip() if ok(built) else ""
+        if not rebuilt:
+            return await restore(f"cannot rebuild the fix pass's tree ({err_text(built, 160)})")
+        reset = await git(ctx, ["reset", "--hard", rebuilt], worktree)
+        if not ok(reset):
+            return await restore(f"cannot check out the rebuilt head ({err_text(reset, 160)})")
+        ctx["log"](
+            f"push: the replay differed from {diverged[:12]}; published its tree as one commit"
+        )
+        return pass_()
+    ctx["log"](f"push: replayed {len(commits)} fix commit(s) on {remote}")
+    return pass_()
+
+
 async def sequence_collisions(ctx: Json) -> list[str]:
     """Numbered files this branch adds whose number the base already uses in
     the same directory, one finding line each."""

@@ -219,8 +219,8 @@ steps:
 
       Per row: unit.ref, unit.branch, unit.worktree, unit.plan_path
       (the seed), unit.pr.url, verdict (merged | all-green | blocked |
-      partial | exhausted | human-intervention | failed | skipped |
-      no-pr), reason, review.converged and review.cycles, cleaned. A
+      partial | exhausted | non-fast-forward | human-intervention |
+      failed | skipped | no-pr), reason, review.converged and review.cycles, cleaned. A
       `no-pr` verdict means the project has no GitHub remote: the branch
       is committed locally (no origin) or pushed to a non-GitHub origin,
       and no PR was opened. The ledger

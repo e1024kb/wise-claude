@@ -31,7 +31,12 @@ from wise_engine.fanout import (
 )
 from wise_engine.ledger import read_unit
 from wise_engine.phases.claim import claim_phase
-from wise_engine.phases.push import rebase_onto_base, sequence_collisions, sequence_number
+from wise_engine.phases.push import (
+    ensure_fast_forward,
+    rebase_onto_base,
+    sequence_collisions,
+    sequence_number,
+)
 from wise_engine.phases.trailers import strip_cursor_trailers, strip_trailer
 from wise_engine.phases.common import spawn_runner
 from wise_engine.spawn import clean_env
@@ -654,6 +659,152 @@ def real_ctx(work, branch="feat", base="main"):
         "log": logs.append,
         "logs": logs,
     }
+
+
+def commit_file(cwd, name, text, message):
+    (cwd / name).write_text(text)
+    git(cwd, "add", ".")
+    git(cwd, "commit", "-m", message)
+
+
+def move_base(tmp_path, name, text):
+    """Another clone pushes a commit to origin/main."""
+    other = tmp_path / "other"
+    if not other.exists():
+        subprocess.run(
+            ["git", "clone", str(tmp_path / "origin.git"), str(other)],
+            check=True,
+            capture_output=True,
+        )
+        git(other, "config", "user.email", "t@example.invalid")
+        git(other, "config", "user.name", "T")
+    git(other, "pull", "-q", "origin", "main")
+    commit_file(other, name, text, "base moved")
+    git(other, "push", "origin", "main")
+
+
+def pushed_branch(repo):
+    git(repo, "checkout", "-b", "feat")
+    commit_file(repo, "shared.txt", "branch\n", "feat: branch work")
+    git(repo, "push", "-u", "origin", "feat")
+
+
+def test_fix_pass_rebase_of_a_pushed_branch_still_fast_forwards(repo, tmp_path):
+    pushed_branch(repo)
+    move_base(tmp_path, "shared.txt", "base\n")
+    pushed = git(repo, "rev-parse", "origin/feat")
+    # The fix child resolves the PR conflict by rebasing, then commits its fix.
+    git(repo, "fetch", "origin")
+    rebase = subprocess.run(
+        ["git", "rebase", "origin/main"], cwd=repo, capture_output=True, text=True
+    )
+    assert rebase.returncode != 0
+    (repo / "shared.txt").write_text("base\nbranch\n")
+    git(repo, "add", "shared.txt")
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    commit_file(repo, "fix.txt", "fix\n", "fix: ci")
+    assert subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "origin/feat", "HEAD"], cwd=repo
+    ).returncode
+    ctx = real_ctx(repo)
+    result = asyncio.run(ensure_fast_forward(ctx))
+    assert result["ok"], (result, ctx["logs"])
+    git(repo, "merge-base", "--is-ancestor", pushed, "HEAD")
+    git(repo, "merge-base", "--is-ancestor", "origin/main", "HEAD")
+    assert (repo / "fix.txt").read_text() == "fix\n"
+    assert (repo / "shared.txt").read_text() == "base\nbranch\n"
+    assert "fix: ci" in git(repo, "log", "--format=%s", "origin/feat..HEAD")
+    # A plain push is a fast-forward now.
+    git(repo, "push", "origin", "feat")
+    assert git(repo, "rev-parse", "origin/feat") == git(repo, "rev-parse", "HEAD")
+
+
+def test_replay_that_loses_a_pushed_change_publishes_the_fix_tree(repo, tmp_path):
+    lines = [f"line {n}\n" for n in range(30)]
+
+    def text(first, last):
+        return first + "".join(lines[1:-1]) + last
+
+    git(repo, "checkout", "-b", "feat")
+    commit_file(repo, "shared.txt", text("branch\n", lines[-1]), "feat: branch work")
+    commit_file(repo, "shared.txt", text("branch\n", "more\n"), "feat: more work")
+    git(repo, "push", "-u", "origin", "feat")
+    move_base(tmp_path, "shared.txt", text("base\n", lines[-1]))
+    pushed = git(repo, "rev-parse", "origin/feat")
+    git(repo, "fetch", "origin")
+    # The first pushed commit conflicts; the second, far from the conflict,
+    # rebases with the same patch id, so the replay drops it while the
+    # conflict takes the base side of shared.txt.
+    step = subprocess.run(["git", "rebase", "origin/main"], cwd=repo, capture_output=True)
+    assert step.returncode
+    (repo / "shared.txt").write_text(text("base\nbranch\n", lines[-1]))
+    git(repo, "add", "shared.txt")
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    commit_file(repo, "fix.txt", "fix\n", "fix: ci")
+    rewritten_tree = git(repo, "rev-parse", "HEAD^{tree}")
+    result = asyncio.run(ensure_fast_forward(real_ctx(repo)))
+    assert result["ok"], result
+    assert git(repo, "rev-parse", "HEAD^{tree}") == rewritten_tree
+    assert (repo / "shared.txt").read_text() == text("base\nbranch\n", "more\n")
+    git(repo, "merge-base", "--is-ancestor", pushed, "HEAD")
+    git(repo, "merge-base", "--is-ancestor", "origin/main", "HEAD")
+    git(repo, "push", "origin", "feat")
+
+
+def test_fix_pass_rebase_without_conflict_replays_only_the_fix(repo, tmp_path):
+    pushed_branch(repo)
+    move_base(tmp_path, "other.txt", "base\n")
+    git(repo, "fetch", "origin")
+    git(repo, "rebase", "origin/main")
+    commit_file(repo, "fix.txt", "fix\n", "fix: lint")
+    result = asyncio.run(ensure_fast_forward(real_ctx(repo)))
+    assert result["ok"], result
+    subjects = git(repo, "log", "--format=%s", "origin/feat..HEAD").splitlines()
+    # The rebased copy of the pushed commit is dropped by patch id.
+    assert "feat: branch work" not in subjects and "fix: lint" in subjects
+    assert (repo / "other.txt").exists()
+    git(repo, "push", "origin", "feat")
+
+
+def test_fast_forward_guard_leaves_a_descending_or_unpushed_head_alone(repo):
+    git(repo, "checkout", "-b", "feat")
+    commit_file(repo, "a.txt", "a\n", "feat: local only")
+    assert asyncio.run(ensure_fast_forward(real_ctx(repo)))["ok"]
+    git(repo, "push", "-u", "origin", "feat")
+    commit_file(repo, "b.txt", "b\n", "fix: on top")
+    head = git(repo, "rev-parse", "HEAD")
+    assert asyncio.run(ensure_fast_forward(real_ctx(repo)))["ok"]
+    assert git(repo, "rev-parse", "HEAD") == head
+
+
+def test_unreplayable_rewritten_history_fails_non_fast_forward(repo):
+    pushed_branch(repo)
+    # The fix child amends the pushed commit into a different change.
+    (repo / "shared.txt").write_text("amended\n")
+    git(repo, "commit", "-a", "--amend", "-m", "feat: amended")
+    rewritten = git(repo, "rev-parse", "HEAD")
+    pushed = git(repo, "rev-parse", "origin/feat")
+    result = asyncio.run(ensure_fast_forward(real_ctx(repo)))
+    assert not result["ok"]
+    assert result["verdict"] == "non-fast-forward"
+    assert result["reason"].startswith(
+        "non-fast-forward: the fix pass rewrote commits already on origin/feat"
+    )
+    assert "push without force" in result["reason"]
+    # The rewritten head is restored for a human; origin is untouched.
+    assert git(repo, "rev-parse", "HEAD") == rewritten
+    assert git(repo, "status", "--porcelain") == ""
+    assert git(repo, "ls-remote", "origin", "refs/heads/feat").split()[0] == pushed
 
 
 def raw_commit(repo, message):
