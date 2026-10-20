@@ -98,7 +98,7 @@ Unit caps (`profiles.medium.caps`):
 | Name | Source | Content |
 |---|---|---|
 | `branch` | `resolve-branch` | The checked-out branch, the `units` item. |
-| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. A `skipped` whose reason starts with `no-github-remote` means the repo has no GitHub remote (nothing to watch). Ledger under `<run-dir>/units/<branch>.json`; `watch.reviewed_sha` is the head the local review approved, and `watch.verification.<provider>.<head>` records the observed state of each configured review bot for the 5 most recent heads (state, detail). |
+| `units` | `process` | `UnitRow[]` (one row): `unit` (branch, worktree, base, pr), `verdict` (`merged`, `all-green`, `blocked`, `partial`, `exhausted`, `non-fast-forward`, `human-intervention`, `failed`, `skipped`), `reason`, `review`, `cleaned`. A `skipped` whose reason starts with `no-github-remote` means the repo has no GitHub remote (nothing to watch). Ledger under `<run-dir>/units/<branch>.json`; `watch.reviewed_sha` is the head the local review approved, and `watch.verification.<provider>.<head>` records the observed state of each configured review bot for the 5 most recent heads (state, detail). |
 | `verdict`, `report_path` | `report` | The verdict and the report file. |
 
 ## Examples

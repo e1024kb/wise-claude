@@ -96,6 +96,9 @@ Only when §1 reported `committed=yes`:
 git push
 ```
 
+The PR branch is already pushed: bring in the base with
+`git fetch origin <base>` then `git merge origin/<base>`, never
+`git rebase`, and never amend, squash or reorder a pushed commit.
 Never `--force`, never `--force-with-lease`, never `--no-verify`. On a
 push failure (non-fast-forward, auth, hook) do NOT retry - skip to §3
 with `failed`, `reason=push-failed`, and `unpushed=$(git rev-parse HEAD)`.

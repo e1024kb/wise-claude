@@ -1196,7 +1196,13 @@ A cap applies only when the step lists it in `caps` and
 pass: `merged` -> `merged`; human comment or `needs-human` ->
 `human-intervention`;
 `blocked` -> `blocked`; red CI or open bot reviews -> fix and push (a
-fix without a commit -> `partial`). The engine never triggers a remote
+fix without a commit -> `partial`). Before each watch-loop push the
+engine checks that HEAD descends from `origin/<branch>`; a fix pass that
+rebased or amended pushed commits is rebuilt without force (back to
+`origin/<branch>`, the base merged in when the fix brought it in, with
+conflicts taking the fix pass's resolution, then the fix commits origin
+lacks, by patch id, cherry-picked on top); a failed replay restores the
+rewritten head and ends the unit `non-fast-forward`. The engine never triggers a remote
 review: it only observes the state of each review bot configured on the
 repo for the head (`phases/verify.py`, rules in
 `references/pr/review-verification.md`; ledger
@@ -1214,8 +1220,12 @@ reached -> `gh pr merge --squash` (then `--merge` when squash is
 disallowed) -> `merged`, else `all-green`.
 
 Verdicts: `merged` \| `all-green` \| `blocked` \| `partial` \|
-`exhausted` \| `human-intervention` \| `failed` \| `skipped` \| `no-pr`
-(no GitHub remote; see [No GitHub remote](#no-github-remote)). Only
+`exhausted` \| `non-fast-forward` \| `human-intervention` \| `failed` \|
+`skipped` \| `no-pr` (no GitHub remote; see
+[No GitHub remote](#no-github-remote)). `non-fast-forward`: a fix pass
+after the first push rewrote commits origin already had and the engine
+could not replay its commits on `origin/<branch>` (it never force-pushes;
+the rewritten head stays in the worktree). Only
 `merged` removes the worktree; every other verdict keeps it for a human.
 On resume `claim` and `worktree` re-run, other completed phases are
 skipped, a unit with a verdict is skipped.

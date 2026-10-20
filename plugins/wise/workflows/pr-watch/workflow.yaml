@@ -154,8 +154,8 @@ steps:
       ---
 
       Fields: unit.branch, unit.pr.url, verdict (merged | all-green |
-      blocked | partial | exhausted | human-intervention | failed |
-      skipped), reason, review.converged and review.cycles. A `skipped`
+      blocked | partial | exhausted | non-fast-forward |
+      human-intervention | failed | skipped), reason, review.converged and review.cycles. A `skipped`
       verdict whose reason starts with `no-github-remote` means the repo
       has no GitHub remote, so there was no PR or checks to watch. The
       ledger

@@ -325,7 +325,10 @@ and return.
 ### 8. Phase D — push
 
 If §6 produced a commit (`COMMIT: ok … pushed=no`), run a single
-push — never `--force`, never `--no-verify`:
+push — never `--force`, never `--no-verify`. The PR branch is already
+pushed: bring in the base with `git fetch origin <base>` then
+`git merge origin/<base>`, never `git rebase`, and never amend, squash
+or reorder a pushed commit.
 
 ```bash
 git push

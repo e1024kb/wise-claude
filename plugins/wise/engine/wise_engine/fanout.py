@@ -55,7 +55,7 @@ SUCCESS_VERDICTS = {
 # Verdicts that count as a child failure for `on_child_failure: stop`. An
 # open PR a human has to finish (all-green, human-intervention, blocked)
 # is an outcome, not a failure.
-FAILURE_VERDICTS = frozenset(("failed", "exhausted", "partial"))
+FAILURE_VERDICTS = frozenset(("failed", "exhausted", "partial", "non-fast-forward"))
 
 MAX_CONCURRENCY = 4
 
