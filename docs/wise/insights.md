@@ -96,7 +96,7 @@ is redacted before it lands here (see [Privacy](#privacy-model)).
 
 ### Capture (the SessionEnd hook)
 
-`hooks/session-end-ingest.sh` is the one sanctioned hook in the plugin (see
+`hooks/session-end-ingest.sh` is one of the two sanctioned hooks in the plugin (see
 `CONTRIBUTING.md` §2.4). On session end it reads `transcript_path` from the
 hook's stdin payload and runs `insights.py ingest <path>`. It is deliberately
 tiny: stdlib-only (works before `/wise-init`), no LLM, no network, idempotent

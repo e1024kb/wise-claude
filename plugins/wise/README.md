@@ -112,6 +112,7 @@ below.
 | `/wise-pr-watch-auto [<max-fix-attempts>] [--minutes <n>]` | Autonomous `/wise-pr-watch` - conducts the bundled `pr-watch` workflow: the engine polls CI and any review bot configured on the repo, runs wise's local review (the 3-lens code review team) once per new head, fixes what they raise, pushes, and merges when green, locally reviewed and quiet (branch protection respected). Never triggers or requests a remote review. Pre-flight asks harness, model and effort per phase (watch, fix, review, report); a human comment stands the run down. |
 | `/wise-implement-plan-auto [<plan-file>]` | Autonomously implement a `PLAN-*.md` on the checked-out branch — conducts the bundled `impl-plan` workflow: task waves as atomic commits, each task tidied and validated, nothing pushed. Pre-flight asks harness, model and effort for the implementer. |
 | `/wise-simplify-auto` | Autonomously simplify recently-modified code and commit it — the lightweight per-commit tier of the two-tier quality model as a standalone, decision-free building block (the `code-simplifier` agent on Claude Code when installed, otherwise the same cleanup inline on the current model, then drafts a Conventional-Commits subject and commits). Works on every harness. NO prompts, never pushes. |
+| `/wise-ste [<draft, file, or pointer>]` | Rewrite a draft, a file, or the last response in ASD-STE100 Simplified Technical English and return it without posting. The shared rules live in `references/ste100.md`; the session hook and the `wise:ste` output style apply the same rules. |
 | `/wise-human-writing [<draft or pointer>]` | Rewrite a draft into the plugin's human-first outbound style — the command half of the `wise-human-writing` hybrid skill (see [§ Skills](#skills)). |
 | `/wise-tickets [<ticket-ref or draft>]` | Restructure an oversized ticket or draft to the canonical ticket shape, and — when asked — apply it back to the tracker; the command half of the `wise-tickets` hybrid skill (see [§ Skills](#skills)). |
 | `/wise-supervise [<team-name>]` | Attach a watchdog / supervisor loop to a running team of background agents — probe each member, nudge the idle-but-unfinished or off-goal ones, escalate the persistently stuck. The automation of manually typing "ping all your subagents, are you on track?". |
@@ -309,7 +310,8 @@ Two skills are hybrids of the two shapes:
   any tracker, PR/MR comments on any code host, doc pages, chat
   messages. It auto-triggers whenever such content is being drafted,
   and is also invocable as `/wise-human-writing [<draft>]` to rewrite
-  ("de-slop") an existing draft without posting it.
+  ("de-slop") an existing draft without posting it. Its sentences
+  follow the shared ASD-STE100 rules in `references/ste100.md`.
 - **`wise-tickets`** is the standing structure contract for every
   ticket created, edited, or broken down in any issue tracker:
   canonical sections (Summary, Goal, Scope with out-of-scope,

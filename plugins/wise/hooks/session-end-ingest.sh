@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wise SessionEnd ingest hook.
 #
-# The ONE sanctioned hook in the wise plugin (see CONTRIBUTING.md §2 "Hooks"
+# One of the two sanctioned hooks in the wise plugin (see CONTRIBUTING.md §2 "Hooks"
 # and plugins/wise/CLAUDE.md). Its job is deliberately tiny: read the
 # SessionEnd payload from stdin, pull out the transcript path, and hand that
 # single file to `insights.py ingest`, which appends a compact record to the

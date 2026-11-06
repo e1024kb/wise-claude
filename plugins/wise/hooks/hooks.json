@@ -1,5 +1,5 @@
 {
-  "description": "wise self-improvement: on SessionEnd, ingest the just-finished session transcript into the local insights ledger (no LLM, no network, never blocks exit). See plugins/wise/CLAUDE.md and CONTRIBUTING.md §2 (Hooks).",
+  "description": "wise hooks. SessionEnd: ingest the finished session transcript into the local insights ledger (no LLM, no network, never blocks exit). SessionStart and SubagentStart: add the short ASD-STE100 writing-style rule to the context (fixed text, no network, opt out with WISE_STE=off). See CONTRIBUTING.md §2.4 (Hooks).",
   "hooks": {
     "SessionEnd": [
       {
@@ -7,6 +7,28 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-ingest.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-style.sh\" SessionStart",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-style.sh\" SubagentStart",
+            "timeout": 5
           }
         ]
       }
