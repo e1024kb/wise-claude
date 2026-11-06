@@ -310,10 +310,10 @@ functionality.
 The default remains **no hooks** — a plugin behind explicit slash commands
 should not also run implicit per-session code. Adding a hook is a deliberate
 decision that must be argued in the PR, not slipped in. This section IS the
-"discussion" the §2 bullet requires; it records the one sanctioned hook and
+"discussion" the §2 bullet requires; it records the two sanctioned hooks and
 the bar any future one must clear.
 
-`wise` ships exactly one hook:
+`wise` ships two hooks:
 
 - **SessionEnd → `hooks/session-end-ingest.sh`.** On session end it reads the
   `transcript_path` from the hook's stdin payload and hands that single file to
@@ -339,8 +339,25 @@ Hard constraints on this hook — and the bar for any hook that is ever proposed
 - **Bash 3.2 compatible** (macOS default) and `hooks/hooks.json` is
   auto-discovered — no `plugin.json` `hooks` field, no matcher.
 
-`SessionStart` hooks remain disallowed outright: they tax startup and there is
-no ingest-style justification for them here.
+- **SessionStart + SubagentStart → `hooks/session-start-style.sh`.** It prints
+  one fixed JSON object whose `additionalContext` is a short ASD-STE100
+  writing rule (the full rules live in `references/ste100.md`). This is what
+  makes the wise writing style work right after `/plugin install`, with no
+  manual `CLAUDE.md` edit. It runs in subagents too, because a subagent does
+  not inherit the main session's context.
+
+The style hook meets the same bar, adjusted for a start hook:
+
+- **No LLM, no network, no Python.** Plain bash that prints constant text.
+  Startup cost is one `bash` process and about 300 tokens of context.
+- **Opt-out.** `WISE_STE=off` (also `0`, `false`, `no`) prints nothing.
+- **Always exits 0** and has a 5-second timeout, so it never blocks a
+  session start.
+- **No matcher.** It fires on every start source (startup, resume, clear,
+  compact, fork), so the rule survives `/clear` and compaction.
+
+Any other `SessionStart` hook remains disallowed without the same argument:
+start hooks tax every session.
 
 ---
 

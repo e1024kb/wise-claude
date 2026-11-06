@@ -141,6 +141,9 @@ Match each claim against the evidence:
 
 ### 4. Emit the report
 
+Write the prose of each item per [`ste100.md`](ste100.md). Evidence
+tags, SHAs, paths, and commands stay verbatim.
+
 Use this exact structure. Omit any section with no items (print
 `- none` only for Done and Not done, which the reader always wants
 to see). Number refs per prefix as ONE running sequence across the

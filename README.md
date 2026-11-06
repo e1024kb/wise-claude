@@ -4,7 +4,7 @@
 > workflow engine that runs multi-step jobs across several AI coding CLIs, and
 > ready-made pipelines that take a ticket all the way to a merged PR.
 
-![version](https://img.shields.io/badge/version-6.0.1-blue)
+![version](https://img.shields.io/badge/version-6.1.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-informational)
 
@@ -61,6 +61,14 @@ codex plugin marketplace add e1024kb/wise-claude
 codex plugin add wise@wise-claude
 ```
 
+The install also turns on the wise writing style in Claude Code. You do
+not need to configure it. A session hook tells Claude to write PR
+descriptions, comments, commit bodies, tickets, and chat messages in
+ASD-STE100 Simplified Technical English, with reference codes (`F1`, `D1`,
+`A1`) for lists of findings and actions. To turn it off, set
+`WISE_STE=off` in your environment. To use the style for every chat reply,
+select the `wise:ste` output style in `/output-style`.
+
 For Cursor, Grok or T3 Code, load the wise skills through that host's own
 skill installation mechanism. The
 [host setup guide](plugins/wise/references/workflow-host-control.md) covers
@@ -95,7 +103,7 @@ the [plugin README](plugins/wise/README.md#commands).
 | Code review | `/wise-code-review` | Review the branch, uncommitted work or a PR with three parallel reviewers (correctness, security, tests) on the harness, model and effort you pick, then apply, report or post the findings. Never requests a review bot. |
 | Research and planning | `/wise-grill`, `/wise-revise`, `/wise-tickets`, `wise-estimation` | Deep-research a ticket, doc or question into a plan. Audit a folder or project into ranked improvement plans. Shape tickets and size them in story points. |
 | Product and design docs | `wise-prd-architect`, `wise-trd-architect` | Author PRDs and TRDs when you ask for one. |
-| Writing style | `/wise-human-writing`, `/wise-code-comments` | Keep PR bodies, tickets, chat messages and code comments readable and free of generated-text noise. |
+| Writing style | `/wise-human-writing`, `/wise-ste`, `/wise-code-comments` | Keep PR bodies, tickets, chat messages and code comments readable and free of generated-text noise. Rewrite any text in ASD-STE100 Simplified Technical English. |
 | Autonomous building blocks | `/wise-pr-create-auto`, `/wise-pr-watch-auto`, `/wise-implement-plan-auto`, `/wise-simplify-auto` | Prompt-free variants of the commands above. They never stop to ask, so pipelines can chain them. |
 | Other harnesses | `/wise-exec-on-harness` | Run one prompt on `codex`, `cursor`, `gemini` or `grok` from inside your current session. |
 | Session tools | `/wise-report`, `/wise-fork`, `/wise-profile`, `/wise-supervise` | Verified status reports, clean restarts after a session fork, token-budget profiles, and a watchdog for background agent teams. |

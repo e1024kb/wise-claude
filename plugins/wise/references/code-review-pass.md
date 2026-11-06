@@ -95,6 +95,10 @@ that deliberately.)
 
 ## The pass (review → curate → apply → commit)
 
+Write the prose of each finding, and any comment that a person reads,
+per [`ste100.md`](ste100.md). Code, paths, and line references stay
+verbatim.
+
 1. **Resolve the diff.** The change set is `origin/<base>..HEAD` — exactly
    the commits about to be pushed, or the PR's whole change set for a
    per-head PR review (the caller supplies `base` / detects the default

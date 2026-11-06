@@ -160,6 +160,9 @@ Current actions (all standalone):
   external system. Reads the shared `references/grill/*` routines —
   the same ones the `ticket-plan` / `ticket-auto` workflows run in
   their plan phases (ticket subjects only there).
+- `/wise-ste` — rewrite a draft, a file, or the last response in
+  ASD-STE100 Simplified Technical English per the shared
+  `references/ste100.md`. Read-only; returns text and never posts.
 - `/wise` — the natural-language helper (bare = catalog; with free-form
   text = intent classifier).
 
@@ -207,9 +210,12 @@ plugins/wise/
 │   │   ├── phases/                 # unit pipeline phases (claim, worktree, model phases, push, pr, ...)
 │   │   └── prompts/units/          # the model-phase prompt templates + schemas
 │   └── tests/                      # pytest suite; just check includes Ruff and mypy
-├── hooks/                          # the ONE sanctioned hook (see CONTRIBUTING §2.4)
-│   ├── hooks.json                  # auto-discovered; registers the SessionEnd hook
-│   └── session-end-ingest.sh       # SessionEnd → insights.py ingest (stdlib-only, exit 0, no LLM)
+├── hooks/                          # the two sanctioned hooks (see CONTRIBUTING §2.4)
+│   ├── hooks.json                  # auto-discovered; registers SessionEnd, SessionStart, SubagentStart
+│   ├── session-end-ingest.sh       # SessionEnd → insights.py ingest (stdlib-only, exit 0, no LLM)
+│   └── session-start-style.sh      # SessionStart/SubagentStart → fixed ASD-STE100 context (bash only, exit 0, WISE_STE=off opts out)
+├── output-styles/
+│   └── ste.md                      # optional `wise:ste` output style (ASD-STE100 chat replies)
 ├── agents/                         # plugin-level SDLC agent roster (auto-discovered; wise:<name>)
 │   ├── ceo.md  cto.md  product-manager.md  engineering-manager.md
 │   ├── architect.md  software-engineer.md  qa-engineer.md
@@ -237,6 +243,7 @@ plugins/wise/
 │       └── prompts/                # optional — e.g. watch-pipelines-auto.md; addressable as {{workflow.dir}}/prompts/…
 ├── references/                     # cross-skill shared prose (addressed as ${CLAUDE_PLUGIN_ROOT}/references/<file>.md)
 │   ├── subject-drafting.md         # Conventional-Commits scope / type / subject rules
+│   ├── ste100.md                   # ASD-STE100 sentence rules for every human-readable text (read by wise-human-writing, wise-ste, report/review/commit passes)
 │   ├── branch-naming.md            # the ticket = branch-name rule
 │   ├── epic-expansion.md           # epic -> child item specs (DAG edges, serialize keys, repo); read by the ticket-auto / ticket-plan expand-tickets steps
 │   ├── init-check.md               # shared init-registry fast-path protocol
@@ -279,6 +286,7 @@ plugins/wise/
     ├── wise-estimation/SKILL.md     # reference skill (Fibonacci SP scale)
     ├── wise-markitdown/SKILL.md     # reference skill (file → markdown text extraction via markitdown)
     ├── wise-code-comments/SKILL.md  # reference skill (code-comment rules: ELI5, concise, present-tense, no history)
+    ├── wise-ste/SKILL.md            # rewrite text in ASD-STE100 (read-only, never posts)
     ├── wise-human-writing/SKILL.md  # hybrid: human-first rules for all outbound tracker/PR/doc/chat writing + /wise-human-writing rewrite
     ├── wise-tickets/SKILL.md        # hybrid: ticket structure/scoping/breakdown rules for any tracker + /wise-tickets restructure
     ├── wise-pr-create/SKILL.md      # create or refresh a PR
@@ -307,12 +315,16 @@ addressable as `subagent_type: wise:<name>`. It is a deliberate part of
 the plugin's design (Claude children spawned by the workflow engine
 delegate to it); adding or editing a role follows the procedure in
 `AGENTS.md`. A
-`hooks/` directory IS present, holding **exactly one** sanctioned hook —
-the SessionEnd insights-ingest hook (`hooks/session-end-ingest.sh` +
-`hooks/hooks.json`). It is the single documented exception to the
-no-hooks default; its rationale and hard constraints live in
-`CONTRIBUTING.md` [§2.4](../../CONTRIBUTING.md#24-hooks). No other hook
-(and no `SessionStart` hook) may be added without that same discussion.
+`hooks/` directory IS present, holding **two** sanctioned hooks — the
+SessionEnd insights-ingest hook (`hooks/session-end-ingest.sh`) and the
+SessionStart / SubagentStart writing-style hook
+(`hooks/session-start-style.sh`), both registered in `hooks/hooks.json`.
+They are the documented exceptions to the no-hooks default; their
+rationale and hard constraints live in `CONTRIBUTING.md`
+[§2.4](../../CONTRIBUTING.md#24-hooks). No other hook may be added
+without that same discussion. An `output-styles/` directory holds the
+optional `wise:ste` output style; it is auto-discovered and never
+selected for the user.
 `.mcp.json` is empty. `/wise-init` registers the single `wise-engine`
 transport through the stable managed launcher for Claude Code, Codex, Cursor or
 Grok. See [host control](references/workflow-host-control.md) for resolution,

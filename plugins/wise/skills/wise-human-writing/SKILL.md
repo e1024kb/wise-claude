@@ -79,6 +79,15 @@ the markup matches where the text will land (see the matrix below).
 
 ## The rules
 
+### 0. Sentence rules - ASD-STE100
+
+Write every sentence per the shared
+[ASD-STE100 rules](../../references/ste100.md): short sentences, active
+voice, simple tenses, one instruction per sentence, one term per thing,
+and articles kept. The rules below decide the structure, the altitude,
+and the markup. The STE100 rules decide how each sentence reads. Code,
+commands, paths, identifiers, and quoted errors stay verbatim.
+
 ### 1. Golden structure - context → reasoning → conclusion
 
 Every message tells its story in this order:

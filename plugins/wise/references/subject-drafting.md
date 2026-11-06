@@ -93,6 +93,8 @@ Subject rules:
 - No trailing period.
 - Aim ≤72 chars total; hard wrap at 100.
 - Summarise the dominant change; don't enumerate files.
+- When a commit body is present, write its prose per
+  [`ste100.md`](ste100.md). The subject line keeps the rules above.
 - **No `Co-Authored-By` trailer, no `🤖 Generated` footer, no
   Anthropic / Claude attribution.** The commit is the user's; this is
   drafting prose, not claiming authorship.
