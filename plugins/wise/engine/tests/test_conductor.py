@@ -802,6 +802,17 @@ def test_a_removed_last_row_keeps_its_code_retired(repo, env):
     assert c.find_child(state, "PROJ-4")["code"] == "C4"
 
 
+def test_reinit_keeps_a_retired_code_retired(repo, env):
+    state = make(repo, env)
+    for ref in ("PROJ-1", "PROJ-2", "PROJ-3"):
+        c.add_child(state, "ticket", ref, base="main")
+    state["children"].pop()
+    c.save(state, env)
+    again = c.init("local_conductor", repo, {}, None, "desktop", env=env)
+    c.add_child(again, "ticket", "PROJ-4", base="main")
+    assert c.find_child(again, "PROJ-4")["code"] == "C4"
+
+
 def test_a_duplicate_code_gets_a_new_one(repo, env):
     state = make(repo, env)
     c.add_child(state, "ticket", "PROJ-1", base="main")

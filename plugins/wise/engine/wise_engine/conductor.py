@@ -308,6 +308,8 @@ def init(
         "setup": clean,
         "answers": tuning or previous.get("answers", {}),
         "children": previous.get("children", []),
+        # Re-init keeps the code counters, so a retired code stays retired.
+        **{k: previous[k] for k in ("next_code", "thread_codes", "human_codes") if k in previous},
         # A new conductor starts from the CI baseline that earlier ones learned.
         "expected_checks": previous.get("expected_checks") or _saved_checks(cwd, env),
     }
