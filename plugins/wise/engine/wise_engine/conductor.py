@@ -37,6 +37,15 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9#:/._?=&%+-]{0,199}$")
 GIT_REF_RE = re.compile(r"^(?!.*\.\.)(?!/)(?!.*//)[A-Za-z0-9._/-]{1,200}(?<![./])$")
 PLACEHOLDER_RE = re.compile(r"\{([a-z]+)\}")
+CODE_RE = re.compile(r"^C[1-9][0-9]{0,4}$")
+# The reference-code contract every child follows in its reports and messages.
+REF_CODES = (
+    "Use reference codes in every report and message to the conductor. "
+    "Give each finding, decision, question, risk and action a short code: "
+    "F1, D1, Q1, R1, A1. Number review threads T1, T2 in the order the conductor lists them. "
+    "Keep each code stable for the whole session and reuse it when you refer to the item again. "
+    "Write one item per line, code first."
+)
 RELEASE_PLACEHOLDERS = {"version", "raw", "major", "minor", "patch"}
 
 # One entry per setup question: allowed values (None = free text) and default.
@@ -140,7 +149,24 @@ def load(
     path = state_path(conductor_id, cwd, env)
     if not path.is_file():
         raise ConductorError(f"no conductor state for {conductor_id!r} in this workspace")
-    return json.loads(path.read_text())
+    state: Json = json.loads(path.read_text())
+    assign_codes(state)
+    return state
+
+
+def assign_codes(state: Json) -> None:
+    """Give every ledger row a stable `C<n>` code, in the order rows were added.
+
+    A code never changes and is never reused, so the user and the children
+    can say "C3" across the whole effort. Rows from before codes existed get
+    theirs here, in ledger order.
+    """
+    used = [int(c["code"][1:]) for c in state["children"] if CODE_RE.match(c.get("code") or "")]
+    last = max(used, default=0)
+    for child in state["children"]:
+        if not CODE_RE.match(child.get("code") or ""):
+            last += 1
+            child["code"] = f"C{last}"
 
 
 def save(state: Json, env: Mapping[str, str] | None = None) -> Path:
@@ -412,6 +438,7 @@ def add_child(state: Json, kind: str, ref: str, title: str = "", /, **fields: An
         "last_seen": int(time.time()),
     }
     state["children"].append(child)
+    assign_codes(state)
     update_child(state, ref, **fields)
     return child
 
@@ -602,6 +629,9 @@ def build_ticket_brief(
         "",
         "## 6. Conductor",
         "",
+        f"Your conductor code is `{child['code']}`. Start every report and message with it.",
+        REF_CODES,
+        "",
         (
             f"Conductor session id: `{conductor_session}`. Your turn-end report reaches it automatically."
             f" Send a message to `{conductor_session}` only when you are blocked."
@@ -622,6 +652,9 @@ def build_topic_brief(state: Json, child: Json, brief: str, conductor_session: s
         "",
         "WARNING: Never edit, stash, reset or check out the main checkout. Use your own worktree for code changes.",
         "End with a short report: what you found or changed, and what you did not verify.",
+        "",
+        f"Your conductor code is `{child['code']}`. Start every report and message with it.",
+        REF_CODES,
     ]
     if conductor_session:
         parts += [
@@ -804,7 +837,8 @@ REVIEW_INSTRUCTIONS = (
     "Check every finding against the code. For a valid finding, fix it with a test that fails "
     "without the fix, and say so in the reply. For an invalid finding, reply with evidence "
     "(file, line, behaviour). Then reply on the thread, resolve it, and wait for green CI. "
-    "Do not end your turn while CI runs. Report the thread ids you resolved."
+    "Do not end your turn while CI runs. Report one line per thread, by its T code: "
+    "fixed (with the test) or invalid (with the evidence), and the thread id you resolved."
 )
 
 
@@ -830,15 +864,17 @@ def review_fanout(state: Json, threads_by_pr: Mapping[str, list[Json]]) -> list[
             )
             continue
         lines = [
-            f"Review-comment round for PR {pr} ({child['ref']}): {len(threads)} unresolved thread(s).",
+            f"{child['code']} review-comment round for PR {pr} ({child['ref']}): "
+            f"{len(threads)} unresolved thread(s).",
             "",
         ]
-        for t in threads:
+        for n, t in enumerate(threads, 1):
             where = f"{t['path']}:{t['line']}" if t.get("line") else t.get("path", "")
             ids = ", ".join(str(i) for i in t.get("comment_ids", []))
             body = " ".join(str(t.get("body", "")).split())[:400]
             lines.append(
-                f"- thread `{t['thread_id']}` (comments {ids}) at `{where}` by {t.get('author') or '?'}: {body}"
+                f"T{n} thread `{t['thread_id']}` (comments {ids}) at `{where}` "
+                f"by {t.get('author') or '?'}: {body}"
             )
         lines += ["", REVIEW_INSTRUCTIONS]
         update_child(state, child["ref"], open_threads=len(threads), state="running")
@@ -848,6 +884,7 @@ def review_fanout(state: Json, threads_by_pr: Mapping[str, list[Json]]) -> list[
                 "owner": child["ref"],
                 "session_id": child.get("session_id", ""),
                 "name": child["name"],
+                "code": child["code"],
                 "threads": threads,
                 "message": "\n".join(lines),
             }
@@ -904,10 +941,9 @@ def _age(seconds: int) -> str:
 def status_table(state: Json, now: int | None = None) -> str:
     now = int(time.time()) if now is None else now
     rows = [
-        "| Group | Child | Kind | Session | Base | PR | State | CI | Threads | Seen |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Code | Group | Child | Kind | Session | Base | PR | State | CI | Threads | Seen |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
-    human: list[str] = []
     for c in ordered_children(state):
         ci = c.get("ci") or {}
         ci_text = (
@@ -921,21 +957,29 @@ def status_table(state: Json, now: int | None = None) -> str:
         pr = f"{c['pr']}{' draft' if c.get('draft') else ''}" if c.get("pr") else "-"
         seen = int(c.get("last_seen") or c.get("added") or now)
         rows.append(
-            f"| {pr_group(c)} | {c['ref']} | {c['kind']} | {c['name']} | {c.get('base') or '-'} | "
-            f"{pr} | {c['state']} | {ci_text} | {threads} | {_age(max(0, now - seen))} ago |"
+            f"| {c['code']} | {pr_group(c)} | {c['ref']} | {c['kind']} | {c['name']} | "
+            f"{c.get('base') or '-'} | {pr} | {c['state']} | {ci_text} | {threads} | "
+            f"{_age(max(0, now - seen))} ago |"
         )
-        for item in c.get("manual_qa", []):
-            human.append(f"- {c['ref']}: manual QA: {item}")
-        if c.get("notes"):
-            human.append(f"- {c['ref']}: {c['notes']}")
     text = (
         "\n".join(rows)
         + "\n\nOrder: blocked, open, working, merged, closed. "
         + "CI = verdict pass/fail/pending/skipped.\n"
     )
+    human = human_items(state)
     if human:
         text += "\nNeeds a human:\n" + "\n".join(human) + "\n"
     return text
+
+
+def human_items(state: Json) -> list[str]:
+    """`H<n>` lines in ledger order, so a code stays put while earlier items stay."""
+    items = []
+    for c in state["children"]:
+        items += [f"{c['code']} {c['ref']}: manual QA: {item}" for item in c.get("manual_qa", [])]
+        if c.get("notes"):
+            items.append(f"{c['code']} {c['ref']}: {c['notes']}")
+    return [f"H{n} {line}" for n, line in enumerate(items, 1)]
 
 
 # -- tracker: background watcher of children and PRs -------------------------
@@ -999,7 +1043,16 @@ def change_events(before: Json, after: Json, child: Json) -> list[Json]:
     events: list[Json] = []
 
     def add(kind: str, text: str) -> None:
-        events.append({"kind": kind, "ref": ref, "pr": pr, "text": text, "group": after["group"]})
+        events.append(
+            {
+                "kind": kind,
+                "code": child.get("code", ""),
+                "ref": ref,
+                "pr": pr,
+                "text": text,
+                "group": after["group"],
+            }
+        )
 
     if before["pr"] is None and pr is not None:
         add("pr-opened", f"opened PR {pr}{' as draft' if after['draft'] else ''}")
@@ -1034,6 +1087,7 @@ def stall_events(state: Json, now: int) -> list[Json]:
         events.append(
             {
                 "kind": "stalled",
+                "code": child.get("code", ""),
                 "ref": child["ref"],
                 "pr": child.get("pr"),
                 "session_id": child.get("session_id", ""),
@@ -1063,6 +1117,7 @@ def apply_facts(state: Json, facts: Mapping[str, Json], now: int | None = None) 
             events.append(
                 {
                     "kind": "pr-mismatch",
+                    "code": child.get("code", ""),
                     "ref": ref,
                     "pr": fact["pr"].get("number"),
                     "text": str(error),
@@ -1184,7 +1239,8 @@ def watch_health(
 
 def _event_line(event: Json) -> str:
     pr = f" PR {event['pr']}" if event.get("pr") else ""
-    return f"EVENT {event['kind']} {event['ref']}{pr} [{event['group']}]: {event['text']}"
+    code = f"{event['code']} " if event.get("code") else ""
+    return f"EVENT {event['kind']} {code}{event['ref']}{pr} [{event['group']}]: {event['text']}"
 
 
 def watch(

@@ -76,6 +76,27 @@ scratchpad, never in the project.
 State lives under `<wise-data>/conductor/<cwd-slug>/<conductor-id>/state.json`.
 The per-project rules live in `project.json` beside it (L12).
 
+## Reference codes
+
+The conductor and every child use reference codes, so that the user can
+answer "C3: retarget it" or "skip H2" in one line.
+
+- Children: every ledger row has a stable code `C1`, `C2`, ... in the
+  order the rows were added. `H add-child` sets it. A code never changes
+  and is never reused. Name a child by its code first: `C3 PROJ-12`.
+- Items for the user: in every message with 3 or more findings,
+  decisions, questions, risks or actions, give each a code: `F1`, `D1`,
+  `Q1`, `R1`, `A1`. The status report numbers the items that need a
+  human `H1`, `H2`. The tracker's `EVENT` lines carry the child code.
+- Stability: keep each code for the whole effort. Reuse it when you refer
+  to the item again. Do not renumber after an item closes.
+- Children: the brief tells each child its code and the same contract.
+  A child starts its reports and messages with its code and numbers its
+  own items. The review-comment round numbers threads `T1`, `T2`, and the
+  child reports one line per T code.
+- Relay: when you forward a child item to the user, keep the child's code
+  as a prefix: `C3 Q1: ...`. When you answer a child, use its codes too.
+
 ## Arguments
 
 - Empty `$ARGUMENTS`: run `H latest`. When it prints a conductor, offer to
@@ -263,8 +284,9 @@ merge under the never policy is a warning for the user.
 ### 6. Status report
 
 Verify every open row first (step 5), then print `H status --id <id>`. The
-table ends with the items that need a human: manual QA (L13), decisions,
-cleanup (worktrees of rows that are ready, merged or closed).
+table starts each row with its child code and ends with the items that
+need a human, coded `H1`, `H2`: manual QA (L13), decisions, cleanup
+(worktrees of rows that are ready, merged or closed).
 
 ### 7. Review-comment round (L10, L11)
 

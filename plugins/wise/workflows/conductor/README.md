@@ -218,6 +218,12 @@ the status report and the review-comment round stay the same.
   comment ids, and the instruction to check each finding, fix valid ones
   with a test that fails without the fix, reply with evidence on invalid
   ones, resolve the thread and wait for green CI (L10, L11).
+- Reference codes: every ledger row has a stable code (`C1`, `C2`, ...)
+  that never changes. The status table, the tracker events and every
+  message carry it. Items that need a human are `H1`, `H2`. Each child
+  brief gives the child its code and the reference-code contract: the
+  child codes its findings, decisions, questions, risks and actions
+  (`F1`, `D1`, `Q1`, `R1`, `A1`) and answers review threads by `T` code.
 - Status report: a table of all children with the verified state, then
   the items that need a human: manual QA, decisions, cleanup (L13). The
   rows are in work order: `blocked` (CI red or incomplete, merge conflict,

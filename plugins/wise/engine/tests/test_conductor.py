@@ -614,7 +614,7 @@ def test_watch_prints_events_and_writes_a_heartbeat(repo, env):
         sleep=clock.sleep,
     )
     assert code == 0
-    assert "EVENT pr-opened PROJ-1 PR 5 [open]: opened PR 5" in out.getvalue()
+    assert "EVENT pr-opened C1 PROJ-1 PR 5 [open]: opened PR 5" in out.getvalue()
     assert c.load("local_conductor", repo, env)["children"][0]["pr"] == 5
     health = c.watch_health("local_conductor", repo, env, int(clock.now))
     assert health["status"] == "stopped" and health["action"] == "start"
@@ -745,6 +745,61 @@ def test_learned_checks_reach_a_new_conductor(repo, env):
     c.save(state, env)
     later = c.init("local_later", repo, {}, TUNING, "desktop", "", env)
     assert later["expected_checks"] == {"main": ["job-0", "job-1"]}
+
+
+def test_child_codes_are_stable_and_never_reused(repo, env):
+    state = make(repo, env)
+    for ref in ("PROJ-1", "PROJ-2", "PROJ-3"):
+        c.add_child(state, "ticket", ref, base="main")
+    assert [r["code"] for r in state["children"]] == ["C1", "C2", "C3"]
+    state["children"].pop(1)
+    c.add_child(state, "ticket", "PROJ-4", base="main")
+    assert [r["code"] for r in state["children"]] == ["C1", "C3", "C4"]
+    c.update_child(state, "PROJ-1", state="merged")
+    assert c.find_child(state, "PROJ-1")["code"] == "C1"
+
+
+def test_rows_from_before_codes_get_them_on_load(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "ticket", "PROJ-2", base="main")
+    for row in state["children"]:
+        del row["code"]
+    c.save(state, env)
+    loaded = c.load("local_conductor", repo, env)
+    assert [r["code"] for r in loaded["children"]] == ["C1", "C2"]
+
+
+def test_status_and_human_items_carry_codes(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, manual_qa=["zoom", "keyboard"])
+    c.add_child(state, "topic", "Investigate X", notes="decision: keep the old API")
+    table = c.status_table(state)
+    assert "| C1 | open | PROJ-1 |" in table and "| C2 | working | Investigate X |" in table
+    assert "H1 C1 PROJ-1: manual QA: zoom" in table
+    assert "H2 C1 PROJ-1: manual QA: keyboard" in table
+    assert "H3 C2 Investigate X: decision: keep the old API" in table
+
+
+def test_briefs_give_the_child_its_code_and_the_contract(repo, env):
+    state = make(repo, env)
+    child = c.add_child(state, "ticket", "PROJ-1", base="main")
+    topic = c.add_child(state, "topic", "Investigate X")
+    ticket_brief = c.build_ticket_brief(state, child, ticket())
+    topic_brief = c.build_topic_brief(state, topic, "Look at X.")
+    assert "Your conductor code is `C1`" in ticket_brief and c.REF_CODES in ticket_brief
+    assert "Your conductor code is `C2`" in topic_brief and c.REF_CODES in topic_brief
+
+
+def test_review_round_numbers_threads_by_t_code(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, session_id="local_a")
+    raw = {"5": c.unresolved_threads(graphql(thread("T-a"), thread("T-b")))}
+    message = c.review_fanout(state, raw)[0]
+    assert message["code"] == "C1"
+    assert message["message"].startswith("C1 review-comment round for PR 5")
+    assert "\nT1 thread `T-a`" in message["message"] and "\nT2 thread `T-b`" in message["message"]
+    assert "by its T code" in message["message"]
 
 
 def test_seen_cli_resets_the_stall_timer(repo, env, monkeypatch):
