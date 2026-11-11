@@ -327,7 +327,8 @@ def test_verify_learns_expected_jobs_and_catches_dropped_ones(repo, env):
     pr = {"number": 5, "state": "OPEN", "isDraft": False, "baseRefName": "main"}
     first = c.verify_child(state, "PROJ-1", pr, checks("pass", "pass", "skipping"), [])
     assert first["done"] and first["state"] == "ready"
-    assert state["expected_checks"]["main"] == ["job-0", "job-1", "job-2"]
+    # Only passed jobs form the baseline: a skipped job is not expected.
+    assert state["expected_checks"]["main"] == ["job-0", "job-1"]
     # L5: a later run drops a job; "no failures" is not green.
     second = c.verify_child(state, "PROJ-2", {**pr, "number": 6}, checks("pass"), [])
     assert second["ci"]["verdict"] == "incomplete" and not second["done"]
@@ -677,6 +678,73 @@ def test_watch_health_reports_a_dead_or_absent_watcher(repo, env):
     c._write_json(beat, dead)
     health = c.watch_health("local_conductor", repo, env, now=1010)
     assert health["status"] == "dead" and health["action"] == "start"
+
+
+def test_an_expected_job_that_is_skipped_now_is_not_green():
+    rows = [{"name": "lint", "bucket": "pass"}, {"name": "e2e", "bucket": "skipping"}]
+    result = c.classify_checks(rows, ["lint", "e2e"])
+    assert result["verdict"] == "incomplete" and result["missing"] == ["e2e"]
+
+
+def test_two_release_values_are_ambiguous_even_on_one_branch(repo, env):
+    state = make(repo, env, base_rule="release", release_pattern="release-{major}")
+    result = c.resolve_base(state["setup"], "main", ["26.11.0", "26.12.0"])
+    assert "ambiguous" in result["error"]
+    assert c.resolve_base(state["setup"], "main", ["26.11.0"])["base"] == "release-26"
+
+
+def test_a_pr_on_the_wrong_base_is_not_ready(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="release-26-11-0")
+    result = c.verify_child(state, "PROJ-1", open_pr(), checks("pass"), [])
+    assert result["state"] != "ready" and not result["done"] and result["group"] == "blocked"
+
+
+def test_a_merged_pr_with_open_threads_is_not_done(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    pr = open_pr(state="MERGED")
+    open_thread = [{"thread_id": "T1"}]
+    assert not c.verify_child(state, "PROJ-1", pr, checks("pass"), open_thread)["done"]
+    assert c.verify_child(state, "PROJ-1", pr, checks("pass"), [])["done"]
+
+
+def test_verify_refuses_a_pr_that_is_not_the_rows(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", branch="PROJ-1", pr=5)
+    c.add_child(state, "ticket", "PROJ-2", base="main", branch="PROJ-2")
+    with pytest.raises(c.ConductorError, match="not its PR"):
+        c.verify_child(state, "PROJ-2", open_pr(6, headRefName="PROJ-1"), checks("pass"), [])
+    with pytest.raises(c.ConductorError, match="already belongs to PROJ-1"):
+        c.verify_child(state, "PROJ-2", open_pr(5), checks("pass"), [])
+    assert c.find_child(state, "PROJ-2")["pr"] is None
+    fact_for = {"PROJ-2": fact(open_pr(6, headRefName="PROJ-1"), "pass")}
+    assert [e["kind"] for e in c.apply_facts(state, fact_for, now=1)] == ["pr-mismatch"]
+    assert c.apply_facts(state, fact_for, now=2) == []
+
+
+def test_threads_from_every_page_are_counted():
+    pages = [graphql(thread("T1")), graphql(thread("T2"), thread("T3", resolved=True))]
+    assert [t["thread_id"] for t in c.unresolved_threads(pages)] == ["T1", "T2"]
+
+
+def test_direct_worktree_command_quotes_a_url_ref(repo, env):
+    state = make(repo, env, auth_fallback="direct")
+    url = "https://tracker.example/browse/PROJ-9?focus=a&x=1"
+    child = c.add_child(state, "ticket", url, base="main")
+    brief = c.build_ticket_brief(state, child, ticket(url))
+    line = next(x for x in brief.splitlines() if x.startswith("git worktree add"))
+    assert line == "git worktree add ../shop.PROJ-9 -b PROJ-9 origin/main"
+    assert c.branch_key(url) == "PROJ-9"
+
+
+def test_learned_checks_reach_a_new_conductor(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.verify_child(state, "PROJ-1", open_pr(), checks("pass", "pass"), [])
+    c.save(state, env)
+    later = c.init("local_later", repo, {}, TUNING, "desktop", "", env)
+    assert later["expected_checks"] == {"main": ["job-0", "job-1"]}
 
 
 def test_seen_cli_resets_the_stall_timer(repo, env, monkeypatch):

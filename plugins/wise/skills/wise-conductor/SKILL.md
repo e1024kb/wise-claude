@@ -110,8 +110,14 @@ id when the app gives it, else a short slug of the prompt plus the date.
 and note every harness that is logged out. Tell the user once, with the
 login command, before the setup questions.
 
-1d. Ask the conductor policy. Call `wise_preflight` for the `conductor`
-workflow with `answers` `{"input.conductor_id": <id>, "input.conductor_mode": <mode>}`.
+1d. Ask the conductor policy. First run `H rules`. When it prints the
+rules of an earlier conductor in this workspace, show them in one line and
+ask whether to reuse them. On yes, add them to the answers as
+`input.base_rule`, `input.base_fixed`, `input.release_field`,
+`input.release_pattern`, `input.merge_policy` and `input.pr_state`. An
+answer the user gave in the prompt wins over a saved rule. Then call
+`wise_preflight` for the `conductor` workflow with `answers`
+`{"input.conductor_id": <id>, "input.conductor_mode": <mode>, ...}`.
 Render its pages as the workflow-run skill §2 says (native picker first).
 Then call `wise_run` for `conductor` with the answers and wait with
 `wise_wait`. Its `record-setup` step validates and writes the setup. On a
@@ -155,8 +161,9 @@ workflow-run skill §1b for fetching, epics and access errors. For an epic,
 list its open children and let the user pick a batch, one child per ticket.
 
 3b. Resolve the base (L4): read the ticket's release field (the setup's
-`release_field`), then run `H base --id <id> --default-branch <default> --release <value>`
-once per value. An `error` (ambiguous or missing release under
+`release_field`), then run `H base --id <id> --default-branch <default>`
+once, with one `--release <value>` for each value. Pass no `--release`
+when the field is empty. An `error` (ambiguous or missing release under
 `release_missing: stop`) holds that ticket: report it and start no child.
 
 3c. Record the row: `H add-child --kind ticket --ref <KEY> --title <title>`
@@ -204,6 +211,8 @@ again (step 1g). On each user message, child message or tracker line:
     only when the user asks for it or the setup allows it.
   - `ready`, `merged`, `closed`: verify (step 5). A merge under the
     `never` policy is a warning.
+  - `pr-mismatch`: the PR is not the row's (another branch, or another
+    row owns it). Tell the user and fix the row's `pr` or `branch`.
   - `stalled`: check the child session (`mcp__ccd_session_mgmt__get_session`
     with its `session_id`, desktop only). If it is idle or waiting, send it
     "Report your progress in one line: state, branch, PR, blocker." If it
@@ -231,20 +240,25 @@ again (step 1g). On each user message, child message or tracker line:
 A child report is a claim, not proof. For the row's PR run:
 
 ```bash
-gh pr view <n> --json number,url,state,isDraft,baseRefName,mergeStateStatus > pr.json
+gh pr view <n> --json number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus > pr.json
 gh pr checks <n> --json name,bucket,workflow > checks.json
-gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{databaseId body author{login}}}}}}}}' -F o=<owner> -F r=<repo> -F n=<n> > threads.json
+gh api graphql --paginate --slurp -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){nodes{id isResolved path line comments(first:20){nodes{databaseId body author{login}}}}pageInfo{hasNextPage endCursor}}}}}' -F o=<owner> -F r=<repo> -F n=<n> > threads.json
 H verify --id <id> --ref <KEY> --pr-json pr.json --checks-json checks.json --threads-json threads.json
 ```
+
+`--paginate --slurp` fetches every page of threads, not only the first
+100. `verify` refuses a PR whose head branch is not the row's branch or
+that another row already owns.
 
 Bind the PR to this session as soon as the PR exists:
 `mcp__ccd_pr__bind_pr` with the PR URL (desktop only).
 
 Act on every nudge. A draft PR with pending CI (L6) or incomplete CI (L5)
 gets a message to the child: do not end your turn, rerun missing jobs, mark
-it ready at the end. `done: true` means the row is ready or merged with
-green CI and no open thread. A merge under the never policy is a warning
-for the user.
+it ready at the end. `done: true` means the row is ready (green CI, no
+open thread, no conflict, the expected base), or merged with green CI and
+no open thread. A merged PR with red CI or open threads is not done. A
+merge under the never policy is a warning for the user.
 
 ### 6. Status report
 
@@ -255,7 +269,7 @@ cleanup (worktrees of rows that are ready, merged or closed).
 ### 7. Review-comment round (L10, L11)
 
 1. For every row with an open PR, fetch its threads with the GraphQL query
-   of step 5. Write one JSON object `{"<pr number>": <graphql response>, ...}`.
+   of step 5 (all pages). Write one JSON object `{"<pr number>": <the slurped pages>, ...}`.
 2. Run `H fanout --id <id> --threads-json <file>`.
 3. Send each `message` to its `session_id` (fallback: the agent name). A
    PR with no owner: tell the user.

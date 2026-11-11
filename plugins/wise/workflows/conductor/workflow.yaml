@@ -92,7 +92,7 @@ steps:
     run: |
       set -eu
       python3 "{{workflow.dir}}/../../scripts/wise-helpers.py" conductor init \
-        --id "$WISE_CONDUCTOR_ID" --cwd "{{project.path}}" \
+        --id "$WISE_CONDUCTOR_ID" --cwd "$PWD" \
         --mode "$WISE_CONDUCTOR_MODE" --from-env
       echo "SETUP: recorded"
     timeout: 30

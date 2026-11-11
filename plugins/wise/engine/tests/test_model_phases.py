@@ -488,6 +488,55 @@ def test_failed_ready_keeps_the_draft_pr_open(tmp_path):
     asyncio.run(scenario())
 
 
+def test_green_policy_takes_a_draft_out_of_draft_and_watches_again_before_merging(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {"merge_policy": "merge", "pr_draft": "yes"}
+        result = await run_units_step(fixture.input())
+        assert "merged=1" in result["verdict"]
+        gh_calls = [args[:2] for cmd, args, _ in fixture.calls if cmd == "gh"]
+        ready, merge = gh_calls.index(["pr", "ready"]), gh_calls.index(["pr", "merge"])
+        # The checks that `ready_for_review` starts are watched before the merge.
+        assert ready < merge and fixture.counts["watch"] >= 2
+
+    asyncio.run(scenario())
+
+
+def test_a_live_head_change_resets_the_stable_count(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {"merge_policy": "never", "pr_draft": "no"}
+        moved = {"left": 1}
+        real_execute = fixture.execute
+
+        async def execute(cmd, args, opts):
+            if (
+                moved["left"]
+                and cmd == "gh"
+                and args[:2] == ["pr", "view"]
+                and "isDraft" in args[-1]
+            ):
+                moved["left"] -= 1
+                fixture.calls.append((cmd, args, opts))
+                return command_result(
+                    '{"isDraft": false, "state": "OPEN", "headRefOid": "f00dbabe0000"}'
+                )
+            return await real_execute(cmd, args, opts)
+
+        fixture.execute = execute
+        result = await run_units_step(fixture.input())
+        assert result["outputs"]["units"][0]["verdict"] == "ready"
+        views = [
+            a
+            for c, a, _ in fixture.calls
+            if c == "gh" and a[:2] == ["pr", "view"] and "isDraft" in a[-1]
+        ]
+        # The moved head is not trusted: a second stable round reads it again.
+        assert moved["left"] == 0 and len(views) >= 2
+
+    asyncio.run(scenario())
+
+
 def test_without_decisions_ticket_auto_still_merges(tmp_path):
     async def scenario():
         fixture = ModelFixture(tmp_path)

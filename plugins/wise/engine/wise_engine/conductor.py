@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -146,7 +147,23 @@ def save(state: Json, env: Mapping[str, str] | None = None) -> Path:
     state["updated"] = int(time.time())
     path = state_path(state["id"], state["cwd"], env)
     _write_json(path, state)
+    _share_expected_checks(state, env)
     return path
+
+
+def _share_expected_checks(state: Json, env: Mapping[str, str] | None) -> None:
+    """Copy newly learned CI job names to the per-project rules (L12)."""
+    learned = state.get("expected_checks") or {}
+    if not learned:
+        return
+    rules_path = project_rules_path(state["cwd"], env)
+    try:
+        rules = json.loads(rules_path.read_text()) if rules_path.is_file() else {}
+    except (OSError, ValueError):
+        rules = {}
+    shared = {**(rules.get("expected_checks") or {}), **learned}
+    if shared != rules.get("expected_checks"):
+        _write_json(rules_path, {**(rules or project_rules(state)), "expected_checks": shared})
 
 
 def latest(cwd: str | Path | None = None, env: Mapping[str, str] | None = None) -> Json | None:
@@ -256,11 +273,20 @@ def init(
         "setup": clean,
         "answers": tuning or previous.get("answers", {}),
         "children": previous.get("children", []),
-        "expected_checks": previous.get("expected_checks", {}),
+        # A new conductor starts from the CI baseline that earlier ones learned.
+        "expected_checks": previous.get("expected_checks") or _saved_checks(cwd, env),
     }
     save(state, env)
     _write_json(project_rules_path(cwd, env), project_rules(state))
     return state
+
+
+def _saved_checks(cwd: str | Path, env: Mapping[str, str] | None) -> Json:
+    path = project_rules_path(cwd, env)
+    try:
+        return dict(json.loads(path.read_text()).get("expected_checks") or {})
+    except (OSError, ValueError, AttributeError):
+        return {}
 
 
 def project_rules(state: Json) -> Json:
@@ -325,10 +351,11 @@ def resolve_base(setup: Json, default_branch: str, releases: list[str] | None = 
             "base": default_branch,
             "source": f"default (no {setup['release_field']} on the ticket)",
         }
-    branches = sorted({map_release(v, setup["release_pattern"]) for v in values})
-    if len(branches) > 1:
+    # Two release values are ambiguous even when the pattern maps both to one branch.
+    if len(values) > 1:
         return {"error": f"ambiguous {setup['release_field']}: {', '.join(values)}"}
-    return {"base": branches[0], "source": f"{setup['release_field']} {', '.join(values)}"}
+    branch = map_release(values[0], setup["release_pattern"])
+    return {"base": branch, "source": f"{setup['release_field']} {values[0]}"}
 
 
 # -- ledger ------------------------------------------------------------------
@@ -339,6 +366,13 @@ def child_name(ref: str) -> str:
     key = ref.rstrip("/").split("/")[-1]
     slug = re.sub(r"[^a-z0-9]+", "-", key.lower()).strip("-")
     return (slug or "child")[:24].rstrip("-")
+
+
+def branch_key(ref: str) -> str:
+    """A branch-safe key: `PROJ-12` stays, a ticket URL gives its last path segment."""
+    key = ref.split("?", 1)[0].split("#", 1)[0].rstrip("/").split("/")[-1]
+    key = re.sub(r"[^A-Za-z0-9._-]+", "-", key).strip("-.")
+    return key if key and GIT_REF_RE.match(key) else child_name(ref)
 
 
 def find_child(state: Json, ref: str) -> Json | None:
@@ -494,6 +528,8 @@ def build_ticket_brief(
     ref, base = child["ref"], child["base"]
     payload = ticket_auto_payload(state, child, ticket)
     repo = Path(state["cwd"]).name
+    key = child.get("branch") or branch_key(ref)
+    worktree = shlex.quote(f"../{repo}.{key}")
     unattended = setup["questions"] == "none"
     merge_never = setup["merge_policy"] == "never"
     draft = setup["pr_state"] == "draft-then-ready"
@@ -523,8 +559,8 @@ def build_ticket_brief(
         "When you implement directly, create your own worktree first:",
         "",
         "```bash",
-        f"git fetch origin {base}",
-        f"git worktree add ../{repo}.{ref} -b {ref} origin/{base}",
+        f"git fetch origin {shlex.quote(base)}",
+        f"git worktree add {worktree} -b {shlex.quote(key)} {shlex.quote('origin/' + base)}",
         "```",
         "",
         "## 3. Setup (fixed answers; ask nothing about them)",
@@ -609,12 +645,17 @@ BUCKETS = {
 def classify_checks(checks: list[Json], expected: list[str] | None = None) -> Json:
     """Count `gh pr checks --json name,bucket` rows and decide green (L5)."""
     counts = {"pass": 0, "fail": 0, "pending": 0, "skipped": 0}
-    names = set()
+    ran, passed = set(), set()
     for row in checks:
         bucket = BUCKETS.get(str(row.get("bucket", "")).lower(), "pending")
         counts[bucket] += 1
-        names.add(str(row.get("name", "")))
-    missing = sorted(set(expected or []) - names)
+        name = str(row.get("name", ""))
+        if bucket != "skipped":
+            ran.add(name)
+        if bucket == "pass":
+            passed.add(name)
+    # An expected job that is skipped now did not pass: it counts as missing.
+    missing = sorted(set(expected or []) - ran)
     if counts["fail"]:
         verdict = "red"
     elif counts["pending"]:
@@ -623,17 +664,25 @@ def classify_checks(checks: list[Json], expected: list[str] | None = None) -> Js
         verdict = "incomplete"
     else:
         verdict = "green"
-    return {**counts, "missing": missing, "verdict": verdict, "names": sorted(names)}
+    return {**counts, "missing": missing, "verdict": verdict, "names": sorted(passed)}
 
 
-def unresolved_threads(graphql: Json) -> list[Json]:
-    """Unresolved review threads from the `reviewThreads` GraphQL response."""
-    node = graphql.get("data", graphql) or {}
+def _thread_nodes(page: Json) -> list[Json]:
+    node = page.get("data", page) or {}
     node = node.get("repository", node) or {}
     node = node.get("pullRequest", node) or {}
     node = node.get("reviewThreads", node) or {}
+    return list(node.get("nodes", []))
+
+
+def unresolved_threads(graphql: Json | list[Json]) -> list[Json]:
+    """Unresolved review threads from the `reviewThreads` GraphQL response.
+
+    A list is every page of `gh api graphql --paginate --slurp`.
+    """
+    pages = graphql if isinstance(graphql, list) else [graphql]
     rows = []
-    for thread in node.get("nodes", []):
+    for thread in (t for page in pages for t in _thread_nodes(page or {})):
         if thread.get("isResolved"):
             continue
         comments = thread.get("comments", {}).get("nodes", [])
@@ -655,6 +704,21 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
     child = find_child(state, ref)
     if child is None:
         raise ConductorError(f"{ref} has no child in this conductor")
+    number, head_ref = pr.get("number"), str(pr.get("headRefName", "") or "")
+    if child.get("branch") and head_ref and head_ref != child["branch"]:
+        raise ConductorError(
+            f"PR {number} is on branch {head_ref}, but {ref} works on {child['branch']}: not its PR"
+        )
+    owner = next(
+        (
+            c
+            for c in state["children"]
+            if c is not child and number is not None and c.get("pr") == number
+        ),
+        None,
+    )
+    if owner is not None:
+        raise ConductorError(f"PR {number} already belongs to {owner['ref']}")
     base = pr.get("baseRefName", "")
     expected = state.get("expected_checks", {}).get(base)
     ci = classify_checks(checks, expected)
@@ -673,7 +737,8 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         )
     if ci["verdict"] == "red":
         nudges.append("CI is red. Fix the failing checks.")
-    if child["base"] and base and base != child["base"]:
+    base_mismatch = bool(child["base"] and base and base != child["base"])
+    if base_mismatch:
         nudges.append(f"The PR targets {base}, the ledger expects {child['base']}. Retarget it.")
     merge_state = str(pr.get("mergeStateStatus", "") or "")
     conflict = (
@@ -687,7 +752,13 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         row_state = "merged"
     elif pr_state == "CLOSED":
         row_state = "closed"
-    elif not draft and ci["verdict"] == "green" and not threads and not conflict:
+    elif (
+        not draft
+        and ci["verdict"] == "green"
+        and not threads
+        and not conflict
+        and not base_mismatch
+    ):
         row_state = "ready"
     else:
         row_state = "waiting" if not nudges else "running"
@@ -700,7 +771,7 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         open_threads=len(threads),
         draft=draft,
         conflict=conflict and pr_state == "OPEN",
-        base_mismatch=bool(child["base"] and base and base != child["base"]),
+        base_mismatch=base_mismatch,
         head=str(pr.get("headRefOid", "") or child.get("head", "")),
     )
     if state["setup"]["merge_policy"] == "never" and pr_state == "MERGED":
@@ -720,7 +791,10 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         "ci": ci,
         "open_threads": len(threads),
         "nudges": nudges,
-        "done": row_state in ("ready", "merged"),
+        # A merged PR is a fact, not verified work: it is done only when its
+        # CI was green and no review thread stayed open.
+        "done": row_state == "ready"
+        or (row_state == "merged" and ci["verdict"] == "green" and not threads),
     }
 
 
@@ -871,10 +945,12 @@ MAX_FAILED_PASSES = 5
 DEFAULT_MAX_MINUTES = 240
 TERMINAL_STATES = ("ready", "merged", "closed", "failed")
 PR_FIELDS = "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus"
+# Paged with `gh api graphql --paginate --slurp`: every thread, not the first 100.
 THREADS_QUERY = (
-    "query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n)"
-    "{reviewThreads(first:100){nodes{id isResolved path line comments(first:20)"
-    "{nodes{databaseId body author{login}}}}}}}}"
+    "query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r)"
+    "{pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){nodes{id isResolved "
+    "path line comments(first:20){nodes{databaseId body author{login}}}}"
+    "pageInfo{hasNextPage endCursor}}}}}"
 )
 
 # fetch(row) -> {"pr": ..., "checks": [...], "threads": <graphql>}, or {} with no PR yet.
@@ -978,7 +1054,22 @@ def apply_facts(state: Json, facts: Mapping[str, Json], now: int | None = None) 
             continue
         before = _snapshot(child)
         threads = unresolved_threads(fact.get("threads") or {})
-        verify_child(state, ref, fact["pr"], fact.get("checks") or [], threads)
+        try:
+            verify_child(state, ref, fact["pr"], fact.get("checks") or [], threads)
+        except ConductorError as error:
+            if child.get("mismatch") == str(error):
+                continue  # reported on an earlier pass
+            child["mismatch"] = str(error)
+            events.append(
+                {
+                    "kind": "pr-mismatch",
+                    "ref": ref,
+                    "pr": fact["pr"].get("number"),
+                    "text": str(error),
+                    "group": before["group"],
+                }
+            )
+            continue
         after = _snapshot(child)
         if after["head"] and after["head"] != before["head"]:
             child["last_seen"] = now  # a new push is child activity
@@ -1033,7 +1124,7 @@ def gh_fetcher(cwd: str, timeout: int = GH_TIMEOUT) -> Fetcher:
         if not repo:
             repo.update(_gh(["repo", "view", "--json", "owner,name"], cwd, timeout))
         threads = _gh(
-            ["api", "graphql", "-f", f"query={THREADS_QUERY}"]
+            ["api", "graphql", "--paginate", "--slurp", "-f", f"query={THREADS_QUERY}"]
             + ["-F", f"o={repo['owner']['login']}", "-F", f"r={repo['name']}"]
             + ["-F", f"n={number}"],
             cwd,
@@ -1238,7 +1329,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--ref", required=True)
     sub.add_argument("--pr-json", required=True)
     sub.add_argument("--checks-json", required=True)
-    sub.add_argument("--threads-json")
+    sub.add_argument("--threads-json", required=True)
     sub = action("fanout")
     sub.add_argument("--threads-json", required=True)
     action("seen").add_argument("--ref", required=True)
