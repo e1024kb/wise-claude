@@ -765,6 +765,7 @@ def test_rows_from_before_codes_get_them_on_load(repo, env):
     c.add_child(state, "ticket", "PROJ-2", base="main")
     for row in state["children"]:
         del row["code"]
+    del state["next_code"]
     c.save(state, env)
     loaded = c.load("local_conductor", repo, env)
     assert [r["code"] for r in loaded["children"]] == ["C1", "C2"]
@@ -776,9 +777,63 @@ def test_status_and_human_items_carry_codes(repo, env):
     c.add_child(state, "topic", "Investigate X", notes="decision: keep the old API")
     table = c.status_table(state)
     assert "| C1 | open | PROJ-1 |" in table and "| C2 | working | Investigate X |" in table
-    assert "H1 C1 PROJ-1: manual QA: zoom" in table
-    assert "H2 C1 PROJ-1: manual QA: keyboard" in table
-    assert "H3 C2 Investigate X: decision: keep the old API" in table
+    assert "N1 C1 PROJ-1: manual QA: zoom" in table
+    assert "N2 C1 PROJ-1: manual QA: keyboard" in table
+    assert "N3 C2 Investigate X: decision: keep the old API" in table
+
+
+def test_human_item_codes_stay_after_an_earlier_item_closes(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, manual_qa=["zoom", "keyboard"])
+    c.add_child(state, "topic", "Investigate X", notes="decision: keep the old API")
+    c.status_table(state)
+    c.update_child(state, "PROJ-1", manual_qa=["keyboard"])
+    table = c.status_table(state)
+    assert "N2 C1 PROJ-1: manual QA: keyboard" in table
+    assert "N3 C2 Investigate X: decision" in table and "N1 " not in table
+
+
+def test_a_removed_last_row_keeps_its_code_retired(repo, env):
+    state = make(repo, env)
+    for ref in ("PROJ-1", "PROJ-2", "PROJ-3"):
+        c.add_child(state, "ticket", ref, base="main")
+    state["children"].pop()
+    c.add_child(state, "ticket", "PROJ-4", base="main")
+    assert c.find_child(state, "PROJ-4")["code"] == "C4"
+
+
+def test_a_duplicate_code_gets_a_new_one(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "ticket", "PROJ-2", base="main")
+    state["children"][1]["code"] = "C1"
+    c.assign_codes(state)
+    assert [r["code"] for r in state["children"]] == ["C1", "C3"]
+
+
+def test_find_child_accepts_the_code(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    assert c.find_child(state, "C1")["ref"] == "PROJ-1"
+    assert c.find_child(state, "C9") is None
+
+
+def test_latest_gives_legacy_rows_codes(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    del state["children"][0]["code"], state["next_code"]
+    c.save(state, env)
+    assert c.latest(repo, env)["children"][0]["code"] == "C1"
+
+
+def test_thread_codes_stay_the_same_in_later_rounds(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, session_id="local_a")
+    first = {"5": c.unresolved_threads(graphql(thread("T-a"), thread("T-b")))}
+    c.review_fanout(state, first)
+    second = {"5": c.unresolved_threads(graphql(thread("T-b"), thread("T-c")))}
+    message = c.review_fanout(state, second)[0]["message"]
+    assert "\nT2 thread `T-b`" in message and "\nT3 thread `T-c`" in message
 
 
 def test_briefs_give_the_child_its_code_and_the_contract(repo, env):

@@ -155,18 +155,26 @@ def load(
 
 
 def assign_codes(state: Json) -> None:
-    """Give every ledger row a stable `C<n>` code, in the order rows were added.
+    """Give every ledger row a stable `C<n>` code.
 
     A code never changes and is never reused, so the user and the children
-    can say "C3" across the whole effort. Rows from before codes existed get
-    theirs here, in ledger order.
+    can say "C3" across the whole effort. The `next_code` counter only grows,
+    so a removed row keeps its code retired. A row without a valid code, or
+    with a code another row already holds, gets the next code.
     """
-    used = [int(c["code"][1:]) for c in state["children"] if CODE_RE.match(c.get("code") or "")]
-    last = max(used, default=0)
+    held: set[str] = set()
     for child in state["children"]:
-        if not CODE_RE.match(child.get("code") or ""):
+        code = child.get("code") or ""
+        if CODE_RE.match(code) and code not in held:
+            held.add(code)
+        else:
+            child["code"] = ""
+    last = max([int(c[1:]) for c in held] + [int(state.get("next_code") or 1) - 1])
+    for child in state["children"]:
+        if not child["code"]:
             last += 1
             child["code"] = f"C{last}"
+    state["next_code"] = last + 1
 
 
 def save(state: Json, env: Mapping[str, str] | None = None) -> Path:
@@ -199,7 +207,8 @@ def latest(cwd: str | Path | None = None, env: Mapping[str, str] | None = None) 
     for path in root.glob("*/state.json"):
         try:
             state = json.loads(path.read_text())
-        except (OSError, ValueError):
+            assign_codes(state)
+        except (OSError, ValueError, KeyError, TypeError):
             continue
         if best is None or state.get("updated", 0) > best.get("updated", 0):
             best = state
@@ -402,7 +411,11 @@ def branch_key(ref: str) -> str:
 
 
 def find_child(state: Json, ref: str) -> Json | None:
-    return next((c for c in state["children"] if c["ref"] == ref), None)
+    """The row whose ref is `ref`, else the row whose code is `ref` (C3)."""
+    by_ref = next((c for c in state["children"] if c["ref"] == ref), None)
+    if by_ref is not None or not CODE_RE.match(ref):
+        return by_ref
+    return next((c for c in state["children"] if c.get("code") == ref), None)
 
 
 def add_child(state: Json, kind: str, ref: str, title: str = "", /, **fields: Any) -> Json:
@@ -412,7 +425,7 @@ def add_child(state: Json, kind: str, ref: str, title: str = "", /, **fields: An
         raise ConductorError(f"ref: {ref!r} has characters outside [A-Za-z0-9#:/._?=&%+-]")
     if kind == "topic" and not ref.strip():
         raise ConductorError("ref: a topic needs a short label")
-    if find_child(state, ref) is not None:
+    if any(c["ref"] == ref for c in state["children"]):
         raise ConductorError(f"{ref} already has a child in this conductor")
     names = {c["name"] for c in state["children"]}
     name, n = child_name(ref), 2
@@ -842,6 +855,14 @@ REVIEW_INSTRUCTIONS = (
 )
 
 
+def thread_code(state: Json, thread_id: str) -> int:
+    """The stable `T<n>` number of a review thread: one per thread, never reused."""
+    codes = state.setdefault("thread_codes", {})
+    if thread_id not in codes:
+        codes[thread_id] = max(codes.values(), default=0) + 1
+    return int(codes[thread_id])
+
+
 def review_fanout(state: Json, threads_by_pr: Mapping[str, list[Json]]) -> list[Json]:
     """One message per owning child for every PR that has unresolved threads."""
     owners = {str(c["pr"]): c for c in state["children"] if c.get("pr") is not None}
@@ -868,7 +889,8 @@ def review_fanout(state: Json, threads_by_pr: Mapping[str, list[Json]]) -> list[
             f"{len(threads)} unresolved thread(s).",
             "",
         ]
-        for n, t in enumerate(threads, 1):
+        for t in threads:
+            n = thread_code(state, str(t["thread_id"]))
             where = f"{t['path']}:{t['line']}" if t.get("line") else t.get("path", "")
             ids = ", ".join(str(i) for i in t.get("comment_ids", []))
             body = " ".join(str(t.get("body", "")).split())[:400]
@@ -973,13 +995,22 @@ def status_table(state: Json, now: int | None = None) -> str:
 
 
 def human_items(state: Json) -> list[str]:
-    """`H<n>` lines in ledger order, so a code stays put while earlier items stay."""
-    items = []
-    for c in state["children"]:
-        items += [f"{c['code']} {c['ref']}: manual QA: {item}" for item in c.get("manual_qa", [])]
-        if c.get("notes"):
-            items.append(f"{c['code']} {c['ref']}: {c['notes']}")
-    return [f"H{n} {line}" for n, line in enumerate(items, 1)]
+    """`N<n>` lines for the items that need a human, in the table's work order.
+
+    Each item keeps its number for the whole session, also after an earlier
+    item closes. A number is never reused.
+    """
+    codes = state.setdefault("human_codes", {})
+    out = []
+    for c in ordered_children(state):
+        items = [f"manual QA: {item}" for item in c.get("manual_qa", [])]
+        items += [str(c["notes"])] if c.get("notes") else []
+        for item in items:
+            key = f"{c['code']}|{item}"
+            if key not in codes:
+                codes[key] = max(codes.values(), default=0) + 1
+            out.append(f"N{codes[key]} {c['code']} {c['ref']}: {item}")
+    return out
 
 
 # -- tracker: background watcher of children and PRs -------------------------
@@ -1445,7 +1476,11 @@ def _run_state(args: argparse.Namespace, env: Mapping[str, str] | None) -> Any:
     if args.action == "show":
         return state
     if args.action == "status":
-        return status_table(state)
+        before = json.dumps(state, sort_keys=True)
+        table = status_table(state)
+        if json.dumps(state, sort_keys=True) != before:
+            save(state, env)
+        return table
     if args.action == "base":
         return resolve_base(state["setup"], args.default_branch, args.release)
     if args.action in ("payload", "brief"):
