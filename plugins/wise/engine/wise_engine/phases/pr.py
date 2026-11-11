@@ -239,6 +239,7 @@ async def pr_phase(ctx: Json) -> Json:
             facts["title"],
             "--body-file",
             str(body_path),
+            *(["--draft"] if ctx["config"].get("pr_draft") else []),
         ],
     )
     if not ok(created):

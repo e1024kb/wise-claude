@@ -1,0 +1,99 @@
+version: 2
+name: conductor
+description: >-
+  Setup of a /wise-conductor session. A conductor coordinates many parallel
+  child sessions from one main thread: one ticket-auto run per ticket child,
+  one plain session per topic child. This workflow asks the conductor's
+  policy questions once (base branch rule, merge policy, PR state, questions,
+  overlap, auth fallback, tracker write-back) and records them, with the
+  ledger, in persistent conductor state. It runs no model and changes no
+  file in the project. The per-step harness, model and effort come from the
+  ticket-auto pre-flight, which /wise-conductor asks in the same setup.
+author: e1024kb
+
+project-selection: current
+
+# No tuning groups: no step spawns a model. The ticket-auto tuning answers
+# are collected by /wise-conductor through the ticket-auto pre-flight and
+# stored next to these answers.
+preflight:
+  control-mode: synchronous
+  worktree: current
+  lock-worktree: true
+
+# Defaults come first in every choice and follow the conductor spec:
+# never merge, draft until ready, no questions, follow the base branch on
+# overlap, no tracker write-back.
+inputs:
+  - name: conductor_id
+    prompt: "Conductor id (the conductor session id, or a short name): [A-Za-z0-9._-], max 80."
+    from-context: decisions.conductor_id
+    validate: "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+  - name: conductor_mode
+    prompt: "Where do children run? (desktop: Claude Desktop child sessions, nested in the sidebar | fallback: background agents or wise engine runs)"
+    default: fallback
+    validate: "^(desktop|fallback)$"
+  - name: base_rule
+    prompt: "Base branch rule per ticket? (default: the repository default branch | fixed: one fixed branch | release: derived from the ticket's release field)"
+    default: default
+    validate: "^(default|fixed|release)$"
+  - name: base_fixed
+    prompt: "Fixed base branch (only for base_rule fixed). Blank = not used."
+    optional: true
+  - name: release_field
+    prompt: "Release field of the ticket (only for base_rule release), for example fixVersion."
+    default: fixVersion
+  - name: release_pattern
+    prompt: "Release-to-branch pattern (only for base_rule release). Placeholders: {version} (dots become dashes), {raw}, {major}, {minor}, {patch}. Example: release-{version} maps 26.11.0 to release-26-11-0."
+    default: "release-{version}"
+  - name: release_missing
+    prompt: "A ticket has no release field? (default: use the repository default branch and record it | stop: hold the ticket and report it)"
+    default: default
+    validate: "^(default|stop)$"
+  - name: merge_policy
+    prompt: "Merge policy? (never: keep each PR for manual review | green: merge when green)"
+    default: never
+    validate: "^(never|green)$"
+  - name: pr_state
+    prompt: "PR state during the run? (draft-then-ready: draft until the child ends, then ready for review | ready: ready for review when opened)"
+    default: draft-then-ready
+    validate: "^(draft-then-ready|ready)$"
+  - name: questions
+    prompt: "Questions during the run? (none: fully unattended, every question pre-answered | allowed: children may ask the conductor)"
+    default: none
+    validate: "^(none|allowed)$"
+  - name: overlap
+    prompt: "Another ticket already touched the same code? (follow-base: follow the base branch, never undo another fix, record it in an Overlap section | stop: hold the ticket and report it)"
+    default: follow-base
+    validate: "^(follow-base|stop)$"
+  - name: auth_fallback
+    prompt: "A child's ticket-auto run fails with AUTH_REQUIRED? (stop: report it once and stop that child | direct: the child implements directly with the same quality bar)"
+    default: stop
+    validate: "^(stop|direct)$"
+  - name: tracker_writeback
+    prompt: "Post tracker comments? (no: write nothing to the tracker | yes: children may comment)"
+    default: "no"
+    validate: "^(no|yes)$"
+  - name: poll_seconds
+    prompt: "How often does the tracker check every child and PR, in seconds? (15 to 3600)"
+    default: "60"
+    validate: "^[0-9]{2,4}$"
+  - name: stall_minutes
+    prompt: "After how many minutes without a report or a push is a child stalled and pinged? (1 to 1440)"
+    default: "15"
+    validate: "^[0-9]{1,4}$"
+
+steps:
+  - id: record-setup
+    type: bash
+    # Validates every answer and writes the conductor state and the
+    # per-project rules under <wise-data>/conductor/<cwd-slug>/. Re-running
+    # it replaces the setup and keeps the ledger.
+    run: |
+      set -eu
+      python3 "{{workflow.dir}}/../../scripts/wise-helpers.py" conductor init \
+        --id "$WISE_CONDUCTOR_ID" --cwd "$PWD" \
+        --mode "$WISE_CONDUCTOR_MODE" --from-env
+      echo "SETUP: recorded"
+    timeout: 30
+    depends_on: []

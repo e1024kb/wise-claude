@@ -28,6 +28,8 @@ from .phases.common import (
     Json,
     err_text,
     fail,
+    gh,
+    json_of,
     make_unit,
     ok,
     parse_items,
@@ -152,6 +154,13 @@ def config_for(step: Json, state: Json) -> Json:
         "profile": state["profile"],
         "resume": step.get("resume", "fresh"),
     }
+    if step["pipeline"] == "ticket":
+        # Opt-in conductor policy, read from settled decisions so a plain
+        # ticket-auto run asks nothing new and keeps merging.
+        decisions = state["context"].get("decisions", {})
+        never = str(decisions.get("merge_policy", "")).strip() == "never"
+        config["merge_policy"] = "never" if never else "merge"
+        config["pr_draft"] = str(decisions.get("pr_draft", "")).strip() == "yes"
     if step["pipeline"] == "ticket-plan":
         # Epic children never ask mid-run: `ask` settles on `auto`.
         mode = str(inputs.get("branch_mode", "") or "").strip()
@@ -214,7 +223,7 @@ def _summarize(rows: list[Json]) -> str:
     # `blocked` verdict of a PR whose bot item needs a human.
     held = sum("blocked_by" in row for row in rows)
     opened = sum(
-        row.get("verdict") in ("all-green", "blocked", "partial", "human-intervention")
+        row.get("verdict") in ("all-green", "ready", "blocked", "partial", "human-intervention")
         and "blocked_by" not in row
         for row in rows
     )
@@ -487,6 +496,30 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             watch["stable"] += 1
             save()
             if watch["stable"] >= stable_target:
+                live = await live_pr(ctx)
+                if live is None:
+                    return fail("gh pr view failed", "all-green", {"watch": dict(watch)})
+                if live["head"] != head:
+                    # A push after this pass: the new head is not validated yet.
+                    ctx["log"](f"watch: the PR head moved to {live['head'][:12]}; watching again")
+                    watch["stable"] = 0
+                    save()
+                    await ctx["sleep"](poll_ms)
+                    continue
+                if live["draft"]:
+                    # GitHub merges no draft, and `ready_for_review` can start
+                    # new checks: leave draft, then watch until they settle.
+                    readied = await mark_ready(ctx)
+                    if readied:
+                        return fail(readied, "all-green", {"watch": dict(watch)})
+                    watch["stable"] = 0
+                    save()
+                    await ctx["sleep"](poll_ms)
+                    continue
+                if ctx["config"].get("merge_policy") == "never":
+                    number = js_string(ctx["unit"]["pr"]["number"])
+                    ctx["log"](f"watch: #{number} green and reviewed, ready (merge policy: never)")
+                    return pass_({"verdict": "ready", "watch": dict(watch)})
                 merged = await merge_pr(ctx, head)
                 if not merged["ok"]:
                     return fail(merged["reason"], "all-green", {"watch": dict(watch)})
@@ -505,6 +538,25 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             watch["stable"] = 0
             save()
         await ctx["sleep"](poll_ms)
+
+
+async def live_pr(ctx: Json) -> Json | None:
+    """The PR's live draft state and head, read from GitHub (an adopted PR can be a draft)."""
+    number = js_string(ctx["unit"]["pr"]["number"])
+    value = json_of(await gh(ctx, ["pr", "view", number, "--json", "isDraft,state,headRefOid"]))
+    if not isinstance(value, dict) or not isinstance(value.get("headRefOid"), str):
+        return None
+    return {"draft": bool(value.get("isDraft")), "head": value["headRefOid"]}
+
+
+async def mark_ready(ctx: Json) -> str:
+    """Take the PR out of draft; returns the failure reason, or "" on success."""
+    number = js_string(ctx["unit"]["pr"]["number"])
+    readied = await gh(ctx, ["pr", "ready", number])
+    if not ok(readied):
+        return f"pr ready failed: {err_text(readied)}"
+    ctx["log"](f"watch: #{number} is ready for review; watching the checks it starts")
+    return ""
 
 
 async def run_units_step(input: Json) -> Json:

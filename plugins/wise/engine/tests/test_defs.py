@@ -5333,6 +5333,7 @@ def test_invalid_regexes():
 def test_bundled_and_v1_definitions():
     engine = Path(__file__).resolve().parents[1]
     expected = {
+        "conductor": 1,
         "ticket-plan": 21,
         "example-workflow": 8,
         "ticket-auto": 7,

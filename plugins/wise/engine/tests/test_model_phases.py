@@ -454,6 +454,102 @@ def test_merge_method_fallback(tmp_path, both, expected):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("draft", [True, False])
+def test_never_merge_policy_marks_the_pr_ready_and_keeps_it_open(tmp_path, draft):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {
+            "merge_policy": "never",
+            "pr_draft": "yes" if draft else "no",
+        }
+        result = await run_units_step(fixture.input())
+        unit = result["outputs"]["units"][0]
+        assert unit["verdict"] == "ready" and "open=1" in result["verdict"]
+        gh_calls = [args for cmd, args, _ in fixture.calls if cmd == "gh"]
+        assert not any(args[:2] == ["pr", "merge"] for args in gh_calls)
+        create = next(args for args in gh_calls if args[:2] == ["pr", "create"])
+        assert ("--draft" in create) is draft
+        assert any(args[:2] == ["pr", "ready"] for args in gh_calls) is draft
+        # The worktree stays: only a merged unit is cleaned up.
+        assert not read_unit(fixture.run_dir, "PROJ-1")["cleaned"]
+
+    asyncio.run(scenario())
+
+
+def test_failed_ready_keeps_the_draft_pr_open(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {"merge_policy": "never", "pr_draft": "yes"}
+        fixture.failures[("gh", "pr", "ready", "5")] = command_result(code=1, stderr="forbidden")
+        result = await run_units_step(fixture.input())
+        unit = result["outputs"]["units"][0]
+        assert unit["verdict"] == "all-green" and "pr ready failed" in unit["reason"]
+
+    asyncio.run(scenario())
+
+
+def test_green_policy_takes_a_draft_out_of_draft_and_watches_again_before_merging(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {"merge_policy": "merge", "pr_draft": "yes"}
+        result = await run_units_step(fixture.input())
+        assert "merged=1" in result["verdict"]
+        gh_calls = [args[:2] for cmd, args, _ in fixture.calls if cmd == "gh"]
+        ready, merge = gh_calls.index(["pr", "ready"]), gh_calls.index(["pr", "merge"])
+        # The checks that `ready_for_review` starts are watched before the merge.
+        assert ready < merge and fixture.counts["watch"] >= 2
+
+    asyncio.run(scenario())
+
+
+def test_a_live_head_change_resets_the_stable_count(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {"merge_policy": "never", "pr_draft": "no"}
+        moved = {"left": 1}
+        real_execute = fixture.execute
+
+        async def execute(cmd, args, opts):
+            if (
+                moved["left"]
+                and cmd == "gh"
+                and args[:2] == ["pr", "view"]
+                and "isDraft" in args[-1]
+            ):
+                moved["left"] -= 1
+                fixture.calls.append((cmd, args, opts))
+                return command_result(
+                    '{"isDraft": false, "state": "OPEN", "headRefOid": "f00dbabe0000"}'
+                )
+            return await real_execute(cmd, args, opts)
+
+        fixture.execute = execute
+        result = await run_units_step(fixture.input())
+        assert result["outputs"]["units"][0]["verdict"] == "ready"
+        views = [
+            a
+            for c, a, _ in fixture.calls
+            if c == "gh" and a[:2] == ["pr", "view"] and "isDraft" in a[-1]
+        ]
+        # The moved head is not trusted: a second stable round reads it again.
+        assert moved["left"] == 0 and len(views) >= 2
+
+    asyncio.run(scenario())
+
+
+def test_without_decisions_ticket_auto_still_merges(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        result = await run_units_step(fixture.input())
+        assert "merged=1" in result["verdict"]
+        create = next(
+            args for cmd, args, _ in fixture.calls if cmd == "gh" and args[:2] == ["pr", "create"]
+        )
+        assert "--draft" not in create
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "status,write_plan,blueprint",
     [("no-access", False, False), ("ready", False, False), ("insufficient-context", False, True)],

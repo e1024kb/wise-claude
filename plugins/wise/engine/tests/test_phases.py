@@ -210,8 +210,15 @@ class PhaseFixture:
                     return command_result(json.dumps({**self.pr, "headRefOid": self.head}))
                 return command_result(json.dumps(self.pr))
             if args[:2] == ["pr", "create"]:
-                self.pr = {"number": 5, "url": "https://github.invalid/a/r/pull/5", "state": "OPEN"}
+                self.pr = {
+                    "number": 5,
+                    "url": "https://github.invalid/a/r/pull/5",
+                    "state": "OPEN",
+                    "isDraft": "--draft" in args,
+                }
                 return command_result(self.pr["url"] + "\n")
+            if args[:2] == ["pr", "ready"] and self.pr:
+                self.pr["isDraft"] = False
             if args[:2] == ["pr", "merge"]:
                 if self.pr:
                     self.pr["state"] = "MERGED"
