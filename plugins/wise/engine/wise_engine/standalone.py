@@ -21,6 +21,11 @@ def _legacy_notices(root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["conductor"]:
+        from . import conductor
+
+        return conductor.cli(argv[1:])
     parser = argparse.ArgumentParser(
         description="Wise session, profile, history and supervision helpers"
     )

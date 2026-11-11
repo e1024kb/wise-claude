@@ -454,6 +454,53 @@ def test_merge_method_fallback(tmp_path, both, expected):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("draft", [True, False])
+def test_never_merge_policy_marks_the_pr_ready_and_keeps_it_open(tmp_path, draft):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {
+            "merge_policy": "never",
+            "pr_draft": "yes" if draft else "no",
+        }
+        result = await run_units_step(fixture.input())
+        unit = result["outputs"]["units"][0]
+        assert unit["verdict"] == "ready" and "open=1" in result["verdict"]
+        gh_calls = [args for cmd, args, _ in fixture.calls if cmd == "gh"]
+        assert not any(args[:2] == ["pr", "merge"] for args in gh_calls)
+        create = next(args for args in gh_calls if args[:2] == ["pr", "create"])
+        assert ("--draft" in create) is draft
+        assert any(args[:2] == ["pr", "ready"] for args in gh_calls) is draft
+        # The worktree stays: only a merged unit is cleaned up.
+        assert not read_unit(fixture.run_dir, "PROJ-1")["cleaned"]
+
+    asyncio.run(scenario())
+
+
+def test_failed_ready_keeps_the_draft_pr_open(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.state["context"]["decisions"] = {"merge_policy": "never", "pr_draft": "yes"}
+        fixture.failures[("gh", "pr", "ready", "5")] = command_result(code=1, stderr="forbidden")
+        result = await run_units_step(fixture.input())
+        unit = result["outputs"]["units"][0]
+        assert unit["verdict"] == "all-green" and "pr ready failed" in unit["reason"]
+
+    asyncio.run(scenario())
+
+
+def test_without_decisions_ticket_auto_still_merges(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        result = await run_units_step(fixture.input())
+        assert "merged=1" in result["verdict"]
+        create = next(
+            args for cmd, args, _ in fixture.calls if cmd == "gh" and args[:2] == ["pr", "create"]
+        )
+        assert "--draft" not in create
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "status,write_plan,blueprint",
     [("no-access", False, False), ("ready", False, False), ("insufficient-context", False, True)],

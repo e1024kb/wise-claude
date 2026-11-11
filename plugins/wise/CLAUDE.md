@@ -131,6 +131,17 @@ Current actions (all standalone):
   optional verifier and a fixer, each with its own tuning group) are
   the two quality passes; the `ticket-auto` workflow's engine-side
   review phase follows the same discipline.
+- `/wise-conductor` - coordinate many parallel child sessions from one
+  main thread: one `ticket-auto` child per ticket, one plain session per
+  topic. The setup is asked once (the `conductor` workflow records the
+  policy, the `ticket-auto` pre-flight supplies harness, model and
+  effort) and every child reuses it. Setup, ledger and per-project rules
+  persist through `wise-helpers.py conductor`
+  (`engine/wise_engine/conductor.py`). Claude Desktop children nest
+  under the conductor; other clients fall back to background agents or
+  engine runs. Never merges by default: it passes `merge_policy: never`
+  and `pr_draft: yes` as settled decisions, and the `ticket` units
+  pipeline then ends at `ready` instead of merging.
 - `/wise-supervise` — attach a watchdog / supervisor loop to a running
   team of background agents and keep them on task: probe each member,
   nudge the idle-but-unfinished or off-goal ones, escalate the
@@ -204,7 +215,7 @@ plugins/wise/
 │   ├── engine.sh                   # managed Python 3.11+ launcher
 │   ├── pyproject.toml              # Python metadata and pinned dependencies
 │   ├── wise_engine/                # defs (YAML v2 schema), scheduler, executor, ledger, daemon, mcp,
-│   │   │                           #   unit-mcp, channel, resolve, render, preflight, migrate, auth
+│   │   │                           #   unit-mcp, channel, resolve, render, preflight, migrate, auth, conductor
 │   │   ├── adapters/               # claude, codex, cursor-agent, gemini, grok + clean-env spawn
 │   │   ├── steps/                  # agent, bash, gate step runners
 │   │   ├── phases/                 # unit pipeline phases (claim, worktree, model phases, push, pr, ...)
@@ -300,6 +311,7 @@ plugins/wise/
     │   └── agents/executor.md            # per-task executor persona read by implement-plan.md (subagent or inline)
     ├── wise-simplify-auto/SKILL.md        # autonomous simplify + commit (no prompts)
     ├── wise-supervise/SKILL.md            # attach the watchdog loop to a running team of background agents
+    ├── wise-conductor/SKILL.md            # coordinate parallel child sessions: one ticket-auto child per ticket, ledger, verify, review fan-out
     ├── wise-revise/                        # proactive planner: audit a scope → executable PLAN-*.md backlog
     │   ├── SKILL.md
     │   └── references/                    # audit-lenses.md (the panel) + plan-format.md (the plan + index schema)
@@ -406,6 +418,11 @@ one-liners below are the rule, not the argument for it.
   to `medium`, and
   GC'd opportunistically (files from sessions older than 30 days) on
   each write. Routed through `wise_data_root()` (engine: `paths.py`).
+  (f) the **conductor store** under
+  `~/.local/share/wise/conductor/<cwd-slug>/`: one
+  `<conductor-id>/state.json` per conductor (setup, `ticket-auto`
+  answers, ledger) and `project.json` (per-project rules), written by
+  `wise-helpers.py conductor` through `wise_data_root()`.
   New per-user persistent state
   that doesn't fit `${CLAUDE_PLUGIN_DATA}` MUST route through the
   `wise_data_root()` helper in `engine/wise_engine/paths.py` — never

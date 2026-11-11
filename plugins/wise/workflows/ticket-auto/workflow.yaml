@@ -352,7 +352,7 @@ steps:
       ---
 
       Per row: unit.ref, unit.branch, unit.worktree, unit.pr.url,
-      verdict (merged | all-green | blocked | partial | exhausted |
+      verdict (merged | ready | all-green | blocked | partial | exhausted |
       non-fast-forward | human-intervention | failed | skipped |
       no-pr), reason,
       review.converged and review.cycles, cleaned. A `no-pr` verdict
@@ -394,7 +394,8 @@ steps:
       child ref, repo (the unit's worktree repository, `-` for this
       project), verdict, PR URL, SHA, notes. Map the verdict:
       `merged` -> merged (only when `gh pr view` shows MERGED; the SHA is
-      its `mergeCommit.oid`); `all-green`, `human-intervention`, and
+      its `mergeCommit.oid`); `ready` (green, reviewed, unmerged under
+      the never-merge policy), `all-green`, `human-intervention`, and
       `blocked` with a PR -> pr-open (SHA = `headRefOid`); a row with
       `blocked_by` -> blocked (notes: which child it waited for and how
       that child ended); `failed`, `partial`, `exhausted`,

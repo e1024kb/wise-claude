@@ -28,6 +28,7 @@ from .phases.common import (
     Json,
     err_text,
     fail,
+    gh,
     make_unit,
     ok,
     parse_items,
@@ -152,6 +153,13 @@ def config_for(step: Json, state: Json) -> Json:
         "profile": state["profile"],
         "resume": step.get("resume", "fresh"),
     }
+    if step["pipeline"] == "ticket":
+        # Opt-in conductor policy, read from settled decisions so a plain
+        # ticket-auto run asks nothing new and keeps merging.
+        decisions = state["context"].get("decisions", {})
+        never = str(decisions.get("merge_policy", "")).strip() == "never"
+        config["merge_policy"] = "never" if never else "merge"
+        config["pr_draft"] = str(decisions.get("pr_draft", "")).strip() == "yes"
     if step["pipeline"] == "ticket-plan":
         # Epic children never ask mid-run: `ask` settles on `auto`.
         mode = str(inputs.get("branch_mode", "") or "").strip()
@@ -214,7 +222,7 @@ def _summarize(rows: list[Json]) -> str:
     # `blocked` verdict of a PR whose bot item needs a human.
     held = sum("blocked_by" in row for row in rows)
     opened = sum(
-        row.get("verdict") in ("all-green", "blocked", "partial", "human-intervention")
+        row.get("verdict") in ("all-green", "ready", "blocked", "partial", "human-intervention")
         and "blocked_by" not in row
         for row in rows
     )
@@ -487,6 +495,8 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             watch["stable"] += 1
             save()
             if watch["stable"] >= stable_target:
+                if ctx["config"].get("merge_policy") == "never":
+                    return await mark_ready(ctx, watch)
                 merged = await merge_pr(ctx, head)
                 if not merged["ok"]:
                     return fail(merged["reason"], "all-green", {"watch": dict(watch)})
@@ -505,6 +515,19 @@ async def watch_loop(ctx: Json, runners: Json, hooks: Json) -> Json:
             watch["stable"] = 0
             save()
         await ctx["sleep"](poll_ms)
+
+
+async def mark_ready(ctx: Json, watch: Json) -> Json:
+    """Never-merge policy: the green, reviewed PR leaves draft and stays open."""
+    number = js_string(ctx["unit"]["pr"]["number"])
+    if ctx["config"].get("pr_draft"):
+        readied = await gh(ctx, ["pr", "ready", number])
+        if not ok(readied):
+            return fail(
+                f"pr ready failed: {err_text(readied)}", "all-green", {"watch": dict(watch)}
+            )
+    ctx["log"](f"watch: #{number} green and reviewed, ready for review (merge policy: never)")
+    return pass_({"verdict": "ready", "watch": dict(watch)})
 
 
 async def run_units_step(input: Json) -> Json:
