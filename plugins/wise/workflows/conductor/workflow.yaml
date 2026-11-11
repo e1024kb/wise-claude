@@ -22,8 +22,8 @@ preflight:
   lock-worktree: true
 
 # Defaults come first in every choice and follow the conductor spec:
-# never merge, draft until ready, no questions, follow the base branch on
-# overlap, no tracker write-back.
+# autonomous runs (merge when green, PR ready when opened, no questions),
+# follow the base branch on overlap, no tracker write-back.
 inputs:
   - name: conductor_id
     prompt: "Conductor id (the conductor session id, or a short name): [A-Za-z0-9._-], max 80."
@@ -51,13 +51,13 @@ inputs:
     default: default
     validate: "^(default|stop)$"
   - name: merge_policy
-    prompt: "Merge policy? (never: keep each PR for manual review | green: merge when green)"
-    default: never
-    validate: "^(never|green)$"
+    prompt: "Merge policy? (green: merge when CI is green and every review comment is handled | never: keep each PR for manual review)"
+    default: green
+    validate: "^(green|never)$"
   - name: pr_state
-    prompt: "PR state during the run? (draft-then-ready: draft until the child ends, then ready for review | ready: ready for review when opened)"
-    default: draft-then-ready
-    validate: "^(draft-then-ready|ready)$"
+    prompt: "PR state during the run? (ready: ready for review when opened | draft-then-ready: draft until the child ends, then ready for review)"
+    default: ready
+    validate: "^(ready|draft-then-ready)$"
   - name: questions
     prompt: "Questions during the run? (none: fully unattended, every question pre-answered | allowed: children may ask the conductor)"
     default: none

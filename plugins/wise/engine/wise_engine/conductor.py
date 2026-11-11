@@ -46,6 +46,20 @@ REF_CODES = (
     "Keep each code stable for the whole session and reuse it when you refer to the item again. "
     "Write one item per line, code first."
 )
+# The autonomy contract every child follows: the conductor's request approves the whole run.
+AUTONOMY = (
+    "Work autonomously from start to end. The user's request to the conductor approves the whole run. "
+    "Do not ask the user or the conductor whether to start, open the PR, mark it ready, "
+    "run the review, fix review comments or merge. "
+    "Decide everything else from the setup, the ticket and the code. "
+    "Record each decision in the PR body or your report. "
+    "Stop and report to the conductor only in these cases: "
+    "the fix attempts (`max_fix_attempts`) run out with CI still red; a merge conflict has no safe resolution; "
+    "branch protection needs a human approval; the ticket is too vague to implement; "
+    "a login or an access is missing. "
+    "When the conductor sends a pause message, stop at the next safe point, push your work, "
+    "report your state and wait for its next message."
+)
 RELEASE_PLACEHOLDERS = {"version", "raw", "major", "minor", "patch"}
 
 # One entry per setup question: allowed values (None = free text) and default.
@@ -55,8 +69,8 @@ SETUP_FIELDS: dict[str, tuple[tuple[str, ...] | None, str]] = {
     "release_field": (None, "fixVersion"),
     "release_pattern": (None, "release-{version}"),
     "release_missing": (("default", "stop"), "default"),
-    "merge_policy": (("never", "green"), "never"),
-    "pr_state": (("draft-then-ready", "ready"), "draft-then-ready"),
+    "merge_policy": (("green", "never"), "green"),
+    "pr_state": (("ready", "draft-then-ready"), "ready"),
     "questions": (("none", "allowed"), "none"),
     "overlap": (("follow-base", "stop"), "follow-base"),
     "auth_fallback": (("stop", "direct"), "stop"),
@@ -67,7 +81,19 @@ SETUP_FIELDS: dict[str, tuple[tuple[str, ...] | None, str]] = {
 # Integer setup fields: (minimum, maximum).
 SETUP_RANGES = {"poll_seconds": (15, 3600), "stall_minutes": (1, 1440)}
 CHILD_KINDS = ("ticket", "topic")
-CHILD_STATES = ("starting", "running", "waiting", "ready", "merged", "closed", "failed")
+# `queued`: planned, not started (it waits for its dependencies).
+# `held`: started, then paused by the conductor until its dependencies merge.
+CHILD_STATES = (
+    "queued",
+    "starting",
+    "running",
+    "waiting",
+    "held",
+    "ready",
+    "merged",
+    "closed",
+    "failed",
+)
 CHILD_FIELDS = {
     "session_id",
     "name",
@@ -89,6 +115,7 @@ CHILD_FIELDS = {
     "head",
     "last_seen",
     "stall_flag",
+    "depends_on",
 }
 # The ticket-auto pre-flight answers every child reuses. `worktree`, `input.*`
 # and `step-select` are per child: the payload sets them, a stored copy is dropped.
@@ -482,9 +509,61 @@ def update_child(state: Json, ref: str, /, **fields: Any) -> Json:
     if "manual_qa" in fields:
         items = fields["manual_qa"]
         fields["manual_qa"] = [str(i) for i in items] if isinstance(items, list) else [str(items)]
+    if "depends_on" in fields:
+        fields["depends_on"] = _dependencies(state, child, fields["depends_on"])
     child.update(fields)
     child["changed"] = int(time.time())
     return child
+
+
+def _dependencies(state: Json, child: Json, raw: Any) -> list[str]:
+    """Validate `depends_on` (refs or codes) and store it as refs; refuse a cycle."""
+    items = raw if isinstance(raw, list) else [raw] if raw else []
+    refs = []
+    for item in items:
+        dep = find_child(state, str(item))
+        if dep is None:
+            raise ConductorError(f"depends_on: {item} has no child in this conductor")
+        if dep is child:
+            raise ConductorError(f"depends_on: {child['ref']} cannot depend on itself")
+        if dep["ref"] not in refs:
+            refs.append(dep["ref"])
+    by_ref = {c["ref"]: c for c in state["children"]}
+    stack, seen = list(refs), set()
+    while stack:
+        ref = stack.pop()
+        if ref == child["ref"]:
+            raise ConductorError(f"depends_on: {child['ref']} would depend on itself in a cycle")
+        if ref in seen or ref not in by_ref:
+            continue
+        seen.add(ref)
+        stack += by_ref[ref].get("depends_on") or []
+    return refs
+
+
+def next_children(state: Json) -> Json:
+    """Which queued or held rows can start or resume now: every dependency is merged.
+
+    `start` and `resume` rows have no open dependency. `waiting` rows name the
+    dependencies they still wait for. A dependency that failed or closed
+    unmerged blocks its dependents; they are in `blocked`.
+    """
+    by_ref = {c["ref"]: c for c in state["children"]}
+    out: Json = {"start": [], "resume": [], "waiting": [], "blocked": []}
+    for child in state["children"]:
+        if child.get("state") not in ("queued", "held"):
+            continue
+        deps = [by_ref[r] for r in child.get("depends_on") or [] if r in by_ref]
+        row = {"code": child["code"], "ref": child["ref"]}
+        dead = [d["ref"] for d in deps if d.get("state") in ("failed", "closed")]
+        open_deps = [d["ref"] for d in deps if d.get("state") != "merged"]
+        if dead:
+            out["blocked"].append({**row, "on": dead})
+        elif open_deps:
+            out["waiting"].append({**row, "on": open_deps})
+        else:
+            out["start" if child["state"] == "queued" else "resume"].append(row)
+    return out
 
 
 # -- run payload and briefs (L1, L7, L8) -------------------------------------
@@ -644,6 +723,8 @@ def build_ticket_brief(
         "",
         "## 6. Conductor",
         "",
+        AUTONOMY,
+        "",
         f"Your conductor code is `{child['code']}`. Start every report and message with it.",
         REF_CODES,
         "",
@@ -667,6 +748,8 @@ def build_topic_brief(state: Json, child: Json, brief: str, conductor_session: s
         "",
         "WARNING: Never edit, stash, reset or check out the main checkout. Use your own worktree for code changes.",
         "End with a short report: what you found or changed, and what you did not verify.",
+        "",
+        AUTONOMY,
         "",
         f"Your conductor code is `{child['code']}`. Start every report and message with it.",
         REF_CODES,
@@ -929,7 +1012,7 @@ def detect_mode(tools: list[str]) -> Json:
 
 
 # PR groups in the order the user works through them: unblock, review, done.
-PR_GROUPS = ("blocked", "open", "working", "merged", "closed")
+PR_GROUPS = ("blocked", "open", "working", "queued", "merged", "closed")
 
 
 def pr_group(child: Json) -> str:
@@ -939,6 +1022,8 @@ def pr_group(child: Json) -> str:
         return str(row_state)
     if row_state == "failed":
         return "blocked"
+    if row_state in ("queued", "held"):
+        return "queued"
     if child.get("pr") is None:
         return "working"
     verdict = (child.get("ci") or {}).get("verdict")
@@ -987,7 +1072,7 @@ def status_table(state: Json, now: int | None = None) -> str:
         )
     text = (
         "\n".join(rows)
-        + "\n\nOrder: blocked, open, working, merged, closed. "
+        + "\n\nOrder: blocked, open, working, queued, merged, closed. "
         + "CI = verdict pass/fail/pending/skipped.\n"
     )
     human = human_items(state)
@@ -1111,7 +1196,7 @@ def stall_events(state: Json, now: int) -> list[Json]:
     limit = int(state["setup"].get("stall_minutes", "15")) * 60
     events = []
     for child in state["children"]:
-        if child.get("state") in TERMINAL_STATES:
+        if child.get("state") in (*TERMINAL_STATES, "queued", "held"):
             continue
         seen = int(child.get("last_seen") or child.get("added") or now)
         if now - seen < limit or child.get("stall_flag") == seen:
@@ -1422,6 +1507,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = action("fanout")
     sub.add_argument("--threads-json", required=True)
     action("seen").add_argument("--ref", required=True)
+    action("next")
     sub = action("watch")
     sub.add_argument("--once", action="store_true")
     sub.add_argument("--max-minutes", type=int, default=DEFAULT_MAX_MINUTES)
@@ -1477,6 +1563,8 @@ def _run_state(args: argparse.Namespace, env: Mapping[str, str] | None) -> Any:
     state = load(args.id, args.cwd, env)
     if args.action == "show":
         return state
+    if args.action == "next":
+        return next_children(state)
     if args.action == "status":
         before = json.dumps(state, sort_keys=True)
         table = status_table(state)

@@ -59,8 +59,8 @@ def test_setup_defaults_follow_the_spec(repo, env):
         "release_field": "fixVersion",
         "release_pattern": "release-{version}",
         "release_missing": "default",
-        "merge_policy": "never",
-        "pr_state": "draft-then-ready",
+        "merge_policy": "green",
+        "pr_state": "ready",
         "questions": "none",
         "overlap": "follow-base",
         "auth_fallback": "stop",
@@ -88,7 +88,7 @@ def test_project_rules_are_written_for_later_conductors(repo, env):
     make(repo, env, base_rule="release", release_pattern="rel/{major}.{minor}")
     rules = json.loads(c.project_rules_path(repo, env).read_text())
     assert rules["base_rule"] == "release" and rules["release_pattern"] == "rel/{major}.{minor}"
-    assert rules["merge_policy"] == "never"
+    assert rules["merge_policy"] == "green"
     assert "../<repo>.<KEY>" in rules["worktree_pattern"]
 
 
@@ -224,8 +224,8 @@ def test_payload_answers_every_ticket_auto_question(repo, env):
     # L8: nothing left for a child to ask.
     assert done["missing"] == []
     assert payload["inputs"]["base_branch"] == "release-26-11-0"
-    assert payload["context"]["decisions"]["merge_policy"] == "never"
-    assert payload["context"]["decisions"]["pr_draft"] == "yes"
+    assert payload["context"]["decisions"]["merge_policy"] == "merge"
+    assert payload["context"]["decisions"]["pr_draft"] == "no"
     # L1: the full ticket text rides in the run context, comments included.
     body = payload["context"]["ticket"][0]["body"]
     assert "trap focus" in body and "Esc must close it" in body
@@ -260,8 +260,9 @@ def test_ticket_brief_states_every_fixed_answer(repo, env):
         "Never edit, stash, reset or check out the main checkout",
         '"workflow": "ticket-auto"',  # 3 setup
         '"model.all": "opus"',
-        "never merge",
-        "draft during the run",
+        "merge when green",
+        "ready for review when opened",
+        "Work autonomously from start to end",
         "Questions: none",
         "Post nothing to the tracker",
         "AUTH_REQUIRED",
@@ -347,7 +348,7 @@ def test_verify_nudges_a_draft_with_pending_ci_and_a_wrong_base(repo, env):
 
 
 def test_verify_flags_a_merge_under_never_policy(repo, env):
-    state = make(repo, env)
+    state = make(repo, env, merge_policy="never")
     c.add_child(state, "ticket", "PROJ-1", base="main")
     pr = {"number": 5, "state": "MERGED", "isDraft": False, "baseRefName": "main"}
     result = c.verify_child(state, "PROJ-1", pr, checks("pass"), [])
@@ -877,3 +878,65 @@ def test_seen_cli_resets_the_stall_timer(repo, env, monkeypatch):
     args = ["conductor", "seen", "--id", "local_conductor", "--ref", "PROJ-1", "--cwd", str(repo)]
     assert helpers_main(args) == 0
     assert c.load("local_conductor", repo, env)["children"][0]["last_seen"] > 1
+
+
+# -- autonomy: dependency order, queue and hold ------------------------------
+
+
+def test_next_starts_rows_whose_dependencies_merged(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="queued")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="queued", depends_on=["C1"])
+    c.add_child(state, "ticket", "PROJ-3", base="main", state="queued")
+    plan = c.next_children(state)
+    assert [r["ref"] for r in plan["start"]] == ["PROJ-1", "PROJ-3"]
+    assert plan["waiting"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
+    c.update_child(state, "PROJ-1", state="merged")
+    assert [r["ref"] for r in c.next_children(state)["start"]] == ["PROJ-2", "PROJ-3"]
+
+
+def test_a_failed_dependency_blocks_its_dependents(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="failed")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="queued", depends_on=["PROJ-1"])
+    assert c.next_children(state)["blocked"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
+
+
+def test_a_held_row_resumes_when_the_feedback_ticket_merges(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="merged")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="running", depends_on=["PROJ-1"])
+    c.add_child(state, "ticket", "PROJ-9", base="main", state="queued")
+    c.update_child(state, "C2", state="held", depends_on=["PROJ-1", "PROJ-9"])
+    plan = c.next_children(state)
+    assert [r["ref"] for r in plan["start"]] == ["PROJ-9"] and plan["resume"] == []
+    c.update_child(state, "PROJ-9", state="merged")
+    assert c.next_children(state)["resume"] == [{"code": "C2", "ref": "PROJ-2"}]
+
+
+@pytest.mark.parametrize(
+    "deps,needle",
+    [(["PROJ-1"], "itself"), (["PROJ-7"], "has no child"), (["PROJ-2"], "cycle")],
+)
+def test_dependencies_are_validated(repo, env, deps, needle):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "ticket", "PROJ-2", base="main", depends_on=["PROJ-1"])
+    with pytest.raises(c.ConductorError, match=needle):
+        c.update_child(state, "PROJ-1", depends_on=deps)
+
+
+def test_queued_and_held_rows_are_not_stalled_and_sort_as_queued(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="queued", last_seen=0)
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="held", last_seen=0)
+    assert c.stall_events(state, 10**9) == []
+    assert {c.pr_group(r) for r in state["children"]} == {"queued"}
+
+
+def test_briefs_carry_the_autonomy_contract(repo, env):
+    state = make(repo, env)
+    child = c.add_child(state, "ticket", "PROJ-1", base="main")
+    topic = c.add_child(state, "topic", "Investigate X")
+    assert c.AUTONOMY in c.build_ticket_brief(state, child, ticket())
+    assert c.AUTONOMY in c.build_topic_brief(state, topic, "Look at X.")

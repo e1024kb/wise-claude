@@ -30,11 +30,14 @@ workflow. It is not a new mode of `ticket-auto` and it does not fork
 - `ticket-auto` stays the unit of work for one ticket. Each ticket child
   starts one `ticket-auto` run with the `wise_run` arguments the
   conductor generates.
-- The conductor needs two policies `ticket-auto` did not have: never
-  merge, and a draft PR until the end. They are opt-in settled decisions
-  in the run context (`merge_policy: never`, `pr_draft: yes`). A plain
-  `ticket-auto` run passes neither, so its pre-flight and its merge are
-  unchanged.
+- The conductor is autonomous by default. A request that names tickets
+  approves the whole run of each ticket: start, PR, review, fixes and the
+  merge when green. Neither the conductor nor a child asks about these.
+- Two opt-in policies keep a PR for manual review: `merge_policy: never`
+  and `pr_state: draft-then-ready`. They reach `ticket-auto` as settled
+  decisions in the run context (`merge_policy: never`, `pr_draft: yes`).
+  A plain `ticket-auto` run passes neither, so its pre-flight and its
+  merge are unchanged.
 - The state the conductor must keep for days (setup, ledger, per-project
   rules) is tested engine code in `wise_engine/conductor.py`, exposed as
   `wise-helpers.py conductor <action>`.
@@ -45,8 +48,9 @@ workflow. It is not a new mode of `ticket-auto` and it does not fork
   child session per ticket, in parallel.
 - You want to mix ticket work with loose investigation topics and keep
   one ledger of all of it.
-- You want each PR kept for manual review, on the right release branch,
-  with green CI and no open review thread.
+- You want each ticket taken from start to merge without questions, in
+  dependency order, on the right release branch, with green CI and no
+  open review thread.
 
 ## When not to use
 
@@ -74,13 +78,17 @@ flowchart TD
     A --> S1[conductor pre-flight<br/>policy questions]
     S1 --> R[record-setup<br/>bash: validate and write state + project rules]
     R --> S2[ticket-auto pre-flight<br/>harness, permissions, model, effort once]
-    S2 --> N[Step 2: What next?<br/>2 to 4 suggestions]
+    S2 --> N[Step 2: plan<br/>dependency order, start the runnable tickets]
     N --> L{loop}
     L -->|ticket| T[fetch ticket, resolve base,<br/>ledger row, brief, start child]
     L -->|topic| O[ledger row, brief, start child]
     L -->|report| V[verify PR: state, draft, base,<br/>CI counts, threads]
     L -->|check the review comments| F[fan out threads to the owning children]
     L -->|status| ST[verified table + human items]
+    L -->|merged| NX[conductor next:<br/>start or resume the unblocked rows]
+    L -->|feedback| RP[new ticket, hold dependents,<br/>revisit the plan]
+    NX --> L
+    RP --> L
     T --> L
     O --> L
     V --> L
@@ -107,8 +115,8 @@ Defaults come first in every choice.
 | `release_field` | field name | `fixVersion` | The ticket's release field, for `base_rule: release`. |
 | `release_pattern` | pattern | `release-{version}` | Release to branch. `{version}` replaces dots with dashes, `{raw}` keeps the value, `{major}` / `{minor}` / `{patch}` pick parts. `26.11.0` maps to `release-26-11-0`. |
 | `release_missing` | `default` \| `stop` | `default` | A ticket without a release value: use the default branch and record it, or hold the ticket. Two different release values hold the ticket. |
-| `merge_policy` | `never` \| `green` | `never` | Never merge (keep the PR for manual review), or merge when green. |
-| `pr_state` | `draft-then-ready` \| `ready` | `draft-then-ready` | Draft during the child's run, ready for review at the end (L7). |
+| `merge_policy` | `green` \| `never` | `green` | Merge when CI is green and every review comment is handled, or keep the PR for manual review. |
+| `pr_state` | `ready` \| `draft-then-ready` | `ready` | Ready for review when opened, or draft during the child's run and ready at the end (L7). |
 | `questions` | `none` \| `allowed` | `none` | `none` is fully unattended: every question is pre-answered in the brief (L8). |
 | `overlap` | `follow-base` \| `stop` | `follow-base` | Follow the convention on the base branch, never undo another ticket's fix, record each conflict in an `Overlap` section of the PR body (L9). |
 | `auth_fallback` | `stop` \| `direct` | `stop` | On `AUTH_REQUIRED`: report once and stop that child, or implement directly with the same quality bar (L2). |
@@ -155,11 +163,14 @@ Both kinds get the same two-way messaging with the conductor.
    is answered, so `wise_run` never returns `MISSING_ANSWERS`.
 4. The overlap rule and the sibling PRs the conductor knows in the same
    area (L9).
-5. The definition of done: a ready PR on the right base, green CI with
-   every expected job, unmerged (per policy), a test that fails on the
-   old code for each fix, no end of turn while CI runs, and a report of
-   what changed and what was not verified by hand (L5, L6, L11, L13).
-6. The conductor's session id, so the child can message back.
+5. The definition of done: a PR on the right base, green CI with every
+   expected job, merged when green (or kept unmerged under the `never`
+   policy), a test that fails on the old code for each fix, no end of
+   turn while CI runs, and a report of what changed and what was not
+   verified by hand (L5, L6, L11, L13).
+6. The autonomy contract, the child's code and the conductor's session id.
+   The child asks nothing about the start, the PR, the review or the
+   merge. It stops and reports only for the stop cases (see Autonomy).
 
 ### `ticket-auto` with the conductor policy
 
@@ -204,9 +215,10 @@ the status report and the review-comment round stay the same.
 ## Conductor duties
 
 - Ledger: one row per child with ticket or topic, session id and name,
-  worktree, branch, base branch, PR number, state (`starting`, `running`,
-  `waiting`, `ready`, `merged`, `closed`, `failed`), last verified CI
-  result, open review threads, manual QA items and notes.
+  worktree, branch, base branch, PR number, state (`queued`, `starting`,
+  `running`, `waiting`, `held`, `ready`, `merged`, `closed`, `failed`),
+  dependencies (`depends_on`), last verified CI result, open review
+  threads, manual QA items and notes.
 - Verify before reporting: `conductor verify` folds `gh pr view`,
   `gh pr checks` and the GraphQL review threads into the row. CI is green
   only when nothing fails or is pending and every expected job ran. The
@@ -228,7 +240,29 @@ the status report and the review-comment round stay the same.
   the items that need a human: manual QA, decisions, cleanup (L13). The
   rows are in work order: `blocked` (CI red or incomplete, merge conflict,
   wrong base, failed child), `open` (waiting for CI, review or merge),
-  `working` (no PR yet), `merged`, `closed`.
+  `working` (no PR yet), `queued` (not started or held), `merged`,
+  `closed`.
+- Autonomy: a request that names tickets is the approval for each whole
+  run. The conductor does not ask whether to start, open a PR, review,
+  fix comments or merge. It stops a ticket and reports only in these
+  cases: the fix attempts run out with CI still red, a conflict has no safe
+  resolution, branch protection needs a human approval, the ticket is too
+  vague to implement, or a login or an access is missing. A stopped
+  ticket holds its dependents. Independent tickets continue.
+- Dependency order: the conductor reads ticket links, the epic structure
+  and the code areas, and records `depends_on` for each row. Tickets with
+  no open dependency run in parallel, with no cap. `conductor next` lists
+  the rows to start or resume after each merge. A dependent ticket starts
+  from the updated base.
+- Feedback and replanning: feedback on finished work becomes a new
+  ticket. The conductor tells the user the new ticket and when it runs.
+  When the feedback changes a running ticket, the conductor holds that
+  ticket (`held`, a dependency on the new ticket) and resumes it after the
+  new ticket merges.
+- Alignment check: when the whole epic or topic is done, the conductor
+  sends one summary with the manual QA items. It may ask the user to
+  confirm that the result meets the initial requirements. This check
+  never holds other work.
 - Tracker: `conductor watch` runs in the background for the whole effort.
   Each `poll_seconds` it fetches every open PR and finds the PR of a child
   branch that has none yet. It folds the facts into the ledger and prints
