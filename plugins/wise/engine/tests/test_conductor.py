@@ -1,4 +1,6 @@
+import io
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -63,6 +65,8 @@ def test_setup_defaults_follow_the_spec(repo, env):
         "overlap": "follow-base",
         "auth_fallback": "stop",
         "tracker_writeback": "no",
+        "poll_seconds": "60",
+        "stall_minutes": "15",
     }
 
 
@@ -414,7 +418,7 @@ def test_status_table_carries_manual_qa_items(repo, env):
     )
     c.add_child(state, "topic", "Investigate X", notes="decision: keep the old API")
     table = c.status_table(state)
-    assert "| PROJ-1 | ticket | proj-1 | main | 5 | starting |" in table
+    assert "| open | PROJ-1 | ticket | proj-1 | main | 5 | starting |" in table
     assert "PROJ-1: manual QA: screen reader on the drawer" in table
     assert "Investigate X: decision: keep the old API" in table
 
@@ -480,3 +484,207 @@ def test_conductor_workflow_validates_and_records_setup(repo, env):
     for item in result["def"]["inputs"]:
         if item["name"] in c.SETUP_FIELDS and item.get("default") is not None:
             assert item["default"] == c.SETUP_FIELDS[item["name"]][1], item["name"]
+
+
+# -- tracker -----------------------------------------------------------------
+
+
+def open_pr(number=5, **over):
+    pr = {
+        "number": number,
+        "url": f"https://github.com/o/r/pull/{number}",
+        "state": "OPEN",
+        "isDraft": False,
+        "baseRefName": "main",
+        "headRefOid": "a1",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+    }
+    pr.update(over)
+    return pr
+
+
+def fact(pr, *buckets, threads=()):
+    return {"pr": pr, "checks": checks(*buckets), "threads": graphql(*threads)}
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1_000_000.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def test_poll_and_stall_setup_is_validated(repo, env):
+    assert make(repo, env)["setup"]["poll_seconds"] == "60"
+    with pytest.raises(c.ConductorError, match="poll_seconds"):
+        make(repo, env, poll_seconds="5")
+    with pytest.raises(c.ConductorError, match="stall_minutes"):
+        make(repo, env, stall_minutes="soon")
+
+
+def test_status_is_in_work_order(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=1, state="merged")
+    c.add_child(state, "ticket", "PROJ-2", base="main", pr=2, ci={"verdict": "green"})
+    c.add_child(state, "ticket", "PROJ-3", base="main")
+    c.add_child(state, "ticket", "PROJ-4", base="main", pr=4, conflict=True)
+    c.add_child(state, "ticket", "PROJ-5", base="main", pr=5, ci={"verdict": "red"})
+    order = [(c.pr_group(r), r["ref"]) for r in c.ordered_children(state)]
+    assert order == [
+        ("blocked", "PROJ-4"),
+        ("blocked", "PROJ-5"),
+        ("open", "PROJ-2"),
+        ("working", "PROJ-3"),
+        ("merged", "PROJ-1"),
+    ]
+
+
+def test_conflict_blocks_the_row_and_nudges(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    pr = open_pr(mergeable="CONFLICTING")
+    result = c.verify_child(state, "PROJ-1", pr, checks("pass"), [])
+    assert result["conflict"] and result["group"] == "blocked" and not result["done"]
+    assert any("merge conflicts" in n for n in result["nudges"])
+
+
+def test_apply_facts_reports_each_change_once(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", branch="PROJ-1")
+
+    def kinds(events):
+        return [e["kind"] for e in events]
+
+    draft = open_pr(isDraft=True)
+    assert kinds(c.apply_facts(state, {"PROJ-1": fact(draft, "pending")}, now=100)) == [
+        "pr-opened",
+        "ci",
+    ]
+    assert c.apply_facts(state, {"PROJ-1": fact(draft, "pending")}, now=160) == []
+    pushed = open_pr(isDraft=True, headRefOid="b2")
+    red = c.apply_facts(state, {"PROJ-1": fact(pushed, "fail")}, now=220)
+    assert kinds(red) == ["ci"] and red[0]["group"] == "blocked" and "red" in red[0]["text"]
+    conflicted = fact(open_pr(mergeable="CONFLICTING"), "pass", threads=[thread("T1")])
+    ready = c.apply_facts(state, {"PROJ-1": conflicted}, now=280)
+    assert kinds(ready) == ["ready", "ci", "conflict", "threads"]
+    merged = c.apply_facts(state, {"PROJ-1": fact(open_pr(state="MERGED"), "pass")}, now=340)
+    assert "merged" in kinds(merged) and c.find_child(state, "PROJ-1")["state"] == "merged"
+    assert c.tracked(state) == []
+
+
+def test_stalled_child_is_reported_once_per_silence(repo, env):
+    state = make(repo, env, stall_minutes="10")
+    c.add_child(state, "ticket", "PROJ-1", base="main", session_id="local_abc")
+    seen = c.find_child(state, "PROJ-1")["last_seen"]
+    assert c.stall_events(state, seen + 599) == []
+    events = c.stall_events(state, seen + 600)
+    assert [e["kind"] for e in events] == ["stalled"]
+    assert events[0]["session_id"] == "local_abc"
+    assert c.stall_events(state, seen + 1200) == []
+    c.mark_seen(state, "PROJ-1", now=seen + 1300)
+    assert len(c.stall_events(state, seen + 1900)) == 1
+
+
+def test_a_new_push_counts_as_child_activity(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5)
+    c.apply_facts(state, {"PROJ-1": fact(open_pr(headRefOid="b2"), "pending")}, now=10_000_000)
+    assert c.find_child(state, "PROJ-1")["last_seen"] == 10_000_000
+
+
+def test_watch_prints_events_and_writes_a_heartbeat(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", branch="PROJ-1")
+    c.save(state, env)
+    out, clock = io.StringIO(), Clock()
+    code = c.watch(
+        "local_conductor",
+        repo,
+        env,
+        fetcher=lambda row: fact(open_pr(), "pass"),
+        out=out,
+        once=True,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert code == 0
+    assert "EVENT pr-opened PROJ-1 PR 5 [open]: opened PR 5" in out.getvalue()
+    assert c.load("local_conductor", repo, env)["children"][0]["pr"] == 5
+    health = c.watch_health("local_conductor", repo, env, int(clock.now))
+    assert health["status"] == "stopped" and health["action"] == "start"
+
+
+def test_watch_stops_after_repeated_failures(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5)
+    c.save(state, env)
+
+    def broken(row):
+        raise c.ConductorError("gh pr view: no answer in 30s")
+
+    out, clock = io.StringIO(), Clock()
+    code = c.watch(
+        "local_conductor", repo, env, fetcher=broken, out=out, clock=clock, sleep=clock.sleep
+    )
+    assert code == 3 and "stopped after 5 failed passes" in out.getvalue()
+    health = c.watch_health("local_conductor", repo, env, int(clock.now))
+    assert health["status"] == "failed" and "no answer" in health["reason"]
+
+
+def test_watch_ends_at_max_runtime(repo, env):
+    make(repo, env)
+    out, clock = io.StringIO(), Clock()
+    code = c.watch(
+        "local_conductor",
+        repo,
+        env,
+        fetcher=lambda row: {},
+        out=out,
+        max_minutes=3,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert code == 0 and "max runtime reached" in out.getvalue()
+
+
+def test_watch_health_finds_a_stuck_watcher_and_a_second_watcher_exits(repo, env):
+    make(repo, env)
+    beat = c.heartbeat_path("local_conductor", repo, env)
+    live = {"pid": os.getpid(), "status": "running", "interval": 60, "last_pass": 1000}
+    c._write_json(beat, live)
+    assert c.watch_health("local_conductor", repo, env, now=1100)["status"] == "running"
+    stuck = c.watch_health("local_conductor", repo, env, now=1000 + 3 * 60 + 4 * 30 + 1)
+    assert stuck["status"] == "stuck" and stuck["action"] == "reap"
+    # A live, fresh heartbeat of another process: a second watcher exits.
+    c._write_json(beat, {**live, "pid": os.getppid()})
+    out = io.StringIO()
+    code = c.watch(
+        "local_conductor", repo, env, fetcher=lambda row: {}, out=out, clock=lambda: 1010.0
+    )
+    assert code == 0 and "already running" in out.getvalue()
+
+
+def test_watch_health_reports_a_dead_or_absent_watcher(repo, env):
+    make(repo, env)
+    assert c.watch_health("local_conductor", repo, env, now=0)["status"] == "absent"
+    beat = c.heartbeat_path("local_conductor", repo, env)
+    dead = {"pid": 999_999_999, "status": "running", "interval": 60, "last_pass": 1000}
+    c._write_json(beat, dead)
+    health = c.watch_health("local_conductor", repo, env, now=1010)
+    assert health["status"] == "dead" and health["action"] == "start"
+
+
+def test_seen_cli_resets_the_stall_timer(repo, env, monkeypatch):
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", last_seen=1)
+    c.save(state, env)
+    args = ["conductor", "seen", "--id", "local_conductor", "--ref", "PROJ-1", "--cwd", str(repo)]
+    assert helpers_main(args) == 0
+    assert c.load("local_conductor", repo, env)["children"][0]["last_seen"] > 1

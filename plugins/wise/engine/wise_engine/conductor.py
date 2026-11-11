@@ -13,11 +13,19 @@ import argparse
 import json
 import os
 import re
+import signal
+import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Iterator, Mapping, TextIO
+
+try:  # POSIX only; on other systems the state lock is a no-op.
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 from .paths import cwd_slug, wise_data_root
 
@@ -43,7 +51,11 @@ SETUP_FIELDS: dict[str, tuple[tuple[str, ...] | None, str]] = {
     "overlap": (("follow-base", "stop"), "follow-base"),
     "auth_fallback": (("stop", "direct"), "stop"),
     "tracker_writeback": (("no", "yes"), "no"),
+    "poll_seconds": (None, "60"),
+    "stall_minutes": (None, "15"),
 }
+# Integer setup fields: (minimum, maximum).
+SETUP_RANGES = {"poll_seconds": (15, 3600), "stall_minutes": (1, 1440)}
 CHILD_KINDS = ("ticket", "topic")
 CHILD_STATES = ("starting", "running", "waiting", "ready", "merged", "closed", "failed")
 CHILD_FIELDS = {
@@ -61,6 +73,12 @@ CHILD_FIELDS = {
     "manual_qa",
     "notes",
     "run_id",
+    "draft",
+    "conflict",
+    "base_mismatch",
+    "head",
+    "last_seen",
+    "stall_flag",
 }
 # The ticket-auto pre-flight answers every child reuses. `worktree`, `input.*`
 # and `step-select` are per child: the payload sets them, a stored copy is dropped.
@@ -158,6 +176,9 @@ def validate_setup(raw: Mapping[str, Any]) -> Json:
         if allowed is not None and value not in allowed:
             errors.append(f"{name}: {value!r} is not one of {', '.join(allowed)}")
         setup[name] = value
+    for name, (low, high) in SETUP_RANGES.items():
+        if not setup[name].isdigit() or not low <= int(setup[name]) <= high:
+            errors.append(f"{name}: {setup[name]!r} is not a whole number from {low} to {high}")
     if setup["base_rule"] == "fixed":
         if not setup["base_fixed"]:
             errors.append("base_fixed: required when base_rule is fixed")
@@ -354,6 +375,7 @@ def add_child(state: Json, kind: str, ref: str, title: str = "", /, **fields: An
         "manual_qa": [],
         "notes": "",
         "added": int(time.time()),
+        "last_seen": int(time.time()),
     }
     state["children"].append(child)
     update_child(state, ref, **fields)
@@ -653,13 +675,19 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         nudges.append("CI is red. Fix the failing checks.")
     if child["base"] and base and base != child["base"]:
         nudges.append(f"The PR targets {base}, the ledger expects {child['base']}. Retarget it.")
+    merge_state = str(pr.get("mergeStateStatus", "") or "")
+    conflict = (
+        str(pr.get("mergeable", "")).upper() == "CONFLICTING" or merge_state.upper() == "DIRTY"
+    )
+    if conflict and pr_state == "OPEN":
+        nudges.append(f"The PR has merge conflicts with {base}. Merge the base and resolve them.")
     if threads:
         nudges.append(f"{len(threads)} review thread(s) are unresolved.")
     if pr_state == "MERGED":
         row_state = "merged"
     elif pr_state == "CLOSED":
         row_state = "closed"
-    elif not draft and ci["verdict"] == "green" and not threads:
+    elif not draft and ci["verdict"] == "green" and not threads and not conflict:
         row_state = "ready"
     else:
         row_state = "waiting" if not nudges else "running"
@@ -670,8 +698,11 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         state=row_state,
         ci={k: ci[k] for k in ("pass", "fail", "pending", "skipped", "missing", "verdict")},
         open_threads=len(threads),
+        draft=draft,
+        conflict=conflict and pr_state == "OPEN",
+        base_mismatch=bool(child["base"] and base and base != child["base"]),
+        head=str(pr.get("headRefOid", "") or child.get("head", "")),
     )
-    merge_state = pr.get("mergeStateStatus", "")
     if state["setup"]["merge_policy"] == "never" and pr_state == "MERGED":
         nudges.append(
             "WARNING: the PR is merged although the merge policy is never. Tell the user."
@@ -684,6 +715,8 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         "draft": draft,
         "base": base,
         "merge_state": merge_state,
+        "conflict": conflict,
+        "group": pr_group(child),
         "ci": ci,
         "open_threads": len(threads),
         "nudges": nudges,
@@ -760,32 +793,394 @@ def detect_mode(tools: list[str]) -> Json:
     return {"mode": "fallback", "notice": FALLBACK_NOTICE}
 
 
-def status_table(state: Json) -> str:
+# PR groups in the order the user works through them: unblock, review, done.
+PR_GROUPS = ("blocked", "open", "working", "merged", "closed")
+
+
+def pr_group(child: Json) -> str:
+    """The group of one ledger row: blocked first, closed last."""
+    row_state = child.get("state")
+    if row_state in ("merged", "closed"):
+        return str(row_state)
+    if row_state == "failed":
+        return "blocked"
+    if child.get("pr") is None:
+        return "working"
+    verdict = (child.get("ci") or {}).get("verdict")
+    if verdict in ("red", "incomplete") or child.get("conflict") or child.get("base_mismatch"):
+        return "blocked"
+    return "open"
+
+
+def ordered_children(state: Json) -> list[Json]:
+    return sorted(
+        state["children"],
+        key=lambda c: (PR_GROUPS.index(pr_group(c)), c.get("pr") or 0, c["ref"]),
+    )
+
+
+def _age(seconds: int) -> str:
+    if seconds < 90:
+        return f"{seconds}s"
+    if seconds < 5400:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h"
+
+
+def status_table(state: Json, now: int | None = None) -> str:
+    now = int(time.time()) if now is None else now
     rows = [
-        "| Child | Kind | Session | Base | PR | State | CI | Threads |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Group | Child | Kind | Session | Base | PR | State | CI | Threads | Seen |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     human: list[str] = []
-    for c in state["children"]:
+    for c in ordered_children(state):
         ci = c.get("ci") or {}
         ci_text = (
             f"{ci['verdict']} {ci['pass']}/{ci['fail']}/{ci['pending']}/{ci['skipped']}"
             if ci
             else "-"
         )
+        if c.get("conflict"):
+            ci_text += ", conflict"
         threads = "-" if c.get("open_threads") is None else str(c["open_threads"])
+        pr = f"{c['pr']}{' draft' if c.get('draft') else ''}" if c.get("pr") else "-"
+        seen = int(c.get("last_seen") or c.get("added") or now)
         rows.append(
-            f"| {c['ref']} | {c['kind']} | {c['name']} | {c.get('base') or '-'} | "
-            f"{c.get('pr') or '-'} | {c['state']} | {ci_text} | {threads} |"
+            f"| {pr_group(c)} | {c['ref']} | {c['kind']} | {c['name']} | {c.get('base') or '-'} | "
+            f"{pr} | {c['state']} | {ci_text} | {threads} | {_age(max(0, now - seen))} ago |"
         )
         for item in c.get("manual_qa", []):
             human.append(f"- {c['ref']}: manual QA: {item}")
         if c.get("notes"):
             human.append(f"- {c['ref']}: {c['notes']}")
-    text = "\n".join(rows) + "\n\nCI = verdict pass/fail/pending/skipped.\n"
+    text = (
+        "\n".join(rows)
+        + "\n\nOrder: blocked, open, working, merged, closed. "
+        + "CI = verdict pass/fail/pending/skipped.\n"
+    )
     if human:
         text += "\nNeeds a human:\n" + "\n".join(human) + "\n"
     return text
+
+
+# -- tracker: background watcher of children and PRs -------------------------
+
+GH_TIMEOUT = 30
+MAX_FAILED_PASSES = 5
+DEFAULT_MAX_MINUTES = 240
+TERMINAL_STATES = ("ready", "merged", "closed", "failed")
+PR_FIELDS = "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus"
+THREADS_QUERY = (
+    "query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n)"
+    "{reviewThreads(first:100){nodes{id isResolved path line comments(first:20)"
+    "{nodes{databaseId body author{login}}}}}}}}"
+)
+
+# fetch(row) -> {"pr": ..., "checks": [...], "threads": <graphql>}, or {} with no PR yet.
+Fetcher = Callable[[Json], Json]
+
+
+@contextmanager
+def locked(
+    conductor_id: str, cwd: str | Path, env: Mapping[str, str] | None = None
+) -> Iterator[None]:
+    """Serialize load-modify-save between the watcher and the skill's helper calls."""
+    path = state_path(conductor_id, cwd, env).with_name("state.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def mark_seen(state: Json, ref: str, now: int | None = None) -> Json:
+    """A child reported or messaged: reset its stall timer."""
+    return update_child(state, ref, last_seen=int(time.time()) if now is None else now)
+
+
+def _snapshot(child: Json) -> Json:
+    ci = child.get("ci") or {}
+    return {
+        "pr": child.get("pr"),
+        "state": child.get("state"),
+        "verdict": ci.get("verdict"),
+        "conflict": bool(child.get("conflict")),
+        "threads": child.get("open_threads") or 0,
+        "draft": child.get("draft"),
+        "head": child.get("head", ""),
+        "group": pr_group(child),
+    }
+
+
+def change_events(before: Json, after: Json, child: Json) -> list[Json]:
+    """The user-facing changes between two snapshots of one row."""
+    ref, pr = child["ref"], after["pr"]
+    events: list[Json] = []
+
+    def add(kind: str, text: str) -> None:
+        events.append({"kind": kind, "ref": ref, "pr": pr, "text": text, "group": after["group"]})
+
+    if before["pr"] is None and pr is not None:
+        add("pr-opened", f"opened PR {pr}{' as draft' if after['draft'] else ''}")
+    if after["state"] != before["state"] and after["state"] in ("merged", "closed"):
+        add(str(after["state"]), f"PR {pr} is {after['state']}")
+    elif before["pr"] is not None and before["draft"] and after["draft"] is False:
+        add("ready", f"PR {pr} is ready for review")
+    finished = after["state"] in ("merged", "closed")
+    if after["verdict"] != before["verdict"] and after["verdict"] and not finished:
+        was = before["verdict"] or "unknown"
+        add("ci", f"CI of PR {pr} is {after['verdict']} (was {was})")
+    if after["conflict"] != before["conflict"]:
+        now_text = "has merge conflicts" if after["conflict"] else "has no merge conflicts now"
+        add("conflict", f"PR {pr} {now_text}")
+    if after["threads"] > before["threads"]:
+        new = after["threads"] - before["threads"]
+        add("threads", f"PR {pr} has {after['threads']} unresolved review thread(s), {new} new")
+    return events
+
+
+def stall_events(state: Json, now: int) -> list[Json]:
+    """Rows silent for `stall_minutes`; each silence is reported once."""
+    limit = int(state["setup"].get("stall_minutes", "15")) * 60
+    events = []
+    for child in state["children"]:
+        if child.get("state") in TERMINAL_STATES:
+            continue
+        seen = int(child.get("last_seen") or child.get("added") or now)
+        if now - seen < limit or child.get("stall_flag") == seen:
+            continue
+        child["stall_flag"] = seen
+        events.append(
+            {
+                "kind": "stalled",
+                "ref": child["ref"],
+                "pr": child.get("pr"),
+                "session_id": child.get("session_id", ""),
+                "text": f"no report or push for {_age(now - seen)}",
+                "group": pr_group(child),
+            }
+        )
+    return events
+
+
+def apply_facts(state: Json, facts: Mapping[str, Json], now: int | None = None) -> list[Json]:
+    """Fold one pass of fetched PR facts into the ledger; return the change events."""
+    now = int(time.time()) if now is None else now
+    events: list[Json] = []
+    for ref, fact in facts.items():
+        child = find_child(state, ref)
+        if child is None or not fact.get("pr"):
+            continue
+        before = _snapshot(child)
+        threads = unresolved_threads(fact.get("threads") or {})
+        verify_child(state, ref, fact["pr"], fact.get("checks") or [], threads)
+        after = _snapshot(child)
+        if after["head"] and after["head"] != before["head"]:
+            child["last_seen"] = now  # a new push is child activity
+        events.extend(change_events(before, after, child))
+    return events + stall_events(state, now)
+
+
+def tracked(state: Json) -> list[Json]:
+    """Rows the watcher fetches: an open PR, or a branch that may get one."""
+    return [
+        dict(c)
+        for c in state["children"]
+        if c.get("state") not in ("merged", "closed")
+        and (c.get("pr") is not None or c.get("branch"))
+    ]
+
+
+def _gh(args: list[str], cwd: str, timeout: int = GH_TIMEOUT) -> Any:
+    try:
+        proc = subprocess.run(
+            ["gh", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired as error:
+        raise ConductorError(f"gh {' '.join(args[:2])}: no answer in {timeout}s") from error
+    if args[:2] == ["pr", "checks"] and "no checks reported" in proc.stderr:
+        return []
+    # `gh pr checks` exits 8 while checks are pending; the JSON is still valid.
+    if proc.returncode not in (0, 8) or not proc.stdout.strip():
+        detail = proc.stderr.strip()[:200] or f"exit {proc.returncode}"
+        raise ConductorError(f"gh {' '.join(args[:2])}: {detail}")
+    return json.loads(proc.stdout)
+
+
+def gh_fetcher(cwd: str, timeout: int = GH_TIMEOUT) -> Fetcher:
+    """Live facts for one row through `gh`, every call bounded by `timeout`."""
+    repo: Json = {}
+
+    def fetch(child: Json) -> Json:
+        number = child.get("pr")
+        if number is None:
+            found = _gh(
+                ["pr", "list", "--head", child["branch"], "--state", "all"]
+                + ["--json", "number", "--limit", "1"],
+                cwd,
+                timeout,
+            )
+            if not found:
+                return {}
+            number = found[0]["number"]
+        pr = _gh(["pr", "view", str(number), "--json", PR_FIELDS], cwd, timeout)
+        checks = _gh(["pr", "checks", str(number), "--json", "name,bucket,workflow"], cwd, timeout)
+        if not repo:
+            repo.update(_gh(["repo", "view", "--json", "owner,name"], cwd, timeout))
+        threads = _gh(
+            ["api", "graphql", "-f", f"query={THREADS_QUERY}"]
+            + ["-F", f"o={repo['owner']['login']}", "-F", f"r={repo['name']}"]
+            + ["-F", f"n={number}"],
+            cwd,
+            timeout,
+        )
+        return {"pr": pr, "checks": checks, "threads": threads}
+
+    return fetch
+
+
+def heartbeat_path(
+    conductor_id: str, cwd: str | Path, env: Mapping[str, str] | None = None
+) -> Path:
+    return state_path(conductor_id, cwd, env).with_name("watch.json")
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def watch_health(
+    conductor_id: str,
+    cwd: str | Path,
+    env: Mapping[str, str] | None = None,
+    now: int | None = None,
+    reap: bool = False,
+) -> Json:
+    """Is the watcher alive and making passes? `reap` stops a stuck one."""
+    now = int(time.time()) if now is None else now
+    path = heartbeat_path(conductor_id, cwd, env)
+    if not path.is_file():
+        return {"status": "absent", "action": "start"}
+    beat = json.loads(path.read_text())
+    pid, interval = int(beat.get("pid", 0)), int(beat.get("interval", 60))
+    age = now - int(beat.get("last_pass") or beat.get("started") or 0)
+    # One pass may wait for several gh calls to time out; allow for that.
+    limit = 3 * interval + 4 * GH_TIMEOUT
+    out: Json = {"pid": pid, "last_pass_age": age, "passes": beat.get("passes", 0)}
+    if beat.get("status") != "running" or not pid or not _pid_alive(pid):
+        status = beat.get("status") if beat.get("status") != "running" else "dead"
+        return {**out, "status": status, "reason": beat.get("reason", ""), "action": "start"}
+    if age > limit:
+        if reap:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        return {**out, "status": "stuck", "action": "start" if reap else "reap"}
+    return {**out, "status": "running", "action": "none"}
+
+
+def _event_line(event: Json) -> str:
+    pr = f" PR {event['pr']}" if event.get("pr") else ""
+    return f"EVENT {event['kind']} {event['ref']}{pr} [{event['group']}]: {event['text']}"
+
+
+def watch(
+    conductor_id: str,
+    cwd: str | Path,
+    env: Mapping[str, str] | None = None,
+    *,
+    fetcher: Fetcher | None = None,
+    out: TextIO | None = None,
+    once: bool = False,
+    max_minutes: int = DEFAULT_MAX_MINUTES,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.time,
+) -> int:
+    """Poll every tracked row each `poll_seconds`; print one line per change.
+
+    Guards against a stuck watcher: every gh call has a timeout, a heartbeat
+    file records each pass, a second watcher of the same conductor exits, five
+    failed passes in a row stop it, and it ends after `max_minutes` so the
+    conductor starts a fresh one.
+    """
+    out = sys.stdout if out is None else out
+    cwd = str(Path(cwd).resolve())
+    with locked(conductor_id, cwd, env):
+        state = load(conductor_id, cwd, env)
+    interval = int(state["setup"].get("poll_seconds", "60"))
+    health = watch_health(conductor_id, cwd, env, int(clock()))
+    if health["status"] == "running" and health.get("pid") != os.getpid():
+        print(f"watch: already running (pid {health['pid']})", file=out, flush=True)
+        return 0
+    beat_path = heartbeat_path(conductor_id, cwd, env)
+    fetch = fetcher or gh_fetcher(cwd)
+    started = int(clock())
+    beat: Json = {
+        "pid": os.getpid(),
+        "started": started,
+        "interval": interval,
+        "passes": 0,
+        "status": "running",
+    }
+    _write_json(beat_path, beat)
+    failed, code = 0, 0
+    print(f"watch: started, every {interval}s", file=out, flush=True)
+    try:
+        while True:
+            with locked(conductor_id, cwd, env):
+                rows = tracked(load(conductor_id, cwd, env))
+            facts: dict[str, Json] = {}
+            errors: list[str] = []
+            for row in rows:
+                try:
+                    facts[row["ref"]] = fetch(row)
+                except (ConductorError, OSError, ValueError, KeyError) as error:
+                    errors.append(f"{row['ref']}: {error}")
+            with locked(conductor_id, cwd, env):
+                state = load(conductor_id, cwd, env)
+                events = apply_facts(state, facts, int(clock()))
+                save(state, env)
+            for event in events:
+                print(_event_line(event), file=out, flush=True)
+            failed = failed + 1 if rows and len(errors) == len(rows) else 0
+            beat.update(passes=beat["passes"] + 1, last_pass=int(clock()), errors=errors[-3:])
+            if failed >= MAX_FAILED_PASSES:
+                beat.update(status="failed", reason=errors[-1])
+                print(
+                    f"watch: stopped after {failed} failed passes: {errors[-1]}",
+                    file=out,
+                    flush=True,
+                )
+                code = 3
+                break
+            _write_json(beat_path, beat)
+            if once:
+                beat.update(status="stopped", reason="one pass")
+                break
+            if clock() - started >= max_minutes * 60:
+                beat.update(status="expired", reason="max runtime")
+                print("watch: max runtime reached, start it again", file=out, flush=True)
+                break
+            sleep(interval)
+    except KeyboardInterrupt:
+        beat.update(status="stopped", reason="interrupted")
+    finally:
+        if beat["status"] == "running":
+            beat.update(status="stopped", reason="exit")
+        _write_json(beat_path, beat)
+    return code
 
 
 # -- CLI: `wise-helpers.py conductor <action> ...` ---------------------------
@@ -846,6 +1241,11 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--threads-json")
     sub = action("fanout")
     sub.add_argument("--threads-json", required=True)
+    action("seen").add_argument("--ref", required=True)
+    sub = action("watch")
+    sub.add_argument("--once", action="store_true")
+    sub.add_argument("--max-minutes", type=int, default=DEFAULT_MAX_MINUTES)
+    action("watch-health").add_argument("--reap", action="store_true")
     return parser
 
 
@@ -887,6 +1287,13 @@ def _run(args: argparse.Namespace, env: Mapping[str, str] | None) -> Any:
             "path": str(state_path(state["id"], args.cwd, env)),
             "setup": state["setup"],
         }
+    if args.action == "watch-health":
+        return watch_health(args.id, args.cwd, env, reap=args.reap)
+    with locked(args.id, args.cwd, env):
+        return _run_state(args, env)
+
+
+def _run_state(args: argparse.Namespace, env: Mapping[str, str] | None) -> Any:
     state = load(args.id, args.cwd, env)
     if args.action == "show":
         return state
@@ -903,6 +1310,8 @@ def _run(args: argparse.Namespace, env: Mapping[str, str] | None) -> Any:
         result = add_child(state, args.kind, args.ref, args.title, **fields)
     elif args.action == "update-child":
         result = update_child(state, args.ref, **(_read_json(args.fields_json, {}) or {}))
+    elif args.action == "seen":
+        result = mark_seen(state, args.ref)
     elif args.action == "verify":
         threads = unresolved_threads(_read_json(args.threads_json, {}) or {})
         pr, checks = _read_json(args.pr_json, {}), _read_json(args.checks_json, [])
@@ -914,8 +1323,20 @@ def _run(args: argparse.Namespace, env: Mapping[str, str] | None) -> Any:
     return result
 
 
+def _stop(_signum: int, _frame: Any) -> None:
+    raise KeyboardInterrupt
+
+
 def cli(argv: list[str], env: Mapping[str, str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.action == "watch":
+        # SIGTERM (the Monitor stopping, `watch-health --reap`) still writes the heartbeat.
+        signal.signal(signal.SIGTERM, _stop)
+        try:
+            return watch(args.id, args.cwd, env, once=args.once, max_minutes=args.max_minutes)
+        except (ConductorError, OSError, ValueError) as error:
+            print(f"conductor: {error}", file=sys.stderr)
+            return 2
     try:
         result = _run(args, env)
     except (ConductorError, OSError, ValueError) as error:

@@ -74,6 +74,14 @@ inputs:
     prompt: "Post tracker comments? (no: write nothing to the tracker | yes: children may comment)"
     default: "no"
     validate: "^(no|yes)$"
+  - name: poll_seconds
+    prompt: "How often does the tracker check every child and PR, in seconds? (15 to 3600)"
+    default: "60"
+    validate: "^[0-9]{2,4}$"
+  - name: stall_minutes
+    prompt: "After how many minutes without a report or a push is a child stalled and pinged? (1 to 1440)"
+    default: "15"
+    validate: "^[0-9]{1,4}$"
 
 steps:
   - id: record-setup

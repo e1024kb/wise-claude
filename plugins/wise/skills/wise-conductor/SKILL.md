@@ -12,7 +12,7 @@ description: >-
   parallel sessions", "run each ticket in its own session", "fan out
   these tickets to sessions", or types `/wise-conductor`.
 argument-hint: "[<free-form prompt: tickets, epics, URLs, topics> | --resume [<conductor-id>]]"
-allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Agent, SendMessage, mcp__ccd_session__start_session, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_pr__bind_pr, mcp__wise-engine__wise_preflight, mcp__wise-engine__wise_run, mcp__wise-engine__wise_wait, mcp__wise-engine__wise_status, Bash(python3:*), Bash(bash:*), Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
+allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Agent, SendMessage, Monitor, mcp__ccd_session__start_session, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_session_mgmt__get_session, mcp__ccd_pr__bind_pr, mcp__wise-engine__wise_preflight, mcp__wise-engine__wise_run, mcp__wise-engine__wise_wait, mcp__wise-engine__wise_status, Bash(python3:*), Bash(bash:*), Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
 ---
 
 # /wise-conductor - coordinate parallel child sessions
@@ -23,8 +23,12 @@ for unavailable models or delegation routes, including in autonomous procedures.
 At every skill start, identify your main/child role and the current client
 and GUI/TUI question tools, then read and follow the
 [question lifecycle](../../references/workflow-host-control.md#keep-asynchronous-questions-open).
-Keep asynchronous prompts open until answered. The setup questions and the
-"What next?" question are the only questions this skill asks.
+Keep asynchronous prompts open until answered. Ask the setup questions once
+(step 1) and do not ask them again. Ask about the work itself as often as
+needed: first read the tickets, documents and links in the user's message,
+then ask follow-up questions when the request is vague, ambiguous or
+incomplete. Do not ask a question that the setup, the ticket or the
+documents already answer.
 
 Read [the conductor workflow README](../../workflows/conductor/README.md)
 for the full contract and the lessons list (L1 to L13). This skill is the
@@ -64,7 +68,10 @@ scratchpad, never in the project.
 | `payload --ref R --ticket-json F` | The exact `wise_run` arguments of a ticket child. |
 | `verify --ref R --pr-json F --checks-json F --threads-json F` | Fold live PR facts into the ledger; returns nudges. |
 | `fanout --threads-json F` | One review-round message per owning child. |
-| `show` / `status` | The state JSON, the status table. |
+| `show` / `status` | The state JSON, the status table in work order (blocked, open, working, merged, closed). |
+| `watch [--once] [--max-minutes N]` | The tracker: polls every child and PR each `poll_seconds`, prints one `EVENT` line per change. |
+| `watch-health [--reap]` | Is the tracker running, stuck or stopped? `--reap` stops a stuck one. |
+| `seen --ref R` | A child reported: reset its stall timer. |
 
 State lives under `<wise-data>/conductor/<cwd-slug>/<conductor-id>/state.json`.
 The per-project rules live in `project.json` beside it (L12).
@@ -122,12 +129,22 @@ answers to a scratch file and run `H set-answers --id <id> --answers-json <file>
 save one line there: the conductor id, the state path that `H show` prints,
 and the per-project rules (base rule, merge policy, worktree pattern).
 
+1g. Start the tracker. Run `H watch --id <id> --cwd <project path>` with
+the `Monitor` tool, so that each output line wakes you. Without `Monitor`,
+run it as a background shell command and read its output on each turn.
+Start only one: a second watcher of the same conductor exits at once.
+
 ### 2. What next?
 
 Ask one question with 2 to 4 suggestions derived from the prompt, for
 example "Start sessions for PROJ-1, PROJ-2 and PROJ-3", "List the open
 children of epic PROJ-100 and pick a first batch", "Open a topic session
 to investigate X". Allow free text. Then go to the loop (step 4).
+
+Before you start a child for a request, make sure that you understand it.
+Read the ticket links, documents and other sources that the request
+gives. If the scope, the target or the expected result is still unclear,
+ask the user a clarifying question first. Put the answers in the brief.
 
 ### 3. Start a child
 
@@ -143,7 +160,8 @@ once per value. An `error` (ambiguous or missing release under
 `release_missing: stop`) holds that ticket: report it and start no child.
 
 3c. Record the row: `H add-child --kind ticket --ref <KEY> --title <title>`
-with `--fields-json` `{"base": ..., "base_source": ...}`.
+with `--fields-json` `{"base": ..., "base_source": ..., "branch": "<KEY>"}`.
+The tracker uses the branch to find the PR before the child reports it.
 
 3d. Overlap (L9): pass the ledger rows of open sibling PRs in the same
 area (same component, same files, same epic) as `--siblings-json`.
@@ -171,9 +189,34 @@ Start it like 3f. No workflow applies.
 
 ### 4. The loop
 
-Stay in this loop until the user ends the effort. On each user message:
+Stay in this loop until the user ends the effort. At the start of each
+turn, run `H watch-health --id <id> --reap`. If its `action` is `start`,
+tell the user the `status` and `reason` in one line and start the tracker
+again (step 1g). On each user message, child message or tracker line:
 
-- More tickets or topics: step 3.
+- A tracker `EVENT` line: tell the user in one line, with the PR as a
+  markdown link. Then act on its kind:
+  - `pr-opened`: bind the PR (`mcp__ccd_pr__bind_pr`, desktop only) and
+    verify it (step 5).
+  - `ci` to red or incomplete, `conflict`: verify (step 5) and send the
+    nudges to the child.
+  - `threads`: tell the user. Start the review-comment round (step 7)
+    only when the user asks for it or the setup allows it.
+  - `ready`, `merged`, `closed`: verify (step 5). A merge under the
+    `never` policy is a warning.
+  - `stalled`: check the child session (`mcp__ccd_session_mgmt__get_session`
+    with its `session_id`, desktop only). If it is idle or waiting, send it
+    "Report your progress in one line: state, branch, PR, blocker." If it
+    failed or ended, record it and tell the user.
+- A `watch:` line: the tracker started, stopped or failed. Tell the user
+  when it stopped or failed, and start it again (step 1g).
+- After each child message, run `H seen --id <id> --ref <KEY>` to reset
+  its stall timer.
+
+- More tickets or topics: read what the message links, clarify a vague
+  request with the user, then step 3.
+- A question from the user: answer it. Ask follow-up questions when you
+  need more detail to answer it.
 - A child's turn-end report or message arrives: record what it claims in
   the row (`notes`, `manual_qa` items, PR number), then verify (step 5)
   before you tell the user it is done. A blocked child: answer it from the

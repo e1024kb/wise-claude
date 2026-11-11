@@ -113,6 +113,8 @@ Defaults come first in every choice.
 | `overlap` | `follow-base` \| `stop` | `follow-base` | Follow the convention on the base branch, never undo another ticket's fix, record each conflict in an `Overlap` section of the PR body (L9). |
 | `auth_fallback` | `stop` \| `direct` | `stop` | On `AUTH_REQUIRED`: report once and stop that child, or implement directly with the same quality bar (L2). |
 | `tracker_writeback` | `no` \| `yes` | `no` | Post tracker comments or not. |
+| `poll_seconds` | 15 to 3600 | `60` | The tracker checks every child and its PR at this interval. |
+| `stall_minutes` | 1 to 1440 | `15` | A child with no report and no push for this time is stalled. The conductor pings it. |
 
 The harness, model and effort for each `ticket-auto` step come from the
 `ticket-auto` pre-flight, asked once in the same setup. "One choice for
@@ -185,6 +187,11 @@ draft, and nothing is merged.
    on its own. A blocked child messages the conductor's session id.
 6. The conductor binds every child PR to its own session (`bind_pr`) as
    soon as the PR exists, so its PR panel lists every PR of the effort.
+   The client sets the panel order. The status report gives the work
+   order (blocked, open, working, merged, closed).
+7. The tracker runs under the `Monitor` tool, so each `EVENT` line wakes
+   the conductor. Without `Monitor`, it runs as a background shell
+   command, and the conductor reads its output on each turn.
 
 ## Fallback behavior
 
@@ -212,7 +219,25 @@ the status report and the review-comment round stay the same.
   with a test that fails without the fix, reply with evidence on invalid
   ones, resolve the thread and wait for green CI (L10, L11).
 - Status report: a table of all children with the verified state, then
-  the items that need a human: manual QA, decisions, cleanup (L13).
+  the items that need a human: manual QA, decisions, cleanup (L13). The
+  rows are in work order: `blocked` (CI red or incomplete, merge conflict,
+  wrong base, failed child), `open` (waiting for CI, review or merge),
+  `working` (no PR yet), `merged`, `closed`.
+- Tracker: `conductor watch` runs in the background for the whole effort.
+  Each `poll_seconds` it fetches every open PR and finds the PR of a child
+  branch that has none yet. It folds the facts into the ledger and prints
+  one `EVENT` line for each change: PR opened, ready, merged or closed, CI
+  change, merge conflict, new review threads, and a child that is stalled.
+  The conductor reacts to each line, tells the user, and pings a stalled
+  child for its progress. Child reports and messages still reach the
+  conductor directly, and `conductor seen` resets the stall timer.
+- Tracker guards: every `gh` call has a 30-second timeout. A heartbeat
+  file records each pass. A second watcher of the same conductor exits.
+  Five failed passes in a row stop the watcher with a reason. After 240
+  minutes it exits so that a fresh one starts. `conductor watch-health`
+  reports `running`, `stuck` (alive, no pass for too long) or stopped,
+  and `--reap` stops a stuck one. The conductor checks the health on each
+  turn and starts the watcher again when it is not running.
 
 ## Lessons from the field
 
