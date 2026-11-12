@@ -139,9 +139,11 @@ Current actions (all standalone):
   persist through `wise-helpers.py conductor`
   (`engine/wise_engine/conductor.py`). Claude Desktop children nest
   under the conductor; other clients fall back to background agents or
-  engine runs. Never merges by default: it passes `merge_policy: never`
-  and `pr_draft: yes` as settled decisions, and the `ticket` units
-  pipeline then ends at `ready` instead of merging.
+  engine runs. Autonomous by default: a request that names tickets runs
+  each one from start to merge in dependency order (`depends_on`,
+  `conductor next`), with no questions. The opt-in `never` policy passes
+  `merge_policy: never` and `pr_draft: yes` as settled decisions, and the
+  `ticket` units pipeline then ends at `ready` instead of merging.
 - `/wise-supervise` — attach a watchdog / supervisor loop to a running
   team of background agents and keep them on task: probe each member,
   nudge the idle-but-unfinished or off-goal ones, escalate the

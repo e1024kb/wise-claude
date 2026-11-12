@@ -59,8 +59,8 @@ def test_setup_defaults_follow_the_spec(repo, env):
         "release_field": "fixVersion",
         "release_pattern": "release-{version}",
         "release_missing": "default",
-        "merge_policy": "never",
-        "pr_state": "draft-then-ready",
+        "merge_policy": "green",
+        "pr_state": "ready",
         "questions": "none",
         "overlap": "follow-base",
         "auth_fallback": "stop",
@@ -88,7 +88,7 @@ def test_project_rules_are_written_for_later_conductors(repo, env):
     make(repo, env, base_rule="release", release_pattern="rel/{major}.{minor}")
     rules = json.loads(c.project_rules_path(repo, env).read_text())
     assert rules["base_rule"] == "release" and rules["release_pattern"] == "rel/{major}.{minor}"
-    assert rules["merge_policy"] == "never"
+    assert rules["merge_policy"] == "green"
     assert "../<repo>.<KEY>" in rules["worktree_pattern"]
 
 
@@ -224,8 +224,8 @@ def test_payload_answers_every_ticket_auto_question(repo, env):
     # L8: nothing left for a child to ask.
     assert done["missing"] == []
     assert payload["inputs"]["base_branch"] == "release-26-11-0"
-    assert payload["context"]["decisions"]["merge_policy"] == "never"
-    assert payload["context"]["decisions"]["pr_draft"] == "yes"
+    assert payload["context"]["decisions"]["merge_policy"] == "merge"
+    assert payload["context"]["decisions"]["pr_draft"] == "no"
     # L1: the full ticket text rides in the run context, comments included.
     body = payload["context"]["ticket"][0]["body"]
     assert "trap focus" in body and "Esc must close it" in body
@@ -260,8 +260,9 @@ def test_ticket_brief_states_every_fixed_answer(repo, env):
         "Never edit, stash, reset or check out the main checkout",
         '"workflow": "ticket-auto"',  # 3 setup
         '"model.all": "opus"',
-        "never merge",
-        "draft during the run",
+        "merge when green",
+        "ready for review when opened",
+        "Work autonomously from start to end",
         "Questions: none",
         "Post nothing to the tracker",
         "AUTH_REQUIRED",
@@ -347,7 +348,7 @@ def test_verify_nudges_a_draft_with_pending_ci_and_a_wrong_base(repo, env):
 
 
 def test_verify_flags_a_merge_under_never_policy(repo, env):
-    state = make(repo, env)
+    state = make(repo, env, merge_policy="never")
     c.add_child(state, "ticket", "PROJ-1", base="main")
     pr = {"number": 5, "state": "MERGED", "isDraft": False, "baseRefName": "main"}
     result = c.verify_child(state, "PROJ-1", pr, checks("pass"), [])
@@ -614,7 +615,7 @@ def test_watch_prints_events_and_writes_a_heartbeat(repo, env):
         sleep=clock.sleep,
     )
     assert code == 0
-    assert "EVENT pr-opened PROJ-1 PR 5 [open]: opened PR 5" in out.getvalue()
+    assert "EVENT pr-opened C1 PROJ-1 PR 5 [open]: opened PR 5" in out.getvalue()
     assert c.load("local_conductor", repo, env)["children"][0]["pr"] == 5
     health = c.watch_health("local_conductor", repo, env, int(clock.now))
     assert health["status"] == "stopped" and health["action"] == "start"
@@ -747,6 +748,127 @@ def test_learned_checks_reach_a_new_conductor(repo, env):
     assert later["expected_checks"] == {"main": ["job-0", "job-1"]}
 
 
+def test_child_codes_are_stable_and_never_reused(repo, env):
+    state = make(repo, env)
+    for ref in ("PROJ-1", "PROJ-2", "PROJ-3"):
+        c.add_child(state, "ticket", ref, base="main")
+    assert [r["code"] for r in state["children"]] == ["C1", "C2", "C3"]
+    state["children"].pop(1)
+    c.add_child(state, "ticket", "PROJ-4", base="main")
+    assert [r["code"] for r in state["children"]] == ["C1", "C3", "C4"]
+    c.update_child(state, "PROJ-1", state="merged")
+    assert c.find_child(state, "PROJ-1")["code"] == "C1"
+
+
+def test_rows_from_before_codes_get_them_on_load(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "ticket", "PROJ-2", base="main")
+    for row in state["children"]:
+        del row["code"]
+    del state["next_code"]
+    c.save(state, env)
+    loaded = c.load("local_conductor", repo, env)
+    assert [r["code"] for r in loaded["children"]] == ["C1", "C2"]
+
+
+def test_status_and_human_items_carry_codes(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, manual_qa=["zoom", "keyboard"])
+    c.add_child(state, "topic", "Investigate X", notes="decision: keep the old API")
+    table = c.status_table(state)
+    assert "| C1 | open | PROJ-1 |" in table and "| C2 | working | Investigate X |" in table
+    assert "N1 C1 PROJ-1: manual QA: zoom" in table
+    assert "N2 C1 PROJ-1: manual QA: keyboard" in table
+    assert "N3 C2 Investigate X: decision: keep the old API" in table
+
+
+def test_human_item_codes_stay_after_an_earlier_item_closes(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, manual_qa=["zoom", "keyboard"])
+    c.add_child(state, "topic", "Investigate X", notes="decision: keep the old API")
+    c.status_table(state)
+    c.update_child(state, "PROJ-1", manual_qa=["keyboard"])
+    table = c.status_table(state)
+    assert "N2 C1 PROJ-1: manual QA: keyboard" in table
+    assert "N3 C2 Investigate X: decision" in table and "N1 " not in table
+
+
+def test_a_removed_last_row_keeps_its_code_retired(repo, env):
+    state = make(repo, env)
+    for ref in ("PROJ-1", "PROJ-2", "PROJ-3"):
+        c.add_child(state, "ticket", ref, base="main")
+    state["children"].pop()
+    c.add_child(state, "ticket", "PROJ-4", base="main")
+    assert c.find_child(state, "PROJ-4")["code"] == "C4"
+
+
+def test_reinit_keeps_a_retired_code_retired(repo, env):
+    state = make(repo, env)
+    for ref in ("PROJ-1", "PROJ-2", "PROJ-3"):
+        c.add_child(state, "ticket", ref, base="main")
+    state["children"].pop()
+    c.save(state, env)
+    again = c.init("local_conductor", repo, {}, None, "desktop", env=env)
+    c.add_child(again, "ticket", "PROJ-4", base="main")
+    assert c.find_child(again, "PROJ-4")["code"] == "C4"
+
+
+def test_a_duplicate_code_gets_a_new_one(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "ticket", "PROJ-2", base="main")
+    state["children"][1]["code"] = "C1"
+    c.assign_codes(state)
+    assert [r["code"] for r in state["children"]] == ["C1", "C3"]
+
+
+def test_find_child_accepts_the_code(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    assert c.find_child(state, "C1")["ref"] == "PROJ-1"
+    assert c.find_child(state, "C9") is None
+
+
+def test_latest_gives_legacy_rows_codes(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    del state["children"][0]["code"], state["next_code"]
+    c.save(state, env)
+    assert c.latest(repo, env)["children"][0]["code"] == "C1"
+
+
+def test_thread_codes_stay_the_same_in_later_rounds(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, session_id="local_a")
+    first = {"5": c.unresolved_threads(graphql(thread("T-a"), thread("T-b")))}
+    c.review_fanout(state, first)
+    second = {"5": c.unresolved_threads(graphql(thread("T-b"), thread("T-c")))}
+    message = c.review_fanout(state, second)[0]["message"]
+    assert "\nT2 thread `T-b`" in message and "\nT3 thread `T-c`" in message
+
+
+def test_briefs_give_the_child_its_code_and_the_contract(repo, env):
+    state = make(repo, env)
+    child = c.add_child(state, "ticket", "PROJ-1", base="main")
+    topic = c.add_child(state, "topic", "Investigate X")
+    ticket_brief = c.build_ticket_brief(state, child, ticket())
+    topic_brief = c.build_topic_brief(state, topic, "Look at X.")
+    assert "Your conductor code is `C1`" in ticket_brief and c.REF_CODES in ticket_brief
+    assert "Your conductor code is `C2`" in topic_brief and c.REF_CODES in topic_brief
+
+
+def test_review_round_numbers_threads_by_t_code(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", pr=5, session_id="local_a")
+    raw = {"5": c.unresolved_threads(graphql(thread("T-a"), thread("T-b")))}
+    message = c.review_fanout(state, raw)[0]
+    assert message["code"] == "C1"
+    assert message["message"].startswith("C1 review-comment round for PR 5")
+    assert "\nT1 thread `T-a`" in message["message"] and "\nT2 thread `T-b`" in message["message"]
+    assert "by its T code" in message["message"]
+
+
 def test_seen_cli_resets_the_stall_timer(repo, env, monkeypatch):
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -756,3 +878,143 @@ def test_seen_cli_resets_the_stall_timer(repo, env, monkeypatch):
     args = ["conductor", "seen", "--id", "local_conductor", "--ref", "PROJ-1", "--cwd", str(repo)]
     assert helpers_main(args) == 0
     assert c.load("local_conductor", repo, env)["children"][0]["last_seen"] > 1
+
+
+# -- autonomy: dependency order, queue and hold ------------------------------
+
+
+def test_next_starts_rows_whose_dependencies_merged(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="queued")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="queued", depends_on=["C1"])
+    c.add_child(state, "ticket", "PROJ-3", base="main", state="queued")
+    plan = c.next_children(state)
+    assert [r["ref"] for r in plan["start"]] == ["PROJ-1", "PROJ-3"]
+    assert plan["waiting"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
+    c.update_child(state, "PROJ-1", state="merged")
+    assert [r["ref"] for r in c.next_children(state)["start"]] == ["PROJ-2", "PROJ-3"]
+
+
+def test_a_failed_dependency_blocks_its_dependents(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="failed")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="queued", depends_on=["PROJ-1"])
+    assert c.next_children(state)["blocked"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
+
+
+def test_a_held_row_resumes_when_the_feedback_ticket_merges(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="merged")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="running", depends_on=["PROJ-1"])
+    c.add_child(state, "ticket", "PROJ-9", base="main", state="queued")
+    c.update_child(state, "C2", state="held", depends_on=["PROJ-1", "PROJ-9"])
+    plan = c.next_children(state)
+    assert [r["ref"] for r in plan["start"]] == ["PROJ-9"] and plan["resume"] == []
+    c.update_child(state, "PROJ-9", state="merged")
+    assert c.next_children(state)["resume"] == [{"code": "C2", "ref": "PROJ-2"}]
+
+
+@pytest.mark.parametrize(
+    "deps,needle",
+    [(["PROJ-1"], "itself"), (["PROJ-7"], "has no child"), (["PROJ-2"], "cycle")],
+)
+def test_dependencies_are_validated(repo, env, deps, needle):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "ticket", "PROJ-2", base="main", depends_on=["PROJ-1"])
+    with pytest.raises(c.ConductorError, match=needle):
+        c.update_child(state, "PROJ-1", depends_on=deps)
+
+
+def test_queued_and_held_rows_are_not_stalled_and_sort_as_queued(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="queued", last_seen=0)
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="held", last_seen=0)
+    assert c.stall_events(state, 10**9) == []
+    assert {c.pr_group(r) for r in state["children"]} == {"queued"}
+
+
+def test_a_dependency_without_a_row_blocks(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="queued")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="queued", depends_on=["PROJ-1"])
+    state["children"].pop(0)
+    plan = c.next_children(state)
+    assert plan["start"] == []
+    assert plan["blocked"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
+
+
+def test_verify_and_fanout_keep_a_held_row_held(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-9", base="main", state="queued")
+    c.add_child(state, "ticket", "PROJ-2", base="main", pr=5, session_id="local_a")
+    c.update_child(state, "PROJ-2", state="held", depends_on=["PROJ-9"])
+    pr = {"number": 5, "state": "OPEN", "isDraft": False, "baseRefName": "main"}
+    pr["headRefName"] = "PROJ-2"
+    c.verify_child(state, "PROJ-2", pr, checks("pass"), [])
+    assert c.find_child(state, "PROJ-2")["state"] == "held"
+    c.review_fanout(state, {"5": c.unresolved_threads(graphql(thread("T-a")))})
+    assert c.find_child(state, "PROJ-2")["state"] == "held"
+    c.update_child(state, "PROJ-9", state="merged")
+    assert c.next_children(state)["resume"] == [{"code": "C2", "ref": "PROJ-2"}]
+
+
+def test_briefs_carry_the_autonomy_contract(repo, env):
+    state = make(repo, env)
+    child = c.add_child(state, "ticket", "PROJ-1", base="main")
+    topic = c.add_child(state, "topic", "Investigate X")
+    brief = c.build_ticket_brief(state, child, ticket())
+    assert c.AUTONOMY in brief and c.TICKET_PAUSE in brief
+    assert c.AUTONOMY in c.build_topic_brief(state, topic, "Look at X.")
+
+
+def test_find_child_prefers_a_ref_over_a_code(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "topic", "C1")
+    assert c.find_child(state, "C1")["kind"] == "topic"
+
+
+def test_latest_skips_a_malformed_state_file(repo, env):
+    state = make(repo, env)
+    bad = c.conductor_root(repo, env) / "broken"
+    bad.mkdir()
+    (bad / "state.json").write_text(json.dumps({"id": "broken", "updated": 10**12}))
+    assert c.latest(repo, env)["id"] == state["id"]
+
+
+def cli(repo, env, monkeypatch):
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    return lambda *args: helpers_main(["conductor", *args, "--cwd", str(repo)])
+
+
+def test_cli_status_keeps_human_item_codes(repo, env, tmp_path, monkeypatch, capsys):
+    run = cli(repo, env, monkeypatch)
+    assert run("init", "--id", "c1", "--mode", "fallback") == 0
+    fields = tmp_path / "fields.json"
+    fields.write_text(json.dumps({"base": "main", "pr": 5, "manual_qa": ["zoom", "keyboard"]}))
+    args = ("--id", "c1", "--kind", "ticket", "--ref", "PROJ-1", "--fields-json", str(fields))
+    assert run("add-child", *args) == 0
+    assert run("status", "--id", "c1") == 0
+    fields.write_text(json.dumps({"manual_qa": ["keyboard"]}))
+    assert run("update-child", "--id", "c1", "--ref", "PROJ-1", "--fields-json", str(fields)) == 0
+    capsys.readouterr()
+    assert run("status", "--id", "c1") == 0
+    table = capsys.readouterr().out
+    assert "N2 C1 PROJ-1: manual QA: keyboard" in table and "N1 " not in table
+
+
+def test_cli_next_lists_start_and_waiting_rows(repo, env, tmp_path, monkeypatch, capsys):
+    run = cli(repo, env, monkeypatch)
+    assert run("init", "--id", "c1", "--mode", "fallback") == 0
+    fields = tmp_path / "fields.json"
+    for ref, deps in (("PROJ-1", []), ("PROJ-2", ["PROJ-1"])):
+        fields.write_text(json.dumps({"base": "main", "state": "queued", "depends_on": deps}))
+        args = ("--id", "c1", "--kind", "ticket", "--ref", ref, "--fields-json", str(fields))
+        assert run("add-child", *args) == 0
+    capsys.readouterr()
+    assert run("next", "--id", "c1") == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["start"] == [{"code": "C1", "ref": "PROJ-1"}]
+    assert plan["waiting"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
