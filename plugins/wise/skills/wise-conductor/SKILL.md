@@ -13,7 +13,7 @@ description: >-
   parallel sessions", "run each ticket in its own session", "fan out
   these tickets to sessions", or types `/wise-conductor`.
 argument-hint: "[<free-form prompt: tickets, epics, URLs, topics> | --resume [<conductor-id>]]"
-allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Agent, SendMessage, Monitor, mcp__ccd_session__start_session, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_session_mgmt__get_session, mcp__ccd_pr__bind_pr, mcp__wise-engine__wise_preflight, mcp__wise-engine__wise_run, mcp__wise-engine__wise_wait, mcp__wise-engine__wise_status, Bash(python3:*), Bash(bash:*), Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
+allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Agent, SendMessage, Monitor, mcp__ccd_session__start_session, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_session_mgmt__get_session, mcp__ccd_pr__bind_pr, mcp__wise-engine__wise_preflight, mcp__wise-engine__wise_run, mcp__wise-engine__wise_wait, mcp__wise-engine__wise_status, mcp__wise-engine__wise_cancel, Bash(python3:*), Bash(bash:*), Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
 ---
 
 # /wise-conductor - coordinate parallel child sessions
@@ -226,9 +226,12 @@ once, with one `--release <value>` for each value. Pass no `--release`
 when the field is empty. An `error` (ambiguous or missing release under
 `release_missing: stop`) holds that ticket: report it and start no child.
 
-3c. Record the row: `H add-child --kind ticket --ref <KEY> --title <title>`
-with `--fields-json` `{"base": ..., "base_source": ..., "branch": "<KEY>"}`.
-The tracker uses the branch to find the PR before the child reports it.
+3c. Update the row. The plan (step 2) already added it as `queued`. Run
+`H update-child --ref <KEY>` with `--fields-json`
+`{"base": ..., "base_source": ..., "branch": "<KEY>", "state": "starting"}`.
+Use `H add-child --kind ticket --ref <KEY> --title <title>` with the same
+fields only for a ticket that has no row yet. The tracker uses the branch
+to find the PR before the child reports it.
 
 3d. Overlap (L9): pass the ledger rows of open sibling PRs in the same
 area (same component, same files, same epic) as `--siblings-json`.
@@ -251,8 +254,10 @@ Use the full text unchanged as the child prompt.
   `wise_run`, and follow it with `wise_wait`. Record the agent name or the
   `run_id` in the row.
 
-3g. Topic child: `H add-child --kind topic --ref <short label>`, write the
-user's brief to a scratch file, then `H brief --ref <label> --brief-file <file>`.
+3g. Topic child: use its planned row (`H update-child --ref <label>` with
+`{"state": "starting"}`), or `H add-child --kind topic --ref <short label>`
+when it has no row. Write the user's brief to a scratch file, then
+`H brief --ref <label> --brief-file <file>`.
 Start it like 3f. No workflow applies.
 
 ### 4. The loop
@@ -275,7 +280,9 @@ again (step 1g). On each user message, child message or tracker line:
   - `merged`: verify (step 5), report it in one line, then run `H next`.
     Start every row in `start` (step 3) and resume every row in `resume`:
     send its session "Resume: the dependencies are merged. Rebase on
-    `origin/<base>` and continue." Set its state to `running`.
+    `origin/<base>` and start `ticket-auto` again with the same
+    arguments." Set its state to `running`. In fallback, start the run
+    again yourself with the `H payload` arguments.
   - `ready`, `closed`: verify (step 5). A merge under the `never` policy
     is a warning. A `closed` or `failed` row holds its dependents: report
     the `blocked` rows of `H next`.
@@ -299,8 +306,13 @@ again (step 1g). On each user message, child message or tracker line:
      tracker with the [wise-tickets](../wise-tickets/SKILL.md) rules, add
      it to the plan and tell the user its key and when it runs.
   2. When the feedback changes a ticket that is running, hold that
-     ticket. Send its session "Pause: stop at the next safe point, push,
-     report and wait." Then `H update-child` with
+     ticket. WARNING: a text message alone does not stop a `ticket-auto`
+     run, and a run that continues can merge the old implementation.
+     Send its session "Pause: cancel your ticket-auto run with
+     `wise_cancel`, push, report the cancelled run id and wait." Record
+     `held` only after the child reports the cancelled run id. In
+     fallback, call `wise_cancel` with the row's `run_id` yourself. Then
+     `H update-child` with
      `{"state": "held", "depends_on": [..., "<new ticket>"]}`.
   3. When the feedback changes a ticket that is not started, add the
      dependency to its row.

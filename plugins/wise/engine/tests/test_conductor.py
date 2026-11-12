@@ -934,9 +934,25 @@ def test_queued_and_held_rows_are_not_stalled_and_sort_as_queued(repo, env):
     assert {c.pr_group(r) for r in state["children"]} == {"queued"}
 
 
+def test_verify_and_fanout_keep_a_held_row_held(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-9", base="main", state="queued")
+    c.add_child(state, "ticket", "PROJ-2", base="main", pr=5, session_id="local_a")
+    c.update_child(state, "PROJ-2", state="held", depends_on=["PROJ-9"])
+    pr = {"number": 5, "state": "OPEN", "isDraft": False, "baseRefName": "main"}
+    pr["headRefName"] = "PROJ-2"
+    c.verify_child(state, "PROJ-2", pr, checks("pass"), [])
+    assert c.find_child(state, "PROJ-2")["state"] == "held"
+    c.review_fanout(state, {"5": c.unresolved_threads(graphql(thread("T-a")))})
+    assert c.find_child(state, "PROJ-2")["state"] == "held"
+    c.update_child(state, "PROJ-9", state="merged")
+    assert c.next_children(state)["resume"] == [{"code": "C2", "ref": "PROJ-2"}]
+
+
 def test_briefs_carry_the_autonomy_contract(repo, env):
     state = make(repo, env)
     child = c.add_child(state, "ticket", "PROJ-1", base="main")
     topic = c.add_child(state, "topic", "Investigate X")
-    assert c.AUTONOMY in c.build_ticket_brief(state, child, ticket())
+    brief = c.build_ticket_brief(state, child, ticket())
+    assert c.AUTONOMY in brief and c.TICKET_PAUSE in brief
     assert c.AUTONOMY in c.build_topic_brief(state, topic, "Look at X.")

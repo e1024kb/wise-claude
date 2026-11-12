@@ -33,10 +33,11 @@ workflow. It is not a new mode of `ticket-auto` and it does not fork
 - The conductor is autonomous by default. A request that names tickets
   approves the whole run of each ticket: start, PR, review, fixes and the
   merge when green. Neither the conductor nor a child asks about these.
-- Two opt-in policies keep a PR for manual review: `merge_policy: never`
-  and `pr_state: draft-then-ready`. They reach `ticket-auto` as settled
-  decisions in the run context (`merge_policy: never`, `pr_draft: yes`).
-  A plain `ticket-auto` run passes neither, so its pre-flight and its
+- `merge_policy: never` is the opt-in policy that keeps a PR unmerged for
+  manual review. `pr_state: draft-then-ready` only opens the PR as a draft
+  and does not stop the merge. Both reach `ticket-auto` as settled
+  decisions in the run context (`merge_policy: never` or `merge`, and
+  `pr_draft: yes` or `no`). A plain `ticket-auto` run passes neither, so its pre-flight and its
   merge are unchanged.
 - The state the conductor must keep for days (setup, ledger, per-project
   rules) is tested engine code in `wise_engine/conductor.py`, exposed as

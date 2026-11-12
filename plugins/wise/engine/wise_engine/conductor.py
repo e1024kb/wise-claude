@@ -60,6 +60,13 @@ AUTONOMY = (
     "When the conductor sends a pause message, stop at the next safe point, push your work, "
     "report your state and wait for its next message."
 )
+# The pause rule of a ticket child: a text pause alone does not stop its run.
+TICKET_PAUSE = (
+    "A pause message from the conductor means: cancel your ticket-auto run with `wise_cancel` "
+    "and its run id, so that nothing merges. Then push your work, report the cancelled run id "
+    "and wait. On a resume message, rebase on the base branch and start `ticket-auto` again "
+    "with the same arguments. It adopts your open PR."
+)
 RELEASE_PLACEHOLDERS = {"version", "raw", "major", "minor", "patch"}
 
 # One entry per setup question: allowed values (None = free text) and default.
@@ -83,6 +90,8 @@ SETUP_RANGES = {"poll_seconds": (15, 3600), "stall_minutes": (1, 1440)}
 CHILD_KINDS = ("ticket", "topic")
 # `queued`: planned, not started (it waits for its dependencies).
 # `held`: started, then paused by the conductor until its dependencies merge.
+# PR facts never move a row out of these states: only the conductor does.
+SCHEDULED_STATES = ("queued", "held")
 CHILD_STATES = (
     "queued",
     "starting",
@@ -551,7 +560,7 @@ def next_children(state: Json) -> Json:
     by_ref = {c["ref"]: c for c in state["children"]}
     out: Json = {"start": [], "resume": [], "waiting": [], "blocked": []}
     for child in state["children"]:
-        if child.get("state") not in ("queued", "held"):
+        if child.get("state") not in SCHEDULED_STATES:
             continue
         deps = [by_ref[r] for r in child.get("depends_on") or [] if r in by_ref]
         row = {"code": child["code"], "ref": child["ref"]}
@@ -724,6 +733,7 @@ def build_ticket_brief(
         "## 6. Conductor",
         "",
         AUTONOMY,
+        TICKET_PAUSE,
         "",
         f"Your conductor code is `{child['code']}`. Start every report and message with it.",
         REF_CODES,
@@ -893,6 +903,9 @@ def verify_child(state: Json, ref: str, pr: Json, checks: list[Json], threads: l
         row_state = "ready"
     else:
         row_state = "waiting" if not nudges else "running"
+    if child.get("state") in SCHEDULED_STATES and row_state not in ("merged", "closed"):
+        # Only the conductor resumes a queued or held row; PR facts never do.
+        row_state = child["state"]
     update_child(
         state,
         ref,
@@ -984,7 +997,13 @@ def review_fanout(state: Json, threads_by_pr: Mapping[str, list[Json]]) -> list[
                 f"by {t.get('author') or '?'}: {body}"
             )
         lines += ["", REVIEW_INSTRUCTIONS]
-        update_child(state, child["ref"], open_threads=len(threads), state="running")
+        keep = child.get("state") in SCHEDULED_STATES
+        update_child(
+            state,
+            child["ref"],
+            open_threads=len(threads),
+            state=child["state"] if keep else "running",
+        )
         out.append(
             {
                 "pr": int(pr) if str(pr).isdigit() else pr,
@@ -1022,7 +1041,7 @@ def pr_group(child: Json) -> str:
         return str(row_state)
     if row_state == "failed":
         return "blocked"
-    if row_state in ("queued", "held"):
+    if row_state in SCHEDULED_STATES:
         return "queued"
     if child.get("pr") is None:
         return "working"
@@ -1196,7 +1215,7 @@ def stall_events(state: Json, now: int) -> list[Json]:
     limit = int(state["setup"].get("stall_minutes", "15")) * 60
     events = []
     for child in state["children"]:
-        if child.get("state") in (*TERMINAL_STATES, "queued", "held"):
+        if child.get("state") in (*TERMINAL_STATES, *SCHEDULED_STATES):
             continue
         seen = int(child.get("last_seen") or child.get("added") or now)
         if now - seen < limit or child.get("stall_flag") == seen:
