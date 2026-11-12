@@ -956,3 +956,55 @@ def test_briefs_carry_the_autonomy_contract(repo, env):
     brief = c.build_ticket_brief(state, child, ticket())
     assert c.AUTONOMY in brief and c.TICKET_PAUSE in brief
     assert c.AUTONOMY in c.build_topic_brief(state, topic, "Look at X.")
+
+
+def test_find_child_prefers_a_ref_over_a_code(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main")
+    c.add_child(state, "topic", "C1")
+    assert c.find_child(state, "C1")["kind"] == "topic"
+
+
+def test_latest_skips_a_malformed_state_file(repo, env):
+    state = make(repo, env)
+    bad = c.conductor_root(repo, env) / "broken"
+    bad.mkdir()
+    (bad / "state.json").write_text(json.dumps({"id": "broken", "updated": 10**12}))
+    assert c.latest(repo, env)["id"] == state["id"]
+
+
+def cli(repo, env, monkeypatch):
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    return lambda *args: helpers_main(["conductor", *args, "--cwd", str(repo)])
+
+
+def test_cli_status_keeps_human_item_codes(repo, env, tmp_path, monkeypatch, capsys):
+    run = cli(repo, env, monkeypatch)
+    assert run("init", "--id", "c1", "--mode", "fallback") == 0
+    fields = tmp_path / "fields.json"
+    fields.write_text(json.dumps({"base": "main", "pr": 5, "manual_qa": ["zoom", "keyboard"]}))
+    args = ("--id", "c1", "--kind", "ticket", "--ref", "PROJ-1", "--fields-json", str(fields))
+    assert run("add-child", *args) == 0
+    assert run("status", "--id", "c1") == 0
+    fields.write_text(json.dumps({"manual_qa": ["keyboard"]}))
+    assert run("update-child", "--id", "c1", "--ref", "PROJ-1", "--fields-json", str(fields)) == 0
+    capsys.readouterr()
+    assert run("status", "--id", "c1") == 0
+    table = capsys.readouterr().out
+    assert "N2 C1 PROJ-1: manual QA: keyboard" in table and "N1 " not in table
+
+
+def test_cli_next_lists_start_and_waiting_rows(repo, env, tmp_path, monkeypatch, capsys):
+    run = cli(repo, env, monkeypatch)
+    assert run("init", "--id", "c1", "--mode", "fallback") == 0
+    fields = tmp_path / "fields.json"
+    for ref, deps in (("PROJ-1", []), ("PROJ-2", ["PROJ-1"])):
+        fields.write_text(json.dumps({"base": "main", "state": "queued", "depends_on": deps}))
+        args = ("--id", "c1", "--kind", "ticket", "--ref", ref, "--fields-json", str(fields))
+        assert run("add-child", *args) == 0
+    capsys.readouterr()
+    assert run("next", "--id", "c1") == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["start"] == [{"code": "C1", "ref": "PROJ-1"}]
+    assert plan["waiting"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
