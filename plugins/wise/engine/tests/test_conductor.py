@@ -934,6 +934,16 @@ def test_queued_and_held_rows_are_not_stalled_and_sort_as_queued(repo, env):
     assert {c.pr_group(r) for r in state["children"]} == {"queued"}
 
 
+def test_a_dependency_without_a_row_blocks(repo, env):
+    state = make(repo, env)
+    c.add_child(state, "ticket", "PROJ-1", base="main", state="queued")
+    c.add_child(state, "ticket", "PROJ-2", base="main", state="queued", depends_on=["PROJ-1"])
+    state["children"].pop(0)
+    plan = c.next_children(state)
+    assert plan["start"] == []
+    assert plan["blocked"] == [{"code": "C2", "ref": "PROJ-2", "on": ["PROJ-1"]}]
+
+
 def test_verify_and_fanout_keep_a_held_row_held(repo, env):
     state = make(repo, env)
     c.add_child(state, "ticket", "PROJ-9", base="main", state="queued")

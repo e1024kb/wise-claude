@@ -554,17 +554,20 @@ def next_children(state: Json) -> Json:
     """Which queued or held rows can start or resume now: every dependency is merged.
 
     `start` and `resume` rows have no open dependency. `waiting` rows name the
-    dependencies they still wait for. A dependency that failed or closed
-    unmerged blocks its dependents; they are in `blocked`.
+    dependencies they still wait for. A dependency that failed, closed
+    unmerged or has no row any more blocks its dependents; they are in `blocked`.
     """
     by_ref = {c["ref"]: c for c in state["children"]}
     out: Json = {"start": [], "resume": [], "waiting": [], "blocked": []}
     for child in state["children"]:
         if child.get("state") not in SCHEDULED_STATES:
             continue
-        deps = [by_ref[r] for r in child.get("depends_on") or [] if r in by_ref]
+        wanted = child.get("depends_on") or []
+        deps = [by_ref[r] for r in wanted if r in by_ref]
         row = {"code": child["code"], "ref": child["ref"]}
-        dead = [d["ref"] for d in deps if d.get("state") in ("failed", "closed")]
+        # A dependency whose row is gone cannot merge: it blocks, never releases.
+        dead = [r for r in wanted if r not in by_ref]
+        dead += [d["ref"] for d in deps if d.get("state") in ("failed", "closed")]
         open_deps = [d["ref"] for d in deps if d.get("state") != "merged"]
         if dead:
             out["blocked"].append({**row, "on": dead})
