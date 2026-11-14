@@ -135,6 +135,12 @@ TYPED_ONLY_CATALOG: dict[str, Any] = {
             "description": "previous Sonnet, accepted when typed",
             "efforts": ["low", "medium"],
         },
+        {
+            "id": "claude-fable-5-1",
+            "label": "Fable 5.1",
+            "description": "previous Fable, accepted when typed",
+            "efforts": ["low", "medium", "high"],
+        },
     ],
     "codex": [
         {
