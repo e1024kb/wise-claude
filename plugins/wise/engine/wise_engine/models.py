@@ -12,8 +12,8 @@ SOURCE_HARNESS = "harness"
 MODEL_CATALOG: dict[str, Any] = {
     "claude": [
         {
-            "id": "claude-fable-5-1",
-            "label": "Fable 5.1",
+            "id": "claude-fable-5-2",
+            "label": "Fable 5.2",
             "description": "latest Fable",
             "efforts": ["low", "medium", "high"],
         },
@@ -135,6 +135,12 @@ TYPED_ONLY_CATALOG: dict[str, Any] = {
             "description": "previous Sonnet, accepted when typed",
             "efforts": ["low", "medium"],
         },
+        {
+            "id": "claude-fable-5-1",
+            "label": "Fable 5.1",
+            "description": "previous Fable, accepted when typed",
+            "efforts": ["low", "medium", "high"],
+        },
     ],
     "codex": [
         {
@@ -165,7 +171,7 @@ TYPED_ONLY_CATALOG: dict[str, Any] = {
 }
 
 CLAUDE_ALIASES: dict[str, Any] = {
-    "fable": "claude-fable-5-1",
+    "fable": "claude-fable-5-2",
     "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-5-5",

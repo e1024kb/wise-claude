@@ -182,7 +182,7 @@ def test_model_options_carry_source_and_accept_harness_reported_models():
     )
     question = next(q for q in claude["questions"] if q["id"] == "model.analyze-design")
     assert [o["value"] for o in question["options"]] == [
-        "claude-fable-5-1",
+        "claude-fable-5-2",
         "claude-opus-5-5",
         "claude-opus-4-8",
         "claude-sonnet-5-5",

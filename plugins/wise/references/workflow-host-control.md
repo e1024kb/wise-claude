@@ -467,6 +467,9 @@ layout apply, and the host's affordances pick one of two:
 The highlighted default stays on the first page. When the user types a value
 named in the question text, map it to the option exactly as if it had been
 clicked; validate any other text against the full list and re-ask on a miss.
+A model question is the exception: pass a typed model id that is not in the
+list to the engine unchanged. The engine accepts typed-only ids, such as
+`claude-fable-5-1`, and rejects the others.
 
 Harness pickers order their options claude, codex, cursor, grok, gemini, with
 a group's default harness first when the engine puts it there; the engine and
@@ -475,11 +478,11 @@ order theirs Bypass permissions, Auto, Approval required, and the engine asks
 one per provider in the harness order above. Effort pickers order theirs
 medium, high, xhigh, low, max. Model pickers show the
 predefined catalog first (`source: catalog`, hand-ordered: for claude Fable
-5.1, Opus 5.5, Opus 4.8, Sonnet 5.5, Haiku 5.5, Haiku 4.5, Fable 5), then the models the
+5.2, Opus 5.5, Opus 4.8, Sonnet 5.5, Haiku 5.5, Haiku 4.5, Fable 5), then the models the
 installed harness reported (`source: harness`) in the harness's own order;
 mention the source in the description
 when the host shows one (`reported by the cursor harness`), not in the value.
-For claude the first four catalog entries are Fable 5.1, Opus 5.5, Opus 4.8 and
+For claude the first four catalog entries are Fable 5.2, Opus 5.5, Opus 4.8 and
 Sonnet 5.5, so on Claude Code they are the visible rows and the remaining ids
 go into the question text.
 When a skill asks a bounded contextual question without an engine questionary,
