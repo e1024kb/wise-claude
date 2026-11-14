@@ -62,7 +62,7 @@ def test_alias_and_effort_boundaries():
     assert catalog_model("cursor", "grok-4.6") is None
     assert catalog_model("grok", "grok-4.6")["id"] == "grok-4.6"
     assert [entry["id"] for entry in catalog_for("claude")] == [
-        "claude-fable-5-1",
+        "claude-fable-5-2",
         "claude-opus-5-5",
         "claude-opus-4-8",
         "claude-sonnet-5-5",

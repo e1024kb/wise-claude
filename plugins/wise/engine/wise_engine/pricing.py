@@ -7,6 +7,7 @@ from typing import Any
 from .models import CLAUDE_ALIASES
 
 PRICES: dict[str, Any] = {
+    "claude-fable-5-2": {"input": 8, "output": 40, "cache_read": 0.2, "cache_write": 10},
     "claude-fable-5-1": {"input": 10, "output": 50, "cache_read": 0.25, "cache_write": 12.5},
     "claude-fable-5": {"input": 10, "output": 50, "cache_read": 1, "cache_write": 12.5},
     "claude-opus-5-5": {"input": 4, "output": 20, "cache_read": 0.2, "cache_write": 5},

@@ -49,7 +49,7 @@ def test_models_json_text_and_invalid_harness():
     io, out, err = output()
     assert asyncio.run(cmd_models([], {"catalog-only": True}, io)) == 0
     rows = json.loads("".join(out))
-    assert any(row["harness"] == "claude" and row["id"] == "claude-fable-5-1" for row in rows)
+    assert any(row["harness"] == "claude" and row["id"] == "claude-fable-5-2" for row in rows)
     assert any(row["harness"] == "claude" and row["id"] == "claude-fable-5" for row in rows)
     assert all(row["source"] == "catalog" for row in rows)
     assert all(not row["efforts"] for row in rows if row["harness"] == "grok")
