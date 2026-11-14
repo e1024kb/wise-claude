@@ -467,6 +467,9 @@ layout apply, and the host's affordances pick one of two:
 The highlighted default stays on the first page. When the user types a value
 named in the question text, map it to the option exactly as if it had been
 clicked; validate any other text against the full list and re-ask on a miss.
+A model question is the exception: pass a typed model id that is not in the
+list to the engine unchanged. The engine accepts typed-only ids, such as
+`claude-fable-5-1`, and rejects the others.
 
 Harness pickers order their options claude, codex, cursor, grok, gemini, with
 a group's default harness first when the engine puts it there; the engine and
