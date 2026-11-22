@@ -213,7 +213,9 @@ Researched at `pingdotgg/t3code@7ddc81d6`. Not tested live yet.
 1. Detection at runtime: `conductor mode --tools <names>` reports `t3`
    when the T3 Code tools `delegate_task` and `t3_thread_send` are both
    available, in any form (`mcp__t3-code__<tool>`, `mcp__t3_code__<tool>`,
-   `t3-code.<tool>`). `t3` wins over `desktop`.
+   `t3-code.<tool>`). `t3` wins over `desktop`. Under Codex,
+   `delegate_task` and `t3_thread_wait` exist only as
+   `t3-code-direct.<tool>`.
 2. Each child starts with `delegate_task`, `mode: "async"` and
    `isolation: "shared"`. `ticket-auto` makes the worktree, because
    `delegate_task` cannot pick a base branch. The child inherits the
@@ -226,7 +228,9 @@ Researched at `pingdotgg/t3code@7ddc81d6`. Not tested live yet.
 5. Child to conductor: the child's final reply wakes the conductor thread.
    The conductor does not poll a running child. A child question also
    wakes it. The conductor answers with `t3_pending_request`.
-6. The stall check reads `task_status`. A stop uses `task_cancel`.
+6. The stall check reads `task_status`. `task_cancel` stops only the child
+   thread. A pause cancels the child's `ticket-auto` run with `wise_cancel`
+   and its `run_id` before the row becomes `held`.
 7. The conductor does not call `link_pull_request`, because that tool
    links the PR to the conductor thread and settles the thread on merge.
 

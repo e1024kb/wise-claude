@@ -433,6 +433,12 @@ def test_t3_detection_accepts_every_tool_name_form(prefix):
     assert c.detect_mode(tools) == {"mode": "t3", "notice": ""}
 
 
+def test_t3_detection_accepts_the_codex_split_registration():
+    # Codex registers delegate_task only on t3-code-direct, the rest on t3-code.
+    tools = ["t3-code-direct.delegate_task", "t3-code.t3_thread_send"]
+    assert c.detect_mode(tools)["mode"] == "t3"
+
+
 def test_t3_detection_needs_start_and_messaging_tools_and_wins_over_desktop():
     for tools in (["mcp__t3-code__delegate_task"], ["mcp__t3-code__t3_thread_send"]):
         assert c.detect_mode(tools)["mode"] == "fallback"

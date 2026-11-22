@@ -153,7 +153,9 @@ tool. `t3` needs the T3 Code tools `delegate_task` and `t3_thread_send`
 in any form (`mcp__t3-code__<tool>` for Claude, `t3-code.<tool>` for
 Codex), and wins over `desktop`. Do not rely on environment variables.
 In `fallback`, print its `notice` once. The T3 Code steps below use the
-Claude names. Under Codex, call the same tool under its `t3-code.` name.
+Claude names. Under Codex, call each tool by its live registered name:
+`delegate_task` and `t3_thread_wait` exist only as `t3-code-direct.<tool>`,
+and the other tools as `t3-code.<tool>`.
 
 1b. Pick the conductor id. In Claude Desktop use this session's `local_...`
 id when the app gives it, else (T3 Code included) a short slug of the
@@ -334,8 +336,12 @@ again (step 1g). On each user message, child message or tracker line:
      `wise_cancel`, push, report the cancelled run id and wait." Record
      `held` only after the child reports the cancelled run id. In
      fallback, call `wise_cancel` with the row's `run_id` yourself. In T3
-     Code, when the child does not report, stop it with
-     `mcp__t3-code__task_cancel` and the row's `task_id`. Then
+     Code, record the `run_id` from the child's report in the row. When the
+     child does not report, call `wise_cancel` with the stored `run_id`.
+     Record `held` only after the run is cancelled. With no known `run_id`,
+     do not record `held`: tell the user. `mcp__t3-code__task_cancel` with
+     the row's `task_id` only stops the child thread, not its `ticket-auto`
+     run. Then
      `H update-child` with
      `{"state": "held", "depends_on": [..., "<new ticket>"]}`.
   3. When the feedback changes a ticket that is not started, add the
