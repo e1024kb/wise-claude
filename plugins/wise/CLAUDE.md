@@ -138,8 +138,9 @@ Current actions (all standalone):
   effort) and every child reuses it. Setup, ledger and per-project rules
   persist through `wise-helpers.py conductor`
   (`engine/wise_engine/conductor.py`). Claude Desktop children nest
-  under the conductor; other clients fall back to background agents or
-  engine runs. Autonomous by default: a request that names tickets runs
+  under the conductor; in T3 Code (`t3` mode) children are `delegate_task`
+  child threads whose final reply wakes the conductor; other clients fall
+  back to background agents or engine runs. Autonomous by default: a request that names tickets runs
   each one from start to merge in dependency order (`depends_on`,
   `conductor next`), with no questions. The opt-in `never` policy passes
   `merge_policy: never` and `pr_draft: yes` as settled decisions, and the
