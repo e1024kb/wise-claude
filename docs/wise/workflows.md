@@ -486,7 +486,7 @@ pipelines](#unit-pipelines).
 | `pipeline` | `ticket` (unit = ticket ref or URL) \| `plan` (unit = `PLAN-*.md` path, relative to cwd) \| `pr` (unit = the checked-out branch with its open PR) \| `implement` (unit = a `PLAN-*.md` implemented on the checked-out branch) \| `ticket-plan` (unit = an epic child: `claim`, `worktree`, `plan`, `cleanup`; ends `plan-written`). `pr` and `implement` always run in the current checkout. |
 | `items` | String. After rendering: a JSON array of strings or item specs, else split on `,` `;` newline. A text that starts with `[` must be a JSON array, or the step fails. Deduplicated by ref. An item spec is `{ref, url?, title?, state?, parent?, repo?, depends_on?, serialize?}`; see [Epic fan-out](#epic-fan-out). |
 | `groups` | Non-empty mapping phase -> tuning group id for `plan`, `implement`, `review`, `fix`, `watch`. Unknown phase warns. `fix` falls back to `implement`'s group. |
-| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. A workflow input named after a listed cap overrides it when it holds a number (`pr-watch`: `max_fix_attempts`, `watch_minutes`). |
+| `caps` | Cap names the step reads from `state.caps`. Warns when no profile sets a listed name. A workflow input named after a listed cap overrides it when it holds a number (`pr-watch`: `max_fix_attempts`, `watch_minutes`; `ticket-auto` and `impl-plan-auto`: `implement_minutes`). `/wise-workflow-run` never fills `implement_minutes` from a positional token, so the other positional slots of `ticket-auto` and `impl-plan-auto` keep their meaning. |
 | `reviewers` | Human GitHub logins for `gh pr edit --add-reviewer`. Default `[]`; review bots (`copilot-pull-request-reviewer`, `Copilot`, `coderabbitai`) are always skipped. The bundled workflows list none. |
 | `parallel` | Positive int. The `concurrency` input (`1`-`4`) overrides it. `current` tree: always 1. Git operations are serialised per step. |
 | `resume` | `unit` reuses cursors inside a review / fix cycle when review and fix run on the same harness (sessions never cross harnesses, so a fixer on another one starts clean); `fresh` (default) starts each child clean. |
@@ -1162,12 +1162,12 @@ appends ` no-pr=N`.
 | Phase | Mode | Default timeout | Pinned default when no group | Pre-granted tools |
 |---|---|---|---|---|
 | `plan` | `auto` | 30 min | claude / opus / high | Read, Glob, Grep, Write, Edit, `Bash(git:*)`, `Bash(gh:*)`, `Bash(ls:*)`, WebFetch, WebSearch |
-| `implement` | `full-access` | 90 min | claude / opus / high | edit tools, build tools (`git`, `npm`, `npx`, `pnpm`, `yarn`, `bun`, `make`, `just`, `go`, `cargo`, `python3`, `pytest`, `cd`, `cat`, `ls`), Task, Agent |
+| `implement` | `full-access` | 180 min (`implement_minutes`) | claude / opus / high | edit tools, build tools (`git`, `npm`, `npx`, `pnpm`, `yarn`, `bun`, `make`, `just`, `go`, `cargo`, `python3`, `pytest`, `cd`, `cat`, `ls`), Task, Agent |
 | `review` | `auto` | 30 min | claude / opus / medium under `low`, else high | Read, Glob, Grep, Write, Task, read-only `git` subcommands |
 | `fix` | `full-access` | 45 min | implement's group | edit and build tools, `Bash(gh:*)` |
 | `watch` | `full-access` | 15 min | claude / haiku | edit tools, `Bash(gh:*)`, `Bash(git:*)`, `Bash(date:*)` |
 
-The step's `timeout` and `max_turns` apply to every phase. Prompts are
+The step's `timeout` and `max_turns` apply to every phase. The `implement_minutes` cap wins over `timeout` for the `implement` phase. Prompts are
 templates under `engine/wise_engine/prompts/units/` (`ticket/plan.md`,
 `plan/plan.md`, `shared/{implement,review,fix,watch}.md`); the
 workflow hands them `guidance`, `decisions`, the ticket block or seed
@@ -1190,6 +1190,7 @@ plan, and paths. Structured results:
 | `watch_minutes` | 45 | wall clock of the watch loop; at the cap: `all-green` when the last CI was green, else `exhausted`. |
 | `watch_poll_seconds` | 60 | sleep between watch passes. |
 | `watch_stable_passes` | 2 | consecutive passes with CI green, the local review approved for the head and no open bot item before merging. |
+| `implement_minutes` | 180 | time limit of the `implement` phase child, in minutes. When set, it wins over the step's `timeout`. |
 
 A cap applies only when the step lists it in `caps` and
 `profiles.medium.caps` sets it; otherwise the default. Watch loop per

@@ -61,9 +61,10 @@ tuning:
 # Caps the `units` step reads (docs/wise/workflows.md, `profiles`): review
 # cycles before pushing anyway, fix rounds in the watch loop, watch wall
 # clock and poll, and the consecutive green passes required before
-# merging. Only `medium` is applied; pre-flight picks harness, model and
-# effort per tuning group from the engine's model catalog instead of a
-# budget profile.
+# merging, and the implement phase's time limit in minutes (the
+# `implement_minutes` input overrides it). Only `medium` is applied;
+# pre-flight picks harness, model and effort per tuning group from the
+# engine's model catalog instead of a budget profile.
 profiles:
   medium:
     caps:
@@ -72,12 +73,19 @@ profiles:
       watch_minutes: 60
       watch_poll_seconds: 60
       watch_stable_passes: 2
+      implement_minutes: 180
 
 # `guidance` is the operator's standing instruction for the whole run;
 # the engine hands it to every model phase as binding configuration.
 inputs:
   - name: plans
     prompt: "Which plan file(s)? Comma-separated PLAN-*.md paths (docs/plans/PLAN-api-caching.md, docs/plans/PLAN-auth-debt.md). Relative paths resolve against the repo root. No spaces when passed positionally."
+  - name: implement_minutes
+    prompt: "How many minutes may the implement phase run per plan before it stops? Other takes any number from 1 to 1440."
+    optional: true
+    default: "180"
+    suggest: ["180", "90", "240", "360"]
+    validate: "^([1-9][0-9]{0,2}|1[0-3][0-9]{2}|14[0-3][0-9]|1440)?$"
   - name: base_branch
     prompt: "Base branch for the plan branches and their PRs? (the checked-out base branch first, then the default branch and recent release* branches; type another name if needed)"
     options-from: branches
@@ -194,7 +202,7 @@ steps:
     # Phase -> tuning group, one question each at pre-flight. The
     # engine owns the loops, the caps and the merge.
     groups: { plan: plan, implement: implement, review: review, fix: fix, watch: watch }
-    caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes]
+    caps: [max_review_cycles, max_fix_attempts, watch_minutes, watch_poll_seconds, watch_stable_passes, implement_minutes]
     # E8: the fixer resumes the reviewer's session inside a review cycle
     # (same harness only; otherwise the fixer starts clean).
     resume: unit

@@ -91,6 +91,7 @@ CAP_MAX = {
     "watch_minutes": 1440,
     "watch_poll_seconds": 3600,
     "watch_stable_passes": 100,
+    "implement_minutes": 1440,
 }
 CAP_DEFAULTS = {
     "max_review_cycles": 2,
@@ -98,6 +99,7 @@ CAP_DEFAULTS = {
     "watch_minutes": 45,
     "watch_poll_seconds": 60,
     "watch_stable_passes": 2,
+    "implement_minutes": 180,
 }
 DEFAULT_RUNNERS = {
     "claim": claim_phase,

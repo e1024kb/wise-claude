@@ -18,6 +18,7 @@ from wise_engine.phases.model import (
     base_vars,
     engine_plan_path,
     findings_path,
+    phase_timeout_seconds,
     render_phase_prompt,
     resolve_unit_phases,
 )
@@ -253,6 +254,29 @@ def test_happy_pipeline_model_requests_and_usage(tmp_path):
             assert request["cwd"] in request["add_dirs"]
         plan_prompt = fixture.child_calls[0][2]["prompt"]
         assert "/saved/ticket.md" in plan_prompt and "BODY MUST NOT" not in plan_prompt
+
+    asyncio.run(scenario())
+
+
+def test_implement_minutes_cap_sets_the_implement_timeout_only():
+    assert phase_timeout_seconds({"caps": {}}, "implement") == 10800
+    assert phase_timeout_seconds({"caps": {}, "timeout": 600}, "implement") == 600
+    config = {"caps": {"implement_minutes": 240.0}, "timeout": 600}
+    assert phase_timeout_seconds(config, "implement") == 14400
+    assert phase_timeout_seconds(config, "fix") == 600
+    assert phase_timeout_seconds({"caps": {"implement_minutes": 240.0}}, "plan") == 1800
+
+
+def test_implement_minutes_cap_reaches_the_implement_child(tmp_path):
+    async def scenario():
+        fixture = ModelFixture(tmp_path)
+        fixture.step["caps"] = ["implement_minutes"]
+        fixture.state["caps"]["implement_minutes"] = 180
+        fixture.state["inputs"] = {"implement_minutes": "300"}
+        await run_units_step(fixture.input())
+        timeouts = {phase: request["timeout_ms"] for phase, _, request in fixture.child_calls}
+        assert timeouts["implement"] == 300 * 60 * 1000
+        assert timeouts["plan"] == 1800 * 1000
 
     asyncio.run(scenario())
 

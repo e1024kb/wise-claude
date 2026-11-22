@@ -128,8 +128,9 @@ CHILD_FIELDS = {
 }
 # The ticket-auto pre-flight answers every child reuses. `worktree`, `input.*`
 # and `step-select` are per child: the payload sets them, a stored copy is dropped.
+# `input.implement_minutes` is the exception: one implement time limit for all children.
 ANSWER_ID_RE = re.compile(
-    r"^(tuning-scope|harness\.[a-z0-9_-]+|permissions\.[a-z0-9_-]+|model\.[a-z0-9_-]+|effort\.[a-z0-9_-]+)$"
+    r"^(tuning-scope|input\.implement_minutes|harness\.[a-z0-9_-]+|permissions\.[a-z0-9_-]+|model\.[a-z0-9_-]+|effort\.[a-z0-9_-]+)$"
 )
 DESKTOP_START = "mcp__ccd_session__start_session"
 DESKTOP_MESSAGE = ("SendMessage", "mcp__ccd_session_mgmt__send_message")
@@ -296,13 +297,15 @@ def _pattern_errors(pattern: str) -> list[str]:
 
 
 def validate_answers(answers: Mapping[str, Any]) -> Json:
-    """Keep the ticket-auto tuning and provider answers; drop per-child ids."""
+    """Keep the ticket-auto tuning, provider and implement time limit answers; drop per-child ids."""
     out: Json = {}
     for key, value in answers.items():
         if not ANSWER_ID_RE.match(key):
             continue
         if isinstance(value, list):
             value = ",".join(str(v) for v in value)
+        if key == "input.implement_minutes" and isinstance(value, str) and not value.strip():
+            continue  # blank keeps the workflow's cap
         if not isinstance(value, str) or not value.strip():
             raise ConductorError(f"answers: {key} needs a non-empty string")
         out[key] = value.strip()

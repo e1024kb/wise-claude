@@ -178,14 +178,15 @@ into `push` / `pr`.
 | `input.concurrency` | choice | `2` (`1` in the current tree) | Only when the tickets fan out (more than one ref, or a context ticket with children). `1`-`4`; an answer above `1` with `worktree: current` is rejected and asked again. |
 | `input.on_child_failure` | choice | `continue` | Only when the tickets fan out. `continue` or `stop`. |
 | `input.repo_paths` | text | `""` | Only when the tickets fan out. `owner/name=/abs/path` pairs for children in other repositories. |
+| `input.implement_minutes` | choice (free text allowed) | `180` | Time limit of the implement phase per ticket, in minutes: `180`, `90`, `240`, `360`, or any number 1-1440. Blank keeps the cap. |
 | `input.base_branch` | choice (free text allowed) | the checked-out base branch, else the default branch | The branch every ticket branch starts from and every PR targets: the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
 Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
-| max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes |
-|---|---|---|---|---|
-| 3 | 5 | 60 | 60 | 2 |
+| max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes | implement_minutes |
+|---|---|---|---|---|---|
+| 3 | 5 | 60 | 60 | 2 | 180 |
 
 ## Steps
 
@@ -208,6 +209,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 | `concurrency` | no | `1`-`4`, default `2`: children running at once. `2` equals the engine's per-harness cap for Claude children, so a higher value only helps when phases use different harnesses; `4` is the engine-wide cap. Asked only for a fan-out run. `current` runs one at a time. |
 | `on_child_failure` | no | `continue` (default) or `stop`. Asked only for a fan-out run. |
 | `repo_paths` | no | `owner/name=/abs/path` pairs, comma-separated, for children in other repositories. Asked only for a fan-out run. |
+| `implement_minutes` | no | Integer 1-1440, default `180`: the implement phase stops after this many minutes. Raise it for long builds or UI test suites. Blank keeps the cap (180). |
 | `base_branch` | yes | The branch ticket branches are cut from and PRs target. With a GitHub `origin` it resolves to `origin/<base_branch>`, so the branch must exist on `origin`; a branch that exists only locally stops the unit at `worktree` because a PR cannot target it - push it to origin, then re-run. Without a GitHub remote no PR is opened, so a local-only base is accepted. Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 

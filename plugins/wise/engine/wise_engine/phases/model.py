@@ -126,7 +126,7 @@ PHASE_TOOLS = {
 
 PHASE_TIMEOUT_MS = {
     "plan": 1800000,
-    "implement": 5400000,
+    "implement": 10800000,
     "review": 1800000,
     "fix": 2700000,
     "watch": 900000,
@@ -304,6 +304,14 @@ def _ticket_block(ctx: Json) -> str:
 _child_seq = 0
 
 
+def phase_timeout_seconds(config: Json, phase: str) -> float:
+    """The implement_minutes cap wins for implement, then the step timeout, then the phase default."""
+    minutes = config.get("caps", {}).get("implement_minutes")
+    if phase == "implement" and minutes is not None and minutes > 0:
+        return float(minutes) * 60
+    return float(config.get("timeout", PHASE_TIMEOUT_MS[phase] / 1000))
+
+
 def _child_run_id(ctx: Json, phase: str) -> str:
     global _child_seq
     _child_seq = (_child_seq + 1) % 1_000_000
@@ -333,7 +341,7 @@ async def _run_child(ctx: Json, phase: str, prompt: str, cursor: object = MISSIN
         "mode": effective_mode(PHASE_MODE[phase], provider_permission(config, resolved["harness"])),
         "allowed_tools": list(PHASE_TOOLS[phase]),
         "resume": "unit" if cursor is not MISSING else "fresh",
-        "timeout": config.get("timeout", PHASE_TIMEOUT_MS[phase] / 1000),
+        "timeout": phase_timeout_seconds(config, phase),
     }
     for key in ("max_turns", "mcp"):
         if key in config:

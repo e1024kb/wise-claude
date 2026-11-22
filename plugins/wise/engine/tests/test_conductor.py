@@ -124,6 +124,18 @@ def test_answers_keep_only_tuning_and_provider_ids(repo, env):
         c.set_answers(state, {"input.tickets": "X-1"})
 
 
+def test_answers_keep_the_implement_time_limit(repo, env):
+    state = make(repo, env)
+    stored = c.set_answers(state, {**TUNING, "input.implement_minutes": " 240 "})
+    assert stored["input.implement_minutes"] == "240"
+    child = c.add_child(state, "ticket", "PROJ-1")
+    payload = c.ticket_auto_payload(state, child, ticket())
+    assert payload["answers"]["input.implement_minutes"] == "240"
+    assert "input.implement_minutes" not in c.set_answers(
+        state, {**TUNING, "input.implement_minutes": ""}
+    )
+
+
 def test_setup_from_bash_step_environment(repo, env):
     setup = c.setup_from_env(
         {"WISE_BASE_RULE": "fixed", "WISE_BASE_FIXED": "develop", "WISE_X": "1"}

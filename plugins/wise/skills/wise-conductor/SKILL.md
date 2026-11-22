@@ -89,7 +89,7 @@ scratchpad, never in the project.
 | `mode --tools <csv>` | Desktop or fallback mode, from the tool names this session has. |
 | `latest` / `rules` | The most recent conductor of this workspace, the per-project rules. |
 | `init` | Record the setup (the `conductor` workflow's `record-setup` step runs it). |
-| `set-answers --answers-json F` | Store the `ticket-auto` harness, model, effort and permission answers. |
+| `set-answers --answers-json F` | Store the `ticket-auto` harness, model, effort, permission and implement time limit answers. |
 | `base --default-branch B [--release V]...` | Resolve one ticket's base branch from the base branch rule. |
 | `add-child` / `update-child` | Write one ledger row (`--kind ticket\|topic --ref R [--title T] [--fields-json F]`). |
 | `brief --ref R [--ticket-json F] [--siblings-json F] [--brief-file F] --conductor-session S` | The self-contained child brief. |
@@ -176,8 +176,9 @@ validation error, show it, ask that question again and rerun.
 
 1e. Ask the `ticket-auto` tuning once. Call `wise_preflight` for
 `ticket-auto` with these answers already set, so only the tuning-scope,
-harness, permission, model and effort stages remain:
-`worktree: new`, `input.worktree_mode: new`, `input.tickets: <first ticket ref or SETUP>`,
+harness, permission, model and effort stages and the implement time limit
+(`input.implement_minutes`) remain. Every child reuses that time limit.
+Set these answers: `worktree: new`, `input.worktree_mode: new`, `input.tickets: <first ticket ref or SETUP>`,
 `input.base_branch: <the repository default branch>`, `input.guidance: ""`.
 The engine offers "One choice for all step groups" first. Write the final
 answers to a scratch file and run `H set-answers --id <id> --answers-json <file>`.
