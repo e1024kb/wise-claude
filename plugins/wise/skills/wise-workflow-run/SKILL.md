@@ -39,9 +39,10 @@ with a server prefix. Errors return `{"error":{code,message,...}}`.
 `$ARGUMENTS`: first token is the workflow name (empty: run
 `"$HOME/.local/share/wise/bin/wise-engine" --wise-host "$WISE_HOST" list-defs`, pick with
 AskUserQuestion plus Abort). Remaining tokens fill the declared inputs
-in order; the last declared input absorbs the rest of the line. Skip a
-cap input (an input named after a cap in a `units` step's `caps:` list,
-for example `implement_minutes`): no token fills it, and pre-flight asks it.
+in order; the last declared input absorbs the rest of the line. Skip the
+`implement_minutes` input: no token fills it, and pre-flight asks it.
+The other positional slots of `ticket-auto` and `impl-plan-auto` keep
+their meaning. Other cap inputs, such as `pr-watch`'s, stay positional.
 
 ## 1. Init check
 
