@@ -13,7 +13,7 @@ description: >-
   parallel sessions", "run each ticket in its own session", "fan out
   these tickets to sessions", or types `/wise-conductor`.
 argument-hint: "[<free-form prompt: tickets, epics, URLs, topics> | --resume [<conductor-id>]]"
-allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Agent, SendMessage, Monitor, mcp__ccd_session__start_session, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_session_mgmt__get_session, mcp__ccd_pr__bind_pr, mcp__wise-engine__wise_preflight, mcp__wise-engine__wise_run, mcp__wise-engine__wise_wait, mcp__wise-engine__wise_status, mcp__wise-engine__wise_cancel, Bash(python3:*), Bash(bash:*), Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
+allowed-tools: Read, Write, AskUserQuestion, TodoWrite, Agent, SendMessage, Monitor, mcp__ccd_session__start_session, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_session_mgmt__get_session, mcp__ccd_pr__bind_pr, mcp__t3-code__delegate_task, mcp__t3-code__task_status, mcp__t3-code__task_cancel, mcp__t3-code__t3_thread_send, mcp__t3-code__t3_thread_read, mcp__t3-code__t3_pending_request, mcp__wise-engine__wise_preflight, mcp__wise-engine__wise_run, mcp__wise-engine__wise_wait, mcp__wise-engine__wise_status, mcp__wise-engine__wise_cancel, Bash(python3:*), Bash(bash:*), Bash(git:*), Bash(gh:*), Bash(cat:*), Bash(mkdir:*), Bash(test:*)
 ---
 
 # /wise-conductor - coordinate parallel child sessions
@@ -86,7 +86,7 @@ scratchpad, never in the project.
 
 | Action | Purpose |
 |---|---|
-| `mode --tools <csv>` | Desktop or fallback mode, from the tool names this session has. |
+| `mode --tools <csv>` | Desktop, T3 or fallback mode, from the tool names this session has. |
 | `latest` / `rules` | The most recent conductor of this workspace, the per-project rules. |
 | `init` | Record the setup (the `conductor` workflow's `record-setup` step runs it). |
 | `set-answers --answers-json F` | Store the `ticket-auto` harness, model, effort, permission and implement time limit answers. |
@@ -149,11 +149,15 @@ the prompt. Start no work yet. Record the prompt in the setup (step 1d).
 1a. Detect the runtime. Make a comma-separated list of the tool names this
 session has (deferred tools count) and run `H mode --tools <csv>`.
 `desktop` needs `mcp__ccd_session__start_session` and a session messaging
-tool. Do not rely on environment variables. In `fallback`, print its
-`notice` once.
+tool. `t3` needs the T3 Code tools `delegate_task` and `t3_thread_send`
+in any form (`mcp__t3-code__<tool>` for Claude, `t3-code.<tool>` for
+Codex), and wins over `desktop`. Do not rely on environment variables.
+In `fallback`, print its `notice` once. The T3 Code steps below use the
+Claude names. Under Codex, call the same tool under its `t3-code.` name.
 
 1b. Pick the conductor id. In Claude Desktop use this session's `local_...`
-id when the app gives it, else a short slug of the prompt plus the date.
+id when the app gives it, else (T3 Code included) a short slug of the
+prompt plus the date.
 
 1c. Check access before any question (L2). Read
 `${CLAUDE_PLUGIN_ROOT}/skills/wise-workflow-run/SKILL.md` and follow its
@@ -250,6 +254,18 @@ Use the full text unchanged as the child prompt.
   Record the returned `local_...` id: `H update-child --ref <KEY>` with
   `{"session_id": ..., "state": "running"}`. A dependent ticket gets its
   brief when it starts, so its base already has the merged dependencies.
+- T3 Code: call `mcp__t3-code__delegate_task` with the brief as `task`,
+  `title` under 60 characters, `role: "implementation"` (a research-only
+  topic: `"research"`), `mode: "async"` and `isolation: "shared"`
+  (`ticket-auto` makes its own worktree; a topic child that changes code
+  creates its own worktree as the brief says, because `delegate_task`
+  cannot pick a base branch). Leave `target` out to inherit the provider
+  and model. Run `H brief` without `--conductor-session`: the child's
+  final reply wakes this thread as its report. Record the child thread id
+  and the task id: `H update-child --ref <KEY>` with
+  `{"session_id": <childThreadId>, "task_id": <taskId>, "state": "running"}`.
+  Do not poll a running child with `task_status` or `t3_thread_wait`.
+  Wait for its completion wake.
 - Fallback: run the brief as a background `Agent` (named after the row),
   or start `ticket-auto` yourself with the `H payload` arguments through
   `wise_run`, and follow it with `wise_wait`. Record the agent name or the
@@ -271,7 +287,8 @@ again (step 1g). On each user message, child message or tracker line:
 - A tracker `EVENT` line: tell the user in one line, with the PR as a
   markdown link. Then act on its kind:
   - `pr-opened`: bind the PR (`mcp__ccd_pr__bind_pr`, desktop only) and
-    verify it (step 5).
+    verify it (step 5). In T3 Code, do not call `link_pull_request`: it
+    links the PR to the conductor thread and settles it on merge.
   - `ci` to red or incomplete, `conflict`: verify (step 5) and send the
     nudges to the child.
   - `threads`: the child's `ticket-auto` run handles review comments.
@@ -282,15 +299,19 @@ again (step 1g). On each user message, child message or tracker line:
     Start every row in `start` (step 3) and resume every row in `resume`:
     send its session "Resume: the dependencies are merged. Rebase on
     `origin/<base>` and start `ticket-auto` again with the same
-    arguments." Set its state to `running`. In fallback, start the run
-    again yourself with the `H payload` arguments.
+    arguments." Set its state to `running`. In T3 Code, a send to a
+    finished child starts a new task: record its new `task_id`. In
+    fallback, start the run again yourself with the `H payload` arguments.
   - `ready`, `closed`: verify (step 5). A merge under the `never` policy
     is a warning. A `closed` or `failed` row holds its dependents: report
     the `blocked` rows of `H next`.
   - `pr-mismatch`: the PR is not the row's (another branch, or another
     row owns it). Tell the user and fix the row's `pr` or `branch`.
   - `stalled`: check the child session (`mcp__ccd_session_mgmt__get_session`
-    with its `session_id`, desktop only). If it is idle or waiting, send it
+    with its `session_id` in desktop, `mcp__t3-code__task_status` with its
+    `task_id` in T3 Code). A T3 child with `hasPendingQuestion` waits for
+    an answer: answer it from the setup with
+    `mcp__t3-code__t3_pending_request`, or ask the user. If it is idle or waiting, send it
     "Report your progress in one line: state, branch, PR, blocker." If it
     failed or ended, record it and tell the user.
 - A `watch:` line: the tracker started, stopped or failed. Tell the user
@@ -312,7 +333,9 @@ again (step 1g). On each user message, child message or tracker line:
      Send its session "Pause: cancel your ticket-auto run with
      `wise_cancel`, push, report the cancelled run id and wait." Record
      `held` only after the child reports the cancelled run id. In
-     fallback, call `wise_cancel` with the row's `run_id` yourself. Then
+     fallback, call `wise_cancel` with the row's `run_id` yourself. In T3
+     Code, when the child does not report, stop it with
+     `mcp__t3-code__task_cancel` and the row's `task_id`. Then
      `H update-child` with
      `{"state": "held", "depends_on": [..., "<new ticket>"]}`.
   3. When the feedback changes a ticket that is not started, add the
@@ -331,7 +354,9 @@ again (step 1g). On each user message, child message or tracker line:
 - "status": step 6.
 - "check the review comments": step 7.
 - Conductor to child: send to the row's `session_id` (`local_...`), never
-  to a display name. In fallback, message the agent by its name.
+  to a display name. In T3 Code, call `mcp__t3-code__t3_thread_send` with
+  `threadId` = the row's `session_id` and `mode: "auto"`. When the result
+  holds a new `taskId`, record it. In fallback, message the agent by its name.
 
 ### 5. Verify before reporting
 
@@ -376,7 +401,8 @@ need a human, coded `N1`, `N2`: manual QA (L13), decisions, cleanup
 1. For every row with an open PR, fetch its threads with the GraphQL query
    of step 5 (all pages). Write one JSON object `{"<pr number>": <the slurped pages>, ...}`.
 2. Run `H fanout --id <id> --threads-json <file>`.
-3. Send each `message` to its `session_id` (fallback: the agent name). A
+3. Send each `message` to its `session_id` (T3 Code: `t3_thread_send`;
+   fallback: the agent name). A
    PR with no owner: tell the user.
 4. When the children report, verify each PR again (step 5). The round ends
    at 0 unresolved threads and green CI on every open PR.

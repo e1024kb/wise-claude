@@ -30,9 +30,9 @@ inputs:
     from-context: decisions.conductor_id
     validate: "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
   - name: conductor_mode
-    prompt: "Where do children run? (desktop: Claude Desktop child sessions, nested in the sidebar | fallback: background agents or wise engine runs)"
+    prompt: "Where do children run? (desktop: Claude Desktop child sessions, nested in the sidebar | t3: T3 Code delegated child threads | fallback: background agents or wise engine runs)"
     default: fallback
-    validate: "^(desktop|fallback)$"
+    validate: "^(desktop|t3|fallback)$"
   - name: base_rule
     prompt: "Base branch rule per ticket? (default: the repository default branch | fixed: one fixed branch | release: derived from the ticket's release field)"
     default: default

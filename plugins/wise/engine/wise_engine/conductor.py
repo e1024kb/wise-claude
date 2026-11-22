@@ -105,6 +105,7 @@ CHILD_STATES = (
 )
 CHILD_FIELDS = {
     "session_id",
+    "task_id",
     "name",
     "title",
     "worktree",
@@ -132,8 +133,15 @@ CHILD_FIELDS = {
 ANSWER_ID_RE = re.compile(
     r"^(tuning-scope|input\.implement_minutes|harness\.[a-z0-9_-]+|permissions\.[a-z0-9_-]+|model\.[a-z0-9_-]+|effort\.[a-z0-9_-]+)$"
 )
+MODES = ("desktop", "t3", "fallback")
 DESKTOP_START = "mcp__ccd_session__start_session"
 DESKTOP_MESSAGE = ("SendMessage", "mcp__ccd_session_mgmt__send_message")
+# T3 Code (researched at pingdotgg/t3code@7ddc81d6) gives every thread a
+# `t3-code` MCP server. Claude sees `mcp__t3-code__<tool>`, Pi also
+# `mcp__t3_code__<tool>`, Codex `t3-code.<tool>` and `t3-code-direct.<tool>`.
+T3_TOOL_PREFIXES = ("mcp__t3-code__", "mcp__t3_code__", "t3-code-direct.", "t3-code.")
+T3_START = "delegate_task"
+T3_MESSAGE = "t3_thread_send"
 FALLBACK_NOTICE = (
     "Claude Desktop session tools are not available: children run as background "
     "agents or wise engine runs, and the sidebar tree is not shown."
@@ -330,8 +338,8 @@ def init(
     env: Mapping[str, str] | None = None,
 ) -> Json:
     """Create or replace the setup of a conductor; the ledger is kept on re-init."""
-    if mode not in ("desktop", "fallback"):
-        raise ConductorError(f"mode: {mode!r} is not desktop or fallback")
+    if mode not in MODES:
+        raise ConductorError(f"mode: {mode!r} is not desktop, t3 or fallback")
     clean = validate_setup(setup)
     tuning = validate_answers(answers or {})
     path = state_path(conductor_id, cwd, env)
@@ -1027,9 +1035,23 @@ def review_fanout(state: Json, threads_by_pr: Mapping[str, list[Json]]) -> list[
 # -- runtime mode and status -------------------------------------------------
 
 
+def t3_tool_names(names: set[str]) -> set[str]:
+    """The bare T3 Code tool names behind any of the known prefixes."""
+    return {
+        name[len(prefix) :]
+        for name in names
+        for prefix in T3_TOOL_PREFIXES
+        if name.startswith(prefix)
+    }
+
+
 def detect_mode(tools: list[str]) -> Json:
-    """Desktop when the session-start tool and a session messaging tool exist."""
+    """T3 when the T3 Code child-thread tools exist, Desktop when the session
+    tools exist, else fallback. T3 wins: its tools come from the host the agent runs in."""
     names = {t.strip() for t in tools if t.strip()}
+    t3 = t3_tool_names(names)
+    if T3_START in t3 and T3_MESSAGE in t3:
+        return {"mode": "t3", "notice": ""}
     desktop = DESKTOP_START in names and any(m in names for m in DESKTOP_MESSAGE)
     if desktop:
         return {"mode": "desktop", "notice": ""}

@@ -279,6 +279,14 @@ question, options, value mapping, and constraints to its parent, which relays
 them to the main harness. Wait for the real answer. Pass this ownership contract
 recursively with every delegation. Autonomous no-question rules still apply.
 
+In T3 Code, the `t3-code` MCP server (`mcp__t3-code__<tool>` for Claude,
+`t3-code.<tool>` for Codex) is the host's child-thread layer. A question from a
+child that the main harness started with `delegate_task` wakes the main thread.
+The main harness answers it from settled decisions with `t3_pending_request`, or
+asks the user in its own question UI and then forwards the answer. `send_to_user`
+only posts a message. It is never a question control, and its reply is not an
+answer. `/wise-conductor` uses these tools in its `t3` mode.
+
 This section applies to every Wise skill and shared routine that collects user
 input, including setup, discovery, document wizards, confirmations, dispatch
 selection, preflight, and workflow gates. Read this section alone for non-workflow

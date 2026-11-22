@@ -67,14 +67,14 @@ workflow. It is not a new mode of `ticket-auto` and it does not fork
   the setup questions (L2).
 - A tracker this session can reach (MCP, CLI or a public URL). The
   conductor fetches every ticket itself (L1).
-- Claude Desktop for the sidebar tree and session messages. Other
-  clients use the fallback (below).
+- Claude Desktop for the sidebar tree and session messages, or T3 Code
+  for delegated child threads. Other clients use the fallback (below).
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    P[Step 0: initial prompt<br/>parse tickets, epics, URLs, topics] --> M[detect runtime<br/>desktop or fallback]
+    P[Step 0: initial prompt<br/>parse tickets, epics, URLs, topics] --> M[detect runtime<br/>desktop, t3 or fallback]
     M --> A[access check<br/>engine preflight, harness logins]
     A --> S1[conductor pre-flight<br/>policy questions]
     S1 --> R[record-setup<br/>bash: validate and write state + project rules]
@@ -110,7 +110,7 @@ Defaults come first in every choice.
 | Input | Values | Default | Meaning |
 |---|---|---|---|
 | `conductor_id` | `[A-Za-z0-9._-]`, max 80 | - | The conductor session id (or a short name). The skill sets it. |
-| `conductor_mode` | `desktop` \| `fallback` | `fallback` | Where children run. The skill sets it from the tools it has. |
+| `conductor_mode` | `desktop` \| `t3` \| `fallback` | `fallback` | Where children run. The skill sets it from the tools it has. |
 | `base_rule` | `default` \| `fixed` \| `release` | `default` | The base branch rule, resolved per ticket (L4). |
 | `base_fixed` | branch name | blank | The fixed base, for `base_rule: fixed`. |
 | `release_field` | field name | `fixVersion` | The ticket's release field, for `base_rule: release`. |
@@ -206,9 +206,33 @@ draft, and nothing is merged.
    the conductor. Without `Monitor`, it runs as a background shell
    command, and the conductor reads its output on each turn.
 
+## T3 Code behavior
+
+Researched at `pingdotgg/t3code@7ddc81d6`. Not tested live yet.
+
+1. Detection at runtime: `conductor mode --tools <names>` reports `t3`
+   when the T3 Code tools `delegate_task` and `t3_thread_send` are both
+   available, in any form (`mcp__t3-code__<tool>`, `mcp__t3_code__<tool>`,
+   `t3-code.<tool>`). `t3` wins over `desktop`.
+2. Each child starts with `delegate_task`, `mode: "async"` and
+   `isolation: "shared"`. `ticket-auto` makes the worktree, because
+   `delegate_task` cannot pick a base branch. The child inherits the
+   conductor's provider and model.
+3. The ledger row stores the child thread id as `session_id` and the
+   task id as `task_id`. A send to a finished child starts a new task, so
+   the conductor records the new `task_id`.
+4. Conductor to child: `t3_thread_send` to the child thread id, with
+   `mode: "auto"`.
+5. Child to conductor: the child's final reply wakes the conductor thread.
+   The conductor does not poll a running child. A child question also
+   wakes it. The conductor answers with `t3_pending_request`.
+6. The stall check reads `task_status`. A stop uses `task_cancel`.
+7. The conductor does not call `link_pull_request`, because that tool
+   links the PR to the conductor thread and settles the thread on merge.
+
 ## Fallback behavior
 
-Outside Claude Desktop (plain CLI, other harnesses) the conductor prints
+Outside Claude Desktop and T3 Code (plain CLI, other harnesses) the conductor prints
 once that the sidebar tree is not available. Children run as background
 agents (named after the ledger row) or as `ticket-auto` engine runs
 started from `conductor payload`. The ledger, the briefs, verification,

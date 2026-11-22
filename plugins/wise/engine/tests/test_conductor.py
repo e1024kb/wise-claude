@@ -425,6 +425,38 @@ def test_desktop_detection_needs_start_and_messaging_tools():
         assert fallback["mode"] == "fallback" and "sidebar tree is not shown" in fallback["notice"]
 
 
+@pytest.mark.parametrize(
+    "prefix", ["mcp__t3-code__", "mcp__t3_code__", "t3-code.", "t3-code-direct."]
+)
+def test_t3_detection_accepts_every_tool_name_form(prefix):
+    tools = [prefix + "delegate_task", prefix + "t3_thread_send", "Bash"]
+    assert c.detect_mode(tools) == {"mode": "t3", "notice": ""}
+
+
+def test_t3_detection_needs_start_and_messaging_tools_and_wins_over_desktop():
+    for tools in (["mcp__t3-code__delegate_task"], ["mcp__t3-code__t3_thread_send"]):
+        assert c.detect_mode(tools)["mode"] == "fallback"
+    # A bare name or a foreign prefix is not a T3 Code tool.
+    assert c.detect_mode(["delegate_task", "t3_thread_send"])["mode"] == "fallback"
+    both = [
+        "mcp__ccd_session__start_session",
+        "SendMessage",
+        "mcp__t3-code__delegate_task",
+        "mcp__t3-code__t3_thread_send",
+    ]
+    assert c.detect_mode(both)["mode"] == "t3"
+
+
+def test_t3_mode_is_recorded_and_rows_keep_the_task_id(repo, env):
+    state = c.init("t3-conductor", repo, {}, TUNING, "t3", "", env)
+    assert state["mode"] == "t3"
+    child = c.add_child(state, "ticket", "PROJ-1", base="main")
+    row = c.update_child(state, "PROJ-1", session_id="thread-1", task_id="task-1")
+    assert child["ref"] == "PROJ-1" and row["task_id"] == "task-1"
+    with pytest.raises(c.ConductorError, match="desktop, t3 or fallback"):
+        c.init("bad-mode", repo, {}, TUNING, "cloud", "", env)
+
+
 def test_status_table_carries_manual_qa_items(repo, env):
     state = make(repo, env)
     c.add_child(
