@@ -95,15 +95,16 @@ resume to continue into `push` / `pr`.
 | `permissions.<harness>` | choice | `auto` | Once per selected or fallback provider. `Auto` is recommended; `Bypass permissions` is also available. The selected value is a floor, so a phase that requires more access keeps it. |
 | `model.<group>` | choice | `claude-opus-5-5` (`watch`, `support`: `claude-haiku-5-5`) | The engine's catalog for the chosen harness. |
 | `effort.<group>` | choice | `high` (`watch`, `support`: `medium`) | The chosen model's efforts; skipped when it takes one or none. |
+| `input.implement_minutes` | choice (free text allowed) | `180` | Time limit of the implement phase per plan, in minutes: `180`, `90`, `240`, `360`, or any number 1-1440. Blank keeps the cap. |
 | `input.base_branch` | choice (free text allowed) | the checked-out base branch, else the default branch | The branch every plan branch starts from and every PR targets: the checked-out branch first when it is `main` / `master` / `release*`, then the default branch, then the five most recent `release*` branches. |
 | `input.plans` | text | - | Comma-separated `PLAN-*.md` paths; relative paths resolve against the repo root. |
 | `input.guidance` | text | `""` (or the context `guidance`) | Standing instruction the engine hands to every model phase. |
 
 Unit caps (`profiles.medium.caps`; only `medium` is applied):
 
-| max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes |
-|---|---|---|---|---|
-| 3 | 5 | 60 | 60 | 2 |
+| max_review_cycles | max_fix_attempts | watch_minutes | watch_poll_seconds | watch_stable_passes | implement_minutes |
+|---|---|---|---|---|---|
+| 3 | 5 | 60 | 60 | 2 | 180 |
 
 ## Steps
 
@@ -119,6 +120,7 @@ Unit caps (`profiles.medium.caps`; only `medium` is applied):
 | Name | Required | Description |
 |---|---|---|
 | `plans` | yes | Comma-separated `PLAN-*.md` paths, relative to the repo root or absolute. |
+| `implement_minutes` | no | Integer 1-1440, default `180`: the implement phase stops after this many minutes. Raise it for long builds or UI test suites. Blank keeps the cap (180). |
 | `base_branch` | yes | The branch plan branches are cut from and PRs target. With a GitHub `origin` it resolves to `origin/<base_branch>`, so the branch must exist on `origin`; a branch that exists only locally stops the unit at `worktree` because a PR cannot target it - push it to origin, then re-run. Without a GitHub remote no PR is opened, so a local-only base is accepted. Options come from the checkout (`options-from: branches`); free text accepted but must be a plain git branch name. Defaults to the checked-out base branch, else the default branch. |
 | `guidance` | no | Free-form operator guidance for the whole run (libraries to prefer, files to avoid, guardrails). Pre-filled from the context `guidance`. |
 

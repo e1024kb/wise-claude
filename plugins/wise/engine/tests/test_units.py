@@ -678,3 +678,18 @@ def test_attached_pipelines_force_current_tree_and_input_cap_overrides():
     assert config_for(step, state)["caps"]["watch_minutes"] == 1440.0
     state["inputs"]["max_fix_attempts"] = "9" * 400
     assert config_for(step, state)["caps"]["max_fix_attempts"] == 10
+
+
+def test_implement_minutes_input_overrides_the_profile_cap():
+    step = {"pipeline": "ticket", "groups": {}, "caps": ["implement_minutes"]}
+    state = {
+        "context": {},
+        "caps": {"implement_minutes": 180},
+        "profile": "medium",
+        "inputs": {"implement_minutes": "", "base_branch": ""},
+    }
+    assert config_for(step, state)["caps"]["implement_minutes"] == 180
+    state["inputs"]["implement_minutes"] = "360"
+    assert config_for(step, state)["caps"]["implement_minutes"] == 360.0
+    state["inputs"]["implement_minutes"] = "1441"
+    assert config_for(step, state)["caps"]["implement_minutes"] == 180

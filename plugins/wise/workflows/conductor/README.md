@@ -129,7 +129,8 @@ The harness, model and effort for each `ticket-auto` step come from the
 `ticket-auto` pre-flight, asked once in the same setup. "One choice for
 all step groups" is its first option. The skill stores those answers with
 `conductor set-answers`. Per-child answers (`worktree`, `input.*`) are
-never stored: the conductor sets them for each child.
+never stored: the conductor sets them for each child. The exception is
+`input.implement_minutes`, the implement time limit that every child reuses.
 
 ## Outputs
 
